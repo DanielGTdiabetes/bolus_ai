@@ -1,10 +1,10 @@
 services:
   - type: web
-    name: bolus-ai-backend
+    name: bolus-ai
     env: python
     region: frankfurt
     plan: starter
-    buildCommand: pip install -r backend/requirements.txt
+    buildCommand: chmod +x build_render.sh && ./build_render.sh
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /api/health
     envVars:
@@ -14,19 +14,11 @@ services:
         value: ""
       - key: DATA_DIR
         value: /var/data
+      - key: PYTHON_VERSION
+        value: 3.11.0
+      - key: NODE_VERSION
+        value: 20.10.0
     disk:
       name: bolus-data
       mountPath: /var/data
       sizeGB: 1
-  - type: web
-    name: bolus-ai-frontend
-    env: static
-    region: frankfurt
-    buildCommand: cd frontend && npm ci && npm run build
-    staticPublishPath: frontend/dist
-    envVars:
-      - key: VITE_API_BASE_URL
-        fromService:
-          type: web
-          name: bolus-ai-backend
-          property: url

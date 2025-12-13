@@ -4,6 +4,8 @@ from pathlib import Path
 
 from fastapi import FastAPI, Response, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 
 from app.api import api_router
 from app.core.logging import configure_logging
@@ -50,13 +52,6 @@ app.add_middleware(
 app.include_router(api_router, prefix="/api")
 
 
-@app.api_route("/", methods=["GET", "HEAD"], summary="Root", response_model=None)
-async def root(request: Request):
-    if request.method == "HEAD":
-        return Response(status_code=200)
-    return {"message": "Bolus AI backend is running"}
-
-
 @app.on_event("startup")
 async def startup_event() -> None:
     data_dir = Path(settings.data.data_dir)
@@ -65,14 +60,48 @@ async def startup_event() -> None:
 
     from app.core.datastore import UserStore
 
-    admin_created = UserStore(data_dir / "users.json").ensure_seed_admin()
-    if admin_created:
-        logger.info("Default admin user created (username='admin')")
-    else:
-        logger.info("Default admin user already present")
-
+    try:
+        UserStore(data_dir / "users.json").ensure_seed_admin()
+        logger.info("Admin user check completed")
+    except Exception as e:
+        logger.warning(f"Could not init user store: {e}")
 
 @app.on_event("shutdown")
 async def shutdown_event() -> None:
     # placeholder for cleanup hooks
     return None
+
+# --- Static Files / Frontend Serving ---
+# Serve the built frontend from app/static (populated during build)
+static_dir = Path(__file__).parent / "static"
+
+if static_dir.exists():
+    # 1. Serve assets with long cache (Vite handles hashing)
+    #    Mount at /assets
+    app.mount("/assets", StaticFiles(directory=static_dir / "assets"), name="assets")
+
+    # 2. Catch-all to serve index.html for SPA (and favicon, etc if present)
+    @app.get("/{full_path:path}", include_in_schema=False)
+    async def serve_spa(full_path: str):
+        # Use simple logic: if file exists and is not index.html, serve it.
+        # Otherwise serve index.html (SPA routing).
+        
+        # Note: /api routes are handled earlier by app.include_router
+        
+        possible_file = static_dir / full_path
+        if full_path != "" and possible_file.exists() and possible_file.is_file():
+            return FileResponse(possible_file)
+
+        # Fallback to index.html
+        response = FileResponse(static_dir / "index.html")
+        # Prevent caching of index.html to ensure updates are seen immediately
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, proxy-revalidate"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+        return response
+else:
+    # Fallback for when running backend only (dev mode without build)
+    @app.get("/", include_in_schema=False)
+    def root():
+        return {"message": "Bolus AI Backend Running (Frontend not built/static dir missing)"}
+
