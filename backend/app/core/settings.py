@@ -4,11 +4,11 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any, Optional
 
-from pydantic import BaseModel, Field, HttpUrl, ValidationError
+from pydantic import BaseModel, Field, HttpUrl, ValidationError, validator
 
 
 class NightscoutConfig(BaseModel):
-    base_url: HttpUrl
+    base_url: Optional[HttpUrl] = None
     api_secret: Optional[str] = Field(default=None)
     token: Optional[str] = Field(default=None)
     timeout_seconds: int = Field(default=10, ge=1)
@@ -19,9 +19,27 @@ class ServerConfig(BaseModel):
     port: int = Field(default=8000, ge=1, le=65535)
 
 
+class SecurityConfig(BaseModel):
+    jwt_secret: str = Field(min_length=16)
+    jwt_issuer: str = Field(default="bolus-ai")
+    access_token_minutes: int = Field(default=15, ge=5, le=120)
+    refresh_token_days: int = Field(default=7, ge=1, le=30)
+    cors_origins: list[str] = Field(default_factory=list)
+
+
+class DataConfig(BaseModel):
+    data_dir: Path = Field(default=Path("data"))
+
+    @validator("data_dir", pre=True)
+    def _expand_path(cls, v: str | Path) -> Path:
+        return Path(v).expanduser()
+
+
 class Settings(BaseModel):
     nightscout: NightscoutConfig
     server: ServerConfig
+    security: SecurityConfig
+    data: DataConfig
 
 
 DEFAULT_CONFIG_PATH = Path(os.environ.get("CONFIG_PATH", "config/config.json"))
@@ -64,6 +82,24 @@ def _load_env() -> dict[str, Any]:
     if timeout:
         env_config.setdefault("nightscout", {})["timeout_seconds"] = int(timeout)
 
+    jwt_secret = os.environ.get("JWT_SECRET")
+    if jwt_secret:
+        env_config.setdefault("security", {})["jwt_secret"] = jwt_secret
+
+    jwt_issuer = os.environ.get("JWT_ISSUER")
+    if jwt_issuer:
+        env_config.setdefault("security", {})["jwt_issuer"] = jwt_issuer
+
+    cors_origins = os.environ.get("CORS_ORIGINS")
+    if cors_origins:
+        env_config.setdefault("security", {})["cors_origins"] = [
+            origin.strip() for origin in cors_origins.split(",") if origin.strip()
+        ]
+
+    data_dir = os.environ.get("DATA_DIR")
+    if data_dir:
+        env_config.setdefault("data", {})["data_dir"] = data_dir
+
     return env_config
 
 
@@ -71,6 +107,8 @@ def merge_settings(env_config: dict[str, Any], file_config: dict[str, Any]) -> d
     merged: dict[str, Any] = {}
     merged["nightscout"] = {**file_config.get("nightscout", {}), **env_config.get("nightscout", {})}
     merged["server"] = {**file_config.get("server", {}), **env_config.get("server", {})}
+    merged["security"] = {**file_config.get("security", {}), **env_config.get("security", {})}
+    merged["data"] = {**file_config.get("data", {}), **env_config.get("data", {})}
     return merged
 
 
@@ -81,7 +119,7 @@ def get_settings() -> Settings:
     merged = merge_settings(env_config=env_config, file_config=file_config)
     try:
         return Settings.parse_obj(merged)
-    except ValidationError as exc:  # pragma: no cover - configuration errors during startup
+    except ValidationError as exc:  # pragma: no cover
         raise RuntimeError(f"Configuration error: {exc}") from exc
 
 
