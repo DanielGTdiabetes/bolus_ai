@@ -80,7 +80,8 @@ def calculate_bolus_v2(
         cr_g_per_u=cr,
         isf_mgdl_per_u=isf,
         target_mgdl=target,
-        dia_hours=settings.iob.dia_hours
+        dia_hours=settings.iob.dia_hours,
+        max_bolus_final=settings.max_bolus_u
     )
 
     # 2. Comida
