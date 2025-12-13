@@ -22,8 +22,7 @@ class ServerConfig(BaseModel):
 class SecurityConfig(BaseModel):
     jwt_secret: str = Field(min_length=16)
     jwt_issuer: str = Field(default="bolus-ai")
-    access_token_minutes: int = Field(default=15, ge=5, le=120)
-    refresh_token_days: int = Field(default=7, ge=1, le=30)
+    access_token_minutes: int = Field(default=720, ge=5, le=24 * 60)
     cors_origins: list[str] = Field(default_factory=list)
 
 

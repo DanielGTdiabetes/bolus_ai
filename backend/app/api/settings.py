@@ -1,9 +1,9 @@
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException
 
 from app.core.datastore import ChangeStore, UserStore
-from app.core.security import auth_required
+from app.core.security import get_current_user, require_admin
 from app.core.settings import Settings, get_settings
 from app.models.settings import UserSettings
 from app.services.store import DataStore
@@ -25,16 +25,9 @@ def _user_store(settings: Settings = Depends(get_settings)) -> UserStore:
     return store
 
 
-def _require_admin(username: str = Depends(auth_required), users: UserStore = Depends(_user_store)) -> str:
-    user = users.find(username)
-    if not user or user.get("role") != "admin":
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin only")
-    return username
-
-
 @router.get("/", response_model=UserSettings, summary="Get settings")
 async def get_settings_endpoint(
-    _: str = Depends(auth_required),
+    _: dict = Depends(get_current_user),
     store: DataStore = Depends(_data_store),
 ):
     data = store.load_settings()
@@ -47,12 +40,18 @@ async def get_settings_endpoint(
 @router.put("/", response_model=UserSettings, summary="Update settings")
 async def update_settings_endpoint(
     payload: UserSettings,
-    username: str = Depends(_require_admin),
+    current_user: dict = Depends(require_admin),
     store: DataStore = Depends(_data_store),
     changes: ChangeStore = Depends(_changes_store),
 ):
     store.save_settings(payload)
     history = changes.load()
-    history.append({"by": username, "timestamp": __import__("datetime").datetime.utcnow().isoformat(), "summary": "Settings updated"})
+    history.append(
+        {
+            "by": current_user.get("username"),
+            "timestamp": __import__("datetime").datetime.utcnow().isoformat(),
+            "summary": "Settings updated",
+        }
+    )
     changes.save(history)
     return payload
