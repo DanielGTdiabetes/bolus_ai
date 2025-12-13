@@ -74,6 +74,13 @@ class IOBConfig(BaseModel):
     peak_minutes: int = Field(default=75, ge=10, le=300)
 
 
+class NightscoutConfig(BaseModel):
+    enabled: bool = False
+    url: str = ""
+    token: Optional[str] = None
+    units: Literal["mg/dl", "mmol/l"] = "mg/dl"  # normalized to lowercase if possible, prompt said "mgdl" default but usually mg/dL. Prompt said: units: "mgdl" (por defecto)
+
+
 class UserSettings(BaseModel):
     units: Literal["mg/dL"] = "mg/dL"
     targets: TargetRange = Field(default_factory=TargetRange)
@@ -85,6 +92,7 @@ class UserSettings(BaseModel):
     iob: IOBConfig = Field(default_factory=IOBConfig)
     learning: LearningConfig = Field(default_factory=LearningConfig)
     adaptive: AdaptiveConfig = Field(default_factory=AdaptiveConfig)
+    nightscout: NightscoutConfig = Field(default_factory=NightscoutConfig)
 
     @classmethod
     def migrate(cls, data: dict) -> "UserSettings":

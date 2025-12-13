@@ -5,7 +5,6 @@ from typing import Any, Optional
 
 import httpx
 
-from app.core.settings import get_settings, Settings
 from app.models.schemas import NightscoutSGV, NightscoutStatus, Treatment
 
 logger = logging.getLogger(__name__)
@@ -18,25 +17,32 @@ class NightscoutError(Exception):
 class NightscoutClient:
     def __init__(
         self,
-        settings: Optional[Settings] = None,
+        base_url: str,
+        token: Optional[str] = None,
+        api_secret: Optional[str] = None,
+        timeout_seconds: int = 10,
         client: Optional[httpx.AsyncClient] = None,
     ) -> None:
-        self.settings = settings or get_settings()
+        self.base_url = base_url.rstrip("/")
+        self.token = token
+        self.api_secret = api_secret
+        self.timeout_seconds = timeout_seconds
+        
+        headers = self._auth_headers()
         self.client = client or httpx.AsyncClient(
-            base_url=str(self.settings.nightscout.base_url),
-            timeout=self.settings.nightscout.timeout_seconds,
-            headers=self._auth_headers(),
+            base_url=self.base_url,
+            timeout=self.timeout_seconds,
+            headers=headers,
         )
 
     def _auth_headers(self) -> dict[str, str]:
         headers: dict[str, str] = {}
-        token = self.settings.nightscout.token
-        api_secret = self.settings.nightscout.api_secret
-        if token:
-            headers["Authorization"] = f"Bearer {token}"
-        if api_secret:
+        if self.token:
+            headers["Authorization"] = f"Bearer {self.token}"
+            # Also support query param fallback if needed, but header is cleaner
+        if self.api_secret:
             # Nightscout typically expects SHA1 hash of the secret via API-SECRET header
-            hashed = hashlib.sha1(api_secret.encode("utf-8")).hexdigest()
+            hashed = hashlib.sha1(self.api_secret.encode("utf-8")).hexdigest()
             headers["API-SECRET"] = hashed
         return headers
 
@@ -58,6 +64,7 @@ class NightscoutClient:
             try:
                 response = await self.client.get(endpoint)
                 data = await self._handle_response(response)
+                # Some Nightscout versions return status in different formats; basic validation here
                 return NightscoutStatus.model_validate(data)
             except Exception as exc:  # pragma: no cover - fallback attempts
                 last_error = exc
@@ -65,6 +72,11 @@ class NightscoutClient:
         raise NightscoutError(f"Unable to fetch Nightscout status: {last_error}")
 
     async def get_latest_sgv(self) -> NightscoutSGV:
+        # Try-catch for network/parsing errors is handled by caller or _handle_response
+        # We might want to support ?token=... if header auth fails? 
+        # For now, rely on headers.
+        
+        # 'count=1' gets the single most recent entry
         response = await self.client.get("/api/v1/entries/sgv.json", params={"count": 1})
         data = await self._handle_response(response)
         if not data:
@@ -82,10 +94,6 @@ class NightscoutClient:
         response = await self.client.get("/api/v1/treatments.json", params=params)
         data = await self._handle_response(response)
         return [Treatment.model_validate(item) for item in data]
-
-    @classmethod
-    async def depends(cls) -> "NightscoutClient":
-        return cls()
 
     async def aclose(self) -> None:
         await self.client.aclose()

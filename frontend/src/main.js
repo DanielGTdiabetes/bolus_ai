@@ -10,6 +10,9 @@ import {
   recommendBolus,
   saveSession,
   setUnauthorizedHandler,
+  getNightscoutStatus,
+  testNightscout,
+  saveNightscoutConfig,
 } from "./lib/api.js";
 
 const app = document.querySelector("#app");
@@ -59,7 +62,11 @@ async function bootstrapSession() {
     if (me.needs_password_change) {
       navigate("#/change-password");
     } else {
-      navigate("#/");
+      // If valid session and on login/root, go to dashboard
+      // Note: preserve current hash if it exists and is not login
+      if (window.location.hash === "#/login" || !window.location.hash) {
+        navigate("#/");
+      }
     }
   } catch (error) {
     state.user = null;
@@ -84,6 +91,10 @@ function renderHeader() {
   return `
     <header class="topbar">
       <div class="brand">Bolus AI</div>
+      <div class="nav-links">
+        <a href="#/" class="nav-link">Calculadora</a>
+        <a href="#/settings" class="nav-link">Configuración</a>
+      </div>
       <div class="session-info">
         <div>
           <div class="username">${state.user.username}</div>
@@ -189,6 +200,134 @@ function renderChangePassword() {
   });
 }
 
+async function renderSettings() {
+  if (!ensureAuthenticated()) return;
+
+  app.innerHTML = `
+    ${renderHeader()}
+    <main class="page">
+      <section class="card">
+        <h2>Configuración Nightscout</h2>
+        <div id="ns-loading">Cargando configuración...</div>
+        <form id="ns-form" class="stack" hidden>
+           <label class="row-label">
+             <input type="checkbox" id="ns-enabled" />
+             Activar integración Nightscout
+           </label>
+           
+           <label>URL Nightscout
+             <input type="url" id="ns-url" placeholder="https://tusitio.herokuapp.com" />
+           </label>
+           
+           <label>Token / API Secret
+             <input type="password" id="ns-token" placeholder="Si no cambias, se mantiene el actual" />
+             <small class="hint">API_SECRET o token de acceso.</small>
+           </label>
+           
+           <div class="actions">
+             <button type="button" id="ns-test-btn" class="secondary">Probar conexión</button>
+             <button type="submit">Guardar</button>
+           </div>
+           
+           <div id="ns-status-box" class="status-box hidden"></div>
+        </form>
+      </section>
+    </main>
+  `;
+
+  const logoutBtn = document.querySelector("#logout-btn");
+  if (logoutBtn) logoutBtn.addEventListener("click", () => logout());
+
+  const form = document.querySelector("#ns-form");
+  const loading = document.querySelector("#ns-loading");
+  const enabledInput = document.querySelector("#ns-enabled");
+  const urlInput = document.querySelector("#ns-url");
+  const tokenInput = document.querySelector("#ns-token");
+  const testBtn = document.querySelector("#ns-test-btn");
+  const statusBox = document.querySelector("#ns-status-box");
+
+  // Load current status/config
+  try {
+    const status = await getNightscoutStatus();
+    enabledInput.checked = status.enabled;
+    urlInput.value = status.url || "";
+    // Token is hidden
+
+    form.hidden = false;
+    loading.hidden = true;
+
+    if (status.ok) {
+      statusBox.textContent = "Estado actual: Conectado correctamente.";
+      statusBox.className = "status-box success";
+    } else if (status.enabled) {
+      statusBox.textContent = `Estado actual: Error de conexión (${status.error || "Desconocido"})`;
+      statusBox.className = "status-box error";
+    } else {
+      statusBox.textContent = "Integración desactivada.";
+      statusBox.className = "status-box neutral";
+    }
+    statusBox.classList.remove("hidden");
+  } catch (e) {
+    loading.textContent = "Error cargando configuración: " + e.message;
+  }
+
+  testBtn.addEventListener("click", async () => {
+    statusBox.textContent = "Probando conexión...";
+    statusBox.className = "status-box neutral";
+    statusBox.classList.remove("hidden");
+
+    const config = {
+      enabled: enabledInput.checked,
+      url: urlInput.value,
+      token: tokenInput.value || undefined // send undefined (or empty string?) if empty. 
+      // If empty string, backend might try to auth with empty string. 
+      // If the user wants to test with SAVED token, they should probably save first? 
+      // Or we can handle logic. Backend 'test' uses saved logic if payload token is empty BUT we want to support 'test what I typed'.
+      // If I type nothing, I mean "use saved". If I type something, use that.
+    };
+    // If token is empty string, we should send null/undefined so backend uses saved?
+    // Our backend logic: if payload present, checks payload.token. If payload.token is falsey, it tries to load saved. So sending "" is fine.
+
+    try {
+      const res = await testNightscout(config);
+      if (res.ok) {
+        statusBox.textContent = res.message;
+        statusBox.className = "status-box success";
+      } else {
+        statusBox.textContent = res.message;
+        statusBox.className = "status-box error";
+      }
+    } catch (e) {
+      statusBox.textContent = "Error: " + e.message;
+      statusBox.className = "status-box error";
+    }
+  });
+
+  form.addEventListener("submit", async (evt) => {
+    evt.preventDefault();
+    statusBox.textContent = "Guardando...";
+    statusBox.className = "status-box neutral";
+    statusBox.classList.remove("hidden");
+
+    const config = {
+      enabled: enabledInput.checked,
+      url: urlInput.value,
+      token: tokenInput.value // Send empty string if empty, backend handles "keep previous"
+    };
+
+    try {
+      await saveNightscoutConfig(config);
+      statusBox.textContent = "Configuración guardada correctamente.";
+      statusBox.className = "status-box success";
+      // Clear token input to simulate "saved" (and because it's sensitive)
+      tokenInput.value = "";
+    } catch (e) {
+      statusBox.textContent = "Error al guardar: " + e.message;
+      statusBox.className = "status-box error";
+    }
+  });
+}
+
 function renderDashboard() {
   if (!ensureAuthenticated()) return;
   const needsChange = state.user?.needs_password_change;
@@ -213,7 +352,7 @@ function renderDashboard() {
             <input type="number" step="0.1" id="carbs" required />
           </label>
           <label>Glucosa (mg/dL, opcional)
-            <input type="number" step="1" id="bg" />
+            <input type="number" step="1" id="bg" placeholder="Dejar vacío para usar Nightscout" />
           </label>
           <label>Franja
             <select id="meal-slot">
@@ -281,7 +420,7 @@ function renderDashboard() {
     try {
       const data = await recommendBolus(payload);
       state.bolusError = "";
-      state.bolusResult = `Bolo recomendado: ${data.upfront_u} U (IOB: ${data.iob_u})`;
+      state.bolusResult = `Bolo recomendado: ${data.upfront_u} U (IOB: ${data.iob_u.toFixed(2)} U)`;
       bolusOutput.textContent = state.bolusResult;
       if (Array.isArray(data.explain) && data.explain.length) {
         explainBlock.hidden = false;
@@ -311,6 +450,8 @@ function render() {
     renderLogin();
   } else if (route === "#/change-password") {
     renderChangePassword();
+  } else if (route === "#/settings") {
+    renderSettings();
   } else {
     renderDashboard();
   }

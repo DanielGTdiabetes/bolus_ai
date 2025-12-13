@@ -131,8 +131,35 @@ export async function fetchHealth() {
   return data;
 }
 
+export async function getNightscoutStatus() {
+  const response = await apiFetch("/api/nightscout/status");
+  const data = await toJson(response);
+  if (!response.ok) throw new Error(data.detail || "Error al obtener estado Nightscout");
+  return data;
+}
+
+export async function testNightscout(config) {
+  const body = config ? JSON.stringify(config) : undefined;
+  const response = await apiFetch("/api/nightscout/test", {
+    method: "POST",
+    body,
+  });
+  const data = await toJson(response);
+  if (!response.ok) throw new Error(data.detail || data.message || "Error al probar conexión");
+  return data;
+}
+
+export async function saveNightscoutConfig(config) {
+  const response = await apiFetch("/api/nightscout/config", {
+     method: "PUT",
+     body: JSON.stringify(config),
+  });
+  const data = await toJson(response);
+  if (!response.ok) throw new Error(data.detail || "Error al guardar configuración");
+  return data;
+}
+
 export function logout() {
   clearSession();
   if (unauthorizedHandler) unauthorizedHandler();
 }
-

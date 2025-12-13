@@ -47,49 +47,61 @@ class BolusRecommendation(BaseModel):
 async def recommend(
     payload: BolusRequest,
     _: dict = Depends(get_current_user),
-    settings: Settings = Depends(get_settings),
     store: DataStore = Depends(_data_store),
-    nightscout: Optional[NightscoutClient] = Depends(_nightscout_client),
 ):
     user_settings: UserSettings = store.load_settings()
 
     explain: list[str] = []
-    resolved_bg = payload.bg_mgdl
+    
+    ns_client: Optional[NightscoutClient] = None
+    ns_config = user_settings.nightscout
+    if ns_config.enabled and ns_config.url:
+        ns_client = NightscoutClient(
+            base_url=ns_config.url,
+            token=ns_config.token,
+            timeout_seconds=5
+        )
 
-    if resolved_bg is None:
-        if nightscout:
-            try:
-                sgv = await nightscout.get_latest_sgv()
-                resolved_bg = float(sgv.sgv)
-                explain.append("BG obtenido desde Nightscout")
-            except NightscoutError:
+    try:
+        resolved_bg = payload.bg_mgdl
+
+        if resolved_bg is None:
+            if ns_client:
+                try:
+                    sgv = await ns_client.get_latest_sgv()
+                    resolved_bg = float(sgv.sgv)
+                    explain.append(f"BG obtenido desde Nightscout: {sgv.sgv} {sgv.direction or ''}")
+                except NightscoutError as exc:
+                    resolved_bg = user_settings.targets.mid
+                    explain.append(f"Fallo Nightscout ({str(exc)}); bg por defecto")
+            else:
                 resolved_bg = user_settings.targets.mid
-                explain.append("No se pudo obtener BG; se usó objetivo como referencia")
+                explain.append("BG no enviado; se usó objetivo por defecto")
+
+        now = datetime.now(timezone.utc)
+        iob_u, breakdown = await compute_iob_from_sources(now, user_settings, ns_client, store)
+
+        bolus_request = BolusRequestData(
+            carbs_g=payload.carbs_g,
+            bg_mgdl=resolved_bg,
+            meal_slot=payload.meal_slot,
+            target_mgdl=payload.target_mgdl,
+        )
+        recommendation: BolusResponse = recommend_bolus(bolus_request, user_settings, iob_u)
+
+        iob_explain: list[str] = []
+        if breakdown:
+            for item in breakdown[:5]:
+                iob_explain.append(
+                    f"Bolo {item['units']}U en {item['ts']} aporta {item['iob']:.2f}U activos"
+                )
+            if len(breakdown) > 5:
+                iob_explain.append(f"... {len(breakdown) - 5} bolos adicionales")
         else:
-            resolved_bg = user_settings.targets.mid
-            explain.append("BG no enviado; se usó objetivo por defecto")
+            iob_explain.append("Sin bolos previos registrados")
 
-    now = datetime.now(timezone.utc)
-    iob_u, breakdown = await compute_iob_from_sources(now, user_settings, nightscout, store)
-
-    bolus_request = BolusRequestData(
-        carbs_g=payload.carbs_g,
-        bg_mgdl=resolved_bg,
-        meal_slot=payload.meal_slot,
-        target_mgdl=payload.target_mgdl,
-    )
-    recommendation: BolusResponse = recommend_bolus(bolus_request, user_settings, iob_u)
-
-    iob_explain: list[str] = []
-    if breakdown:
-        for item in breakdown[:5]:
-            iob_explain.append(
-                f"Bolo {item['units']}U en {item['ts']} aporta {item['iob']:.2f}U activos"
-            )
-        if len(breakdown) > 5:
-            iob_explain.append(f"... {len(breakdown) - 5} bolos adicionales")
-    else:
-        iob_explain.append("Sin bolos previos registrados")
-
-    recommendation.explain = explain + recommendation.explain + iob_explain
-    return recommendation
+        recommendation.explain = explain + recommendation.explain + iob_explain
+        return recommendation
+    finally:
+        if ns_client:
+            await ns_client.aclose()

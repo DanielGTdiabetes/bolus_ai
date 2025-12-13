@@ -81,3 +81,25 @@ python -m pytest -q
 
 ## Seguridad
 Consulta `docs/SECURITY.md` para detalles sobre decisiones y despliegue seguro.
+
+## Integración Nightscout
+El sistema permite configurar una instancia de [Nightscout](http://nightscout.info/) para obtener:
+1. **Glucosa actual (SGV)**: se usará si no introduces un valor manual.
+2. **Tratamientos recientes**: para calcular la insulina activa (IOB).
+
+### Configuración
+1. Inicia sesión en Bolus AI.
+2. Ve al menú "Configuración".
+3. Activa la casilla "Integración Nightscout".
+4. Introduce la **URL** de tu sitio Nightscout (ej. `https://mi-ns.herokuapp.com`).
+5. Introduce tu **API Secret** (token de acceso).
+   - Puedes crear un token en Nightscout (Admin Tools > Subjects > Edit > Create Subject/Token) con el rol `readable`.
+   - O usar tu `API_SECRET` principal (menos recomendado).
+   - Bolus AI nunca muestra el token guardado en la interfaz.
+6. Haz clic en "Probar conexión" para verificar.
+7. Guarda los cambios.
+
+**Permisos necesarios**:
+- El token debe tener permisos de lectura simples (`readable` o similar) para acceder a glusosa y tratamientos.
+
+**Nota sobre persistencia en Render Free:** Si usas el plan gratuito de Render sin disco persistente, la configuración se perderá al reiniciarse el servicio (ya que se guarda en `DATA_DIR`). Se recomienda usar un disco persistente (`bolus-data`).
