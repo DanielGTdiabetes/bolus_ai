@@ -47,6 +47,17 @@ bolus-ai/
 5. Enrutamiento SPA: el archivo `frontend/public/_redirects` (copiado automáticamente a `frontend/dist/_redirects` por Vite) fuerza el rewrite `/* -> /index.html 200`, necesario para que Render sirva correctamente las rutas del frontend.
 6. HTTPS es obligatorio: usa siempre la URL `https://...onrender.com` para el frontend y cualquier integración externa.
 
+## Render (Backend Docker)
+
+Si prefieres desplegar solo el backend como imagen Docker en Render:
+
+1. Crea un **Web Service** nuevo y selecciona entorno **Docker**.
+2. Indica el `Dockerfile Path` como `backend/Dockerfile` (Render usará la raíz del repo como *build context*).
+3. Añade las variables de entorno:
+   - `JWT_SECRET` → usa la opción **Generate** de Render.
+   - `DATA_DIR=/tmp/data` para el plan gratuito sin disco persistente.
+4. No necesitas definir **Start Command** porque ya está incluido en el `Dockerfile`.
+
 ## Datos y persistencia
 - En local, el backend guarda los JSON en `backend/data` (o en la ruta indicada por `DATA_DIR`).
 - En Render, `DATA_DIR` se fija a `/var/data` y se monta un disco llamado `bolus-data` para persistir `settings.json`, `users.json`, `events.json`, `changes.json` y `sessions.json`.
