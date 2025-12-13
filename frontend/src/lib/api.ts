@@ -138,6 +138,14 @@ export async function getNightscoutStatus() {
   return data;
 }
 
+
+export async function getCurrentGlucose() {
+  const response = await apiFetch("/api/nightscout/current");
+  const data = await toJson(response);
+  if (!response.ok) throw new Error(data.detail || "Error al obtener glucosa");
+  return data;
+}
+
 export async function testNightscout(config) {
   const body = config ? JSON.stringify(config) : undefined;
   const response = await apiFetch("/api/nightscout/test", {

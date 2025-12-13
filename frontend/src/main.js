@@ -15,7 +15,7 @@ import {
   saveNightscoutConfig,
   estimateCarbsFromImage,
   getCurrentGlucose,
-} from "./lib/api.js";
+} from "./lib/api";
 
 // ... existing state ...
 const state = {
