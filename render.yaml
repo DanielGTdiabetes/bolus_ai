@@ -1,0 +1,28 @@
+services:
+  - type: web
+    name: bolus-ai-backend
+    env: docker
+    dockerfilePath: backend/Dockerfile
+    healthCheckPath: /api/health
+    envVars:
+      - key: JWT_SECRET
+        sync: false
+      - key: NIGHTSCOUT_URL
+        value: ""
+      - key: DATA_DIR
+        value: /var/data
+    disk:
+      name: bolus-data
+      mountPath: /var/data
+      sizeGB: 1
+  - type: web
+    name: bolus-ai-frontend
+    env: static
+    buildCommand: cd frontend && npm ci && npm run build
+    staticPublishPath: frontend/dist
+    envVars:
+      - key: VITE_API_BASE_URL
+        fromService:
+          type: web
+          name: bolus-ai-backend
+          property: url

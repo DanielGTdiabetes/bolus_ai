@@ -34,6 +34,23 @@ bolus-ai/
   ```
 - Para crear usuarios manualmente edita `backend/data/users.json` siguiendo el esquema.
 
+## Despliegue en Render
+
+1. Crea los servicios desde `render.yaml` (Blueprint). Render creará:
+   - **Web Service** `bolus-ai-backend` usando `backend/Dockerfile`, con `healthCheckPath=/api/health` y disco persistente montado en `/var/data`.
+   - **Static Site** `bolus-ai-frontend` que ejecuta `npm ci && npm run build` en `frontend/` y publica `frontend/dist`.
+2. Variables de entorno recomendadas:
+   - `JWT_SECRET` (obligatoria, marcar como *Sync: false* en Render).
+   - `DATA_DIR=/var/data` (ya definido en `render.yaml`).
+   - `NIGHTSCOUT_URL` (opcional, si conectas con Nightscout).
+   - `VITE_API_BASE_URL` en el Static Site (Render la rellenará automáticamente con la URL del backend gracias a `render.yaml`; si falla, asígnala manualmente a la URL HTTPS del backend).
+3. HTTPS es obligatorio: usa siempre la URL `https://...onrender.com` al configurar el frontend y Nightscout.
+
+## Datos y persistencia
+- En local, el backend guarda los JSON en `backend/data` (o en la ruta indicada por `DATA_DIR`).
+- En Render, `DATA_DIR` se fija a `/var/data` y se monta un disco llamado `bolus-data` para persistir `settings.json`, `users.json`, `events.json`, `changes.json` y `sessions.json`.
+- Docker Compose ya mapea `./config/config.json` y un volumen nombrado `backend_data` a `/app/backend/data` para mantener los datos entre reinicios.
+
 ## Endpoints principales
 - `POST /api/auth/login` → JWT access/refresh
 - `POST /api/auth/refresh` → nuevo access token

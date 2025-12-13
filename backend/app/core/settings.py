@@ -28,7 +28,7 @@ class SecurityConfig(BaseModel):
 
 
 class DataConfig(BaseModel):
-    data_dir: Path = Field(default=Path("data"))
+    data_dir: Path = Field(default=Path("backend/data"))
 
     @validator("data_dir", pre=True)
     def _expand_path(cls, v: str | Path) -> Path:
@@ -58,7 +58,7 @@ def _load_file_config(path: Path) -> dict[str, Any]:
 def _load_env() -> dict[str, Any]:
     env_config: dict[str, Any] = {}
 
-    base_url = os.environ.get("NIGHTSCOUT_BASE_URL")
+    base_url = os.environ.get("NIGHTSCOUT_BASE_URL") or os.environ.get("NIGHTSCOUT_URL")
     if base_url:
         env_config.setdefault("nightscout", {})["base_url"] = base_url
 

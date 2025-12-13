@@ -33,7 +33,7 @@ class UserStore(JsonStore):
     def __init__(self, path: Path):
         super().__init__(path, default=[])
 
-    def ensure_seed_admin(self) -> None:
+    def ensure_seed_admin(self) -> bool:
         users = self.load()
         if not users:
             now = datetime.utcnow().isoformat()
@@ -47,6 +47,8 @@ class UserStore(JsonStore):
                 }
             )
             self.save(users)
+            return True
+        return False
 
     def find(self, username: str) -> Optional[dict[str, Any]]:
         for user in self.load():
