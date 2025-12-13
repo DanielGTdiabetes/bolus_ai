@@ -15,8 +15,10 @@ def _uptime_seconds() -> float:
     return (datetime.utcnow() - _start_time).total_seconds()
 
 
-@router.get("/", summary="Liveness probe")
-async def health() -> dict[str, bool]:
+@router.api_route("/", methods=["GET", "HEAD"], summary="Liveness probe")
+async def health(response: Response) -> dict[str, bool] | Response:
+    # return simple OK json. HEAD request will just return headers & status 200 by FastAPI/Starlette default handling
+    # of the response body if methods are allowed.
     return {"ok": True}
 
 
