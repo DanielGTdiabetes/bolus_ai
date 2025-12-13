@@ -103,3 +103,19 @@ El sistema permite configurar una instancia de [Nightscout](http://nightscout.in
 - El token debe tener permisos de lectura simples (`readable` o similar) para acceder a glusosa y tratamientos.
 
 **Nota sobre persistencia en Render Free:** Si usas el plan gratuito de Render sin disco persistente, la configuración se perderá al reiniciarse el servicio (ya que se guarda en `DATA_DIR`). Se recomienda usar un disco persistente (`bolus-data`).
+
+## Foto del plato (Visión IA)
+El sistema incluye una función experimental para estimar carbohidratos a partir de una foto del plato usando OpenAI Vision.
+
+### Configuración requerida
+Para que funcione, debes configurar la siguiente variable de entorno en el backend (o en Render):
+- `OPENAI_API_KEY`: Tu clave de API de OpenAI (debe tener acceso a GPT-4o / Vision).
+
+### Funcionamiento
+1. Sube una imagen desde la dashboard ("Foto del plato").
+2. El sistema analiza los alimentos y estima los carbohidratos.
+3. Si detecta **alto contenido graso/proteico** (pizza, hamburguesa, etc.), sugerirá un **Bolo Extendido** (ej. 60% ahora y 40% en 2 horas).
+4. **Privacidad**: Las imágenes se procesan en memoria y se envían a OpenAI para el análisis, pero **NO se guardan en el servidor** de Bolus AI.
+
+### Descargo de responsabilidad
+La estimación es solo una ayuda y puede contener errores. Siempre verifica los valores antes de administrar insulina.

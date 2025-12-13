@@ -151,11 +151,42 @@ export async function testNightscout(config) {
 
 export async function saveNightscoutConfig(config) {
   const response = await apiFetch("/api/nightscout/config", {
-     method: "PUT",
-     body: JSON.stringify(config),
+    method: "PUT",
+    body: JSON.stringify(config),
   });
   const data = await toJson(response);
   if (!response.ok) throw new Error(data.detail || "Error al guardar configuración");
+  return data;
+}
+
+export async function estimateCarbsFromImage(file, options = {}) {
+  const formData = new FormData();
+  formData.append("image", file);
+  if (options.meal_slot) formData.append("meal_slot", options.meal_slot);
+  if (options.bg_mgdl) formData.append("bg_mgdl", options.bg_mgdl);
+  if (options.target_mgdl) formData.append("target_mgdl", options.target_mgdl);
+  if (options.portion_hint) formData.append("portion_hint", options.portion_hint);
+  if (typeof options.prefer_extended !== 'undefined') formData.append("prefer_extended", options.prefer_extended);
+
+  // Special handle for apiFetch with FormData: do NOT set Content-Type
+  const headers = { Accept: "application/json" };
+  const token = getStoredToken();
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  const response = await fetch(new URL("/api/vision/estimate", API_BASE || window.location.origin), {
+    method: "POST",
+    headers,
+    body: formData,
+  });
+
+  const data = await toJson(response);
+  if (!response.ok) {
+    if (response.status === 401) {
+      logout();
+      throw new Error("Sesión caducada");
+    }
+    throw new Error(data.detail || "Error al analizar imagen");
+  }
   return data;
 }
 

@@ -34,11 +34,19 @@ class DataConfig(BaseModel):
         return Path(v).expanduser()
 
 
+class VisionConfig(BaseModel):
+    provider: str = Field(default="openai")
+    openai_api_key: Optional[str] = Field(default=None)
+    max_image_mb: int = Field(default=6, ge=1, le=20)
+    timeout_seconds: int = Field(default=15, ge=5, le=60)
+
+
 class Settings(BaseModel):
     nightscout: NightscoutConfig
     server: ServerConfig
     security: SecurityConfig
     data: DataConfig
+    vision: VisionConfig = Field(default_factory=VisionConfig)
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -101,6 +109,23 @@ def _load_env() -> dict[str, Any]:
     if data_dir:
         env_config.setdefault("data", {})["data_dir"] = data_dir
 
+    # Vision env vars
+    vision_provider = os.environ.get("VISION_PROVIDER")
+    if vision_provider:
+        env_config.setdefault("vision", {})["provider"] = vision_provider
+
+    openai_key = os.environ.get("OPENAI_API_KEY")
+    if openai_key:
+        env_config.setdefault("vision", {})["openai_api_key"] = openai_key
+    
+    vision_max_mb = os.environ.get("VISION_MAX_IMAGE_MB")
+    if vision_max_mb:
+        env_config.setdefault("vision", {})["max_image_mb"] = int(vision_max_mb)
+        
+    vision_timeout = os.environ.get("VISION_TIMEOUT_S")
+    if vision_timeout:
+        env_config.setdefault("vision", {})["timeout_seconds"] = int(vision_timeout)
+
     return env_config
 
 
@@ -110,6 +135,7 @@ def merge_settings(env_config: dict[str, Any], file_config: dict[str, Any]) -> d
     merged["server"] = {**file_config.get("server", {}), **env_config.get("server", {})}
     merged["security"] = {**file_config.get("security", {}), **env_config.get("security", {})}
     merged["data"] = {**file_config.get("data", {}), **env_config.get("data", {})}
+    merged["vision"] = {**file_config.get("vision", {}), **env_config.get("vision", {})}
     return merged
 
 
