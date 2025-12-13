@@ -120,3 +120,9 @@ Para que funcione, debes configurar la siguiente variable de entorno en el backe
 
 ### Descargo de responsabilidad
 La estimación es solo una ayuda y puede contener errores. Siempre verifica los valores antes de administrar insulina.
+
+### Soporte iOS
+La función de cámara está optimizada para iPhone (Safari/Chrome):
+- El botón **"📷 Hacer foto"** abre directamente la cámara (trasera preferida) sin menús intermedios.
+- El botón **"🖼️ Elegir de Fotos"** abre la fototeca.
+- Las imágenes se comprimen en el dispositivo antes de subirse para ahorrar datos y acelerar el análisis.
