@@ -21,6 +21,7 @@ Output STRICT JSON (RFC 8259 compliant).
 - NO comments // or /* */
 - NO trailing commas
 - NO markdown if possible, just raw JSON
+- Concise notes (max 10 words)
 Structure:
 {
   "items": [{"name": "...", "carbs_g": number, "notes": "..."}],
@@ -167,7 +168,7 @@ async def _estimate_with_gemini(image_bytes: bytes, mime_type: str, hints: dict,
     
     generation_config = {
         "temperature": 0.0,
-        "max_output_tokens": 1000,
+        "max_output_tokens": 4096,
         "response_mime_type": "application/json",
     }
     
