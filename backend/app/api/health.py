@@ -16,7 +16,7 @@ def _uptime_seconds() -> float:
 
 
 @router.api_route("/", methods=["GET", "HEAD"], summary="Liveness probe", response_model=None)
-async def health(request: Request) -> dict[str, bool] | Response:
+async def health(request: Request):
     if request.method == "HEAD":
         return Response(status_code=200)
     return {"ok": True}

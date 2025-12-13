@@ -51,7 +51,7 @@ app.include_router(api_router, prefix="/api")
 
 
 @app.api_route("/", methods=["GET", "HEAD"], summary="Root", response_model=None)
-async def root(request: Request) -> dict[str, str] | Response:
+async def root(request: Request):
     if request.method == "HEAD":
         return Response(status_code=200)
     return {"message": "Bolus AI backend is running"}
