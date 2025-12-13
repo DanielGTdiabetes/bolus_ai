@@ -1,4 +1,4 @@
-const API_BASE = (window.__BOLUS_API_BASE__ || window.location.origin).replace(/\/$/, "");
+const API_BASE = (import.meta.env.VITE_API_BASE_URL || window.location.origin).replace(/\/$/, "");
 const TOKEN_KEY = "bolusai_token";
 const USER_KEY = "bolusai_user";
 
@@ -139,11 +139,20 @@ export async function getNightscoutStatus() {
 }
 
 
-export async function getCurrentGlucose() {
-  const response = await apiFetch("/api/nightscout/current");
+
+async function apiGet(path: string, token?: string) {
+  const options: RequestInit = {};
+  if (token) {
+    options.headers = { Authorization: `Bearer ${token}` };
+  }
+  const response = await apiFetch(path, options);
   const data = await toJson(response);
-  if (!response.ok) throw new Error(data.detail || "Error al obtener glucosa");
+  if (!response.ok) throw new Error(data.detail || "Error en petición GET");
   return data;
+}
+
+export async function getCurrentGlucose(token?: string) {
+  return apiGet("/api/nightscout/current", token);
 }
 
 export async function testNightscout(config) {

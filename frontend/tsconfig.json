@@ -1,0 +1,29 @@
+{
+    "compilerOptions": {
+        "target": "ESNext",
+        "useDefineForClassFields": true,
+        "module": "ESNext",
+        "lib": [
+            "ESNext",
+            "DOM",
+            "DOM.Iterable"
+        ],
+        "skipLibCheck": true,
+        "moduleResolution": "bundler",
+        "allowImportingTsExtensions": true,
+        "resolveJsonModule": true,
+        "isolatedModules": true,
+        "noEmit": true,
+        "strict": false,
+        "noImplicitAny": false,
+        "unusedLocals": false,
+        "unusedParameters": false,
+        "noFallthroughCasesInSwitch": true,
+        "types": [
+            "vite/client"
+        ]
+    },
+    "include": [
+        "src"
+    ]
+}
