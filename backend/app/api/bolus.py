@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
+from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, ConfigDict, Field
@@ -29,7 +29,7 @@ def _nightscout_client(settings: Settings = Depends(get_settings)) -> Optional[N
 class BolusRequest(BaseModel):
     carbs_g: float = Field(ge=0)
     bg_mgdl: Optional[float] = Field(default=None, ge=0)
-    meal_slot: str = Field(regex="^(breakfast|lunch|dinner)$")
+    meal_slot: Literal["breakfast", "lunch", "dinner"]
     target_mgdl: Optional[float] = Field(default=None, ge=60)
 
     model_config = ConfigDict(populate_by_name=True, extra="ignore")
