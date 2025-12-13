@@ -68,8 +68,9 @@ class NightscoutClient:
             logger.error("Nightscout API error", extra={"status_code": exc.response.status_code, "body": exc.response.text})
             raise NightscoutError(f"Nightscout returned status {exc.response.status_code}") from exc
         except ValueError as exc:  # pragma: no cover - invalid JSON
-            logger.error("Invalid JSON from Nightscout", extra={"body": response.text})
-            raise NightscoutError("Nightscout returned invalid JSON") from exc
+            preview = response.text[:200]
+            logger.error(f"Invalid JSON from Nightscout. Body: {preview!r}")
+            raise NightscoutError(f"Nightscout returned invalid JSON (Body: {preview!r})") from exc
 
     async def get_status(self) -> NightscoutStatus:
         # Added /api/v1/status (no json) as some deployments might prefer it
