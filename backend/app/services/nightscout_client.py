@@ -37,13 +37,27 @@ class NightscoutClient:
 
     def _auth_headers(self) -> dict[str, str]:
         headers: dict[str, str] = {}
-        if self.token:
-            headers["Authorization"] = f"Bearer {self.token}"
-            # Also support query param fallback if needed, but header is cleaner
+        
+        # Primary auth token/secret coming from settings
+        # We try to determine if it's a JWT or a raw API Secret
+        effective_token = self.token
+        
+        if effective_token:
+            # Simple heuristic: JWTs are usually long and contain dots (header.payload.signature)
+            is_jwt = len(effective_token) > 20 and effective_token.count(".") >= 2
+            
+            if is_jwt:
+                headers["Authorization"] = f"Bearer {effective_token}"
+            else:
+                # Assume it's an API Secret -> SHA1 hash
+                hashed = hashlib.sha1(effective_token.encode("utf-8")).hexdigest()
+                headers["API-SECRET"] = hashed
+
+        # If explicit api_secret was passed (legacy param), it overrides/adds to headers
         if self.api_secret:
-            # Nightscout typically expects SHA1 hash of the secret via API-SECRET header
             hashed = hashlib.sha1(self.api_secret.encode("utf-8")).hexdigest()
             headers["API-SECRET"] = hashed
+            
         return headers
 
     async def _handle_response(self, response: httpx.Response) -> Any:
@@ -58,13 +72,13 @@ class NightscoutClient:
             raise NightscoutError("Nightscout returned invalid JSON") from exc
 
     async def get_status(self) -> NightscoutStatus:
-        endpoint_candidates = ["/api/v1/status.json", "/status.json"]
+        # Added /api/v1/status (no json) as some deployments might prefer it
+        endpoint_candidates = ["/api/v1/status.json", "/status.json", "/api/v1/status"]
         last_error: Optional[Exception] = None
         for endpoint in endpoint_candidates:
             try:
                 response = await self.client.get(endpoint)
                 data = await self._handle_response(response)
-                # Some Nightscout versions return status in different formats; basic validation here
                 return NightscoutStatus.model_validate(data)
             except Exception as exc:  # pragma: no cover - fallback attempts
                 last_error = exc
