@@ -24,28 +24,94 @@ def _data_store(settings: Settings = Depends(get_settings)) -> DataStore:
     return DataStore(Path(settings.data.data_dir))
 
 
-@router.post("/recommend", response_model=BolusResponseV2, summary="Recommend bolus (V2 Engine)")
-async def recommend(
+@router.post("/calc", response_model=BolusResponseV2, summary="Calculate bolus (Stateless V2)")
+async def calculate_bolus_stateless(
     payload: BolusRequestV2,
     _: dict = Depends(get_current_user),
     store: DataStore = Depends(_data_store),
 ):
-    user_settings: UserSettings = store.load_settings()
-
-    # 1. Resolver Glucosa (Manual vs Nightscout)
-    resolved_bg: Optional[float] = payload.bg_mgdl
+    # 1. Resolve Settings
+    # If payload has settings, construct a temporary UserSettings object to satisfy the engine interface
+    # Otherwise load from store (Legacy mode)
     
-    # Init vars
+    if payload.settings:
+        # Construct UserSettings adaptor from payload
+        # This allows reusing existing engine logic without rewriting it all
+        from app.models.settings import InsulinSettings, CarbRatioSettings, SensitivitySettings, TargetSettings, IOBSettings, NightscoutSettings
+        
+        # We map meal slots to the structure UserSettings expects
+        cr_settings = CarbRatioSettings(
+            breakfast=payload.settings.breakfast.icr,
+            lunch=payload.settings.lunch.icr,
+            dinner=payload.settings.dinner.icr
+        )
+        isf_settings = SensitivitySettings(
+            breakfast=payload.settings.breakfast.isf,
+            lunch=payload.settings.lunch.isf,
+            dinner=payload.settings.dinner.isf
+        )
+        # For targets, UserSettings uses low/mid/high range. We only have single target per slot in stateless.
+        # We can set 'mid' to the target of the requested slot, or just mock it.
+        # The engine uses: target = request.target_mgdl or settings.targets.mid
+        # We will ensure request.target_mgdl is populated from the slot if not provided.
+        target_settings = TargetSettings(
+            low=70, 
+            mid=100, # Placeholder
+            high=180
+        )
+        
+        iob_settings = IOBSettings(
+             dia_hours=payload.settings.dia_hours,
+             curve="bilinear", # Default
+             peak_minutes=75 
+        )
+        
+        # NS from payload
+        ns_settings = NightscoutSettings(
+            enabled=bool(payload.nightscout and payload.nightscout.url),
+            url=payload.nightscout.url if payload.nightscout else "",
+            token=payload.nightscout.token if payload.nightscout else ""
+        )
+        
+        user_settings = UserSettings(
+            cr=cr_settings,
+            cf=isf_settings,
+            targets=target_settings,
+            iob=iob_settings,
+            nightscout=ns_settings,
+            max_bolus_u=payload.settings.max_bolus_u,
+            max_correction_u=payload.settings.max_correction_u,
+            round_step_u=payload.settings.round_step_u
+        )
+        
+        # Pre-fill target from slot if not in request
+        if payload.target_mgdl is None:
+             slot_profile = getattr(payload.settings, payload.meal_slot)
+             payload.target_mgdl = slot_profile.target
+
+    else:
+        # Legacy: Load from DB
+        user_settings = store.load_settings()
+
+
+    # 2. Resolve Nightscout Client
+    ns_client: Optional[NightscoutClient] = None
+    ns_config = user_settings.nightscout
+    
+    # If payload has explicit NS config, use it (override)
+    if payload.nightscout:
+        ns_config.enabled = True
+        ns_config.url = payload.nightscout.url
+        ns_config.token = payload.nightscout.token
+
+    # 3. Resolve Glucose (Manual vs Nightscout)
+    resolved_bg: Optional[float] = payload.bg_mgdl
     bg_source: Literal["manual", "nightscout", "none"] = "manual" if resolved_bg is not None else "none"
     bg_trend: Optional[str] = None
     bg_age_minutes: Optional[float] = None
     bg_is_stale: bool = False
     
-    # Init NS Client if needed
-    ns_client: Optional[NightscoutClient] = None
-    ns_config = user_settings.nightscout
-    
-    # Priority: Manual > Nightscout (if enabled and manual is None)
+    # Priority: Manual > Nightscout 
     if resolved_bg is None and ns_config.enabled and ns_config.url:
          try:
             ns_client = NightscoutClient(
@@ -55,28 +121,24 @@ async def recommend(
             )
             sgv: NightscoutSGV = await ns_client.get_latest_sgv()
             
-            # Extract data
             resolved_bg = float(sgv.sgv)
             bg_source = "nightscout"
             bg_trend = sgv.direction
             
-            # Calculate Age
-            # sgv.date is epoch ms (int)
             now_ms = datetime.now(timezone.utc).timestamp() * 1000
             diff_ms = now_ms - sgv.date
             diff_min = diff_ms / 60000.0
             
             bg_age_minutes = diff_min
-            if diff_min > 10: # Stale threshold
+            if diff_min > 10: 
                  bg_is_stale = True
 
          except Exception:
-            # Fallback will be handled by engine (bg=None)
             bg_source = "none"
-            pass # Engine will handle None BG.
+            pass 
 
-    # 2. Calcular IOB
-    # Ensure NS client exists if we need it for IOB (history) even if BG was manual
+    # 4. Calculate IOB
+    # Ensure client exists if needed for IOB even if BG was manual
     if ns_client is None and ns_config.enabled and ns_config.url:
          ns_client = NightscoutClient(
             base_url=ns_config.url,
@@ -88,7 +150,7 @@ async def recommend(
         now = datetime.now(timezone.utc)
         iob_u, breakdown = await compute_iob_from_sources(now, user_settings, ns_client, store)
         
-        # 3. Llamar al Motor V2
+        # 5. Call Engine
         glucose_info = GlucoseUsed(
             mgdl=resolved_bg,
             source=bg_source,
@@ -104,9 +166,8 @@ async def recommend(
             glucose_info=glucose_info
         )
         
-        # Enriquecer explain con detalle IOB
         if breakdown:
-             response.explain.append(f"   (IOB basado en {len(breakdown)} eventos recientes)")
+             response.explain.append(f"   (IOB basado en {len(breakdown)} tratamientos recientes)")
         
         return response
 
