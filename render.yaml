@@ -1,8 +1,11 @@
 services:
   - type: web
     name: bolus-ai-backend
-    env: docker
-    dockerfilePath: backend/Dockerfile
+    env: python
+    region: frankfurt
+    plan: starter
+    buildCommand: pip install -r backend/requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /api/health
     envVars:
       - key: JWT_SECRET
@@ -18,6 +21,7 @@ services:
   - type: web
     name: bolus-ai-frontend
     env: static
+    region: frankfurt
     buildCommand: cd frontend && npm ci && npm run build
     staticPublishPath: frontend/dist
     envVars:
