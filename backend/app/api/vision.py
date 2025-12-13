@@ -162,19 +162,23 @@ async def estimate_from_image(
     if resolved_bg is None:
         ns_config = user_settings.nightscout
         if ns_config.enabled and ns_config.url:
-            ns_client_iob = NightscoutClient(
-                base_url=ns_config.url,
-                token=ns_config.token,
-                timeout_seconds=5
-            )
+            logger.info(f"Vision trying to fetch BG from NS: {ns_config.url}")
             try:
+                ns_client_iob = NightscoutClient(
+                    base_url=ns_config.url,
+                    token=ns_config.token,
+                    timeout_seconds=5
+                )
                 sgv = await ns_client_iob.get_latest_sgv()
                 resolved_bg = float(sgv.sgv)
                 ns_source = "nightscout"
-            except Exception:
+                logger.info(f"Vision NS Success: {resolved_bg} mg/dL")
+            except Exception as e:
+                logger.error(f"Vision NS Fetch Failed: {e}")
                 pass
             finally:
-                await ns_client_iob.aclose()
+                if 'ns_client_iob' in locals():
+                    await ns_client_iob.aclose()
 
     estimate.glucose_used = GlucoseUsed(
         mgdl=resolved_bg, 

@@ -2,6 +2,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal, Optional
 
+import logging
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -16,6 +17,8 @@ from app.services.bolus_engine import calculate_bolus_v2
 from app.services.iob import compute_iob_from_sources
 from app.services.nightscout_client import NightscoutClient, NightscoutError
 from app.services.store import DataStore
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -113,6 +116,7 @@ async def calculate_bolus_stateless(
     
     # Priority: Manual > Nightscout 
     if resolved_bg is None and ns_config.enabled and ns_config.url:
+         logger.info(f"Attempting to fetch BG from Nightscout: {ns_config.url}")
          try:
             ns_client = NightscoutClient(
                 base_url=ns_config.url,
@@ -132,8 +136,11 @@ async def calculate_bolus_stateless(
             bg_age_minutes = diff_min
             if diff_min > 10: 
                  bg_is_stale = True
+            
+            logger.info(f"Nightscout fetch success: {resolved_bg} mg/dL, age={diff_min:.1f}m")
 
-         except Exception:
+         except Exception as e:
+            logger.error(f"Nightscout fetch failed in calc: {e}")
             bg_source = "none"
             pass 
 
