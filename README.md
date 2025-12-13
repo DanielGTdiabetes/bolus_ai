@@ -1,6 +1,6 @@
 # Bolus AI
 
-Backend FastAPI con autenticación básica y preparación para PWA.
+Backend FastAPI con autenticación JWT y frontend estático minimalista.
 
 ## Estructura
 ```
@@ -27,12 +27,12 @@ bolus-ai/
 - Si `backend/data/users.json` no existe, se crea uno con `admin / admin123` y `needs_password_change=true`.
 - Cambia la contraseña con:
   ```bash
-  curl -X POST http://localhost:8000/api/auth/me/password \
+  curl -X POST http://localhost:8000/api/auth/change-password \
     -H "Authorization: Bearer <token>" \
     -H "Content-Type: application/json" \
-    -d '{"password":"nuevaPasswordSegura"}'
+    -d '{"old_password":"admin123", "new_password":"nuevaPasswordSegura"}'
   ```
-- Para crear usuarios manualmente edita `backend/data/users.json` siguiendo el esquema.
+- Para crear usuarios manualmente edita `backend/data/users.json` siguiendo el esquema. Las contraseñas se guardan con hash bcrypt.
 
 ## Despliegue en Render
 
@@ -44,7 +44,7 @@ bolus-ai/
    - `DATA_DIR=/var/data`: ya viene definido en el blueprint.
 3. El backend necesita persistencia: `render.yaml` monta el disco `bolus-data` en `/var/data` (1 GB). Déjalo habilitado para conservar `settings.json`, `users.json`, etc.
 4. El frontend obtiene `VITE_API_BASE_URL` automáticamente desde el servicio backend gracias a `fromService: property: url`; no necesitas configurarlo a mano salvo que anules la URL.
-5. Enrutamiento SPA: el archivo `frontend/public/_redirects` (copiado automáticamente a `frontend/dist/_redirects` por Vite) fuerza el rewrite `/* -> /index.html 200`, necesario para que Render sirva correctamente las rutas del frontend.
+5. Enrutamiento SPA: el archivo `frontend/public/_redirects` (copiado automáticamente a `frontend/dist/_redirects`) fuerza el rewrite `/* -> /index.html 200`, necesario para que Render sirva correctamente las rutas del frontend.
 6. HTTPS es obligatorio: usa siempre la URL `https://...onrender.com` para el frontend y cualquier integración externa.
 
 ## Render (Backend Docker)
@@ -64,9 +64,9 @@ Si prefieres desplegar solo el backend como imagen Docker en Render:
 - Docker Compose ya mapea `./config/config.json` y un volumen nombrado `backend_data` a `/app/backend/data` para mantener los datos entre reinicios.
 
 ## Endpoints principales
-- `POST /api/auth/login` → JWT access/refresh
-- `POST /api/auth/refresh` → nuevo access token
+- `POST /api/auth/login` → devuelve `{access_token, token_type, user}`
 - `GET /api/auth/me` → usuario autenticado
+- `POST /api/auth/change-password` → requiere token, valida contraseña actual
 - `GET /api/settings` (auth requerido)
 - `PUT /api/settings` (rol admin)
 - `GET /api/changes` (auth)

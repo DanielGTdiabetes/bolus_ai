@@ -8,7 +8,10 @@ import time
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 
-from fastapi import Depends, HTTPException, Request, status
+from pathlib import Path
+
+import bcrypt
+from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 
 from app.core.settings import Settings, get_settings
@@ -81,12 +84,6 @@ class TokenManager:
         to_encode = {"sub": subject, "exp": expire, "iss": self.settings.security.jwt_issuer, "type": "access"}
         return jwt_encode(to_encode, self.settings.security.jwt_secret)
 
-    def create_refresh_token(self, subject: str) -> tuple[str, datetime]:
-        expire = datetime.now(timezone.utc) + timedelta(days=self.settings.security.refresh_token_days)
-        to_encode = {"sub": subject, "exp": expire, "iss": self.settings.security.jwt_issuer, "type": "refresh"}
-        token = jwt_encode(to_encode, self.settings.security.jwt_secret)
-        return token, expire
-
     def decode_token(self, token: str, expected_type: str = "access") -> dict[str, Any]:
         try:
             payload = jwt_decode(token, self.settings.security.jwt_secret, issuer=self.settings.security.jwt_issuer)
@@ -96,42 +93,27 @@ class TokenManager:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token type")
         return payload
 
-    @staticmethod
-    def hash_refresh_token(token: str) -> str:
-        return hashlib.sha256(token.encode("utf-8")).hexdigest()
-
-
-class RateLimiter:
-    def __init__(self, max_attempts: int = 5, window_seconds: int = 60):
-        self.max_attempts = max_attempts
-        self.window_seconds = window_seconds
-        self._attempts: dict[str, list[float]] = {}
-
-    def is_allowed(self, key: str) -> bool:
-        now = time.time()
-        attempts = [ts for ts in self._attempts.get(key, []) if now - ts <= self.window_seconds]
-        attempts.append(now)
-        self._attempts[key] = attempts
-        return len(attempts) <= self.max_attempts
-
-    def guard(self, key: str):
-        if not self.is_allowed(key):
-            raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="Too many attempts, try later")
-
-
-rate_limiter = RateLimiter()
-
-
 def get_token_manager(settings: Settings = Depends(get_settings)) -> TokenManager:
     return TokenManager(settings)
 
 
 def verify_password(plain_password: str, password_hash: str) -> bool:
-    return hash_password(plain_password) == password_hash
+    try:
+        # bcrypt hashes start with $2b$ and include salt and cost factor
+        if password_hash.startswith("$2"):
+            return bcrypt.checkpw(plain_password.encode("utf-8"), password_hash.encode("utf-8"))
+    except ValueError:
+        # Malformed bcrypt hash
+        return False
+
+    # Fallback for legacy SHA-256 hashes to keep backwards compatibility
+    legacy_hash = hashlib.sha256(plain_password.encode("utf-8")).hexdigest()
+    return hmac.compare_digest(legacy_hash, password_hash)
 
 
 def hash_password(password: str) -> str:
-    return hashlib.sha256(password.encode("utf-8")).hexdigest()
+    salt = bcrypt.gensalt(rounds=12)
+    return bcrypt.hashpw(password.encode("utf-8"), salt).decode("utf-8")
 
 
 def auth_required(token: str = Depends(oauth2_scheme), token_manager: TokenManager = Depends(get_token_manager)) -> str:
@@ -146,3 +128,25 @@ def admin_required(username: str = Depends(auth_required), user_loader: Callable
     if not user or user.get("role") != "admin":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin only")
     return username
+
+
+def get_current_user(
+    token: str = Depends(oauth2_scheme),
+    token_manager: TokenManager = Depends(get_token_manager),
+    settings: Settings = Depends(get_settings),
+):
+    from app.core.datastore import UserStore
+
+    payload = token_manager.decode_token(token, expected_type="access")
+    username = str(payload.get("sub"))
+    store = UserStore(Path(settings.data.data_dir) / "users.json")
+    user = store.find(username)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+    return user
+
+
+def require_admin(current_user: dict[str, Any] = Depends(get_current_user)) -> dict[str, Any]:
+    if current_user.get("role") != "admin":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin only")
+    return current_user

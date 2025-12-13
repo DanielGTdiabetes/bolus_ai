@@ -5,7 +5,7 @@ from typing import Literal, Optional
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.core.security import auth_required
+from app.core.security import get_current_user
 from app.core.settings import Settings, get_settings
 from app.models.settings import UserSettings
 from app.services.bolus import BolusRequestData, BolusResponse, recommend_bolus
@@ -46,7 +46,7 @@ class BolusRecommendation(BaseModel):
 @router.post("/recommend", response_model=BolusRecommendation, summary="Recommend bolus")
 async def recommend(
     payload: BolusRequest,
-    _: str = Depends(auth_required),
+    _: dict = Depends(get_current_user),
     settings: Settings = Depends(get_settings),
     store: DataStore = Depends(_data_store),
     nightscout: Optional[NightscoutClient] = Depends(_nightscout_client),

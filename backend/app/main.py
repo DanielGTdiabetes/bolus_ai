@@ -14,12 +14,19 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Bolus AI", version="0.1.0")
 
+default_cors = settings.security.cors_origins or [
+    "http://localhost:5173",
+    "http://localhost:4173",
+    "http://localhost:3000",
+    "https://bolus-ai-frontend.onrender.com",
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.security.cors_origins or ["*"],
+    allow_origins=default_cors,
     allow_credentials=True,
     allow_methods=["*"],
-    allow_headers=["*"],
+    allow_headers=["Authorization", "Content-Type"],
 )
 
 app.include_router(api_router, prefix="/api")
