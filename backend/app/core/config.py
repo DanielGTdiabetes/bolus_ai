@@ -20,7 +20,7 @@ def get_google_api_key() -> str:
     return get_env("GOOGLE_API_KEY") or get_env("GEMINI_API_KEY") or ""
 
 def get_gemini_model() -> str:
-    return get_env("GEMINI_MODEL") or "gemini-1.5-flash-001"
+    return get_env("GEMINI_MODEL") or "gemini-2.5-flash"
 
 def get_vision_timeout() -> int:
     try:
