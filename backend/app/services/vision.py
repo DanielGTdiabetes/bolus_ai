@@ -36,7 +36,6 @@ Be conservative. If portion is unclear, state assumptions.
 
 import google.generativeai as genai
 from google.generativeai.types import HarmCategory, HarmBlockThreshold
-# ... (rest of imports/functions) ...
 
 def _safe_json_load(content: str) -> dict:
     if not content:
@@ -120,7 +119,45 @@ def _parse_estimation_data(data: dict) -> VisionEstimateResponse:
         glucose_used=GlucoseUsed(mgdl=None, source=None),
         bolus=None
     )
-# ... lines omitted ...
+
+
+async def _estimate_with_openai(image_bytes: bytes, mime_type: str, hints: dict, settings: Settings) -> dict:
+    api_key = settings.vision.openai_api_key
+    if not api_key:
+        raise RuntimeError("OpenAI API Key not configured")
+
+    client = AsyncOpenAI(api_key=api_key, timeout=settings.vision.timeout_seconds)
+
+    b64_image = base64.b64encode(image_bytes).decode("utf-8")
+    data_url = f"data:{mime_type};base64,{b64_image}"
+
+    user_prompt = _build_user_prompt(hints)
+
+    try:
+        response = await client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": PROMPT_SYSTEM},
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": user_prompt},
+                        {"type": "image_url", "image_url": {"url": data_url}},
+                    ],
+                },
+            ],
+            response_format={"type": "json_object"},
+            temperature=0.0,
+            max_tokens=1000,
+        )
+    except Exception as exc:
+        logger.error("OpenAI error", exc_info=True)
+        raise RuntimeError(f"OpenAI error: {str(exc)}") from exc
+
+    content = response.choices[0].message.content
+    return _safe_json_load(content)
+
+
 async def _estimate_with_gemini(image_bytes: bytes, mime_type: str, hints: dict, settings: Settings) -> dict:
     api_key = settings.vision.google_api_key
     if not api_key:
@@ -174,23 +211,6 @@ def _build_user_prompt(hints: dict) -> str:
     if hints.get("meal_slot"):
         user_prompt += f" Meal slot: {hints['meal_slot']}."
     return user_prompt
-
-
-def _safe_json_load(content: str) -> dict:
-    if not content:
-        raise RuntimeError("Empty response from vision provider")
-    try:
-        return json.loads(content)
-    except json.JSONDecodeError:
-        # Sometimes providers wrap in ```json ... ``` despite instructions?
-        # OpenAI JSON mode handles this usually. Gemini response_mime_type also handles it.
-        # Simple cleanup backup
-        clean = content.strip()
-        if clean.startswith("```json"):
-            clean = clean[7:]
-        if clean.endswith("```"):
-            clean = clean[:-3]
-        return json.loads(clean)
 
 
 def calculate_extended_split(
