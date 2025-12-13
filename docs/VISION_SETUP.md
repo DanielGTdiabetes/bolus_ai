@@ -17,7 +17,7 @@ Debes definir (o actualizar) las siguientes variables de entorno en tu despliegu
 | :--- | :--- | :--- |
 | `VISION_PROVIDER` | `gemini` | Indica al sistema que use Google Gemini en lugar de OpenAI. |
 | `GOOGLE_API_KEY` | `Tu_Clave_Copiada` | La clave que obtuviste en el paso 1. |
-| `GEMINI_MODEL` | `gemini-1.5-flash-latest` | (Opcional) Modelo a usar. Por defecto `gemini-1.5-flash-latest`. |
+| `GEMINI_MODEL` | `gemini-1.5-flash-001` | (Opcional) Modelo a usar. Por defecto `gemini-1.5-flash-001`. |
 
 *(Nota: Si usas `config.json` localmente, no es necesario editarlo si exportas estas variables en tu terminal antes de arrancar, o puedes añadirlas a tu gestor de secretos).*
 
