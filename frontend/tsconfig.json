@@ -16,8 +16,8 @@
         "noEmit": true,
         "strict": false,
         "noImplicitAny": false,
-        "unusedLocals": false,
-        "unusedParameters": false,
+        "noUnusedLocals": false,
+        "noUnusedParameters": false,
         "noFallthroughCasesInSwitch": true,
         "types": [
             "vite/client"

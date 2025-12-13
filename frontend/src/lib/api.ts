@@ -47,8 +47,8 @@ async function toJson(response) {
   }
 }
 
-export async function apiFetch(path, options = {}) {
-  const headers = { Accept: "application/json", ...(options.headers || {}) };
+export async function apiFetch(path: string, options: any = {}) {
+  const headers: any = { Accept: "application/json", ...(options.headers || {}) };
   if (options.body && !headers["Content-Type"]) {
     headers["Content-Type"] = "application/json";
   }
@@ -185,7 +185,7 @@ export async function saveNightscoutConfig(config) {
   return data;
 }
 
-export async function estimateCarbsFromImage(file, options = {}) {
+export async function estimateCarbsFromImage(file: any, options: any = {}) {
   const formData = new FormData();
   formData.append("image", file);
   if (options.meal_slot) formData.append("meal_slot", options.meal_slot);
@@ -195,7 +195,7 @@ export async function estimateCarbsFromImage(file, options = {}) {
   if (typeof options.prefer_extended !== 'undefined') formData.append("prefer_extended", options.prefer_extended);
 
   // Special handle for apiFetch with FormData: do NOT set Content-Type
-  const headers = { Accept: "application/json" };
+  const headers: any = { Accept: "application/json" };
   const token = getStoredToken();
   if (token) headers.Authorization = `Bearer ${token}`;
 
