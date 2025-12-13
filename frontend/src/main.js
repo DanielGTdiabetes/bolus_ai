@@ -16,9 +16,22 @@ import {
   saveNightscoutConfig,
   estimateCarbsFromImage,
   getCurrentGlucose,
-  getCalcSettings,
-  saveCalcSettings,
 } from "./lib/api";
+
+const CALC_SETTINGS_KEY = "bolusai_calc_settings";
+
+function getCalcSettings() {
+  try {
+    const raw = localStorage.getItem(CALC_SETTINGS_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+function saveCalcSettings(settings) {
+  localStorage.setItem(CALC_SETTINGS_KEY, JSON.stringify(settings));
+}
 
 const state = {
   token: getStoredToken(),
@@ -512,7 +525,7 @@ function renderDashboard() {
       payload.nightscout = { url: nsConfig.url, token: nsConfig.token };
     }
 
-    const calcSettings = getCalcSettings();
+    const calcSettings = getCalcSettings(); // NOW LOCAL
     if (calcSettings) {
       payload.settings = calcSettings;
     } else {
@@ -955,3 +968,24 @@ function initCalcPanel() {
     setTimeout(() => msg.hidden = true, 3000);
   };
 }
+
+function render() {
+  const route = window.location.hash || "#/";
+  if (!state.token && route !== "#/login") {
+    redirectToLogin();
+    return;
+  }
+
+  if (route === "#/login") {
+    renderLogin();
+  } else if (route === "#/change-password") {
+    renderChangePassword();
+  } else if (route === "#/settings") {
+    renderSettings();
+  } else {
+    renderDashboard();
+  }
+}
+
+bootstrapSession();
+render();

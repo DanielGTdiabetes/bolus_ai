@@ -109,8 +109,8 @@ export async function changePassword(old_password, new_password) {
   return data;
 }
 
-export async function recommendBolus(payload) {
-  const response = await apiFetch("/api/bolus/recommend", {
+export async function calculateBolus(payload) {
+  const response = await apiFetch("/api/bolus/calc", {
     method: "POST",
     body: JSON.stringify(payload),
   });
