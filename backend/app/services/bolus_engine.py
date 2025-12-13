@@ -40,28 +40,16 @@ def calculate_exercise_reduction(minutes: int, intensity: str) -> float:
     
     points = table[intens]
     
-    # Cap inputs for simplicity (or clamp logic)
-    # If < 60, linear from 0 at 0 min? Or use 60 val as base if > 30?
-    # Let's simple linear from 0 to 120+
-    # 0 min -> 0.0
-    # 60 min -> val60
-    # 120 min -> val120
-    
     val60 = points[60]
     val120 = points[120]
     
     if minutes <= 60:
-        # Interpolate 0 -> 60
         pct = minutes / 60.0
         return val60 * pct
     elif minutes <= 120:
-        # Interpolate 60 -> 120
         pct = (minutes - 60) / 60.0
         return val60 + (val120 - val60) * pct
     else:
-        # > 120. Cap at 120 value? Or extrapolate slightly? 
-        # Clamp at 120 val max? Or max 0.9.
-        # Let's cap at val120 to be safe.
         return val120
 
 
@@ -106,7 +94,18 @@ def calculate_bolus_v2(
     # 3. Corrección
     corr_u = 0.0
     bg = glucose_info.mgdl
+    
+    # NEW VALIDATION LOGIC -----------------------------------------
+    bg_usable = False
+    
     if bg is not None:
+         if glucose_info.is_stale:
+             warnings.append(f"Glucosa ({bg}) 'stale' (>10min antigua). NO se corrige.")
+             explain.append(f"B) Corrección: DATOS ANTIGUOS ({glucose_info.age_minutes:.0f} min). Ignorados.")
+         else:
+             bg_usable = True
+    
+    if bg_usable:
         if bg > target:
             diff = bg - target
             corr_u = diff / isf
@@ -115,16 +114,20 @@ def calculate_bolus_v2(
                 explain.append(f"   Corrección calculada {corr_u:.2f} U supera límite {settings.max_correction_u} U")
                 corr_u = settings.max_correction_u
             
-            explain.append(f"B) Corrección: ({bg:.0f} - {target:.0f}) / {isf:.0f}(ISF) = {corr_u:.2f} U")
+            trend_str = f" ({glucose_info.trend})" if glucose_info.trend else ""
+            age_str = f" [{glucose_info.age_minutes:.0f}m]" if glucose_info.age_minutes is not None else ""
+            explain.append(f"B) Corrección: ({bg:.0f}{trend_str}{age_str} - {target:.0f}) / {isf:.0f}(ISF) = {corr_u:.2f} U")
         elif bg < 70:
             warnings.append(f"Glucosa baja ({bg}), se recomienda NO poner bolo o tratar hipo.")
             explain.append(f"B) Corrección: Glucosa < 70 ({bg}), riesgo hipoglucemia.")
         else:
              explain.append(f"B) Corrección: Glucosa ({bg}) <= Objetivo ({target}). 0 U")
     else:
-        explain.append("B) Corrección: 0 U (Falta glucosa)")
-        if settings.nightscout.enabled and not glucose_info.source == "nightscout":
-             warnings.append("Nightscout configurado pero no respondió.")
+        if bg is None:
+            explain.append("B) Corrección: 0 U (Falta glucosa)")
+            if settings.nightscout.enabled and not glucose_info.source == "nightscout":
+                 warnings.append("Nightscout configurado pero no respondió.")
+        # If stale, we already appended rationale above.
 
     # 4. IOB
     total_base = meal_u + corr_u
@@ -154,21 +157,17 @@ def calculate_bolus_v2(
     duration = 0
     
     if request.slow_meal.enabled:
-        # Split logic
         pct = request.slow_meal.upfront_pct
         upfront_raw = total_after_exercise * pct
         later_raw = total_after_exercise - upfront_raw
         
-        # Round parts separately? User says "round_step(total_after_exercise * upfront_pct)"
         step = settings.round_step_u
         upfront = _round_step(upfront_raw, step)
         later = _round_step(later_raw, step)
         
-        # Si later es muy pequeño, volver a normal
         if later < step:
              explain.append("E) Bolo extendido: la parte extendida es despreciable (< step). Cambiando a Normal.")
              kind = "normal"
-             # Recalculate full upfront rounded
              upfront = _round_step(total_after_exercise, step)
              later = 0.0
         else:
@@ -178,24 +177,17 @@ def calculate_bolus_v2(
              explain.append(f"   Ahora: {upfront:.2f} U, Luego: {later:.2f} U en {duration} min")
 
     else:
-         # Normal rounding check
          step = settings.round_step_u
          upfront = _round_step(total_after_exercise, step)
-         
-         if upfront != total_after_exercise:
-              # Just notation
-              pass
-    
+
     # 7. Límites finales
     total_final = upfront + later
     if total_final > settings.max_bolus_u:
         warnings.append(f"Bolo total supera máximo de usuario ({settings.max_bolus_u} U). Limitado.")
-        # Scale down proportionally? Or just cap upfront?
-        # Simpler: cap upfront first.
         ratio = settings.max_bolus_u / total_final
         upfront = _round_step(upfront * ratio, settings.round_step_u)
         later = _round_step(later * ratio, settings.round_step_u)
-        total_final = upfront + later # Recalc
+        total_final = upfront + later 
         explain.append(f"F) Límite de seguridad aplicado: Total ahora {total_final:.2f} U")
 
     # 8. Sugerencias TDD
@@ -207,9 +199,6 @@ def calculate_bolus_v2(
             icr_g_per_u=round(sug_icr, 1),
             isf_mgdl_per_u=round(sug_isf, 1)
         )
-        if abs(sug_icr - cr) > 5 or abs(sug_isf - isf) > 20:
-             # Add to explain if divergent? Optional.
-             pass
 
     return BolusResponseV2(
         total_u=round(total_final, 2),

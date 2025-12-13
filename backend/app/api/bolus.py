@@ -34,8 +34,12 @@ async def recommend(
 
     # 1. Resolver Glucosa (Manual vs Nightscout)
     resolved_bg: Optional[float] = payload.bg_mgdl
+    
+    # Init vars
     bg_source: Literal["manual", "nightscout", "none"] = "manual" if resolved_bg is not None else "none"
     bg_trend: Optional[str] = None
+    bg_age_minutes: Optional[float] = None
+    bg_is_stale: bool = False
     
     # Init NS Client if needed
     ns_client: Optional[NightscoutClient] = None
@@ -50,9 +54,22 @@ async def recommend(
                 timeout_seconds=5
             )
             sgv: NightscoutSGV = await ns_client.get_latest_sgv()
+            
+            # Extract data
             resolved_bg = float(sgv.sgv)
             bg_source = "nightscout"
             bg_trend = sgv.direction
+            
+            # Calculate Age
+            # sgv.date is epoch ms (int)
+            now_ms = datetime.now(timezone.utc).timestamp() * 1000
+            diff_ms = now_ms - sgv.date
+            diff_min = diff_ms / 60000.0
+            
+            bg_age_minutes = diff_min
+            if diff_min > 10: # Stale threshold
+                 bg_is_stale = True
+
          except Exception:
             # Fallback will be handled by engine (bg=None)
             bg_source = "none"
@@ -75,7 +92,9 @@ async def recommend(
         glucose_info = GlucoseUsed(
             mgdl=resolved_bg,
             source=bg_source,
-            trend=bg_trend
+            trend=bg_trend,
+            age_minutes=bg_age_minutes,
+            is_stale=bg_is_stale
         )
         
         response = calculate_bolus_v2(

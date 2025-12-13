@@ -32,6 +32,8 @@ class GlucoseUsed(BaseModel):
     mgdl: Optional[float]
     source: Literal["manual", "nightscout", "none"]
     trend: Optional[str] = None
+    age_minutes: Optional[float] = None # Added for age tracking
+    is_stale: bool = False           # Added for validation
 
 
 class UsedParams(BaseModel):
