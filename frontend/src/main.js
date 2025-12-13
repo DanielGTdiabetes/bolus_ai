@@ -14,6 +14,7 @@ import {
   testNightscout,
   saveNightscoutConfig,
   estimateCarbsFromImage,
+  getCurrentGlucose,
 } from "./lib/api.js";
 
 // ... existing state ...
@@ -26,20 +27,53 @@ const state = {
   healthStatus: "Pulsa el botón para comprobar.",
   visionResult: null,
   visionError: null,
+  currentGlucose: {
+    loading: false,
+    data: null, // { bg_mgdl, trend, age, stale, ok, error }
+    timestamp: 0
+  }
 };
 
 const app = document.getElementById("app");
 
+// Helper to format Trend
+function formatTrend(trend, stale) {
+  if (stale) return "⚠️";
+  // Map common NS trends
+  const icons = {
+    "DoubleUp": "↑↑",
+    "SingleUp": "↑",
+    "FortyFiveUp": "↗",
+    "Flat": "→",
+    "FortyFiveDown": "↘",
+    "SingleDown": "↓",
+    "DoubleDown": "↓↓"
+  };
+  return icons[trend] || trend || "";
+}
+
 // --- RENDER DASHBOARD ---
-// Unified single definition of renderDashboard
 function renderDashboard() {
   if (!ensureAuthenticated()) return;
   const needsChange = state.user?.needs_password_change;
+
+  // Render structure
   app.innerHTML = `
     ${renderHeader()}
     <main class="page">
       ${needsChange ? '<div class="warning">Debes cambiar la contraseña predeterminada.</div>' : ""}
       
+      <!-- Current Glucose Card -->
+      <section class="card glucose-card">
+         <div class="card-header">
+           <h2>Glucosa Actual</h2>
+           <button id="refresh-bg-btn" class="ghost small">↻ Actualizar</button>
+         </div>
+         <div id="glucose-display" class="glucose-box">
+            <span class="loading-text">Cargando...</span>
+         </div>
+      </section>
+
       <!-- Vision Card -->
       <section class="card">
         <div class="card-header">
@@ -135,8 +169,60 @@ function renderDashboard() {
     </main>
   `;
 
+  // --- Handlers ---
   const logoutBtn = document.querySelector("#logout-btn");
   if (logoutBtn) logoutBtn.addEventListener("click", () => logout());
+
+  // GLUCOSE REFRESH
+  const refreshBgBtn = document.querySelector("#refresh-bg-btn");
+  const glucoseDisplay = document.querySelector("#glucose-display");
+
+  async function updateGlucoseDisplay() {
+    glucoseDisplay.innerHTML = '<span class="loading-text">Actualizando...</span>';
+    try {
+      const res = await getCurrentGlucose();
+      state.currentGlucose.data = res;
+      state.currentGlucose.loading = false;
+
+      if (!res.ok) {
+        glucoseDisplay.innerHTML = `<span class="bg-error">${res.error || "No configurado"}</span>`;
+        return;
+      }
+
+      // Format
+      const bgVal = Math.round(res.bg_mgdl);
+      const trendIcon = formatTrend(res.trend, res.stale);
+      const age = Math.round(res.age_minutes);
+      const staleClass = res.stale ? "stale" : "fresh";
+      const staleText = res.stale ? "ANTIGUO" : "OK";
+
+      glucoseDisplay.innerHTML = `
+             <div class="glucose-main ${staleClass}">
+                <span class="bg-value">${bgVal}</span>
+                <span class="bg-arrow">${trendIcon}</span>
+             </div>
+             <div class="glucose-meta">
+                <span>Hace ${age} min</span>
+                <span class="status-badge ${staleClass}">${staleText}</span>
+             </div>
+          `;
+
+    } catch (err) {
+      glucoseDisplay.innerHTML = `<span class="bg-error">Error conexión</span>`;
+    }
+  }
+
+  refreshBgBtn.addEventListener("click", updateGlucoseDisplay);
+
+  // Initial load if not loaded recently (e.g. < 1 min)
+  if (!state.currentGlucose.data || (Date.now() - state.currentGlucose.timestamp > 60000)) {
+    updateGlucoseDisplay();
+    state.currentGlucose.timestamp = Date.now();
+  } else {
+    // Render existing state? Or just refresh? Let's just refresh to be safe/simple
+    updateGlucoseDisplay();
+  }
+
 
   // === VISION HANDLERS ===
   const visionForm = document.querySelector("#vision-form");
@@ -329,6 +415,15 @@ function renderDashboard() {
       state.bolusError = "";
       state.bolusResult = `Bolo recomendado: ${data.upfront_u} U (IOB: ${data.iob_u.toFixed(2)} U)`;
       bolusOutput.textContent = state.bolusResult;
+
+      // Handle Glucose Info display
+      if (data.glucose && data.glucose.source === "nightscout") {
+        // Maybe modify bolusResult or append info?
+        const g = data.glucose;
+        state.bolusResult += `\n[Muestra BG: ${Math.round(g.mgdl)} mg/dL (Nightscout)]`;
+        bolusOutput.textContent = state.bolusResult;
+      }
+
       if (Array.isArray(data.explain) && data.explain.length) {
         explainBlock.hidden = false;
         data.explain.forEach((item) => {
@@ -348,7 +443,8 @@ function renderDashboard() {
 
 function navigate(hash) {
   if (window.location.hash === hash) {
-    render();
+    if (hash === "#/") renderDashboard(); // Force re-render if already there to refresh components? 
+    else render();
     return;
   }
   window.location.hash = hash;
@@ -382,10 +478,11 @@ async function bootstrapSession() {
     if (me.needs_password_change) {
       navigate("#/change-password");
     } else {
-      // If valid session and on login/root, go to dashboard
-      // Note: preserve current hash if it exists and is not login
       if (window.location.hash === "#/login" || !window.location.hash) {
         navigate("#/");
+      } else {
+        // If we are already on a page, render it properly (render() handles it)
+        render();
       }
     }
   } catch (error) {
@@ -394,7 +491,7 @@ async function bootstrapSession() {
     redirectToLogin();
   } finally {
     state.loadingUser = false;
-    render();
+    // render(); // Handled above or in navigate
   }
 }
 
@@ -571,8 +668,6 @@ function renderSettings() {
     getNightscoutStatus().then(status => {
       enabledInput.checked = status.enabled;
       urlInput.value = status.url || "";
-      // Token is hidden
-
       form.hidden = false;
       loading.hidden = true;
 
@@ -636,7 +731,6 @@ function renderSettings() {
       await saveNightscoutConfig(config);
       statusBox.textContent = "Configuración guardada correctamente.";
       statusBox.className = "status-box success";
-      // Clear token input to simulate "saved" (and because it's sensitive)
       tokenInput.value = "";
     } catch (e) {
       statusBox.textContent = "Error al guardar: " + e.message;

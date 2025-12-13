@@ -1,5 +1,6 @@
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Literal
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -7,6 +8,7 @@ from pydantic import BaseModel
 from app.core.security import get_current_user
 from app.core.settings import get_settings, Settings
 from app.models.settings import UserSettings
+from app.models.schemas import NightscoutSGV
 from app.services.nightscout_client import NightscoutClient, NightscoutError
 from app.services.store import DataStore
 
@@ -24,6 +26,16 @@ class NightscoutConfigInput(BaseModel):
     enabled: bool
     url: str
     token: Optional[str] = None
+
+
+class CurrentGlucoseResponse(BaseModel):
+    ok: bool
+    bg_mgdl: Optional[float] = None
+    trend: Optional[str] = None
+    age_minutes: Optional[float] = None
+    stale: bool = False
+    source: Literal["nightscout"] = "nightscout"
+    error: Optional[str] = None
 
 
 def _data_store(settings: Settings = Depends(get_settings)) -> DataStore:
@@ -76,6 +88,41 @@ async def get_status(
         ok=ok,
         error=error,
     )
+
+
+@router.get("/current", response_model=CurrentGlucoseResponse, summary="Get current glucose from Nightscout")
+async def get_current_glucose(
+    _: dict = Depends(get_current_user),
+    store: DataStore = Depends(_data_store),
+):
+    settings: UserSettings = store.load_settings()
+    ns = settings.nightscout
+    
+    if not ns.enabled or not ns.url:
+        return CurrentGlucoseResponse(ok=False, error="Nightscout disabled/unconfigured")
+
+    try:
+        client = NightscoutClient(base_url=ns.url, token=ns.token, timeout_seconds=5)
+        try:
+            sgv: NightscoutSGV = await client.get_latest_sgv()
+            
+            # Compute age
+            now_ms = datetime.now(timezone.utc).timestamp() * 1000
+            diff_ms = now_ms - sgv.date
+            diff_min = diff_ms / 60000.0
+            
+            return CurrentGlucoseResponse(
+                ok=True,
+                bg_mgdl=float(sgv.sgv),
+                trend=sgv.direction,
+                age_minutes=diff_min,
+                stale=diff_min > 10,
+                source="nightscout"
+            )
+        finally:
+            await client.aclose()
+    except Exception as e:
+        return CurrentGlucoseResponse(ok=False, error=str(e))
 
 
 class TestResponse(BaseModel):
