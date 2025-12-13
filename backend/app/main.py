@@ -2,7 +2,7 @@ import logging
 import os
 from pathlib import Path
 
-from fastapi import FastAPI, Response
+from fastapi import FastAPI, Response, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import api_router
@@ -50,8 +50,10 @@ app.add_middleware(
 app.include_router(api_router, prefix="/api")
 
 
-@app.api_route("/", methods=["GET", "HEAD"], summary="Root")
-async def root() -> dict[str, str]:
+@app.api_route("/", methods=["GET", "HEAD"], summary="Root", response_model=None)
+async def root(request: Request) -> dict[str, str] | Response:
+    if request.method == "HEAD":
+        return Response(status_code=200)
     return {"message": "Bolus AI backend is running"}
 
 
