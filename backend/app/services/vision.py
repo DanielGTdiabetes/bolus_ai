@@ -1,6 +1,7 @@
 import base64
 import json
 import logging
+import re
 from typing import Optional
 
 from openai import AsyncOpenAI
@@ -16,7 +17,10 @@ PROMPT_SYSTEM = """
 You are an expert nutritionist and diabetes educator. 
 Analyze the image of food provided. 
 Estimate carbohydrates precisely.
-Output STRICT JSON.
+Output STRICT JSON (RFC 8259 compliant).
+- NO comments // or /* */
+- NO trailing commas
+- NO markdown if possible, just raw JSON
 Structure:
 {
   "items": [{"name": "...", "carbs_g": number, "notes": "..."}],
@@ -32,6 +36,51 @@ Be conservative. If portion is unclear, state assumptions.
 
 import google.generativeai as genai
 from google.generativeai.types import HarmCategory, HarmBlockThreshold
+# ... (rest of imports/functions) ...
+
+def _safe_json_load(content: str) -> dict:
+    if not content:
+        raise RuntimeError("Empty response from vision provider")
+
+    # 1. Try direct load
+    try:
+        return json.loads(content)
+    except json.JSONDecodeError:
+        pass
+
+    # 2. Markdown cleanup (```json ... ```)
+    cleaned = content.strip()
+    if "```" in cleaned:
+        # Pattern to extract content between ```json (optional) and ```
+        # We use dotall to match newlines
+        match = re.search(r"```(?:\w+)?\s*(.*?)\s*```", cleaned, re.DOTALL)
+        if match:
+            cleaned = match.group(1)
+        else:
+             # Manual fallback if regex fails but ``` detected
+             if cleaned.startswith("```"):
+                 cleaned = cleaned.split("\n", 1)[-1]
+             if cleaned.endswith("```"):
+                 cleaned = cleaned.rsplit("\n", 1)[0]
+
+    try:
+        return json.loads(cleaned)
+    except json.JSONDecodeError:
+        pass
+        
+    # 3. Last resort: Find outermost braces
+    match = re.search(r'(\{.*\})', content, re.DOTALL)
+    if match:
+        try:
+            return json.loads(match.group(1))
+        except json.JSONDecodeError:
+            pass
+
+    # 4. Failure
+    # Log the content so we can see what went wrong (truncated if too long)
+    log_content = content[:1000] + "..." if len(content) > 1000 else content
+    logger.error(f"JSON Parse Error. Raw content: {log_content!r}")
+    raise RuntimeError("Invalid JSON response from vision provider (Syntax Error)")
 
 async def estimate_meal_from_image(
     image_bytes: bytes,
