@@ -28,7 +28,6 @@ async def health_options() -> Response:
 @router.get("/full", summary="Full health check")
 async def full_health(
     settings: Settings = Depends(get_settings),
-    nightscout_client: NightscoutClient = Depends(NightscoutClient.depends),
 ) -> dict:
     status: dict[str, object] = {
         "ok": True,
@@ -36,11 +35,24 @@ async def full_health(
         "version": __version__,
     }
 
-    try:
-        ns_status = await nightscout_client.get_status()
-        status["nightscout"] = {"reachable": True, "status": ns_status}
-    except Exception as exc:  # pragma: no cover - defensive fallback
-        status["nightscout"] = {"reachable": False, "error": str(exc)}
+    ns_config = settings.nightscout
+    if ns_config.base_url:
+        try:
+            client = NightscoutClient(
+                base_url=str(ns_config.base_url),
+                token=ns_config.token,
+                api_secret=ns_config.api_secret,
+                timeout_seconds=ns_config.timeout_seconds,
+            )
+            try:
+                ns_status = await client.get_status()
+                status["nightscout"] = {"reachable": True, "status": ns_status}
+            finally:
+                await client.aclose()
+        except Exception as exc:  # pragma: no cover - defensive fallback
+            status["nightscout"] = {"reachable": False, "error": str(exc)}
+    else:
+        status["nightscout"] = {"reachable": False, "reason": "Not configured (system)"}
 
     status["server"] = {"host": settings.server.host, "port": settings.server.port}
     return status
