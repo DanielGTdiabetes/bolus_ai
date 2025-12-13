@@ -9,3 +9,4 @@ pytest-mock==3.14.0
 respx==0.20.2
 openai==1.30.0
 python-multipart==0.0.9
+google-generativeai==0.5.4

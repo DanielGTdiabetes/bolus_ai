@@ -35,8 +35,9 @@ class DataConfig(BaseModel):
 
 
 class VisionConfig(BaseModel):
-    provider: str = Field(default="openai")
+    provider: str = Field(default="openai") # "openai" or "gemini"
     openai_api_key: Optional[str] = Field(default=None)
+    google_api_key: Optional[str] = Field(default=None)
     max_image_mb: int = Field(default=6, ge=1, le=20)
     timeout_seconds: int = Field(default=15, ge=5, le=60)
 
@@ -117,6 +118,10 @@ def _load_env() -> dict[str, Any]:
     openai_key = os.environ.get("OPENAI_API_KEY")
     if openai_key:
         env_config.setdefault("vision", {})["openai_api_key"] = openai_key
+
+    google_key = os.environ.get("GOOGLE_API_KEY")
+    if google_key:
+        env_config.setdefault("vision", {})["google_api_key"] = google_key
     
     vision_max_mb = os.environ.get("VISION_MAX_IMAGE_MB")
     if vision_max_mb:
