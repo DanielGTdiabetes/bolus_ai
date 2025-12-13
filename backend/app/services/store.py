@@ -84,11 +84,11 @@ class DataStore:
             json.dump(data, fh, indent=2, ensure_ascii=False)
 
     def load_settings(self) -> UserSettings:
-        raw = self.read_json("settings.json", UserSettings.default().dict())
+        raw = self.read_json("settings.json", UserSettings.default().model_dump())
         return UserSettings.migrate(raw)
 
     def save_settings(self, settings: UserSettings) -> UserSettings:
-        self.write_json("settings.json", settings.dict())
+        self.write_json("settings.json", settings.model_dump())
         return settings
 
     def load_events(self) -> list[dict[str, Any]]:

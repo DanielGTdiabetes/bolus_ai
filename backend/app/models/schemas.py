@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 def _to_epoch_ms(dt: datetime) -> int:
@@ -20,7 +20,7 @@ class NightscoutSGV(BaseModel):
     date: int
     delta: Optional[float] = None
 
-    @validator("date", pre=True)
+    @field_validator("date", mode="before")
     def ensure_epoch_ms(cls, v: int | datetime) -> int:
         if isinstance(v, datetime):
             return _to_epoch_ms(v)
@@ -35,9 +35,7 @@ class Treatment(BaseModel):
     carbs: Optional[float] = None
     notes: Optional[str] = None
 
-    class Config:
-        orm_mode = True
-        allow_population_by_field_name = True
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
 
 class FullHealth(BaseModel):

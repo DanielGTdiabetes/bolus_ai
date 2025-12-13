@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.core.security import auth_required
 from app.core.settings import Settings, get_settings
@@ -32,9 +32,7 @@ class BolusRequest(BaseModel):
     meal_slot: str = Field(regex="^(breakfast|lunch|dinner)$")
     target_mgdl: Optional[float] = Field(default=None, ge=60)
 
-    class Config:
-        allow_population_by_field_name = True
-        extra = "ignore"
+    model_config = ConfigDict(populate_by_name=True, extra="ignore")
 
 
 class BolusRecommendation(BaseModel):

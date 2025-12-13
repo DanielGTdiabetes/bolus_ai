@@ -4,7 +4,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any, Optional
 
-from pydantic import BaseModel, Field, HttpUrl, ValidationError, validator
+from pydantic import BaseModel, ConfigDict, Field, HttpUrl, ValidationError, field_validator
 
 
 class NightscoutConfig(BaseModel):
@@ -30,7 +30,7 @@ class SecurityConfig(BaseModel):
 class DataConfig(BaseModel):
     data_dir: Path = Field(default=Path("backend/data"))
 
-    @validator("data_dir", pre=True)
+    @field_validator("data_dir", mode="before")
     def _expand_path(cls, v: str | Path) -> Path:
         return Path(v).expanduser()
 
@@ -40,6 +40,8 @@ class Settings(BaseModel):
     server: ServerConfig
     security: SecurityConfig
     data: DataConfig
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
 DEFAULT_CONFIG_PATH = Path(os.environ.get("CONFIG_PATH", "config/config.json"))
@@ -118,7 +120,7 @@ def get_settings() -> Settings:
     file_config = _load_file_config(DEFAULT_CONFIG_PATH)
     merged = merge_settings(env_config=env_config, file_config=file_config)
     try:
-        return Settings.parse_obj(merged)
+        return Settings.model_validate(merged)
     except ValidationError as exc:  # pragma: no cover
         raise RuntimeError(f"Configuration error: {exc}") from exc
 

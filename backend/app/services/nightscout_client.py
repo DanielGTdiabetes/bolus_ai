@@ -58,7 +58,7 @@ class NightscoutClient:
             try:
                 response = await self.client.get(endpoint)
                 data = await self._handle_response(response)
-                return NightscoutStatus.parse_obj(data)
+                return NightscoutStatus.model_validate(data)
             except Exception as exc:  # pragma: no cover - fallback attempts
                 last_error = exc
                 logger.warning("Nightscout status endpoint failed", extra={"endpoint": endpoint, "error": str(exc)})
@@ -70,7 +70,7 @@ class NightscoutClient:
         if not data:
             raise NightscoutError("No SGV data available")
         entry = data[0]
-        return NightscoutSGV.parse_obj(entry)
+        return NightscoutSGV.model_validate(entry)
 
     async def get_recent_treatments(self, hours: int = 24, limit: int = 200) -> list[Treatment]:
         since = datetime.utcnow() - timedelta(hours=hours)
@@ -81,7 +81,7 @@ class NightscoutClient:
         }
         response = await self.client.get("/api/v1/treatments.json", params=params)
         data = await self._handle_response(response)
-        return [Treatment.parse_obj(item) for item in data]
+        return [Treatment.model_validate(item) for item in data]
 
     @classmethod
     async def depends(cls) -> "NightscoutClient":

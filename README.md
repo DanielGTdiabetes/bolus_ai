@@ -37,6 +37,7 @@ bolus-ai/
 ## Despliegue en Render
 
 1. Crea los servicios desde `render.yaml` (Blueprint). Render generará un **Web Service** `bolus-ai-backend` con entorno **python** (build con `pip install -r backend/requirements.txt`, start `uvicorn app.main:app --host 0.0.0.0 --port $PORT`, `healthCheckPath=/api/health`, región Frankfurt, plan Starter) y un **Static Site** `bolus-ai-frontend` que ejecuta `npm ci && npm run build` en `frontend/` y publica `frontend/dist`.
+2. Render debe usar **Python 3.11**. El archivo `backend/runtime.txt` fija la versión (`python-3.11.9`) y la instalación de dependencias usa `backend/requirements.txt`.
 2. Configura las variables de entorno del backend:
    - `JWT_SECRET`: márcala como *Sync: false* y usa **Generate** en Render.
    - `NIGHTSCOUT_URL`: opcional, deja `""` si no se usa.
