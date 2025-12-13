@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Response
 
 from app import __version__
 from app.core.settings import get_settings, Settings
@@ -18,6 +18,11 @@ def _uptime_seconds() -> float:
 @router.get("/", summary="Liveness probe")
 async def health() -> dict[str, bool]:
     return {"ok": True}
+
+
+@router.options("/", include_in_schema=False)
+async def health_options() -> Response:
+    return Response(status_code=200)
 
 
 @router.get("/full", summary="Full health check")

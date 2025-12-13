@@ -1,4 +1,5 @@
 import logging
+import os
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -14,19 +15,36 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Bolus AI", version="0.1.0")
 
-default_cors = settings.security.cors_origins or [
-    "http://localhost:5173",
-    "http://localhost:4173",
-    "http://localhost:3000",
-    "https://bolus-ai-frontend.onrender.com",
-]
+
+def _collect_cors_origins() -> list[str]:
+    default_origins = [
+        "https://bolus-ai.onrender.com",
+        "https://bolus-ai-1.onrender.com",
+        "http://localhost:5173",
+        "http://localhost:3000",
+    ]
+
+    configured_origins = settings.security.cors_origins
+    env_origins = [
+        origin.strip()
+        for origin in os.environ.get("FRONTEND_ORIGIN", "").split(",")
+        if origin.strip()
+    ]
+
+    collected: list[str] = []
+    for origin in (*default_origins, *configured_origins, *env_origins):
+        if origin and origin not in collected:
+            collected.append(origin)
+
+    return collected
+
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=default_cors,
+    allow_origins=_collect_cors_origins(),
     allow_credentials=True,
     allow_methods=["*"],
-    allow_headers=["Authorization", "Content-Type"],
+    allow_headers=["*"],
 )
 
 app.include_router(api_router, prefix="/api")
