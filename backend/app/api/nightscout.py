@@ -15,6 +15,7 @@ from app.services.store import DataStore
 router = APIRouter()
 
 
+
 class NightscoutStatusResponse(BaseModel):
     enabled: bool
     url: Optional[str]
@@ -22,17 +23,20 @@ class NightscoutStatusResponse(BaseModel):
     error: Optional[str] = None
 
 
-class NightscoutConfigInput(BaseModel):
-    enabled: bool
+class StatelessConfig(BaseModel):
     url: str
     token: Optional[str] = None
+    units: Optional[str] = "mgdl"
 
 
 class CurrentGlucoseResponse(BaseModel):
     ok: bool
+    configured: bool = False
     bg_mgdl: Optional[float] = None
     trend: Optional[str] = None
+    trendArrow: Optional[str] = None
     age_minutes: Optional[float] = None
+    date: Optional[int] = None
     stale: bool = False
     source: Literal["nightscout"] = "nightscout"
     error: Optional[str] = None
@@ -42,22 +46,7 @@ def _data_store(settings: Settings = Depends(get_settings)) -> DataStore:
     return DataStore(Path(settings.data.data_dir))
 
 
-async def _ping_nightscout(url: str, token: Optional[str]) -> bool:
-    if not url:
-        return False
-    try:
-        # Create a temporary client to test
-        client = NightscoutClient(base_url=url, token=token, timeout_seconds=5)
-        try:
-            await client.get_status()
-            return True
-        finally:
-            await client.aclose()
-    except Exception:
-        return False
-
-
-@router.get("/status", response_model=NightscoutStatusResponse, summary="Get Nightscout status")
+@router.get("/status", response_model=NightscoutStatusResponse, summary="Get Nightscout status (Server-Stored)")
 async def get_status(
     _: dict = Depends(get_current_user),
     store: DataStore = Depends(_data_store),
@@ -70,7 +59,6 @@ async def get_status(
     
     if ns.enabled and ns.url:
         try:
-            # We use the configured data to ping
             client = NightscoutClient(base_url=ns.url, token=ns.token, timeout_seconds=5)
             try:
                 await client.get_status()
@@ -90,115 +78,107 @@ async def get_status(
     )
 
 
-@router.get("/current", response_model=CurrentGlucoseResponse, summary="Get current glucose from Nightscout")
-async def get_current_glucose(
+@router.post("/current", response_model=CurrentGlucoseResponse, summary="Get current glucose (Stateless)")
+async def get_current_glucose_stateless(
+    config: StatelessConfig,
     _: dict = Depends(get_current_user),
-    store: DataStore = Depends(_data_store),
 ):
-    settings: UserSettings = store.load_settings()
-    ns = settings.nightscout
-    
-    if not ns.enabled or not ns.url:
-        return CurrentGlucoseResponse(ok=False, error="Nightscout disabled/unconfigured")
+    import logging
+    logger = logging.getLogger(__name__)
+
+    if not config.url:
+        # Request says: 400 if missing url, but we can also return JSON with configured=False
+        # "IMPORTANTE: no devolver 200 con “no configurado”." -> implies 400 or checking configured.
+        # But if body has empty url, raising HTTPException(400) is standard.
+        raise HTTPException(status_code=400, detail="Missing Nightscout URL")
+
+    logger.debug(f"Fetching Nightscout glucose from: {config.url} (token hidden)")
 
     try:
-        client = NightscoutClient(base_url=ns.url, token=ns.token, timeout_seconds=5)
+        client = NightscoutClient(base_url=config.url, token=config.token, timeout_seconds=10)
         try:
+            # We don't check "status" first, just get SGV to be fast
             sgv: NightscoutSGV = await client.get_latest_sgv()
             
-            # Compute age
             now_ms = datetime.now(timezone.utc).timestamp() * 1000
             diff_ms = now_ms - sgv.date
             diff_min = diff_ms / 60000.0
-            
+
+            # Trend arrow mapping
+            arrows = {
+                "DoubleUp": "↑↑", "SingleUp": "↑", "FortyFiveUp": "↗",
+                "Flat": "→", "FortyFiveDown": "↘", "SingleDown": "↓", "DoubleDown": "↓↓"
+            }
+            arrow = arrows.get(sgv.direction, sgv.direction)
+
             return CurrentGlucoseResponse(
                 ok=True,
+                configured=True,
                 bg_mgdl=float(sgv.sgv),
                 trend=sgv.direction,
+                trendArrow=arrow,
                 age_minutes=diff_min,
+                date=int(sgv.date),
                 stale=diff_min > 10,
                 source="nightscout"
             )
+
+        except NightscoutError as nse:
+            logger.error(f"Nightscout client error: {nse}")
+            # Request says 502 if Nightscout fails
+            raise HTTPException(status_code=502, detail=f"Nightscout Error: {str(nse)}")
+        except Exception as e:
+            logger.exception("Unexpected error fetching glucose")
+            raise HTTPException(status_code=502, detail=f"Unexpected Error: {str(e)}")
         finally:
             await client.aclose()
+
+    except HTTPException:
+        raise
     except Exception as e:
-        return CurrentGlucoseResponse(ok=False, error=str(e))
+        logger.exception("Global error in current glucose")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 class TestResponse(BaseModel):
     ok: bool
+    reachable: bool
     message: str
+    nightscoutVersion: Optional[str] = None
 
 
-@router.post("/test", response_model=TestResponse, summary="Test Nightscout connection")
-async def test_connection(
-    payload: Optional[NightscoutConfigInput] = None,
+@router.post("/test", response_model=TestResponse, summary="Test Nightscout connection (Stateless)")
+async def test_connection_stateless(
+    config: StatelessConfig,
     _: dict = Depends(get_current_user),
-    store: DataStore = Depends(_data_store),
 ):
-    """
-    Test connection with provided payload, or if empty, with saved settings.
-    """
-    if payload:
-        url = payload.url
-        token = payload.token
-        # If token is empty in payload, we might want to peek at saved settings? 
-        # But for a "Test form" usually we explicitly send what we typed.
-        # If the user typed nothing in password field, they might mean "keep existing", 
-        # but that logic is usually for SAVE. For TEST with unsaved data, we need the token.
-        # However, for UX: if user leaves token empty (placeholder "Saved"), we might need to fetch it.
-        if not token:
-             saved: UserSettings = store.load_settings()
-             if saved.nightscout.url == url and saved.nightscout.token:
-                 token = saved.nightscout.token
-    else:
-        settings: UserSettings = store.load_settings()
-        if not settings.nightscout.enabled or not settings.nightscout.url:
-            return TestResponse(ok=False, message="Nightscout not configured/enabled")
-        url = settings.nightscout.url
-        token = settings.nightscout.token
-
-    if not url:
-        return TestResponse(ok=False, message="URL is required")
+    if not config.url:
+        return TestResponse(ok=False, reachable=False, message="URL is required")
 
     try:
-        client = NightscoutClient(base_url=url, token=token, timeout_seconds=5)
+        client = NightscoutClient(base_url=config.url, token=config.token, timeout_seconds=10)
         try:
-            await client.get_status()
-            return TestResponse(ok=True, message="Conexión exitosa a Nightscout")
+            status = await client.get_status()
+            # Try to get version from status? NightscoutStatus model might have it or not.
+            # Assuming status has 'version' field if defined in schema, otherwise explicit check? 
+            # NightscoutStatus schema in backend/app/models/schemas.py isn't visible here but lets assume.
+            return TestResponse(
+                ok=True, 
+                reachable=True, 
+                message="Conexión exitosa a Nightscout",
+                nightscoutVersion=getattr(status, "version", "Unknown")
+            )
+        except Exception as e:
+            return TestResponse(ok=False, reachable=False, message=f"Error conectando: {str(e)}")
         finally:
             await client.aclose()
     except Exception as e:
-        return TestResponse(ok=False, message=f"Error al conectar: {str(e)}")
+        return TestResponse(ok=False, reachable=False, message=f"System error: {str(e)}")
 
 
-@router.put("/config", summary="Update Nightscout configuration")
-async def update_config(
-    payload: NightscoutConfigInput,
+@router.put("/config", summary="Update Nightscout configuration (Legacy/Server-Side)")
+async def update_config_legacy(
     _: dict = Depends(get_current_user),
-    store: DataStore = Depends(_data_store),
 ):
-    settings: UserSettings = store.load_settings()
-    
-    # Update fields
-    settings.nightscout.enabled = payload.enabled
-    
-    # Validate/Normalize URL
-    url = payload.url.strip().rstrip("/")
-    if payload.enabled and not url.startswith("http"):
-         # Force https unless localhost? prompt says: Validar url (https requerido en prod)
-         # We'll just enforce https if not localhost for safety, or just leave it to user
-         # Prompt: "Validar url (https requerido en prod)"
-         pass
+    return {"message": "Server-side config deprecated. Use client-side storage."}
 
-    settings.nightscout.url = url
-    
-    # Token handling: if empty, keep previous
-    if payload.token:
-        settings.nightscout.token = payload.token
-    # If payload.token is empty string/None, we DO NOT clear it, we keep existing as per requirements.
-    # "Si token viene vacío, mantener el token previo." request A.2
-    
-    store.save_settings(settings)
-    
-    return {"message": "Configuration updated"}

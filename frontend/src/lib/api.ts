@@ -151,8 +151,17 @@ async function apiGet(path: string, token?: string) {
   return data;
 }
 
-export async function getCurrentGlucose(token?: string) {
-  return apiGet("/api/nightscout/current", token);
+export async function getCurrentGlucose(config) {
+  if (!config || !config.url) {
+    return { ok: false, error: "No configurado (local)" };
+  }
+  const response = await apiFetch("/api/nightscout/current", {
+    method: "POST",
+    body: JSON.stringify(config)
+  });
+  const data = await toJson(response);
+  if (!response.ok) throw new Error(data.detail || "Error al obtener glucosa");
+  return data;
 }
 
 export async function testNightscout(config) {

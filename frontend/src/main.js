@@ -179,8 +179,15 @@ function renderDashboard() {
 
   async function updateGlucoseDisplay() {
     glucoseDisplay.innerHTML = '<span class="loading-text">Actualizando...</span>';
+
+    const config = getLocalNsConfig();
+    if (!config || !config.url) {
+      glucoseDisplay.innerHTML = `<span class="bg-error">No configurado (local)</span>`;
+      return;
+    }
+
     try {
-      const res = await getCurrentGlucose();
+      const res = await getCurrentGlucose(config);
       state.currentGlucose.data = res;
       state.currentGlucose.loading = false;
 
@@ -191,7 +198,7 @@ function renderDashboard() {
 
       // Format
       const bgVal = Math.round(res.bg_mgdl);
-      const trendIcon = formatTrend(res.trend, res.stale);
+      const trendIcon = res.trendArrow || formatTrend(res.trend, res.stale);
       const age = Math.round(res.age_minutes);
       const staleClass = res.stale ? "stale" : "fresh";
       const staleText = res.stale ? "ANTIGUO" : "OK";
@@ -219,7 +226,6 @@ function renderDashboard() {
     updateGlucoseDisplay();
     state.currentGlucose.timestamp = Date.now();
   } else {
-    // Render existing state? Or just refresh? Let's just refresh to be safe/simple
     updateGlucoseDisplay();
   }
 
@@ -617,6 +623,21 @@ function renderChangePassword() {
   });
 }
 
+// NS Local Storage Key
+const NS_STORAGE_KEY = "bolusai_ns_config";
+
+function getLocalNsConfig() {
+  try {
+    return JSON.parse(localStorage.getItem(NS_STORAGE_KEY));
+  } catch (e) {
+    return null;
+  }
+}
+
+function saveLocalNsConfig(config) {
+  localStorage.setItem(NS_STORAGE_KEY, JSON.stringify(config));
+}
+
 function renderSettings() {
   if (!ensureAuthenticated()) return;
 
@@ -624,26 +645,21 @@ function renderSettings() {
     ${renderHeader()}
     <main class="page">
       <section class="card">
-        <h2>Configuración Nightscout</h2>
-        <div id="ns-loading">Cargando configuración...</div>
-        <form id="ns-form" class="stack" hidden>
-           <label class="row-label">
-             <input type="checkbox" id="ns-enabled" />
-             Activar integración Nightscout
-           </label>
-           
+        <h2>Configuración Nightscout (Navegador)</h2>
+        <p class="hint">La configuración se guarda en <strong>este dispositivo</strong> para mayor privacidad y persistencia en versión libre.</p>
+        
+        <form id="ns-form" class="stack">
            <label>URL Nightscout
-             <input type="url" id="ns-url" placeholder="https://tusitio.herokuapp.com" />
+             <input type="url" id="ns-url" placeholder="https://tusitio.herokuapp.com" required />
            </label>
            
            <label>Token / API Secret
-             <input type="password" id="ns-token" placeholder="Si no cambias, se mantiene el actual" />
-             <small class="hint">API_SECRET o token de acceso.</small>
+             <input type="password" id="ns-token" placeholder="Dejar vacío si es público" />
            </label>
            
            <div class="actions">
              <button type="button" id="ns-test-btn" class="secondary">Probar conexión</button>
-             <button type="submit">Guardar</button>
+             <button type="submit">Guardar en este navegador</button>
            </div>
            
            <div id="ns-status-box" class="status-box hidden"></div>
@@ -656,37 +672,16 @@ function renderSettings() {
   if (logoutBtn) logoutBtn.addEventListener("click", () => logout());
 
   const form = document.querySelector("#ns-form");
-  const loading = document.querySelector("#ns-loading");
-  const enabledInput = document.querySelector("#ns-enabled");
   const urlInput = document.querySelector("#ns-url");
   const tokenInput = document.querySelector("#ns-token");
   const testBtn = document.querySelector("#ns-test-btn");
   const statusBox = document.querySelector("#ns-status-box");
 
-  // Load current status/config
-  try {
-    getNightscoutStatus().then(status => {
-      enabledInput.checked = status.enabled;
-      urlInput.value = status.url || "";
-      form.hidden = false;
-      loading.hidden = true;
-
-      if (status.ok) {
-        statusBox.textContent = "Estado actual: Conectado correctamente.";
-        statusBox.className = "status-box success";
-      } else if (status.enabled) {
-        statusBox.textContent = `Estado actual: Error de conexión (${status.error || "Desconocido"})`;
-        statusBox.className = "status-box error";
-      } else {
-        statusBox.textContent = "Integración desactivada.";
-        statusBox.className = "status-box neutral";
-      }
-      statusBox.classList.remove("hidden");
-    }).catch(e => {
-      loading.textContent = "Error cargando configuración: " + e.message;
-    });
-  } catch (e) {
-    loading.textContent = "Error cargando configuración: " + e.message;
+  // Load current status/config from LocalStorage
+  const saved = getLocalNsConfig();
+  if (saved) {
+    urlInput.value = saved.url || "";
+    tokenInput.value = saved.token || "";
   }
 
   testBtn.addEventListener("click", async () => {
@@ -695,18 +690,17 @@ function renderSettings() {
     statusBox.classList.remove("hidden");
 
     const config = {
-      enabled: enabledInput.checked,
-      url: urlInput.value,
-      token: tokenInput.value || undefined
+      url: urlInput.value.trim(),
+      token: tokenInput.value.trim()
     };
 
     try {
       const res = await testNightscout(config);
       if (res.ok) {
-        statusBox.textContent = res.message;
+        statusBox.textContent = `Conectado OK. Versión: ${res.nightscoutVersion || "?"}`;
         statusBox.className = "status-box success";
       } else {
-        statusBox.textContent = res.message;
+        statusBox.textContent = res.message || "Error al conectar.";
         statusBox.className = "status-box error";
       }
     } catch (e) {
@@ -717,25 +711,26 @@ function renderSettings() {
 
   form.addEventListener("submit", async (evt) => {
     evt.preventDefault();
-    statusBox.textContent = "Guardando...";
+    statusBox.textContent = "Guardando en local...";
     statusBox.className = "status-box neutral";
     statusBox.classList.remove("hidden");
 
     const config = {
-      enabled: enabledInput.checked,
-      url: urlInput.value,
-      token: tokenInput.value
+      url: urlInput.value.trim(),
+      token: tokenInput.value.trim()
     };
 
-    try {
-      await saveNightscoutConfig(config);
-      statusBox.textContent = "Configuración guardada correctamente.";
-      statusBox.className = "status-box success";
-      tokenInput.value = "";
-    } catch (e) {
-      statusBox.textContent = "Error al guardar: " + e.message;
+    if (!config.url) {
+      statusBox.textContent = "La URL es obligatoria.";
       statusBox.className = "status-box error";
+      return;
     }
+
+    saveLocalNsConfig(config);
+    statusBox.textContent = "Configuración guardada en este navegador.";
+    statusBox.className = "status-box success";
+
+    // Trigger refresh of glucose if possible, or just user goes back
   });
 }
 
