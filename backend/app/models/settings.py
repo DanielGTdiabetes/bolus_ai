@@ -90,6 +90,7 @@ class UserSettings(BaseModel):
     max_bolus_u: float = 10.0
     max_correction_u: float = 5.0
     round_step_u: float = 0.05
+    tdd_u: Optional[float] = Field(default=None, ge=1.0, description="Total Daily Dose typical (U)")
     iob: IOBConfig = Field(default_factory=IOBConfig)
     learning: LearningConfig = Field(default_factory=LearningConfig)
     adaptive: AdaptiveConfig = Field(default_factory=AdaptiveConfig)

@@ -9,7 +9,10 @@ from app.core.security import get_current_user
 from app.core.settings import Settings, get_settings
 from app.models.settings import UserSettings
 from app.models.schemas import NightscoutSGV
-from app.services.bolus import BolusRequestData, BolusResponse, recommend_bolus
+
+from app.models.bolus_v2 import BolusRequestV2, BolusResponseV2, GlucoseUsed
+from app.services.bolus_engine import calculate_bolus_v2
+
 from app.services.iob import compute_iob_from_sources
 from app.services.nightscout_client import NightscoutClient, NightscoutError
 from app.services.store import DataStore
@@ -21,52 +24,24 @@ def _data_store(settings: Settings = Depends(get_settings)) -> DataStore:
     return DataStore(Path(settings.data.data_dir))
 
 
-class BolusRequest(BaseModel):
-    carbs_g: float = Field(ge=0)
-    bg_mgdl: Optional[float] = Field(default=None, ge=0)
-    meal_slot: Literal["breakfast", "lunch", "dinner"]
-    target_mgdl: Optional[float] = Field(default=None, ge=60)
-
-    model_config = ConfigDict(populate_by_name=True, extra="ignore")
-
-
-class GlucoseInfo(BaseModel):
-    mgdl: Optional[float]
-    source: Literal["manual", "nightscout", "none"]
-    trend: Optional[str] = None
-
-
-class BolusRecommendation(BaseModel):
-    upfront_u: float
-    later_u: float
-    delay_min: Optional[int]
-    iob_u: float
-    explain: list[str]
-    # Transparency
-    cr_used: float
-    cf_used: float
-    glucose: GlucoseInfo
-
-
-@router.post("/recommend", response_model=BolusRecommendation, summary="Recommend bolus")
+@router.post("/recommend", response_model=BolusResponseV2, summary="Recommend bolus (V2 Engine)")
 async def recommend(
-    payload: BolusRequest,
+    payload: BolusRequestV2,
     _: dict = Depends(get_current_user),
     store: DataStore = Depends(_data_store),
 ):
     user_settings: UserSettings = store.load_settings()
 
-    explain: list[str] = []
-    
-    # 1. Resolve Glucose
+    # 1. Resolver Glucosa (Manual vs Nightscout)
     resolved_bg: Optional[float] = payload.bg_mgdl
     bg_source: Literal["manual", "nightscout", "none"] = "manual" if resolved_bg is not None else "none"
     bg_trend: Optional[str] = None
-
+    
+    # Init NS Client if needed
     ns_client: Optional[NightscoutClient] = None
     ns_config = user_settings.nightscout
     
-    # Only try Nightscout if manual BG is missing
+    # Priority: Manual > Nightscout (if enabled and manual is None)
     if resolved_bg is None and ns_config.enabled and ns_config.url:
          try:
             ns_client = NightscoutClient(
@@ -78,26 +53,13 @@ async def recommend(
             resolved_bg = float(sgv.sgv)
             bg_source = "nightscout"
             bg_trend = sgv.direction
-            explain.append(f"BG usado: {resolved_bg} mg/dL (Nightscout {sgv.direction or ''})")
-         except Exception as exc:
-            # Fallback
-            explain.append(f"Fallo Nightscout: {str(exc)}. Se ignora corrección.")
-            resolved_bg = None
+         except Exception:
+            # Fallback will be handled by engine (bg=None)
             bg_source = "none"
-    elif resolved_bg is None:
-         explain.append("BG vacío y Nightscout deshabilitado/no configurado.")
+            pass # Engine will handle None BG.
 
-    # 2. IOB Calculation
-    # Note: access IOB using same NS client or new one? 
-    # compute_iob_from_sources creates simple client if passed None but needs URL/token.
-    # We can pass our ns_client if it exists and is open. 
-    # But compute_iob handles client lifecycle internally if None passed?
-    # Actually compute_iob_from_sources takes `nightscout_client` argument.
-    
-    # Re-init client if closed or not created? 
-    # If we created ns_client above, we reuse it.
-    # If not created (manual BG), we might still want IOB from Nightscout!
-    
+    # 2. Calcular IOB
+    # Ensure NS client exists if we need it for IOB (history) even if BG was manual
     if ns_client is None and ns_config.enabled and ns_config.url:
          ns_client = NightscoutClient(
             base_url=ns_config.url,
@@ -109,40 +71,25 @@ async def recommend(
         now = datetime.now(timezone.utc)
         iob_u, breakdown = await compute_iob_from_sources(now, user_settings, ns_client, store)
         
-        # 3. Calculate Bolus
-        bolus_request = BolusRequestData(
-            carbs_g=payload.carbs_g,
-            bg_mgdl=resolved_bg,
-            meal_slot=payload.meal_slot,
-            target_mgdl=payload.target_mgdl,
+        # 3. Llamar al Motor V2
+        glucose_info = GlucoseUsed(
+            mgdl=resolved_bg,
+            source=bg_source,
+            trend=bg_trend
         )
         
-        result: BolusResponse = recommend_bolus(bolus_request, user_settings, iob_u)
+        response = calculate_bolus_v2(
+            request=payload,
+            settings=user_settings,
+            iob_u=iob_u,
+            glucose_info=glucose_info
+        )
         
-        # Merge explains
-        final_explain = explain + result.explain
-        
-        # Add basic IOB info to explain
+        # Enriquecer explain con detalle IOB
         if breakdown:
-            total_events = len(breakdown)
-            final_explain.append(f"IOB basado en {total_events} eventos recientes.")
-        else:
-            final_explain.append("IOB: 0 (Sin historial reciente)")
-
-        return BolusRecommendation(
-            upfront_u=result.upfront_u,
-            later_u=result.later_u,
-            delay_min=result.delay_min,
-            iob_u=result.iob_u,
-            explain=final_explain,
-            cr_used=result.cr_used,
-            cf_used=result.cf_used,
-            glucose=GlucoseInfo(
-                mgdl=resolved_bg,
-                source=bg_source,
-                trend=bg_trend
-            )
-        )
+             response.explain.append(f"   (IOB basado en {len(breakdown)} eventos recientes)")
+        
+        return response
 
     finally:
         if ns_client:
