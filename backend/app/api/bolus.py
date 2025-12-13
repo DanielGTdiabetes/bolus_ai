@@ -40,37 +40,38 @@ async def calculate_bolus_stateless(
     if payload.settings:
         # Construct UserSettings adaptor from payload
         # This allows reusing existing engine logic without rewriting it all
-        from app.models.settings import InsulinSettings, CarbRatioSettings, SensitivitySettings, TargetSettings, IOBSettings, NightscoutSettings
+        from app.models.settings import MealFactors, TargetRange, IOBConfig, NightscoutConfig
         
         # We map meal slots to the structure UserSettings expects
-        cr_settings = CarbRatioSettings(
+        cr_settings = MealFactors(
             breakfast=payload.settings.breakfast.icr,
             lunch=payload.settings.lunch.icr,
             dinner=payload.settings.dinner.icr
         )
-        isf_settings = SensitivitySettings(
+        isf_settings = MealFactors(
             breakfast=payload.settings.breakfast.isf,
             lunch=payload.settings.lunch.isf,
             dinner=payload.settings.dinner.isf
         )
+        
+        # Mean factors (cf = Sensitivity)
+        
         # For targets, UserSettings uses low/mid/high range. We only have single target per slot in stateless.
         # We can set 'mid' to the target of the requested slot, or just mock it.
-        # The engine uses: target = request.target_mgdl or settings.targets.mid
-        # We will ensure request.target_mgdl is populated from the slot if not provided.
-        target_settings = TargetSettings(
+        target_settings = TargetRange(
             low=70, 
-            mid=100, # Placeholder
+            mid=100, 
             high=180
         )
         
-        iob_settings = IOBSettings(
+        iob_settings = IOBConfig(
              dia_hours=payload.settings.dia_hours,
              curve="bilinear", # Default
              peak_minutes=75 
         )
         
         # NS from payload
-        ns_settings = NightscoutSettings(
+        ns_settings = NightscoutConfig(
             enabled=bool(payload.nightscout and payload.nightscout.url),
             url=payload.nightscout.url if payload.nightscout else "",
             token=payload.nightscout.token if payload.nightscout else ""
@@ -87,7 +88,7 @@ async def calculate_bolus_stateless(
             round_step_u=payload.settings.round_step_u
         )
         
-        # Pre-fill target from slot if not in request
+        # Pre-fill target from slot if not in request (handled by engine mostly, but good to have)
         if payload.target_mgdl is None:
              slot_profile = getattr(payload.settings, payload.meal_slot)
              payload.target_mgdl = slot_profile.target
