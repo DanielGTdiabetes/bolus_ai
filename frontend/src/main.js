@@ -28,8 +28,10 @@ const state = {
   visionError: null,
 };
 
-// ... existing code ...
+const app = document.getElementById("app");
 
+// --- RENDER DASHBOARD ---
+// Unified single definition of renderDashboard
 function renderDashboard() {
   if (!ensureAuthenticated()) return;
   const needsChange = state.user?.needs_password_change;
@@ -90,7 +92,6 @@ function renderDashboard() {
       </section>
 
       <section class="card">
-        <!-- ... existing health card ... -->
         <div class="card-header">
           <h2>Estado del backend</h2>
           <button id="health-btn" class="ghost">Comprobar</button>
@@ -103,7 +104,6 @@ function renderDashboard() {
           <h2>Calculadora manual</h2>
           <button id="change-password-link" class="ghost">Cambiar contraseña</button>
         </div>
-        <!-- ... existing bolus form ... -->
         <form id="bolus-form" class="stack">
           <label>Carbohidratos (g)
             <input type="number" step="0.1" id="carbs" required />
@@ -255,7 +255,6 @@ function renderDashboard() {
     const useBtn = document.querySelector("#use-vision-btn");
     useBtn.onclick = () => {
       document.querySelector("#carbs").value = data.carbs_estimate_g;
-      document.querySelector("#meal-slot").value = "lunch"; // Default or dynamic? User might have changed it in vision form.
       // We set the form meal_slot to match vision selection
       document.querySelector("#meal-slot").value = document.querySelector("#vision-meal-slot").value;
 
@@ -521,7 +520,7 @@ function renderChangePassword() {
   });
 }
 
-async function renderSettings() {
+function renderSettings() {
   if (!ensureAuthenticated()) return;
 
   app.innerHTML = `
@@ -569,25 +568,28 @@ async function renderSettings() {
 
   // Load current status/config
   try {
-    const status = await getNightscoutStatus();
-    enabledInput.checked = status.enabled;
-    urlInput.value = status.url || "";
-    // Token is hidden
+    getNightscoutStatus().then(status => {
+      enabledInput.checked = status.enabled;
+      urlInput.value = status.url || "";
+      // Token is hidden
 
-    form.hidden = false;
-    loading.hidden = true;
+      form.hidden = false;
+      loading.hidden = true;
 
-    if (status.ok) {
-      statusBox.textContent = "Estado actual: Conectado correctamente.";
-      statusBox.className = "status-box success";
-    } else if (status.enabled) {
-      statusBox.textContent = `Estado actual: Error de conexión (${status.error || "Desconocido"})`;
-      statusBox.className = "status-box error";
-    } else {
-      statusBox.textContent = "Integración desactivada.";
-      statusBox.className = "status-box neutral";
-    }
-    statusBox.classList.remove("hidden");
+      if (status.ok) {
+        statusBox.textContent = "Estado actual: Conectado correctamente.";
+        statusBox.className = "status-box success";
+      } else if (status.enabled) {
+        statusBox.textContent = `Estado actual: Error de conexión (${status.error || "Desconocido"})`;
+        statusBox.className = "status-box error";
+      } else {
+        statusBox.textContent = "Integración desactivada.";
+        statusBox.className = "status-box neutral";
+      }
+      statusBox.classList.remove("hidden");
+    }).catch(e => {
+      loading.textContent = "Error cargando configuración: " + e.message;
+    });
   } catch (e) {
     loading.textContent = "Error cargando configuración: " + e.message;
   }
@@ -600,14 +602,8 @@ async function renderSettings() {
     const config = {
       enabled: enabledInput.checked,
       url: urlInput.value,
-      token: tokenInput.value || undefined // send undefined (or empty string?) if empty. 
-      // If empty string, backend might try to auth with empty string. 
-      // If the user wants to test with SAVED token, they should probably save first? 
-      // Or we can handle logic. Backend 'test' uses saved logic if payload token is empty BUT we want to support 'test what I typed'.
-      // If I type nothing, I mean "use saved". If I type something, use that.
+      token: tokenInput.value || undefined
     };
-    // If token is empty string, we should send null/undefined so backend uses saved?
-    // Our backend logic: if payload present, checks payload.token. If payload.token is falsey, it tries to load saved. So sending "" is fine.
 
     try {
       const res = await testNightscout(config);
@@ -633,7 +629,7 @@ async function renderSettings() {
     const config = {
       enabled: enabledInput.checked,
       url: urlInput.value,
-      token: tokenInput.value // Send empty string if empty, backend handles "keep previous"
+      token: tokenInput.value
     };
 
     try {
@@ -645,117 +641,6 @@ async function renderSettings() {
     } catch (e) {
       statusBox.textContent = "Error al guardar: " + e.message;
       statusBox.className = "status-box error";
-    }
-  });
-}
-
-function renderDashboard() {
-  if (!ensureAuthenticated()) return;
-  const needsChange = state.user?.needs_password_change;
-  app.innerHTML = `
-    ${renderHeader()}
-    <main class="page">
-      ${needsChange ? '<div class="warning">Debes cambiar la contraseña predeterminada.</div>' : ""}
-      <section class="card">
-        <div class="card-header">
-          <h2>Estado del backend</h2>
-          <button id="health-btn" class="ghost">Comprobar</button>
-        </div>
-        <pre id="health-output">${state.healthStatus}</pre>
-      </section>
-      <section class="card">
-        <div class="card-header">
-          <h2>Nuevo cálculo</h2>
-          <button id="change-password-link" class="ghost">Cambiar contraseña</button>
-        </div>
-        <form id="bolus-form" class="stack">
-          <label>Carbohidratos (g)
-            <input type="number" step="0.1" id="carbs" required />
-          </label>
-          <label>Glucosa (mg/dL, opcional)
-            <input type="number" step="1" id="bg" placeholder="Dejar vacío para usar Nightscout" />
-          </label>
-          <label>Franja
-            <select id="meal-slot">
-              <option value="breakfast">Desayuno</option>
-              <option value="lunch" selected>Comida</option>
-              <option value="dinner">Cena</option>
-            </select>
-          </label>
-          <label>Objetivo (mg/dL, opcional)
-            <input type="number" step="1" id="target" />
-          </label>
-          <button type="submit">Calcular</button>
-          <p class="error" id="bolus-error" ${state.bolusError ? "" : "hidden"}>${state.bolusError || ""}</p>
-        </form>
-        <pre id="bolus-output">${state.bolusResult || "Pendiente de cálculo."}</pre>
-        <div id="bolus-explain" class="explain" hidden>
-          <h3>Detalles del cálculo</h3>
-          <ul id="explain-list"></ul>
-        </div>
-      </section>
-      <p class="hint">API base: <code>${getApiBase() || "(no configurado)"}</code></p>
-    </main>
-  `;
-
-  const logoutBtn = document.querySelector("#logout-btn");
-  if (logoutBtn) logoutBtn.addEventListener("click", () => logout());
-
-  document.querySelector("#health-btn").addEventListener("click", async () => {
-    const output = document.querySelector("#health-output");
-    output.textContent = "Consultando...";
-    try {
-      const health = await fetchHealth();
-      state.healthStatus = JSON.stringify(health, null, 2);
-      output.textContent = state.healthStatus;
-    } catch (error) {
-      state.healthStatus = `Error: ${error.message}`;
-      output.textContent = state.healthStatus;
-    }
-  });
-
-  document.querySelector("#change-password-link").addEventListener("click", () => navigate("#/change-password"));
-
-  const bolusForm = document.querySelector("#bolus-form");
-  const explainBlock = document.querySelector("#bolus-explain");
-  const explainList = document.querySelector("#explain-list");
-  const bolusOutput = document.querySelector("#bolus-output");
-  const bolusError = document.querySelector("#bolus-error");
-
-  bolusForm.addEventListener("submit", async (evt) => {
-    evt.preventDefault();
-    bolusError.hidden = true;
-    explainBlock.hidden = true;
-    explainList.innerHTML = "";
-    bolusOutput.textContent = "Calculando...";
-
-    const payload = {
-      carbs_g: parseFloat(document.querySelector("#carbs").value || "0"),
-      meal_slot: document.querySelector("#meal-slot").value,
-    };
-    const bg = document.querySelector("#bg").value;
-    if (bg) payload.bg_mgdl = parseFloat(bg);
-    const target = document.querySelector("#target").value;
-    if (target) payload.target_mgdl = parseFloat(target);
-
-    try {
-      const data = await recommendBolus(payload);
-      state.bolusError = "";
-      state.bolusResult = `Bolo recomendado: ${data.upfront_u} U (IOB: ${data.iob_u.toFixed(2)} U)`;
-      bolusOutput.textContent = state.bolusResult;
-      if (Array.isArray(data.explain) && data.explain.length) {
-        explainBlock.hidden = false;
-        data.explain.forEach((item) => {
-          const li = document.createElement("li");
-          li.textContent = item;
-          explainList.appendChild(li);
-        });
-      }
-    } catch (error) {
-      state.bolusError = error.message;
-      bolusError.textContent = state.bolusError;
-      bolusError.hidden = false;
-      bolusOutput.textContent = "";
     }
   });
 }
