@@ -1,13 +1,14 @@
+import logging
 import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
-from pydantic import ValidationError
-
+from pydantic import BaseModel
 from app.core.security import get_current_user
 from app.core.settings import get_settings, Settings
+from app.core.config import get_vision_provider, get_google_api_key, get_gemini_model
 from app.models.settings import UserSettings
 from app.models.vision import (
     VisionEstimateRequest,
@@ -17,14 +18,22 @@ from app.models.vision import (
 )
 from app.services.bolus import BolusRequestData, BolusResponse, recommend_bolus
 from app.services.iob import compute_iob_from_sources
-from app.services.nightscout_client import NightscoutClient, NightscoutError
+from app.services.nightscout_client import NightscoutClient
 from app.services.store import DataStore
 from app.services.vision import estimate_meal_from_image, calculate_extended_split
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 # Rate limiting: user_id -> list of timestamps
 _rate_limits: dict[str, list[float]] = {}
+
+
+class VisionStatus(BaseModel):
+    provider: str
+    configured: bool
+    has_api_key: bool
+    model: str
 
 
 def _check_rate_limit(username: str):
@@ -48,7 +57,29 @@ def _data_store(settings: Settings = Depends(get_settings)) -> DataStore:
     return DataStore(Path(settings.data.data_dir))
 
 
-@router.post("/estimate", response_model=VisionEstimateResponse, summary="Estimate carbs and bolus from image")
+@router.get("/status", response_model=VisionStatus, summary="Get vision provider status")
+def get_vision_status():
+    provider = get_vision_provider()
+    has_key = False
+    model = ""
+    
+    if provider == "gemini":
+        has_key = bool(get_google_api_key())
+        model = get_gemini_model()
+    elif provider == "openai":
+        settings = get_settings()
+        has_key = bool(settings.vision.openai_api_key)
+        model = "gpt-4o"
+    
+    return VisionStatus(
+        provider=provider,
+        configured=(provider != "none" and has_key),
+        has_api_key=has_key,
+        model=model
+    )
+
+
+@router.post("/estimate", response_model=VisionEstimateResponse, summary="Estimate carbs from image")
 async def estimate_from_image(
     image: UploadFile = File(...),
     # Optional fields form-encoded
@@ -62,17 +93,26 @@ async def estimate_from_image(
     settings: Settings = Depends(get_settings),
     store: DataStore = Depends(_data_store),
 ):
+    start_ts = time.time()
     username = current_user["username"]
     _check_rate_limit(username)
 
-    # 1. Image validation
-    if settings.vision.provider.lower() == "gemini":
-        if not settings.vision.google_api_key:
-            raise HTTPException(status_code=503, detail="Gemini API Key not configured")
+    provider = get_vision_provider()
+    
+    # 1. Validation using new config helpers
+    if provider == "gemini":
+        if not get_google_api_key():
+             logger.warning(f"Vision request failed: missing Google API Key (provider={provider})")
+             raise HTTPException(status_code=501, detail="missing_google_api_key: Gemini API Key not configured")
+    elif provider == "openai":
+         if not settings.vision.openai_api_key:
+             logger.warning(f"Vision request failed: missing OpenAI API Key (provider={provider})")
+             raise HTTPException(status_code=501, detail="OpenAI API Key not configured")
     else:
-        if not settings.vision.openai_api_key:
-            raise HTTPException(status_code=503, detail="OpenAI API Key not configured")
+         logger.warning(f"Vision request failed: unknown/disabled provider ({provider})")
+         raise HTTPException(status_code=501, detail=f"Vision provider not configured (current: {provider})")
 
+    # Image Size Check
     max_bytes = settings.vision.max_image_mb * 1024 * 1024
     if image.size and image.size > max_bytes:
         raise HTTPException(status_code=413, detail=f"Image too large (> {settings.vision.max_image_mb}MB)")
@@ -80,10 +120,13 @@ async def estimate_from_image(
     if image.content_type not in ["image/jpeg", "image/png", "image/webp"]:
          raise HTTPException(status_code=415, detail="Unsupported image type")
 
-    # Read bytes (in memory)
+    # Read bytes
     content = await image.read()
+    size_mb = len(content) / (1024 * 1024)
     if len(content) > max_bytes:
          raise HTTPException(status_code=413, detail=f"Image too large (> {settings.vision.max_image_mb}MB)")
+
+    logger.info(f"Vision Analysis Start: provider={provider}, user={username}, size={size_mb:.2f}MB, slot={meal_slot}")
 
     # 2. Vision Estimation
     hints = {
@@ -91,10 +134,23 @@ async def estimate_from_image(
         "portion_hint": portion_hint,
     }
     
+    # Update settings with our resolved env vars to ensure service uses them
+    # (Since service logic often reads from settings object)
+    if provider == "gemini":
+        # Hack/Patch: inject the key so generic calling code works
+        settings.vision.provider = "gemini" 
+        settings.vision.google_api_key = get_google_api_key()
+    
     try:
         estimate = await estimate_meal_from_image(content, image.content_type, hints, settings)
+        duration = (time.time() - start_ts) * 1000
+        logger.info(f"Vision Analysis Success: user={username}, carbs={estimate.carbs_estimate_g}g, time={duration:.0f}ms")
     except RuntimeError as e:
+        logger.error(f"Vision Analysis Error: {e}")
         raise HTTPException(status_code=503, detail=str(e))
+    except Exception as e:
+        logger.exception("Unexpected error in vision analysis")
+        raise HTTPException(status_code=500, detail="Internal server error during analysis")
 
     # 3. Bolus Calculation Context
     user_settings: UserSettings = store.load_settings()
@@ -106,20 +162,19 @@ async def estimate_from_image(
     if resolved_bg is None:
         ns_config = user_settings.nightscout
         if ns_config.enabled and ns_config.url:
-            ns_client = NightscoutClient(
+            ns_client_iob = NightscoutClient(
                 base_url=ns_config.url,
                 token=ns_config.token,
                 timeout_seconds=5
             )
             try:
-                sgv = await ns_client.get_latest_sgv()
+                sgv = await ns_client_iob.get_latest_sgv()
                 resolved_bg = float(sgv.sgv)
                 ns_source = "nightscout"
             except Exception:
-                # Nightscout failed, we continue without BG (will result in requests input or using default target)
                 pass
             finally:
-                await ns_client.aclose()
+                await ns_client_iob.aclose()
 
     estimate.glucose_used = GlucoseUsed(
         mgdl=resolved_bg, 
@@ -127,10 +182,6 @@ async def estimate_from_image(
     )
 
     # 3b. Compute IOB
-    # We need a client again or reuse logic? compute_iob_from_sources creates/uses client if passed.
-    # Let's instantiate client again if needed. Ideally we should have used context manager above.
-    # Simpler: create client once.
-    
     ns_client_iob = None
     ns_config = user_settings.nightscout
     if ns_config.enabled and ns_config.url:

@@ -16,5 +16,6 @@ api_router.include_router(settings_router, prefix="/settings", tags=["settings"]
 api_router.include_router(changes_router, prefix="/changes", tags=["changes"])
 api_router.include_router(bolus_router, prefix="/bolus", tags=["bolus"])
 api_router.include_router(vision_router, prefix="/vision", tags=["vision"])
+api_router.include_router(vision_router, prefix="/photo", tags=["vision"], include_in_schema=False)
 
 __all__ = ["api_router"]
