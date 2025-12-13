@@ -47,6 +47,30 @@ async def estimate_meal_from_image(
         data = await _estimate_with_openai(image_bytes, mime_type, hints, settings)
 
     return _parse_estimation_data(data)
+
+
+def _parse_estimation_data(data: dict) -> VisionEstimateResponse:
+    items = [FoodItemEstimate(**item) for item in data.get("items", [])]
+    total_g = sum(i.carbs_g for i in items)
+    
+    conf = data.get("confidence", "low")
+    margin = 0.3 if conf == "low" else (0.2 if conf == "medium" else 0.1)
+    
+    range_min = round(total_g * (1 - margin))
+    range_max = round(total_g * (1 + margin))
+
+    return VisionEstimateResponse(
+        carbs_estimate_g=total_g,
+        carbs_range_g=(range_min, range_max),
+        confidence=conf,
+        items=items,
+        fat_score=data.get("fat_score", 0.0),
+        slow_absorption_score=data.get("slow_absorption_score", 0.0),
+        assumptions=data.get("assumptions", []),
+        needs_user_input=data.get("needs_user_input", []),
+        glucose_used=GlucoseUsed(mgdl=None, source=None),
+        bolus=None
+    )
 # ... lines omitted ...
 async def _estimate_with_gemini(image_bytes: bytes, mime_type: str, hints: dict, settings: Settings) -> dict:
     api_key = settings.vision.google_api_key
