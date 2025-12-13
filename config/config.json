@@ -1,6 +1,6 @@
 {
   "nightscout": {
-    "base_url": "https://TU-NIGHTSCOUT",
+    "base_url": "https://example.com",
     "api_secret": "",
     "token": "",
     "timeout_seconds": 10
@@ -8,5 +8,15 @@
   "server": {
     "host": "0.0.0.0",
     "port": 8000
+  },
+  "security": {
+    "jwt_secret": "please-change-this-secret",
+    "jwt_issuer": "bolus-ai",
+    "access_token_minutes": 15,
+    "refresh_token_days": 7,
+    "cors_origins": ["http://localhost:5173", "http://localhost:8080"]
+  },
+  "data": {
+    "data_dir": "data"
   }
 }

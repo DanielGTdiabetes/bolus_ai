@@ -8,6 +8,7 @@ services:
       - .env
     environment:
       CONFIG_PATH: /app/config/config.json
+      JWT_SECRET: ${JWT_SECRET:-please-change-this-secret}
     volumes:
       - ./config/config.json:/app/config/config.json:ro
     ports:
