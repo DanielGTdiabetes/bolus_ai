@@ -36,15 +36,15 @@ bolus-ai/
 
 ## Despliegue en Render
 
-1. Crea los servicios desde `render.yaml` (Blueprint). Render creará:
-   - **Web Service** `bolus-ai-backend` usando `backend/Dockerfile`, con `healthCheckPath=/api/health` y disco persistente montado en `/var/data`.
-   - **Static Site** `bolus-ai-frontend` que ejecuta `npm ci && npm run build` en `frontend/` y publica `frontend/dist`.
-2. Variables de entorno recomendadas:
-   - `JWT_SECRET` (obligatoria, marcar como *Sync: false* en Render).
-   - `DATA_DIR=/var/data` (ya definido en `render.yaml`).
-   - `NIGHTSCOUT_URL` (opcional, si conectas con Nightscout).
-   - `VITE_API_BASE_URL` en el Static Site (Render la rellenará automáticamente con la URL del backend gracias a `render.yaml`; si falla, asígnala manualmente a la URL HTTPS del backend).
-3. HTTPS es obligatorio: usa siempre la URL `https://...onrender.com` al configurar el frontend y Nightscout.
+1. Crea los servicios desde `render.yaml` (Blueprint). Render generará un **Web Service** `bolus-ai-backend` con entorno **python** (build con `pip install -r backend/requirements.txt`, start `uvicorn app.main:app --host 0.0.0.0 --port $PORT`, `healthCheckPath=/api/health`, región Frankfurt, plan Starter) y un **Static Site** `bolus-ai-frontend` que ejecuta `npm ci && npm run build` en `frontend/` y publica `frontend/dist`.
+2. Configura las variables de entorno del backend:
+   - `JWT_SECRET`: márcala como *Sync: false* y usa **Generate** en Render.
+   - `NIGHTSCOUT_URL`: opcional, deja `""` si no se usa.
+   - `DATA_DIR=/var/data`: ya viene definido en el blueprint.
+3. El backend necesita persistencia: `render.yaml` monta el disco `bolus-data` en `/var/data` (1 GB). Déjalo habilitado para conservar `settings.json`, `users.json`, etc.
+4. El frontend obtiene `VITE_API_BASE_URL` automáticamente desde el servicio backend gracias a `fromService: property: url`; no necesitas configurarlo a mano salvo que anules la URL.
+5. Enrutamiento SPA: el archivo `frontend/public/_redirects` (copiado automáticamente a `frontend/dist/_redirects` por Vite) fuerza el rewrite `/* -> /index.html 200`, necesario para que Render sirva correctamente las rutas del frontend.
+6. HTTPS es obligatorio: usa siempre la URL `https://...onrender.com` para el frontend y cualquier integración externa.
 
 ## Datos y persistencia
 - En local, el backend guarda los JSON en `backend/data` (o en la ruta indicada por `DATA_DIR`).
