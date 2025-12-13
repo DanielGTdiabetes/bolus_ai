@@ -2,18 +2,13 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1 \
-    PORT=8000
+ENV DATA_DIR=/tmp/data
 
-COPY requirements.txt ./
+COPY backend/requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY . .
+COPY backend/ .
 
-# Default config fallback
-RUN mkdir -p /app/config && if [ ! -f /app/config/config.json ]; then cp /app/../config/config.example.json /app/config/config.json; fi || true
+RUN mkdir -p "${DATA_DIR}"
 
-EXPOSE 8000
-
-CMD ["/bin/sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT}"]
+CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
