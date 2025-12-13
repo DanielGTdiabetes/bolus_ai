@@ -71,6 +71,7 @@ class LearningConfig(BaseModel):
 class IOBConfig(BaseModel):
     dia_hours: float = Field(default=4.0, gt=0)
     curve: Literal["walsh", "bilinear"] = "walsh"
+    peak_minutes: int = Field(default=75, ge=10, le=300)
 
 
 class UserSettings(BaseModel):
@@ -80,6 +81,7 @@ class UserSettings(BaseModel):
     cr: MealFactors = Field(default_factory=MealFactors)
     max_bolus_u: float = 10.0
     max_correction_u: float = 5.0
+    round_step_u: float = 0.05
     iob: IOBConfig = Field(default_factory=IOBConfig)
     learning: LearningConfig = Field(default_factory=LearningConfig)
     adaptive: AdaptiveConfig = Field(default_factory=AdaptiveConfig)

@@ -38,6 +38,27 @@ h1 {
   border: 1px solid #e2e8f0;
 }
 
+form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+label {
+  display: flex;
+  flex-direction: column;
+  font-weight: 600;
+  color: #0f172a;
+}
+
+input,
+select {
+  margin-top: 0.25rem;
+  padding: 0.5rem;
+  border-radius: 6px;
+  border: 1px solid #cbd5e1;
+}
+
 button {
   padding: 0.6rem 1rem;
   background: #2563eb;

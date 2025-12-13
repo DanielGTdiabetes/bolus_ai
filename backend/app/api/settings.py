@@ -2,18 +2,17 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from app.core.datastore import ChangeStore, JsonStore, UserStore
+from app.core.datastore import ChangeStore, UserStore
 from app.core.security import auth_required
 from app.core.settings import Settings, get_settings
 from app.models.settings import UserSettings
+from app.services.store import DataStore
 
 router = APIRouter()
 
 
-def _settings_store(settings: Settings = Depends(get_settings)) -> JsonStore:
-    path = Path(settings.data.data_dir) / "settings.json"
-    default = UserSettings.default().dict()
-    return JsonStore(path, default)
+def _data_store(settings: Settings = Depends(get_settings)) -> DataStore:
+    return DataStore(Path(settings.data.data_dir))
 
 
 def _changes_store(settings: Settings = Depends(get_settings)) -> ChangeStore:
@@ -36,11 +35,11 @@ def _require_admin(username: str = Depends(auth_required), users: UserStore = De
 @router.get("/", response_model=UserSettings, summary="Get settings")
 async def get_settings_endpoint(
     _: str = Depends(auth_required),
-    store: JsonStore = Depends(_settings_store),
+    store: DataStore = Depends(_data_store),
 ):
-    data = store.load()
+    data = store.load_settings()
     try:
-        return UserSettings.migrate(data)
+        return data
     except Exception:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Invalid settings file")
 
@@ -49,10 +48,10 @@ async def get_settings_endpoint(
 async def update_settings_endpoint(
     payload: UserSettings,
     username: str = Depends(_require_admin),
-    store: JsonStore = Depends(_settings_store),
+    store: DataStore = Depends(_data_store),
     changes: ChangeStore = Depends(_changes_store),
 ):
-    store.save(payload.dict())
+    store.save_settings(payload)
     history = changes.load()
     history.append({"by": username, "timestamp": __import__("datetime").datetime.utcnow().isoformat(), "summary": "Settings updated"})
     changes.save(history)
