@@ -6,6 +6,7 @@ from typing import Optional
 from openai import AsyncOpenAI
 
 from app.core.settings import Settings
+from app.core.config import get_gemini_model
 from app.models.vision import FoodItemEstimate, VisionEstimateResponse, GlucoseUsed
 
 logger = logging.getLogger(__name__)
@@ -46,69 +47,7 @@ async def estimate_meal_from_image(
         data = await _estimate_with_openai(image_bytes, mime_type, hints, settings)
 
     return _parse_estimation_data(data)
-
-
-def _parse_estimation_data(data: dict) -> VisionEstimateResponse:
-    items = [FoodItemEstimate(**item) for item in data.get("items", [])]
-    total_g = sum(i.carbs_g for i in items)
-    
-    conf = data.get("confidence", "low")
-    margin = 0.3 if conf == "low" else (0.2 if conf == "medium" else 0.1)
-    
-    range_min = round(total_g * (1 - margin))
-    range_max = round(total_g * (1 + margin))
-
-    return VisionEstimateResponse(
-        carbs_estimate_g=total_g,
-        carbs_range_g=(range_min, range_max),
-        confidence=conf,
-        items=items,
-        fat_score=data.get("fat_score", 0.0),
-        slow_absorption_score=data.get("slow_absorption_score", 0.0),
-        assumptions=data.get("assumptions", []),
-        needs_user_input=data.get("needs_user_input", []),
-        glucose_used=GlucoseUsed(mgdl=None, source=None),
-        bolus=None
-    )
-
-
-async def _estimate_with_openai(image_bytes: bytes, mime_type: str, hints: dict, settings: Settings) -> dict:
-    api_key = settings.vision.openai_api_key
-    if not api_key:
-        raise RuntimeError("OpenAI API Key not configured")
-
-    client = AsyncOpenAI(api_key=api_key, timeout=settings.vision.timeout_seconds)
-
-    b64_image = base64.b64encode(image_bytes).decode("utf-8")
-    data_url = f"data:{mime_type};base64,{b64_image}"
-
-    user_prompt = _build_user_prompt(hints)
-
-    try:
-        response = await client.chat.completions.create(
-            model="gpt-4o",
-            messages=[
-                {"role": "system", "content": PROMPT_SYSTEM},
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": user_prompt},
-                        {"type": "image_url", "image_url": {"url": data_url}},
-                    ],
-                },
-            ],
-            response_format={"type": "json_object"},
-            temperature=0.0,
-            max_tokens=1000,
-        )
-    except Exception as exc:
-        logger.error("OpenAI error", exc_info=True)
-        raise RuntimeError(f"OpenAI error: {str(exc)}") from exc
-
-    content = response.choices[0].message.content
-    return _safe_json_load(content)
-
-
+# ... lines omitted ...
 async def _estimate_with_gemini(image_bytes: bytes, mime_type: str, hints: dict, settings: Settings) -> dict:
     api_key = settings.vision.google_api_key
     if not api_key:
@@ -130,7 +69,8 @@ async def _estimate_with_gemini(image_bytes: bytes, mime_type: str, hints: dict,
         HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_ONLY_HIGH,
     }
 
-    model = genai.GenerativeModel("gemini-1.5-flash", generation_config=generation_config, safety_settings=safety_settings)
+    model_name = get_gemini_model()
+    model = genai.GenerativeModel(model_name, generation_config=generation_config, safety_settings=safety_settings)
 
     user_prompt = _build_user_prompt(hints)
     
