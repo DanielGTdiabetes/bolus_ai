@@ -66,8 +66,12 @@ async def estimate_from_image(
     _check_rate_limit(username)
 
     # 1. Image validation
-    if not settings.vision.openai_api_key:
-         raise HTTPException(status_code=503, detail="Vision provider not configured (missing API Key)")
+    if settings.vision.provider.lower() == "gemini":
+        if not settings.vision.google_api_key:
+            raise HTTPException(status_code=503, detail="Gemini API Key not configured")
+    else:
+        if not settings.vision.openai_api_key:
+            raise HTTPException(status_code=503, detail="OpenAI API Key not configured")
 
     max_bytes = settings.vision.max_image_mb * 1024 * 1024
     if image.size and image.size > max_bytes:

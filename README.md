@@ -110,6 +110,7 @@ El sistema incluye una función experimental para estimar carbohidratos a partir
 ### Configuración requerida
 Para que funcione, debes configurar la siguiente variable de entorno en el backend (o en Render):
 - `OPENAI_API_KEY`: Tu clave de API de OpenAI (debe tener acceso a GPT-4o / Vision).
+- **Alternativa**: Consulta `docs/VISION_SETUP.md` para usar **Google Gemini** (opción gratuita y rápida).
 
 ### Funcionamiento
 1. Sube una imagen desde la dashboard ("Foto del plato").
