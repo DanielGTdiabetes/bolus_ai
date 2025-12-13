@@ -88,7 +88,7 @@ class UserSettings(BaseModel):
 
     @classmethod
     def migrate(cls, data: dict) -> "UserSettings":
-        return cls.parse_obj(data)
+        return cls.model_validate(data)
 
     @classmethod
     def default(cls) -> "UserSettings":
