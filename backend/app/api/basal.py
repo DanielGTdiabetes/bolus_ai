@@ -89,39 +89,39 @@ async def create_checkin(
     """
     Obtiene BG de Nightscout, guarda check-in diario y analiza tendencia.
     """
-    # 1. Fetch from Nightscout
-    ns_url = payload.nightscout_url.rstrip('/')
-    url = f"{ns_url}/api/v1/entries/current.json"
-    headers = {}
-    if payload.nightscout_token:
-        headers["Authorization"] = f"Bearer {payload.nightscout_token}"
+    # 1. Fetch from Nightscout using robust Client
+    from app.services.nightscout_client import NightscoutClient, NightscoutError, NightscoutSGV
     
     bg_val = 0.0
     age_min = 0
     direction = ""
     timestamp = None
     
+    # Initialize client (it handles token/secret headers internally)
+    # The client expects base_url and token.
+    ns_client = NightscoutClient(
+        base_url=payload.nightscout_url,
+        token=payload.nightscout_token
+    )
+    
     try:
-        async with httpx.AsyncClient() as client:
-            resp = await client.get(url, headers=headers, timeout=10)
-            resp.raise_for_status()
-            data = resp.json()
-            if isinstance(data, list) and len(data) > 0:
-                data = data[0]
-            
-            sgv = data.get('sgv')
-            direction = data.get('direction')
-            timestamp = data.get('date') # ms
-            
-            if not sgv:
-                raise ValueError("No SGV in response")
-                
-            now_ms = datetime.utcnow().timestamp() * 1000
-            age_min = int((now_ms - timestamp) / 60000) if timestamp else 0
-            bg_val = float(sgv)
-            
+        # Re-use known working method: get_latest_sgv() calls /api/v1/entries/sgv.json?count=1
+        sgv_data: NightscoutSGV = await ns_client.get_latest_sgv()
+        
+        # sgv_data is a Pydantic model: { sgv: int, direction: str, dateString: str, date: int, ... }
+        bg_val = float(sgv_data.sgv)
+        direction = sgv_data.direction or ""
+        timestamp = sgv_data.date # milliseconds
+        
+        now_ms = datetime.utcnow().timestamp() * 1000
+        age_min = int((now_ms - timestamp) / 60000) if timestamp else 0
+        
+    except NightscoutError as ne:
+        raise HTTPException(status_code=400, detail=f"Nightscout Error: {str(ne)}")
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Nightscout Error: {str(e)}")
+        raise HTTPException(status_code=400, detail=f"Unexpected Error fetching BG: {str(e)}")
+    finally:
+        await ns_client.aclose()
 
     # 2. Save Checkin
     checkin_date = date.today()
