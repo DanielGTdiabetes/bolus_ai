@@ -1,10 +1,8 @@
 from typing import Literal, Optional, List
-from pydantic import BaseModel, Field, root_validator, validator
+from pydantic import BaseModel, Field, model_validator
 import uuid
 
 # --- SHARED / EXISTING RE-DEFINITIONS (if needed) ---
-# We might want to reuse existing models if available, but for now defining here for containment
-# as requested by "Añadir modelos Pydantic (schemas)"
 
 class ManualSplit(BaseModel):
     now_u: float = Field(..., ge=0)
@@ -13,10 +11,8 @@ class ManualSplit(BaseModel):
 
 class DualSplit(BaseModel):
     percent_now: int = Field(..., ge=10, le=90)
-    duration_min: int = Field(120, ge=30, le=480) # extended duration
-    later_after_min: int = Field(60, ge=15, le=360) # when to remind next part? or just duration?
-    # Usually dual wave implies spread over duration. manual split implies "take X now, take Y later".
-    # The prompt says: later_after_min default 60.
+    duration_min: int = Field(120, ge=30, le=480) 
+    later_after_min: int = Field(60, ge=15, le=360) 
 
 class BolusPlanRequest(BaseModel):
     mode: Literal["manual", "dual"]
@@ -26,37 +22,14 @@ class BolusPlanRequest(BaseModel):
     manual: Optional[ManualSplit] = None
     dual: Optional[DualSplit] = None
 
-    @validator("manual")
-    def validate_manual(cls, v, values):
-        if values.get("mode") == "manual" and not v:
+    @model_validator(mode='after')
+    def validate_required_fields(self):
+        if self.mode == "manual" and not self.manual:
             raise ValueError("Manual split details required for mode='manual'")
-        return v
-
-    @validator("dual")
-    def validate_dual(cls, v, values):
-        if values.get("mode") == "dual" and not v:
+        if self.mode == "dual" and not self.dual:
             raise ValueError("Dual split details required for mode='dual'")
-        return v
-    
-    @root_validator(skip_on_failure=True)
-    def validate_totals(cls, values):
-        mode = values.get("mode")
-        total = values.get("total_recommended_u")
-        step = values.get("round_step_u", 0.1)
-        
-        if mode == "manual":
-            m = values.get("manual")
-            if m:
-                s = m.now_u + m.later_u
-                # Tolerance check
-                if abs(s - total) > step + 0.001: 
-                    # Providing a bit of float epsilon, but strictness requested: 
-                    # "now_u + later_u debe aproximar total_recommended_u con tolerancia <= round_step_u"
-                    # Wait, if step is 0.5, and I split 8.0 into 4.0 and 4.0, sum is 8.0.
-                    # If I split 8.0 into 4.0 and 3.5, sum is 7.5. Diff is 0.5. OK.
-                    pass
-                
-        return values
+        return self
+
 
 class BolusPlanResponse(BaseModel):
     plan_id: str
