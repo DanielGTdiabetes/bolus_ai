@@ -207,6 +207,10 @@ export async function estimateCarbsFromImage(file: any, options: any = {}) {
     formData.append("round_step_u", String(options.round_step_u));
   }
 
+  if (options.existing_items) {
+    formData.append("existing_items", options.existing_items);
+  }
+
   // Special handle for apiFetch with FormData: do NOT set Content-Type
   const headers: any = { Accept: "application/json" };
   const token = getStoredToken();

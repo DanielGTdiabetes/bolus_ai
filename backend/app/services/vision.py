@@ -211,8 +211,21 @@ def _build_user_prompt(hints: dict) -> str:
         user_prompt += f" Portion hint: {hints['portion_hint']}."
     if hints.get("meal_slot"):
         user_prompt += f" Meal slot: {hints['meal_slot']}."
+    
+    # Critical instruction for specific weight scenario
     if hints.get("plate_weight_grams"):
-        user_prompt += f" Total plate weight: {hints['plate_weight_grams']} grams."
+        weight = hints['plate_weight_grams']
+        user_prompt += (
+            f" I am adding a SPECIFIC ingredient or items to a plate. "
+            f"The NET weight of the NEW item(s) I am adding is exactly {weight} grams. "
+        )
+        
+        if hints.get("existing_items"):
+            user_prompt += f" The plate ALREADY contains: {hints['existing_items']}. Ignore these items, they are NOT the new addition. "
+        else:
+            user_prompt += " Ignore other items on the plate that might be visible in the background. "
+
+        user_prompt += f"Focus on identifying the main food item(s) that corresponds to this {weight}g portion."
     return user_prompt
 
 

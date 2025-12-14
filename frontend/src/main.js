@@ -1443,10 +1443,23 @@ function renderScan() {
 
     try {
       const options = {};
-      // Use scale weight if connected and stable/positive
+
+      // Calculate NET weight for this new entry
+      // If scale is connected, we use (Current Scale Weight - Sum of previous entries weights)
+      let netWeight = null;
+
       if (state.scale?.grams > 0) {
-        options.plate_weight_grams = state.scale.grams;
-        console.log("Incluyendo peso de báscula:", state.scale.grams);
+        // Calculate sum of existing weights in plate
+        const previousWeight = state.plateBuilder.entries.reduce((sum, e) => sum + (e.weight || 0), 0);
+        netWeight = Math.max(0, state.scale.grams - previousWeight);
+
+        options.plate_weight_grams = netWeight;
+        console.log(`Peso Neto calculado: ${netWeight}g (Bruto: ${state.scale.grams}g - Prev: ${previousWeight}g)`);
+      }
+
+      // Pass existing items context
+      if (state.plateBuilder.entries.length > 0) {
+        options.existing_items = state.plateBuilder.entries.map(e => e.name).join(", ");
       }
 
       const result = await estimateCarbsFromImage(file, options);
@@ -1455,7 +1468,7 @@ function renderScan() {
       // For smooth flow, let's add to plate directly and notify.
       const entry = {
         carbs: result.carbs_estimate_g,
-        weight: state.scale?.grams > 0 ? state.scale.grams : null,
+        weight: netWeight, // Store the net weight used
         img: state.currentImageBase64,
         name: result.food_name || "Alimento IA"
       };

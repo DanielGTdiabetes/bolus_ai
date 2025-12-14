@@ -99,6 +99,8 @@ async def estimate_from_image(
     
     plateWeightGrams: Optional[int] = Form(None),
     plateWeight: Optional[int] = Form(None),
+    
+    existing_items: Optional[str] = Form(None),
 
     prefer_extended: bool = Form(True),
     
@@ -157,6 +159,7 @@ async def estimate_from_image(
         "meal_slot": meal_slot,
         "portion_hint": portion_hint,
         "plate_weight_grams": effective_weight,
+        "existing_items": existing_items,
     }
     
     # Update settings with our resolved env vars to ensure service uses them
