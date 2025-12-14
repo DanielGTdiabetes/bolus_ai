@@ -1421,9 +1421,13 @@ function renderScan() {
         btnConn.textContent = "Conectando...";
         await connectScale();
         state.scale.connected = true;
-        setOnData((grams, stable) => {
-          state.scale.grams = grams;
-          state.scale.stable = stable;
+        setOnData((data) => {
+          // Callback receives object: { connected, grams, stable, battery }
+          state.scale.grams = data.grams;
+          state.scale.stable = data.stable;
+          // Optionally update battery or connection status if provided
+          if (typeof data.connected === 'boolean') state.scale.connected = data.connected;
+
           updateScaleUI();
         });
         updateScaleUI();
