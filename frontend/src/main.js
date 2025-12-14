@@ -1428,8 +1428,21 @@ function renderBolus() {
             <input type="number" id="bg" placeholder="mg/dL" class="text-center" style="font-size:1.5rem; color:var(--primary); font-weight:800;">
             <span style="position:absolute; right:1rem; top:1rem; color:var(--text-muted)">mg/dL</span>
          </div>
-         <!-- Slider could go here -->
          <input type="range" min="40" max="400" id="bg-slider" class="w-full mt-md">
+      </div>
+
+      <!-- Mode / Slot Selector -->
+      <div style="display:flex; gap:0.5rem; margin-bottom:1.5rem; justify-content:center;">
+          <select id="meal-slot" style="padding:0.5rem; border-radius:8px; border:1px solid #cbd5e1; background:#fff;">
+              <option value="breakfast">Desayuno</option>
+              <option value="lunch" selected>Comida</option>
+              <option value="dinner">Cena</option>
+              <option value="snack">Snack</option>
+          </select>
+          <div style="display:flex; align-items:center; gap:0.5rem">
+             <input type="checkbox" id="chk-correction-only" style="width:20px; height:20px;">
+             <label for="chk-correction-only" style="font-size:0.9rem">Solo Corrección</label>
+          </div>
       </div>
 
       <!-- Carbs Input -->
@@ -1510,11 +1523,35 @@ function renderBolus() {
   }
 
   // Presets
+  // Presets
   window.addCarbs = (val) => {
-    if (carbsInput) carbsInput.value = val;
+    if (carbsInput) {
+      carbsInput.value = val;
+      // Uncheck correction mode if setting carbs
+      const chk = document.getElementById('chk-correction-only');
+      if (chk) chk.checked = false;
+    }
     document.querySelectorAll('.preset-chip').forEach(c => c.classList.remove('active'));
     event.target.classList.add('active');
   };
+
+  // Correction Toggle Handler
+  const chkCorr = document.getElementById('chk-correction-only');
+  const divCarbs = document.querySelector('.form-group .label-row .label-text:contains("Carbohidratos")')?.closest('.form-group'); // This selector is pseudo, better use ID
+  // Actually let's just use the carbs input container
+
+  if (chkCorr) {
+    chkCorr.onchange = () => {
+      if (chkCorr.checked) {
+        if (carbsInput) {
+          carbsInput.value = 0;
+          carbsInput.parentElement.parentElement.classList.add('disabled-block'); // Visual feedback
+        }
+      } else {
+        if (carbsInput) carbsInput.parentElement.parentElement.classList.remove('disabled-block');
+      }
+    }
+  }
 
   // Calculate Action
   if (calcBtn) {
@@ -1527,17 +1564,15 @@ function renderBolus() {
         const bg = parseFloat(bgInput.value || 0);
 
         // Get Config
-        // For now assuming 'lunch' or derive from time?
-        // Let's default to 'lunch' or user choice if we had a selector.
-        // We'll use 'meal_slot' from state or default.
-        const slot = "lunch"; // Simplify for now
+        const slot = document.getElementById('meal-slot').value;
+        const isCorrection = document.getElementById('chk-correction-only').checked;
         const calcParams = getCalcParams();
         const meal = calcParams ? (calcParams[slot] || getDefaultMealParams(calcParams)) : null;
 
         if (!meal) throw new Error("Configura tus parámetros (ICR/ISF) en Ajustes.");
 
         const payload = {
-          carbs_g: carbs,
+          carbs_g: isCorrection ? 0 : carbs,
           glucose_mgdl: bg,
           bg_mgdl: bg,
           target_mgdl: meal.target,
@@ -1548,7 +1583,11 @@ function renderBolus() {
           max_bolus_u: calcParams?.max_bolus_u || 10
         };
 
-        const res = await calculateBolusWithOptionalSplit(payload, null);
+        // Split Logic
+        const splitSettings = getSplitSettings();
+        const useSplit = (splitSettings?.enabled_default && !isCorrection && carbs > 0);
+
+        const res = await calculateBolusWithOptionalSplit(payload, useSplit ? splitSettings : null);
 
         // Render Result overlay or replace button
         calcBtn.hidden = true;
