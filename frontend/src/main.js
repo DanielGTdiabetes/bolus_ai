@@ -861,13 +861,46 @@ async function bootstrapSession() {
   }
 }
 
+// Global Handler for Profile Menu
+window.toggleProfileMenu = function () {
+  const menu = document.getElementById('profile-menu');
+  if (menu) {
+    const isHidden = menu.style.display === 'none';
+    menu.style.display = isHidden ? 'block' : 'none';
+
+    if (isHidden) {
+      // Add click-outside listener
+      setTimeout(() => {
+        const closer = (e) => {
+          if (!menu.contains(e.target) && e.target.id !== 'profile-btn') {
+            menu.style.display = 'none';
+            window.removeEventListener('click', closer);
+          }
+        };
+        window.addEventListener('click', closer);
+      }, 0);
+    }
+  }
+};
+
 function renderHeader(title = "Bolus AI", showBack = false) {
   if (!state.user) return "";
   return `
       <header class="topbar">
         ${showBack
       ? `<div class="header-action" onclick="window.history.back()">‹</div>`
-      : `<div class="header-profile"><button id="profile-btn" class="ghost">👤</button></div>`}
+      : `<div class="header-profile" style="position:relative">
+            <button id="profile-btn" class="ghost" onclick="toggleProfileMenu()">👤</button>
+            <div id="profile-menu" style="display:none; position:absolute; top:40px; left:0; background:white; border:1px solid #e2e8f0; border-radius:12px; box-shadow:0 10px 15px -3px rgba(0,0,0,0.1); z-index:100; min-width:180px; overflow:hidden;">
+                <div style="padding:10px; border-bottom:1px solid #f1f5f9; background:#f8fafc; font-size:0.8rem; font-weight:600; color:#64748b;">${state.user.username || 'Usuario'}</div>
+                <button class="menu-item" onclick="navigate('#/change-password')" style="width:100%; text-align:left; background:none; border:none; padding:12px 16px; cursor:pointer; font-size:0.9rem; color:#334155; display:flex; align-items:center; gap:8px;">
+                   <span>🔑</span> Cambiar Contraseña
+                </button>
+                <button class="menu-item" onclick="logout()" style="width:100%; text-align:left; background:none; border:none; padding:12px 16px; cursor:pointer; font-size:0.9rem; border-top:1px solid #f1f5f9; color:#ef4444; display:flex; align-items:center; gap:8px;">
+                   <span>🚪</span> Cerrar Sesión
+                </button>
+            </div>
+         </div>`}
         <div class="header-title-group">
           <div class="header-title">${title}</div>
           ${!showBack ? `<div class="header-subtitle">Tu asistente de diabetes</div>` : ''}
@@ -875,8 +908,6 @@ function renderHeader(title = "Bolus AI", showBack = false) {
         <div class="header-action has-dot">
           <button id="notifications-btn" class="ghost">🔔</button>
         </div>
-        <button id="change-pwd-btn" class="small ghost" style="margin-left:0.5rem;" onclick="navigate('#/change-password')">Cambiar pwd</button>
-        <button id="logout-btn" class="small ghost" style="margin-left:0.5rem;" onclick="logout()">Logout</button>
       </header>
     `;
 }
