@@ -51,6 +51,16 @@ export async function connectScale() {
     await txChar.startNotifications();
     txChar.addEventListener('characteristicvaluechanged', handleNotifications);
 
+    // Auto-Tare on connect (User Request)
+    // "aunque marque cero no es real, por eso necesito que se haga una tara antes del peso y lo mejor seria al conectarse"
+    console.log("Auto-Taring...");
+    try {
+        // Validation: wait a bit? usually sequential await is fine
+        await tare();
+    } catch (e) {
+        console.warn("Auto-tare failed:", e);
+    }
+
     // Start stream automatically
     await startStream();
 
