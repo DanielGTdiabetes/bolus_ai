@@ -579,7 +579,7 @@ function renderDashboard() {
       payload.nightscout = { url: nsConfig.url, token: nsConfig.token };
     }
 
-    const calcSettings = getCalcSettings(); // NOW LOCAL
+    const calcSettings = getCalcParams(); // MOVED TO getCalcParams
     if (calcSettings) {
       payload.settings = calcSettings;
     } else {
@@ -1179,6 +1179,33 @@ function initNsPanel() {
   };
 }
 
+const CALC_PARAMS_KEY = "bolusai_calc_params";
+const LEGACY_CALC_SETTINGS_KEY = "bolusai_calc_settings";
+
+function getCalcParams() {
+  try {
+    // 1. Try new Key
+    const raw = localStorage.getItem(CALC_PARAMS_KEY);
+    if (raw) return JSON.parse(raw);
+
+    // 2. Fallback Legacy
+    const legacy = localStorage.getItem(LEGACY_CALC_SETTINGS_KEY);
+    if (legacy) {
+      console.log("Migrating legacy calc settings...");
+      const parsed = JSON.parse(legacy);
+      saveCalcParams(parsed); // Migrate
+      return parsed;
+    }
+    return null;
+  } catch (e) {
+    return null;
+  }
+}
+
+function saveCalcParams(params) {
+  localStorage.setItem(CALC_PARAMS_KEY, JSON.stringify(params));
+}
+
 function initCalcPanel() {
   const defaults = {
     breakfast: { icr: 10, isf: 50, target: 110 },
@@ -1189,7 +1216,7 @@ function initCalcPanel() {
     max_bolus_u: 10
   };
 
-  let currentSettings = getCalcSettings() || defaults;
+  let currentSettings = getCalcParams() || defaults;
   let currentSlot = "breakfast";
 
   const form = document.querySelector("#calc-form");
@@ -1211,10 +1238,11 @@ function initCalcPanel() {
   }
 
   function saveCurrentSlotToMemory() {
+    // Minimum validation already handled by input min attributes, but we ensure parsing
     currentSettings[currentSlot] = {
-      icr: parseFloat(icrInput.value),
-      isf: parseFloat(isfInput.value),
-      target: parseFloat(targetInput.value)
+      icr: parseFloat(icrInput.value) || 10,
+      isf: parseFloat(isfInput.value) || 50,
+      target: parseFloat(targetInput.value) || 110
     };
   }
 
@@ -1231,11 +1259,12 @@ function initCalcPanel() {
     e.preventDefault();
     saveCurrentSlotToMemory();
 
-    currentSettings.dia_hours = parseFloat(document.querySelector("#global-dia").value);
-    currentSettings.round_step_u = parseFloat(document.querySelector("#global-step").value);
-    currentSettings.max_bolus_u = parseFloat(document.querySelector("#global-max").value);
+    currentSettings.dia_hours = parseFloat(document.querySelector("#global-dia").value) || 4;
+    currentSettings.round_step_u = parseFloat(document.querySelector("#global-step").value) || 0.1;
+    currentSettings.max_bolus_u = parseFloat(document.querySelector("#global-max").value) || 10;
 
-    saveCalcSettings(currentSettings);
+    // Save with new key
+    saveCalcParams(currentSettings);
 
     const msg = document.querySelector("#calc-msg");
     msg.textContent = "Configuración guardada.";
