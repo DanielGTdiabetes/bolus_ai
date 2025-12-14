@@ -110,6 +110,7 @@ const state = {
     timestamp: 0
   },
   activeDualPlan: null,
+  calcMode: "meal",
 };
 
 const app = document.getElementById("app");
@@ -167,7 +168,7 @@ function renderDashboard() {
       </section>
       
       <!-- BLE Scale Card -->
-      <section class="card">
+      <section class="card" id="scale-card">
          <div class="card-header">
            <h2>Báscula (BLE)</h2>
            <span id="scale-status-badge" class="badge neutral">${state.scale.status}</span>
@@ -190,7 +191,7 @@ function renderDashboard() {
       </section>
 
       <!-- Vision Card -->
-      <section class="card">
+      <section class="card" id="vision-card">
         <div class="card-header">
            <h2>Foto del plato</h2>
            <span class="badge">BETA</span>
@@ -258,10 +259,16 @@ function renderDashboard() {
           <h2>Calculadora manual</h2>
           <button id="change-password-link" class="ghost">Cambiar contraseña</button>
         </div>
+        <div class="mode-selector segment-control">
+           <button type="button" data-mode="meal" class="segment active">🍽️ Comida</button>
+           <button type="button" data-mode="correction" class="segment">💉 Corrector</button>
+        </div>
         <form id="bolus-form" class="stack">
-          <label>Carbohidratos (g)
-            <input type="number" step="0.1" id="carbs" required />
-          </label>
+          <div id="carbs-wrapper">
+             <label>Carbohidratos (g)
+               <input type="number" step="0.1" id="carbs" required />
+             </label>
+          </div>
           <label>Glucosa (mg/dL, opcional)
             <input type="number" step="1" id="bg" placeholder="Dejar vacío para usar Nightscout" />
           </label>
@@ -277,7 +284,7 @@ function renderDashboard() {
             <input type="number" step="1" id="target" />
           </label>
           
-          <label class="row-label">
+          <label class="row-label" id="split-wrapper">
              <input type="checkbox" id="use-split" />
              🔄 Bolo dividido (Dual)
           </label>
@@ -753,6 +760,53 @@ function renderDashboard() {
     useSplitCheckbox.checked = sp.enabled_default;
   }
 
+  // === MODE SELECTOR LOGIC ===
+  const modeBtns = document.querySelectorAll(".mode-selector .segment");
+  if (modeBtns) {
+    modeBtns.forEach(btn => {
+      btn.addEventListener("click", () => {
+        state.calcMode = btn.dataset.mode;
+        updateCalcModeUI();
+      });
+    });
+  }
+
+  function updateCalcModeUI() {
+    const isCorrection = state.calcMode === "correction";
+
+    // Toggle active class on buttons
+    modeBtns.forEach(btn => {
+      if (btn.dataset.mode === state.calcMode) btn.classList.add("active");
+      else btn.classList.remove("active");
+    });
+
+    // Toggle fields
+    toggleVisibility("#carbs-wrapper", !isCorrection);
+    toggleVisibility("#scale-card", !isCorrection);
+    toggleVisibility("#vision-card", !isCorrection);
+    toggleVisibility("#split-wrapper", !isCorrection);
+
+    // Update 'Required' attribute on carbs to avoid validation error in hidden field
+    const carbsInput = document.querySelector("#carbs");
+    if (isCorrection) {
+      carbsInput.removeAttribute("required");
+      carbsInput.value = ""; // Clear
+    } else {
+      carbsInput.setAttribute("required", "true");
+    }
+
+    // Clear previous results/errors
+    document.querySelector("#bolus-output").innerHTML = "Pendiente de cálculo.";
+    document.querySelector("#bolus-error").hidden = true;
+    document.querySelector("#bolus-explain").hidden = true;
+  }
+
+  function toggleVisibility(selector, visible) {
+    const el = document.querySelector(selector);
+    if (el) el.hidden = !visible;
+  }
+
+
   // Clear actions on change
   document.querySelector("#carbs").oninput = () => {
     state.lastCalc = null;
@@ -804,6 +858,8 @@ function renderDashboard() {
       glucose_mgdl: payload.bg_mgdl, // mapped from stored payload.bg_mgdl
       bg_mgdl: payload.bg_mgdl,      // Keeping original key for compatibility just in case
 
+      bg_mgdl: payload.bg_mgdl,      // Keeping original key for compatibility just in case
+
       target_mgdl: payload.target_mgdl || meal.target,
       cr_g_per_u: meal.icr,
       isf_mgdl_per_u: meal.isf,
@@ -815,6 +871,35 @@ function renderDashboard() {
       // Inject Nightscout if present
       nightscout: payload.nightscout
     };
+
+    // --- CORRECTION MODE OVERRIDES ---
+    if (state.calcMode === "correction") {
+      calcPayload.carbs_g = 0;
+      calcPayload.cr_g_per_u = 999; // Dummy value required by backend
+
+      // Safety Checks
+      const manualBg = payload.bg_mgdl; // from input
+
+      // 1. Stale BG Check
+      if (!manualBg) {
+        // Must rely on Nightscout
+        const nsData = state.currentGlucose.data;
+        if (!nsData || !nsData.ok) {
+          bolusError.textContent = "Error: No hay datos de glucosa. Introduce un valor manual.";
+          bolusError.hidden = false;
+          bolusOutput.textContent = "";
+          return;
+        }
+
+        // Check age (15 min limit)
+        if (nsData.age_minutes > 15 || nsData.stale) {
+          bolusError.textContent = "⚠️ Lectura de glucosa antigua. Introduce un valor manual para corregir.";
+          bolusError.hidden = false;
+          bolusOutput.textContent = "";
+          return;
+        }
+      }
+    }
 
     // User asked not to ignore missing params condition, but we handled it above.
 
@@ -828,7 +913,7 @@ function renderDashboard() {
       }
 
       // 2. Decide Split
-      const useSplit = useSplitCheckbox ? useSplitCheckbox.checked : false;
+      const useSplit = (state.calcMode !== "correction") && (useSplitCheckbox ? useSplitCheckbox.checked : false);
       let splitSettings = null;
       if (useSplit) {
         splitSettings = getSplitSettings();
@@ -867,6 +952,22 @@ function renderDashboard() {
           const li = document.createElement("li");
           li.innerHTML = `<strong>Bolo Dual:</strong> ${res.upfront_u}U ahora + ${res.later_u}U en ${res.duration_min}min.`;
           explainList.appendChild(li);
+        }
+
+        // Add Correction Warnings (Trends)
+        if (state.calcMode === "correction") {
+          const trend = state.currentGlucose.data?.trend;
+          if (trend) {
+            if (trend === "DoubleDown" || trend === "SingleDown") {
+              const li = document.createElement("li");
+              li.innerHTML = `<span class="warning">📉 Tendencia a la baja. Evita correcciones agresivas.</span>`;
+              explainList.appendChild(li);
+            } else if (trend === "DoubleUp" || trend === "SingleUp") {
+              const li = document.createElement("li");
+              li.innerHTML = `<span class="warning">📈 Tendencia al alza. Revisa en 20–30 min.</span>`;
+              explainList.appendChild(li);
+            }
+          }
         }
       }
 
@@ -1049,6 +1150,20 @@ function renderDashboard() {
 
   function renderBolusOutput(res) {
     if (res.error) return `<span class='error'>${res.error}</span>`;
+
+    // Correction Mode Output
+    if (state.calcMode === "correction") {
+      if (res.upfront_u === 0) {
+        return `<div class="info-box">No se recomienda corrección. (BG &le; Objetivo)</div>`;
+      }
+      return `
+          <div class="correction-res">
+             <div class="label">Bolo corrector recomendado</div>
+             <div class="big-number">${res.upfront_u} U</div>
+          </div>
+       `;
+    }
+
     if (res.kind === "dual") {
       return `
         <div class="dual-res">
