@@ -385,3 +385,50 @@ export function logout() {
   clearSession();
   if (unauthorizedHandler) unauthorizedHandler();
 }
+
+// --- Basal API ---
+
+export async function createBasalEntry(payload: any) {
+  const response = await apiFetch("/api/basal/entry", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+  const data = await toJson(response);
+  if (!response.ok) throw new Error(data.detail || "Error al guardar basal");
+  return data;
+}
+
+export async function getBasalEntries(days = 30) {
+  const response = await apiFetch(`/api/basal/entries?days=${days}`);
+  const data = await toJson(response);
+  if (!response.ok) throw new Error(data.detail || "Error al obtener historial basal");
+  return data;
+}
+
+export async function createBasalCheckin(nightscoutConfig: any) {
+  const payload = {
+    nightscout_url: nightscoutConfig.url,
+    nightscout_token: nightscoutConfig.token
+  };
+  const response = await apiFetch("/api/basal/checkin", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+  const data = await toJson(response);
+  if (!response.ok) throw new Error(data.detail || "Error al realizar check-in");
+  return data;
+}
+
+export async function getBasalCheckins(days = 14) {
+  const response = await apiFetch(`/api/basal/checkins?days=${days}`);
+  const data = await toJson(response);
+  if (!response.ok) throw new Error(data.detail || "Error al obtener check-ins");
+  return data;
+}
+
+export async function getBasalActive() {
+  const response = await apiFetch("/api/basal/active");
+  const data = await toJson(response);
+  if (!response.ok) throw new Error(data.detail || "Error al obtener basal activa");
+  return data;
+}

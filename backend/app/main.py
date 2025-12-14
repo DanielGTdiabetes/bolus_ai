@@ -58,6 +58,10 @@ async def startup_event() -> None:
     data_dir.mkdir(parents=True, exist_ok=True)
     logger.info("Using data directory: %s", data_dir)
 
+    from app.core.db import init_db, create_tables
+    init_db()
+    await create_tables()
+
     from app.core.datastore import UserStore
 
     try:

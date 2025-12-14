@@ -20,7 +20,13 @@ import {
   getIOBData,
   calculateBolusWithOptionalSplit,
   recalcSecondBolus,
-  fetchTreatments
+  recalcSecondBolus,
+  fetchTreatments,
+  createBasalEntry,
+  getBasalEntries,
+  createBasalCheckin,
+  getBasalCheckins,
+  getBasalActive
 } from "./lib/api";
 
 import {
@@ -525,6 +531,199 @@ function drawIOBGraph(canvas, points) {
 
 // (Old vision logic removed)
 
+// --- BASAL UI ---
+
+function renderBasal() {
+  if (!ensureAuthenticated()) return;
+  app.innerHTML = `
+    ${renderHeader("Basal", true)}
+    <main class="page narrow">
+       <div id="basal-active-card"></div>
+       
+       <section class="card">
+         <h3>☀️ Check-in Matutino</h3>
+         <p class="hint">Verifica tu glucosa al despertar y analiza la tendencia.</p>
+         <div id="checkin-res" hidden></div>
+         <button id="btn-checkin" class="primary full">Hacer Check-in (Nightscout)</button>
+         <p class="error" id="checkin-error" hidden></p>
+       </section>
+
+       <section class="card">
+         <h3>💉 Registrar Dosis Basal</h3>
+         <form id="basal-form" class="stack">
+            <label>Tipo
+              <select id="basal-type">
+                <option value="glargine">Glargina (Lantus/Toujeo)</option>
+                <option value="degludec">Degludec (Tresiba)</option>
+                <option value="detemir">Detemir (Levemir)</option>
+                <option value="other">Otro</option>
+              </select>
+            </label>
+            <label>Unidades
+               <input type="number" id="basal-units" step="0.5" required placeholder="0.0" />
+            </label>
+            <label>Duración efectiva (h)
+               <input type="number" id="basal-hours" value="24" required />
+            </label>
+            <button type="submit" class="secondary">Registrar Dosis</button>
+            <p class="success" id="basal-success" hidden>Guardado.</p>
+            <p class="error" id="basal-error" hidden></p>
+         </form>
+       </section>
+
+       <section class="card">
+         <h3>📜 Historial Reciente</h3>
+         <ul id="basal-history" class="list-check">
+            <li>Cargando...</li>
+         </ul>
+       </section>
+       
+       <div style="height:60px;"></div>
+       ${renderBottomNav('basal')}
+    </main>
+  `;
+
+  // --- Logic ---
+  refreshBasalActive();
+  refreshBasalHistory();
+
+  // Checkin
+  document.getElementById("btn-checkin").onclick = async () => {
+    const btn = document.getElementById("btn-checkin");
+    const err = document.getElementById("checkin-error");
+    const resDiv = document.getElementById("checkin-res");
+
+    btn.disabled = true;
+    btn.textContent = "Consultando Nightscout...";
+    err.hidden = true; resDiv.hidden = true;
+
+    try {
+      const ns = getLocalNsConfig();
+      if (!ns || !ns.url) throw new Error("Nightscout no configurado");
+
+      const res = await createBasalCheckin(ns);
+
+      resDiv.innerHTML = `
+         <div class="box">
+            <div class="big-number">${Math.round(res.bg_now_mgdl)} <small>mg/dL</small></div>
+            <div>${res.trend ? formatTrend(res.trend, false) : ""} hace ${res.bg_age_min} min</div>
+            ${res.signal ? `<div class="warning" style="margin-top:10px;">${res.signal}</div>` : '<div class="success" style="margin-top:10px;">✅ Tendencia estable (últimos 3 días)</div>'}
+         </div>
+       `;
+      resDiv.hidden = false;
+      refreshBasalHistory(); // update list
+
+    } catch (e) {
+      err.textContent = e.message;
+      err.hidden = false;
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "Hacer Check-in (Nightscout)";
+    }
+  };
+
+  // Register Form
+  document.getElementById("basal-form").onsubmit = async (e) => {
+    e.preventDefault();
+    const type = document.getElementById("basal-type").value;
+    const units = parseFloat(document.getElementById("basal-units").value);
+    const hours = parseInt(document.getElementById("basal-hours").value);
+    const err = document.getElementById("basal-error");
+    const ok = document.getElementById("basal-success");
+
+    err.hidden = true; ok.hidden = true;
+
+    try {
+      await createBasalEntry({ basal_type: type, units, effective_hours: hours });
+      ok.hidden = false;
+      refreshBasalActive();
+      refreshBasalHistory();
+      document.getElementById("basal-units").value = "";
+    } catch (ex) {
+      err.textContent = ex.message;
+      err.hidden = false;
+    }
+  };
+}
+
+async function refreshBasalActive() {
+  const el = document.getElementById("basal-active-card");
+  if (!el) return;
+  try {
+    const data = await getBasalActive();
+    if (data.active_u > 0) {
+      // Simple Bar
+      const pct = Math.min(100, (data.remaining_hours / 24) * 100);
+      el.innerHTML = `
+          <section class="card success-border">
+             <div style="display:flex; justify-content:space-between; align-items:center;">
+                <div>
+                  <h3 style="margin:0;">Basal Activa</h3>
+                  <div class="big-number" style="color:var(--primary);">${data.active_u} U</div>
+                </div>
+                <div style="text-align:right;">
+                   <div>Quedan <strong>${data.remaining_hours}h</strong></div>
+                   <small class="text-muted">de ${data.last_entry.effective_hours}h</small>
+                </div>
+             </div>
+             <div style="background:#e2e8f0; height:8px; border-radius:4px; margin-top:10px; overflow:hidden;">
+                <div style="background:var(--primary); height:100%; width:${pct}%;"></div>
+             </div>
+             <p class="hint" style="margin-top:5px;">${data.note}</p>
+          </section>
+        `;
+    } else {
+      el.innerHTML = `
+          <section class="card">
+             <h3>Basal Activa</h3>
+             <p class="text-muted">No hay dosis activa registrada.</p>
+          </section>
+        `;
+    }
+  } catch (e) { console.error(e); }
+}
+
+async function refreshBasalHistory() {
+  const ul = document.getElementById("basal-history");
+  if (!ul) return;
+  try {
+    const entries = await getBasalEntries(7); // mixed? No, just entries.
+    const checkins = await getBasalCheckins(7);
+
+    // Merge and sort
+    const all = [
+      ...entries.map(e => ({ ...e, type: 'entry' })),
+      ...checkins.map(c => ({ ...c, type: 'checkin' }))
+    ].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+
+    ul.innerHTML = "";
+    if (all.length === 0) {
+      ul.innerHTML = "<li>Sin actividad reciente</li>";
+      return;
+    }
+
+    all.forEach(item => {
+      const li = document.createElement("li");
+      const date = new Date(item.created_at).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+      if (item.type === 'entry') {
+        li.innerHTML = `
+            <span>💉 <strong>${item.units} U</strong> (${item.basal_type})</span>
+            <small>${date}</small>
+          `;
+      } else {
+        li.innerHTML = `
+            <span>☀️ <strong>${Math.round(item.bg_mgdl)}</strong> mg/dL</span>
+            <small>${date}</small>
+          `;
+      }
+      ul.appendChild(li);
+    });
+
+  } catch (e) {
+    ul.innerHTML = `<li>Error cargando historial</li>`;
+  }
+}
+
 // --- HELPER FUNCTIONS FOR UI ---
 async function updateMetrics() {
   const config = getLocalNsConfig();
@@ -697,6 +896,10 @@ function renderBottomNav(activeTab = 'home') {
         <button class="nav-btn ${activeTab === 'bolus' ? 'active' : ''}" onclick="navigate('#/bolus')">
           <span class="nav-icon">🧮</span>
           <span class="nav-lbl">Bolo</span>
+        </button>
+        <button class="nav-btn ${activeTab === 'basal' ? 'active' : ''}" onclick="navigate('#/basal')">
+          <span class="nav-icon">📉</span>
+          <span class="nav-lbl">Basal</span>
         </button>
         <button class="nav-btn ${activeTab === 'history' ? 'active' : ''}" onclick="navigate('#/history')">
           <span class="nav-icon">⏱️</span>
@@ -1193,6 +1396,8 @@ function render() {
     renderScan();
   } else if (route === "#/bolus") {
     renderBolus();
+  } else if (route === "#/basal") {
+    renderBasal();
   } else if (route === "#/history") {
     renderHistory();
   } else {

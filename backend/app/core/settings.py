@@ -42,12 +42,25 @@ class VisionConfig(BaseModel):
     timeout_seconds: int = Field(default=15, ge=5, le=60)
 
 
+class DatabaseConfig(BaseModel):
+    url: Optional[str] = Field(default=None, validate_default=True)
+
+    @field_validator("url")
+    def _validate_url(cls, v: Optional[str]) -> Optional[str]:
+        if v and v.startswith("postgres://"):
+            return v.replace("postgres://", "postgresql+asyncpg://")
+        if v and v.startswith("postgresql://"):
+            return v.replace("postgresql://", "postgresql+asyncpg://")
+        return v
+
+
 class Settings(BaseModel):
     nightscout: NightscoutConfig
     server: ServerConfig
     security: SecurityConfig
     data: DataConfig
     vision: VisionConfig = Field(default_factory=VisionConfig)
+    database: DatabaseConfig = Field(default_factory=DatabaseConfig)
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -131,6 +144,10 @@ def _load_env() -> dict[str, Any]:
     if vision_timeout:
         env_config.setdefault("vision", {})["timeout_seconds"] = int(vision_timeout)
 
+    db_url = os.environ.get("DATABASE_URL")
+    if db_url:
+        env_config.setdefault("database", {})["url"] = db_url
+
     return env_config
 
 
@@ -141,6 +158,7 @@ def merge_settings(env_config: dict[str, Any], file_config: dict[str, Any]) -> d
     merged["security"] = {**file_config.get("security", {}), **env_config.get("security", {})}
     merged["data"] = {**file_config.get("data", {}), **env_config.get("data", {})}
     merged["vision"] = {**file_config.get("vision", {}), **env_config.get("vision", {})}
+    merged["database"] = {**file_config.get("database", {}), **env_config.get("database", {})}
     return merged
 
 
