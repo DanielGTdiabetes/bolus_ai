@@ -1569,6 +1569,26 @@ function renderScan() {
 }
 
 // --- VIEW: BOLUS (Calcular) ---
+
+function renderPlateSummary() {
+  if (!state.plateBuilder || !state.plateBuilder.entries.length) return "";
+
+  const items = state.plateBuilder.entries.map(e => {
+    return `<div style="display:flex; justify-content:space-between; font-size:0.85rem; padding:4px 0; border-bottom:1px dashed #eee">
+            <span>${e.name || 'Alimento detectado'}</span>
+            <strong>${e.carbs}g</strong>
+        </div>`;
+  }).join('');
+
+  return `
+    <div class="card" style="background:#f0fdfa; border:1px solid #ccfbf1; margin-bottom:1.5rem">
+       <div style="font-weight:700; color:#0f766e; margin-bottom:0.5rem">🥗 Resumen del Plato</div>
+       ${items}
+       <div style="text-align:right; margin-top:0.5rem; font-size:0.8rem; color:#0d9488">Total calculado por IA</div>
+    </div>
+    `;
+}
+
 function renderBolus() {
   app.innerHTML = `
     ${renderHeader("Calcular Bolo", true)}
@@ -1600,10 +1620,13 @@ function renderBolus() {
           </div>
       </div>
 
+      <!-- AI Plate Summary (if any) -->
+      ${renderPlateSummary()}
+
       <!-- Carbs Input -->
        <div class="form-group">
          <div class="label-row">
-            <span class="label-text">🍪 Carbohidratos</span>
+            <span class="label-text">🍪 Carbohidratos Totales</span>
          </div>
          <div style="position:relative">
             <input type="number" id="carbs" placeholder="0" class="text-center" style="font-size:1.5rem; font-weight:800;">
