@@ -43,7 +43,8 @@ def _check_rate_limit(username: str):
     waiting_window = 600
     valid = [t for t in timestamps if now - t < waiting_window]
     
-    if len(valid) >= 10:
+    # Relaxed limit for testing: 50 req / 10 min
+    if len(valid) >= 50:
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail="Rate limit exceeded (10 images / 10 min)"
