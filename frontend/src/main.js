@@ -1398,7 +1398,7 @@ function renderScan() {
         carbs: result.carbs_estimate_g,
         weight: state.scale?.grams > 0 ? state.scale.grams : null,
         img: state.currentImageBase64,
-        name: "Alimento IA"
+        name: result.food_name || "Alimento IA"
       };
 
       state.plateBuilder.entries.push(entry);
@@ -1694,10 +1694,16 @@ function renderBolus() {
     }
   }
 
-  // Pre-fill Carbs from Vision if available
-  if (state.tempCarbs) {
+  // Pre-fill Carbs from Vision/Plate if available
+  // check tempCarbs explicitly
+  if (state.tempCarbs !== null && state.tempCarbs !== undefined) {
     if (carbsInput) carbsInput.value = state.tempCarbs;
-    state.tempCarbs = null; // Clear
+    // Do NOT clear immediately if we want to persist on re-renders,
+    // but usually 'temp' implies one-time consumption. 
+    // Let's clear it so if user goes back and forth it doesn't get stuck?
+    // Actually better to keep it until action taken? 
+    // For now, clear to match old behavior.
+    state.tempCarbs = null;
   }
 
   // Presets
@@ -1734,86 +1740,70 @@ function renderBolus() {
   // Calculate Action
   if (calcBtn) {
     calcBtn.onclick = async () => {
-      calcBtn.disabled = true;
       calcBtn.textContent = "Calculando...";
+      calcBtn.disabled = true;
 
       try {
-        const carbs = parseFloat(carbsInput.value || 0);
-        const bg = parseFloat(bgInput.value || 0);
-
-        // Get Config
+        const bg = parseFloat(bgInput.value);
+        const carbs = parseFloat(carbsInput.value) || 0;
         const slot = document.getElementById('meal-slot').value;
         const isCorrection = document.getElementById('chk-correction-only').checked;
-        const calcParams = getCalcParams();
-        const meal = calcParams ? (calcParams[slot] || getDefaultMealParams(calcParams)) : null;
 
-        if (!meal) throw new Error("Configura tus parámetros (ICR/ISF) en Ajustes.");
+        if (isNaN(bg)) {
+          throw new Error("Introduce tu glucosa actual.");
+        }
+
+        // Get Settings
+        const mealParams = getCalcParams();
+        // Fallback if no params found at all
+        if (!mealParams) {
+          throw new Error("No hay configuración de ratios. Ve a Ajustes y guarda tus datos.");
+        }
+        const slotParams = mealParams[slot];
+
+        // Validate slot params
+        if (!slotParams || !slotParams.icr || !slotParams.isf || !slotParams.target) {
+          // Try defaults or error
+          throw new Error(`Faltan datos para el horario '${slot}'. Configúralos en ajustes.`);
+        }
 
         const payload = {
           carbs_g: isCorrection ? 0 : carbs,
-          glucose_mgdl: bg,
           bg_mgdl: bg,
-          target_mgdl: meal.target,
-          cr_g_per_u: meal.icr,
-          isf_mgdl_per_u: meal.isf,
-          dia_hours: calcParams?.dia_hours || 4,
-          round_step_u: calcParams?.round_step_u || 0.1,
-          max_bolus_u: calcParams?.max_bolus_u || 10
+          params: {
+            target_bg_mgdl: slotParams.target,
+            icr_g_per_u: slotParams.icr,
+            isf_mgdl_per_u: slotParams.isf,
+            round_step_u: mealParams.round_step_u || 0.5,
+            max_bolus_u: mealParams.max_bolus_u || 15,
+            kp_minutes: 0 // Optional
+          },
+          // Pass extra info like IOB if available on backend, 
+          // but usually backend fetches IOB from Nightscout if configured. 
+          // Assuming backend handles IOB from stored NS credentials.
         };
 
-        // Split Logic
+        console.log("Sending Bolus Calc Payload:", payload);
+
+        // Check Split Settings
         const splitSettings = getSplitSettings();
         const useSplit = (splitSettings?.enabled_default && !isCorrection && carbs > 0);
 
         const res = await calculateBolusWithOptionalSplit(payload, useSplit ? splitSettings : null);
 
-        // Render Result overlay or replace button
-        calcBtn.hidden = true;
+        state.bolusResult = res;
+        renderBolusResult(res);
 
-        // Show Result Card
-        const resHtml = `
-                <div class="card result-card" style="margin-top:1rem; border:2px solid var(--primary);">
-                    <div style="text-align:center">
-                        <div class="text-muted">Bolo Recomendado</div>
-                        <div class="big-number" style="color:var(--primary)">${res.upfront_u} U</div>
-                        ${res.kind === 'dual' ? `<div class="text-muted">+ ${res.later_u} U extendido</div>` : ''}
-                    </div>
-                    ${res.calc?.explain ? `<ul class="explain-list" style="margin-top:1rem; font-size:0.8rem; text-align:left; color:#64748b">${res.calc.explain.map(t => `<li>${t}</li>`).join('')}</ul>` : ''}
-                    <button id="btn-accept" class="btn-primary" style="background:var(--success); margin-top:1rem;">✅ Administrar</button>
-                    <button class="btn-ghost" onclick="renderBolus()" style="margin-top:0.5rem">Cancelar</button>
-                </div>
-             `;
-
-        const container = document.querySelector('main.page');
-        const div = document.createElement('div');
-        div.innerHTML = resHtml;
-        container.appendChild(div);
-        div.scrollIntoView({ behavior: 'smooth' });
-
-        document.getElementById('btn-accept').onclick = async () => {
-          try {
-            // Save Treatment
-            await saveTreatment({
-              insulin: res.total_u,
-              carbs: carbs,
-              created_at: new Date().toISOString(),
-              enteredBy: state.user.username
-            });
-            alert("Guardado en Nightscout");
-            navigate('#/');
-          } catch (e) {
-            alert("Error guardando: " + e.message);
-          }
-        };
-
-      } catch (e) {
-        alert(e.message);
-        calcBtn.disabled = false;
+      } catch (err) {
+        console.error(err);
+        alert("Error al calcular: " + err.message);
         calcBtn.textContent = "Calcular Bolo";
+        calcBtn.disabled = false;
       }
     };
   }
 }
+
 
 // --- VIEW: HISTORY ---
 async function renderHistory() {
@@ -1899,7 +1889,8 @@ async function renderHistory() {
     document.getElementById('hist-daily-carbs').textContent = Math.round(todayCarbs);
 
   } catch (e) {
-    document.getElementById('full-history-list').innerHTML = `<div class="error-msg">${e.message}</div>`;
+    if (document.getElementById('full-history-list'))
+      document.getElementById('full-history-list').innerHTML = `<div class="error-msg">${e.message}</div>`;
   }
 }
 
