@@ -1341,9 +1341,21 @@ function renderScan() {
         </div>
       </div>
 
-      <div class="card tips-card">
-        <p class="hint">Usa la cámara para estimar carbohidratos vía IA, o la báscula para pesar ingredientes exactos.</p>
+      <!-- Plate Builder Section -->
+      <div id="plate-builder-area" class="card" style="margin-top:1.5rem">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem">
+           <h3 style="margin:0">🍽️ Mi Plato</h3>
+           <span style="font-weight:700; color:var(--primary)"><span id="plate-total-carbs">0</span>g Total</span>
+        </div>
+        
+        <div id="plate-entries" style="font-size:0.9rem; margin-bottom:1rem; min-height:50px">
+           <!-- Entries go here -->
+           <div class="text-muted" style="text-align:center; padding:1rem">Plato vacío</div>
+        </div>
+        
+        <button id="btn-finalize-plate" class="btn-primary" hidden>🧮 Calcular con Total</button>
       </div>
+
     </main>
     ${renderBottomNav('scan')}
   `;
@@ -1355,26 +1367,49 @@ function renderScan() {
     if (!e.target.files || !e.target.files.length) return;
     const file = e.target.files[0];
 
+    // 1. Preview
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const previewEl = document.querySelector('.camera-placeholder');
+      previewEl.innerHTML = `<img src="${ev.target.result}" style="width:100%; height:100%; object-fit:contain; border-radius:12px">`;
+      // Save for entry
+      state.currentImageBase64 = ev.target.result;
+    };
+    reader.readAsDataURL(file);
+
     // Show loading...
     const actions = document.querySelector('.vision-actions');
-    const originalContent = actions.innerHTML;
-    actions.innerHTML = '<div class="spinner">⏳ Analizando imagen...</div>';
+    const originalContent = actions.innerHTML; // Keep buttons
+    actions.innerHTML = '<div class="spinner">⏳ Analizando IA...</div>';
 
     try {
       const options = {};
+      // Use scale weight if connected and stable/positive
       if (state.scale?.grams > 0) {
         options.plate_weight_grams = state.scale.grams;
-        console.log("Incluyendo peso de báscula en análisis:", state.scale.grams);
+        console.log("Incluyendo peso de báscula:", state.scale.grams);
       }
 
       const result = await estimateCarbsFromImage(file, options);
-      state.visionResult = result;
-      // Navigate to Bolus with result
-      state.tempCarbs = result.carbs_estimate_g;
-      state.tempReason = "vision"; // mark source
 
-      actions.innerHTML = '<div class="success-msg">✅ ¡Análisis completado!</div>';
-      setTimeout(() => navigate('#/bolus'), 500);
+      // Auto-add to plate or ask?
+      // For smooth flow, let's add to plate directly and notify.
+      const entry = {
+        carbs: result.carbs_estimate_g,
+        weight: state.scale?.grams > 0 ? state.scale.grams : null,
+        img: state.currentImageBase64,
+        name: "Alimento IA"
+      };
+
+      state.plateBuilder.entries.push(entry);
+      updatePlateUI();
+
+      actions.innerHTML = `<div class="success-msg" style="text-align:center">✅ Añadido: ${result.carbs_estimate_g}g</div>`;
+
+      // Restore buttons after delay so user can add more
+      setTimeout(() => {
+        actions.innerHTML = originalContent;
+      }, 2000);
 
     } catch (err) {
       console.error(err);
@@ -1438,24 +1473,73 @@ function renderScan() {
     }
   };
 
-  btnTare.onclick = async () => {
-    await tare();
-  };
+  // --- PLATE BUILDER LOGIC ---
+  const plateList = document.getElementById('plate-entries');
+  const btnAddToPlate = document.getElementById('btn-add-plate');
+  const btnFinPlate = document.getElementById('btn-finalize-plate');
+  const plateTotalEl = document.getElementById('plate-total-carbs');
 
-  btnUse.onclick = () => {
-    state.tempCarbs = state.scale.grams; // Assuming 1g weight = 1g carb? NO.
-    // Usually user wants to use weight to Calculate.
-    // But we map 'grams' to 'carbs' field?? 
-    // User must check it. Or maybe we navigate to Food Database?
-    // For MVP, lets just put it into text field in Bolus page and let user edit.
-    if (confirm(`¿Usar ${state.scale.grams}g como valor de entrada? (Recuerda ajustar según los carbohidratos reales del alimento)`)) {
-      state.tempCarbs = state.scale.grams;
-      navigate('#/bolus');
+  // Reset builder on load if empty (optional, or keep state)
+  if (!state.plateBuilder) state.plateBuilder = { entries: [], total: 0 };
+
+  const updatePlateUI = () => {
+    plateList.innerHTML = "";
+    let total = 0;
+    state.plateBuilder.entries.forEach((entry, idx) => {
+      total += entry.carbs;
+      const li = document.createElement('div');
+      li.className = "plate-entry";
+      li.style.cssText = "display:flex; justify-content:space-between; align-items:center; padding:0.5rem; border-bottom:1px solid #eee";
+      li.innerHTML = `
+             <div style="display:flex; align-items:center; gap:0.5rem">
+                ${entry.img ? `<img src="${entry.img}" style="width:40px; height:40px; object-fit:cover; border-radius:6px">` : '<span>🥣</span>'}
+                <div>
+                   <div style="font-weight:600">${entry.carbs}g carbs</div>
+                   <div style="font-size:0.7rem; color:#888">${entry.weight ? entry.weight + 'g peso' : 'Estimado'}</div>
+                </div>
+             </div>
+             <button onclick="removePlateEntry(${idx})" class="btn-ghost" style="color:red; padding:0.2rem">✕</button>
+          `;
+      plateList.appendChild(li);
+    });
+    state.plateBuilder.total = total;
+    plateTotalEl.textContent = total; // total integer
+
+    // Update main Total Carbs Display if needed
+    if (total > 0) {
+      btnFinPlate.hidden = false;
+    } else {
+      btnFinPlate.hidden = true;
     }
   };
 
-  // Init
-  updateScaleUI();
+  // Global remover
+  window.removePlateEntry = (idx) => {
+    state.plateBuilder.entries.splice(idx, 1);
+    updatePlateUI();
+  };
+
+  btnFinPlate.onclick = () => {
+    state.tempCarbs = state.plateBuilder.total;
+    // create a combined note?
+    state.tempReason = "plate_builder";
+    navigate('#/bolus');
+  };
+
+  btnUse.onclick = () => {
+    // Just use raw weight as carbs (dumb mode) or add as unknown
+    // User requested "Usar Peso" -> Auto convert to carbs? No, "Usar Peso" usually puts it into calculator 
+    // but if we are building a plate, maybe we want to add it as an entry without photo?
+    // Let's keep original behavior: Go to Bolus with this weight as carbs input
+    state.tempCarbs = state.scale.grams;
+    navigate('#/bolus');
+  };
+
+  // Connect add button (only active after analysis)
+  // Logic inside handleImg will enable/handle this.
+
+  // Initial render
+  updatePlateUI();
 }
 
 // --- VIEW: BOLUS (Calcular) ---
