@@ -580,7 +580,16 @@ function renderDashboard() {
       const options = {
         meal_slot: document.querySelector("#vision-meal-slot").value,
         portion_hint: document.querySelector("#vision-portion").value,
-        prefer_extended: document.querySelector("#vision-extended").checked
+        prefer_extended: document.querySelector("#vision-extended").checked,
+        // Add weight if available and positive (use raw grams from scale)
+        // Note: state.scale.grams might be updated real-time, 
+        // using state.plateWeightGrams if 'User Peso' was clicked might be safer?
+        // But requested to just use it.
+        // Actually best to use state.scale.grams if connected, or state.plateWeightGrams if "used".
+        // Let's prefer the "Used" weight if set (explicit action), else live weight if stable?
+        // User asked "Loggear y confirmar el peso... sin cambiar el flujo".
+        // Sending live connected weight seems most useful if user is weighing while taking photo.
+        plate_weight_grams: state.scale.connected ? state.scale.grams : (state.plateWeightGrams || null)
       };
 
       const currentBg = document.querySelector("#bg").value;

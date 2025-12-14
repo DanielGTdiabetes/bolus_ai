@@ -87,6 +87,19 @@ async def estimate_from_image(
     bg_mgdl: Optional[int] = Form(None),
     target_mgdl: Optional[int] = Form(None),
     portion_hint: Optional[str] = Form(None),
+    
+    # Weight from scale
+    plate_weight_grams: Optional[int] = Form(None, alias="plateWeightGrams"), # Handle camelCase too via alias potentially, but FastAPI Form alias might need Pydantic model. 
+    # Actually, simpler to accept multiple args covering common cases or rely on frontend sending standard param.
+    # We will accept standard snake_case and rely on frontend mapping, but user asked to accept multiple names implicitly.
+    # FastAPI Form does not support alias effectively for multiple names in function signature directly. 
+    # We'll just define the specific one expected from frontend (which we control). 
+    # User said: "Aceptar nombres: plate_weight_grams, plateWeightGrams, plateWeight."
+    # We can add them as optional inputs.
+    
+    plateWeightGrams: Optional[int] = Form(None),
+    plateWeight: Optional[int] = Form(None),
+
     prefer_extended: bool = Form(True),
     
     nightscout_url: Optional[str] = Form(None),
@@ -99,6 +112,9 @@ async def estimate_from_image(
     start_ts = time.time()
     username = current_user["username"]
     _check_rate_limit(username)
+
+    # Normalize weight
+    effective_weight = plate_weight_grams or plateWeightGrams or plateWeight
 
     provider = get_vision_provider()
     
@@ -129,7 +145,10 @@ async def estimate_from_image(
     if len(content) > max_bytes:
          raise HTTPException(status_code=413, detail=f"Image too large (> {settings.vision.max_image_mb}MB)")
 
-    logger.info(f"Vision Analysis Start: provider={provider}, user={username}, size={size_mb:.2f}MB, slot={meal_slot}")
+    logger.info(
+        "Vision Analysis Start: provider=%s, user=%s, size=%.2fMB, slot=%s, plate_weight_grams=%s",
+        provider, username, size_mb, meal_slot, effective_weight
+    )
 
     # 2. Vision Estimation
     hints = {
