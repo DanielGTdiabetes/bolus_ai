@@ -42,7 +42,6 @@ async def api_recalc_second(payload: RecalcSecondRequest):
 @router.post("/calc", response_model=BolusResponseV2, summary="Calculate bolus (Stateless V2)")
 async def calculate_bolus_stateless(
     payload: BolusRequestV2,
-    _: dict = Depends(get_current_user),
     store: DataStore = Depends(_data_store),
 ):
     # 1. Resolve Settings
