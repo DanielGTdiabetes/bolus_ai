@@ -186,195 +186,46 @@ function renderDashboard() {
   if (!ensureAuthenticated()) return;
   const needsChange = state.user?.needs_password_change;
 
-  // Render structure
+  // Render structure (Mobile First Redesign)
   app.innerHTML = `
     ${renderHeader()}
-    <main class="page">
-      ${needsChange ? '<div class="warning">Debes cambiar la contraseña predeterminada.</div>' : ""}
-      
-      <!-- U2 Panel Container -->
-      <div id="u2-panel-container" hidden></div>
+  <main class="page">
+    ${needsChange ? '<div class="warning">Debes cambiar la contraseña predeterminada.</div>' : ""}
 
-      <!-- Current Glucose Card -->
-      <section class="card glucose-card">
-         <div class="card-header">
-           <h2>Glucosa Actual</h2>
-           <button id="refresh-bg-btn" class="ghost small">↻ Actualizar</button>
-         </div>
-         <div id="glucose-display" class="glucose-box">
-            <span class="loading-text">Cargando...</span>
-         </div>
-      </section>
+    <!-- 1. Result Card (Top Hierarchy) -->
+    <section class="card result-card" id="result-card" ${!state.bolusResult ? 'hidden' : ''}>
+      <div class="result-sub">Bolo recomendado</div>
+      <div id="bolus-output" class="result-main">${state.bolusResult || "0.0 U"}</div>
+      <!-- Warning/Details could go here -->
+      <div id="result-warnings" class="result-warnings" hidden></div>
+    </section>
 
-      <!-- IOB Card -->
-      <section class="card">
-         <div class="card-header">
-           <h2>Insulina Activa (IOB)</h2>
-           <button id="refresh-iob-btn" class="ghost small">↻</button>
-         </div>
-         <div class="iob-box" id="iob-display">
-            <span class="loading-text">Cargando...</span>
-         </div>
-         <canvas id="iob-graph" width="350" height="150" style="width:100%; max-height:150px; margin-top:10px;"></canvas>
-      </section>
-      
-      <!-- BLE Scale Card -->
-      <section class="card" id="scale-card">
-         <div class="card-header">
-           <h2>Báscula (BLE)</h2>
-           <span id="scale-status-badge" class="badge neutral">${state.scale.status}</span>
-         </div>
-         <div class="scale-box">
-            <div id="scale-display" class="big-number">-- g</div>
-            <div id="scale-meta" class="scale-meta"></div>
-         </div>
-         
-         <div class="actions" style="margin-top:1rem;">
-            ${!isBleSupported()
-      ? '<div class="warning small">Navegador no soporta BLE. Usa Bluefy en iOS.</div>'
-      : `
-                 <button id="btn-scale-connect" class="secondary small">Conectar</button>
-                 <button id="btn-scale-tare" class="ghost small" disabled>Tara</button>
-               `
-    }
-            <button id="btn-scale-use" class="primary small" disabled>Usar Peso</button>
-         </div>
-      </section>
+    <!-- U2 Panel Container (High priority if active) -->
+    <div id="u2-panel-container" hidden></div>
 
-      <!-- Plate Builder Card -->
-      <section class="card" id="plate-builder-card">
-         <div class="card-header">
-           <h2>🍽️ Construir Plato</h2>
-           <button id="btn-plate-reset" class="ghost small">🗑️ Reset</button>
-         </div>
-         
-         <div class="plate-summary">
-            <div class="big-number" id="plate-total-carbs">0 g</div>
-            <div class="plate-meta" id="plate-meta-info">0 alimentos</div>
-         </div>
+    <!-- 2. Calculation Mode (Pills) -->
+    <div class="mode-pills segment-control">
+      <button type="button" data-mode="meal" class="mode-pill ${state.calcMode === 'meal' ? 'active' : ''}">🍽️ Comida</button>
+      <button type="button" data-mode="correction" class="mode-pill ${state.calcMode === 'correction' ? 'active' : ''}">💉 Corrector</button>
+    </div>
 
-         <!-- Weight Mode Controls -->
-         <div class="weight-mode-controls" style="margin: 1rem 0; background: #f8fafc; padding: 0.75rem; border-radius: 8px;">
-            <label class="row-label">
-              <input type="radio" name="weight-mode" value="single" checked>
-              Peso individual
-            </label>
-            <label class="row-label">
-              <input type="radio" name="weight-mode" value="incremental">
-              Peso incremental (sin tara)
-            </label>
-            
-            <div id="incremental-controls" hidden style="margin-top: 0.5rem; border-top: 1px solid #e2e8f0; padding-top: 0.5rem;">
-               <div class="row">
-                 <button id="btn-set-base" class="secondary small">📍 Fijar base</button>
-                 <div style="font-size: 0.9rem; align-self: center;">
-                    Base: <strong id="lbl-base-weight">0</strong> g
-                 </div>
-               </div>
-               <div style="font-size: 0.9rem; color: #64748b; margin-top: 0.25rem;">
-                  Actual: <span id="lbl-current-weight">--</span> g | 
-                  Inc: <strong id="lbl-inc-weight">--</strong> g
-               </div>
-            </div>
-            <!-- Debug Info (Always Visible) -->
-            <div id="plate-debug" style="font-size: 0.7rem; color: #94a3b8; margin-top: 4px; font-family: monospace; min-height: 1em;">BLE: Sin datos</div>
-         </div>
-         </div>
+    <!-- 3. Data Inputs Card -->
+    <section class="card" id="input-card">
+      <div class="card-header">
+        <h3>Datos</h3>
+        <div id="glucose-display-mini" class="badge neutral">BG: --</div>
+      </div>
 
-         <ul id="plate-entries" class="item-list" style="max-height: 200px; overflow-y: auto;"></ul>
-
-         <div class="actions">
-            <button id="btn-plate-undo" class="secondary" disabled>↩️ Deshacer</button>
-            <button id="btn-plate-undo" class="secondary" disabled>↩️ Deshacer</button>
-            <button id="btn-plate-finalize" class="primary" hidden>✅ Finalizar plato</button>
-            <button id="btn-plate-reopen" class="secondary" hidden>✏️ Reabrir plato</button>
-            <!-- LEAVE TRANSFER BUTTON FOR BACKWARD COMPAT OR REMOVE? Request says "Replaces Transfer with Finalize flow", but technically "Añadir botón 'Finalizar plato'". I will keep Transfer as pure copy, or hide it if Finalize is better. Let's hide Transfer if Finalize takes over. Actually request says "Copiar... al input" which is what Transfer did. I will replace Transfer with Finalize flow for clarity. -->
-         </div>
-         <p class="error" id="plate-error" hidden></p>
-      </section>
-
-      <!-- Vision Card -->
-      <section class="card" id="vision-card">
-        <div class="card-header">
-           <h2>Foto del plato</h2>
-           <span class="badge">BETA</span>
-        </div>
-        
-        <form id="vision-form" class="stack">
-          <!-- Hidden inputs for file selection -->
-          <input type="file" id="cameraInput" accept="image/*" capture="environment" hidden />
-          <input type="file" id="photosInput" accept="image/*" hidden />
-          
-          <div class="row">
-            <button type="button" id="btn-camera" class="primary big-btn">📷 Hacer foto</button>
-            <button type="button" id="btn-gallery" class="secondary big-btn">🖼️ Elegir de Fotos</button>
-          </div>
-          
-          <div id="preview-container" hidden>
-            <img id="image-preview" src="" alt="Vista previa" class="preview-img" />
-            <button type="button" id="btn-clear-img" class="ghost small">❌ Quitar</button>
-          </div>
-          
-          <div class="row">
-             <label>Franja
-                <select id="vision-meal-slot">
-                  <option value="breakfast">Desayuno</option>
-                  <option value="lunch" selected>Comida</option>
-                  <option value="dinner">Cena</option>
-                </select>
-             </label>
-             <label>Tamaño (aprox)
-                <select id="vision-portion">
-                   <option value="" id="vision-portion-auto">(Auto / Báscula)</option>
-                   <option value="small">Pequeño</option>
-                   <option value="medium">Mediano</option>
-                   <option value="large">Grande</option>
-                </select>
-             </label>
-          </div>
-          
-           <label class="row-label">
-             <input type="checkbox" id="vision-extended" checked />
-             Permitir recomendación de bolo extendido (grasa/proteína)
-           </label>
-           
-           <button type="submit" id="vision-submit-btn" disabled>➕ Añadir alimento (foto)</button>
-           <p class="error" id="vision-error" hidden></p>
-        </form>
-
-        <div id="vision-results" class="results-box" hidden>
-           <h3>Estimación IA</h3>
-           <div id="vision-summary"></div>
-           <div id="vision-bars" class="bars-container"></div>
-           <ul id="vision-items" class="item-list"></ul>
-           <div id="vision-bolus" class="bolus-recommendation hidden"></div>
-           <div class="actions">
-             <button type="button" id="use-vision-btn" class="secondary">Usar estos datos</button>
-           </div>
-        </div>
-      </section>
-
-
-      
-
-      <section class="card">
-        <div class="card-header">
-          <h2>Calculadora manual</h2>
-          <button id="change-password-link" class="ghost">Cambiar contraseña</button>
-        </div>
-        <div class="mode-selector segment-control">
-           <button type="button" data-mode="meal" class="segment active">🍽️ Comida</button>
-           <button type="button" data-mode="correction" class="segment">💉 Corrector</button>
-        </div>
-        <form id="bolus-form" class="stack">
-          <div id="carbs-wrapper">
-             <label>Carbohidratos (g)
-               <input type="number" step="0.1" id="carbs" required />
-             </label>
-          </div>
-          <label>Glucosa (mg/dL, opcional)
-            <input type="number" step="1" id="bg" placeholder="Dejar vacío para usar Nightscout" />
+      <form id="bolus-form" class="stack">
+        <div class="data-grid">
+          <!-- Glucose Input with Auto Toggle visual intent -->
+          <label>
+            Glucosa
+            <input type="number" step="1" id="bg" placeholder="Nightscout" />
+            <button type="button" id="refresh-bg-btn" class="ghost" style="margin-top:-38px; margin-right:4px; float:right; width:auto; padding:4px;">↻</button>
           </label>
+
+          <!-- Franja -->
           <label>Franja
             <select id="meal-slot">
               <option value="breakfast">Desayuno</option>
@@ -383,32 +234,172 @@ function renderDashboard() {
               <option value="snack">Snack</option>
             </select>
           </label>
-          <label>Objetivo (mg/dL, opcional)
-            <input type="number" step="1" id="target" />
-          </label>
-          
-          <label class="row-label" id="split-wrapper">
-             <input type="checkbox" id="use-split" />
-             🔄 Bolo dividido (Dual)
-          </label>
+        </div>
 
-          <button type="submit">Calcular</button>
-          <p class="error" id="bolus-error" ${state.bolusError ? "" : "hidden"}>${state.bolusError || ""}</p>
-        </form>
-        <div id="bolus-output" class="bolus-box">${state.bolusResult || "Pendiente de cálculo."}</div>
-        <div class="actions" id="bolus-actions" hidden>
-           <button type="button" id="accept-bolus-btn" class="primary">✅ Aceptar bolo</button>
-           <span id="accept-msg" class="success" hidden></span>
+        <!-- Carbs Input (Syncs with Plate) -->
+        <label>
+          Carbohidratos (g)
+          <input type="number" step="0.1" id="carbs" required class="big-input" />
+        </label>
+
+        <!-- IOB Display & Refresh -->
+        <div style="background:#f8fafc; padding:0.75rem; border-radius:12px; display:flex; justify-content:space-between; align-items:center;">
+          <span style="font-size:0.9rem; font-weight:600; color:#64748b;">IOB (Insulina Activa)</span>
+          <div style="display:flex; align-items:center; gap:0.5rem;">
+            <div id="iob-display" style="font-weight:700;">-- U</div>
+            <button type="button" id="refresh-iob-btn" class="ghost" style="padding:4px;">↻</button>
+          </div>
         </div>
-        
-        <div id="bolus-explain" class="explain" hidden>
-          <h3>Detalles del cálculo</h3>
-          <ul id="explain-list"></ul>
+        <canvas id="iob-graph" width="300" height="80" style="width:100%; max-height:80px; display:none;"></canvas>
+
+        <!-- Advanced Toggles -->
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-top:0.5rem;">
+          <label class="row-label" id="split-wrapper">
+            <span>🔄 Bolo dividido</span>
+            <input type="checkbox" id="use-split" />
+          </label>
+          <!-- Target override only accessible via small link or settings?
+          User asked to move advanced to Settings. We keep invisible Target unless needed?
+          Actually current logic reads #target. We can hide it or keep it small. 
+                      Let's hide it by default to clean up, or put it in details. -->
+          <details>
+            <summary style="font-size:0.8rem; color:#94a3b8;">Ops. Avanzadas</summary>
+            <label>Objetivo (mg/dL)
+              <input type="number" step="1" id="target" />
+            </label>
+          </details>
         </div>
-      </section>
-      
-      <p class="hint">API base: <code>${getApiBase() || "(no configurado)"}</code></p>
-    </main>
+
+        <button type="submit" class="primary big-btn" style="margin-top:1rem;">Calcular Bolo</button>
+        <p class="error" id="bolus-error" ${state.bolusError ? "" : "hidden"}>${state.bolusError || ""}</p>
+      </form>
+
+      <div class="actions" id="bolus-actions" hidden style="margin-top:1rem;">
+        <button type="button" id="accept-bolus-btn" class="secondary">✅ Aceptar bolo</button>
+        <span id="accept-msg" class="success" hidden></span>
+      </div>
+    </section>
+
+    <!-- 4. Combined Vision + Scale Card (The "Adder") -->
+    <section class="card" id="vision-scale-card">
+      <div class="card-header">
+        <h3>Añadir Alimento</h3>
+        <span class="badge success" id="scale-status-badge">BLE OFF</span>
+      </div>
+
+      <!-- Vision Actions -->
+      <form id="vision-form">
+        <!-- Hidden inputs -->
+        <input type="file" id="cameraInput" accept="image/*" capture="environment" hidden />
+        <input type="file" id="photosInput" accept="image/*" hidden />
+
+        <!-- Hidden builder configs -->
+        <div hidden>
+          <select id="vision-meal-slot"><option value="lunch" selected>Comida</option></select>
+          <select id="vision-portion"><option value="" id="vision-portion-auto">Auto</option></select>
+          <input type="checkbox" id="vision-extended" checked />
+        </div>
+
+        <div class="vision-actions">
+          <button type="button" id="btn-camera" class="secondary big-icon-btn">
+            <span>📷</span> <small>Cámara</small>
+          </button>
+          <button type="button" id="btn-gallery" class="secondary big-icon-btn">
+            <span>🖼️</span> <small>Galería</small>
+          </button>
+        </div>
+
+        <!-- Unified Scale Readout -->
+        <div class="scale-section">
+          <div class="scale-info">
+            <div id="scale-display" class="scale-readout">-- g</div>
+            <div class="scale-status" id="scale-meta">Conectar para pesar</div>
+          </div>
+          <div class="scale-controls" style="display:flex; flex-direction:column; gap:0.5rem;">
+            <button type="button" id="btn-scale-connect" class="ghost small">Conectar</button>
+            <button type="button" id="btn-scale-tare" class="ghost small" disabled>Tara</button>
+            <!-- "Use Weight" button -->
+            <button type="button" id="btn-scale-use" class="secondary small" disabled>Usar</button>
+          </div>
+        </div>
+
+        <!-- Preview Area -->
+        <div id="preview-container" hidden style="margin-top:1rem;">
+          <img id="image-preview" src="" class="preview-img" />
+          <button type="button" id="btn-clear-img" class="ghost small" style="margin-top:0.5rem;">Cancelar</button>
+          <button type="submit" id="vision-submit-btn" class="primary" style="margin-top:0.5rem;" disabled>Analizar</button>
+        </div>
+        <p class="error" id="vision-error" hidden></p>
+
+        <!-- Vision Results (Temporary overlay or inline) -->
+        <div id="vision-results" class="results-box" hidden>
+          <h4>Resultado IA</h4>
+          <div id="vision-summary"></div>
+          <!-- Need 'vision-bars' and 'vision-items' logic to work -->
+          <div id="vision-bars"></div>
+          <ul id="vision-items" class="mini-list"></ul>
+          <div id="vision-bolus" hidden></div> <!-- Hidden logic used by old code -->
+          <button type="button" id="use-vision-btn" class="primary small" style="margin-top:0.5rem;">Añadir al plato</button>
+        </div>
+      </form>
+    </section>
+
+    <!-- 5. Plate Builder List & Finalize -->
+    <section class="card" id="plate-builder-card">
+      <div class="card-header">
+        <h3>Mi Plato</h3>
+        <button id="btn-plate-reset" class="ghost small">🗑️</button>
+      </div>
+
+      <!-- Summary Header -->
+      <div class="plate-summary">
+        <div>
+          <div class="big-number" id="plate-total-carbs">0 g</div>
+          <small id="plate-meta-info" style="color:#64748b;">0 items</small>
+        </div>
+        <div class="weight-mode-controls">
+          <!-- Keep existing structure for logic compatibility but styled cleaner -->
+          <div style="font-size:0.8rem; margin-bottom:0.25rem;">Modo Peso:</div>
+          <label style="flex-direction:row; align-items:center; gap:4px;">
+            <input type="radio" name="weight-mode" value="single" checked> Individual
+          </label>
+          <label style="flex-direction:row; align-items:center; gap:4px;">
+            <input type="radio" name="weight-mode" value="incremental"> Incremental
+          </label>
+        </div>
+      </div>
+
+      <!-- Incremental Controls (Hidden by default logic) -->
+      <div id="incremental-controls" hidden style="background:#f1f5f9; padding:0.5rem; border-radius:8px; margin-bottom:0.5rem;">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <button id="btn-set-base" class="secondary small" style="width:auto;">📍 Fijar Base</button>
+          <div style="text-align:right;">
+            <div>Base: <strong id="lbl-base-weight">0</strong></div>
+            <div>Inc: <strong id="lbl-inc-weight" style="font-size:1.1rem;">0</strong> g</div>
+          </div>
+        </div>
+        <!-- Needed for logic updates -->
+        <span id="lbl-current-weight" hidden></span>
+      </div>
+      <div id="plate-debug" style="font-size: 0.7rem; color: #94a3b8; margin-top: 4px; font-family: monospace; min-height: 1em;">BLE: Sin datos</div>
+
+      <ul id="plate-entries" class="plate-list" style="margin-bottom:1rem;"></ul>
+
+      <div class="actions">
+        <button id="btn-plate-undo" class="secondary" disabled>Deshacer</button>
+        <button id="btn-plate-finalize" class="primary" hidden>✅ Finalizar y Copiar</button>
+        <button id="btn-plate-reopen" class="secondary" hidden>✏️ Reabrir</button>
+      </div>
+      <p class="error" id="plate-error" hidden></p>
+    </section>
+
+    <section class="card" id="bolus-explain" hidden>
+      <h3>Explicación</h3>
+      <ul id="explain-list"></ul>
+    </section>
+
+    <p class="hint text-center" style="margin-top:2rem;">Ver. Mobile 1.0 • ${state.user.username}</p>
+  </main>
   `;
 
   // --- Handlers ---
@@ -474,7 +465,7 @@ function renderDashboard() {
       // Append info item about weight
       explainBlock.hidden = false;
       const li = document.createElement("li");
-      li.innerHTML = `<strong>Peso Báscula:</strong> ${grams} g <span class="badge neutral">Usado</span>`;
+      li.innerHTML = `< strong > Peso Báscula:</strong > ${grams} g < span class="badge neutral" > Usado</span > `;
       explainList.prepend(li); // Show at top
 
       // If we had input fields for weight in vision form, we would set them here. 
@@ -547,13 +538,13 @@ function renderDashboard() {
       // Stable badge
       let metaHtml = "";
       if (state.scale.stable) {
-        metaHtml += `<span class="badge success">ESTABLE</span>`;
+        metaHtml += `< span class="badge success" > ESTABLE</span > `;
       } else {
-        metaHtml += `<span class="badge warning">...</span>`;
+        metaHtml += `< span class="badge warning" >...</span > `;
       }
 
       if (state.scale.battery !== null) {
-        metaHtml += ` <small>🔋 ${state.scale.battery}%</small>`;
+        metaHtml += ` < small >🔋 ${state.scale.battery}%</small > `;
       }
       scaleMeta.innerHTML = metaHtml;
     } else {
@@ -583,7 +574,7 @@ function renderDashboard() {
 
     const config = getLocalNsConfig();
     if (!config || !config.url) {
-      glucoseDisplay.innerHTML = `<span class="bg-error">No configurado (local)</span>`;
+      glucoseDisplay.innerHTML = `< span class="bg-error" > No configurado(local)</span > `;
       return;
     }
 
@@ -593,7 +584,7 @@ function renderDashboard() {
       state.currentGlucose.loading = false;
 
       if (!res.ok) {
-        glucoseDisplay.innerHTML = `<span class="bg-error">${res.error || "No configurado"}</span>`;
+        glucoseDisplay.innerHTML = `< span class="bg-error" > ${res.error || "No configurado"}</span > `;
         return;
       }
 
@@ -605,18 +596,18 @@ function renderDashboard() {
       const staleText = res.stale ? "ANTIGUO" : "OK";
 
       glucoseDisplay.innerHTML = `
-             <div class="glucose-main ${staleClass}">
+    < div class="glucose-main ${staleClass}" >
                 <span class="bg-value">${bgVal}</span>
                 <span class="bg-arrow">${trendIcon}</span>
-             </div>
-             <div class="glucose-meta">
-                <span>Hace ${age} min</span>
-                <span class="status-badge ${staleClass}">${staleText}</span>
-             </div>
-          `;
+             </div >
+    <div class="glucose-meta">
+      <span>Hace ${age} min</span>
+      <span class="status-badge ${staleClass}">${staleText}</span>
+    </div>
+  `;
 
     } catch (err) {
-      glucoseDisplay.innerHTML = `<span class="bg-error">Error conexión</span>`;
+      glucoseDisplay.innerHTML = `< span class="bg-error" > Error conexión</span > `;
     }
   }
 
@@ -752,7 +743,7 @@ function renderDashboard() {
         // if (reading.ageMs > 2000) throw new Error("Lectura de peso antigua (>2s)."); // Disabled
 
         if (!reading.stable) {
-          throw new Error(`Espera a ESTABLE (Delta ${reading.delta ?? "?"}g).`);
+          throw new Error(`Espera a ESTABLE(Delta ${reading.delta ?? "?"}g).`);
         }
 
         const currentW = reading.grams;
@@ -845,12 +836,12 @@ function renderDashboard() {
       const time = new Date(entry.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
       li.innerHTML = `
-           <div>
+    < div >
              <div style="font-weight:600;">${desc}</div>
              <small style="color:#64748b;">${time} • ${entry.weight_used_grams ? entry.weight_used_grams + 'g' : 'Sin peso'}</small>
-           </div>
-           <strong style="color:#2563eb;">${entry.carbs_g} g</strong>
-        `;
+           </div >
+    <strong style="color:#2563eb;">${entry.carbs_g} g</strong>
+  `;
       list.appendChild(li);
     });
 
@@ -905,7 +896,7 @@ function renderDashboard() {
     if (dbgEl) {
       const dbg = getPlateBuilderReading();
       if (dbg.grams !== null) {
-        dbgEl.textContent = `BLE: g=${dbg.grams} stable=${dbg.stable} age=${dbg.ageMs}ms d=${dbg.delta}g`;
+        dbgEl.textContent = `BLE: g = ${dbg.grams} stable = ${dbg.stable} age = ${dbg.ageMs}ms d = ${dbg.delta} g`;
       } else {
         dbgEl.textContent = "BLE: Sin datos";
       }
@@ -984,7 +975,7 @@ function renderDashboard() {
     }
     // Relaxed stable check? No, for SETTING base we want strict stable
     if (!reading.stable) {
-      alert(`Espera a que el peso sea estable (Delta: ${reading.delta}g).`);
+      alert(`Espera a que el peso sea estable(Delta: ${reading.delta}g).`);
       return;
     }
     state.plateBuilder.weight_base_grams = reading.grams;
@@ -1031,16 +1022,16 @@ function renderDashboard() {
     // 1. Summary
     const summaryDiv = document.querySelector("#vision-summary");
     summaryDiv.innerHTML = `
-        <div class="big-number">${data.carbs_estimate_g}g <small>carbs</small></div>
-        <div>Confianza: <strong>${data.confidence}</strong> (Rango: ${data.carbs_range_g[0]}-${data.carbs_range_g[1]}g)</div>
-     `;
+    < div class="big-number" > ${data.carbs_estimate_g} g < small > carbs</small ></div >
+      <div>Confianza: <strong>${data.confidence}</strong> (Rango: ${data.carbs_range_g[0]}-${data.carbs_range_g[1]}g)</div>
+  `;
 
     // 2. Bars (Fat / Slow)
     const barsDiv = document.querySelector("#vision-bars");
     barsDiv.innerHTML = `
-        <div class="bar-row">Grasa: <progress value="${data.fat_score}" max="1"></progress></div>
-        <div class="bar-row">Absorción lenta: <progress value="${data.slow_absorption_score}" max="1"></progress></div>
-     `;
+    < div class="bar-row" > Grasa: <progress value="${data.fat_score}" max="1"></progress></div >
+      <div class="bar-row">Absorción lenta: <progress value="${data.slow_absorption_score}" max="1"></progress></div>
+  `;
 
     // 3. Items
     const list = document.querySelector("#vision-items");
@@ -1050,7 +1041,7 @@ function renderDashboard() {
       li.textContent = `${item.name} (~${item.carbs_g}g)`;
       if (item.notes) {
         const span = document.createElement("small");
-        span.textContent = ` - ${item.notes}`;
+        span.textContent = ` - ${item.notes} `;
         li.appendChild(span);
       }
       list.appendChild(li);
@@ -1060,11 +1051,11 @@ function renderDashboard() {
     const bolusDiv = document.querySelector("#vision-bolus");
     if (data.bolus) {
       bolusDiv.classList.remove("hidden");
-      let html = `<h4>Bolo Recomendado (${data.bolus.kind === 'extended' ? 'EXTENDIDO' : 'NORMAL'})</h4>`;
+      let html = `< h4 > Bolo Recomendado(${data.bolus.kind === 'extended' ? 'EXTENDIDO' : 'NORMAL'})</h4 > `;
 
       if (data.bolus.kind === 'extended') {
         html += `
-              <div class="split-bolus">
+    < div class="split-bolus" >
                  <div class="split-part">
                     <strong>AHORA</strong>
                     <span class="val">${data.bolus.upfront_u} U</span>
@@ -1073,13 +1064,13 @@ function renderDashboard() {
                     <strong>LUEGO (+${data.bolus.delay_min} min)</strong>
                     <span class="val">${data.bolus.later_u} U</span>
                  </div>
-              </div>
-            `;
+              </div >
+    `;
       } else {
-        html += `<div class="big-number">${data.bolus.upfront_u} U</div>`;
+        html += `< div class="big-number" > ${data.bolus.upfront_u} U</div > `;
       }
 
-      html += `<ul>${data.bolus.explain.map(e => `<li>${e}</li>`).join('')}</ul>`;
+      html += `< ul > ${data.bolus.explain.map(e => `<li>${e}</li>`).join('')}</ul > `;
       bolusDiv.innerHTML = html;
     } else {
       bolusDiv.classList.add("hidden");
@@ -1144,7 +1135,7 @@ function renderDashboard() {
   }
 
   // === MODE SELECTOR LOGIC ===
-  const modeBtns = document.querySelectorAll(".mode-selector .segment");
+  const modeBtns = document.querySelectorAll(".mode-pills .mode-pill");
   if (modeBtns) {
     modeBtns.forEach(btn => {
       btn.addEventListener("click", () => {
@@ -1166,22 +1157,25 @@ function renderDashboard() {
     });
 
     // Toggle fields
-    toggleVisibility("#carbs-wrapper", !isCorrection);
-    toggleVisibility("#scale-card", !isCorrection);
-    toggleVisibility("#vision-card", !isCorrection);
+    toggleVisibility("#vision-scale-card", !isCorrection);
+    toggleVisibility("#plate-builder-card", !isCorrection); // Plate builder also hidden in correction? Usually yes.
     toggleVisibility("#split-wrapper", !isCorrection);
 
-    // Update 'Required' attribute on carbs to avoid validation error in hidden field
+    // In new design, Carbs input is inside Input Card. It remains visible but we might disable it or clear it.
+    // Actually, correction mode shouldn't show Carbs input usually, or show as 0/disabled.
+    // The previous logic cleared it.
     const carbsInput = document.querySelector("#carbs");
     if (isCorrection) {
+      carbsInput.parentElement.hidden = true; // Hide the Label wrapper
       carbsInput.removeAttribute("required");
-      carbsInput.value = ""; // Clear
+      carbsInput.value = "";
     } else {
+      carbsInput.parentElement.hidden = false;
       carbsInput.setAttribute("required", "true");
     }
 
     // Clear previous results/errors
-    document.querySelector("#bolus-output").innerHTML = "Pendiente de cálculo.";
+    document.querySelector("#bolus-output").innerHTML = "0.0 U";
     document.querySelector("#bolus-error").hidden = true;
     document.querySelector("#bolus-explain").hidden = true;
   }
@@ -1335,7 +1329,7 @@ function renderDashboard() {
         });
         if (res.kind === "dual") {
           const li = document.createElement("li");
-          li.innerHTML = `<strong>Bolo Dual:</strong> ${res.upfront_u}U ahora + ${res.later_u}U en ${res.duration_min}min.`;
+          li.innerHTML = `< strong > Bolo Dual:</strong > ${res.upfront_u}U ahora + ${res.later_u}U en ${res.duration_min} min.`;
           explainList.appendChild(li);
         }
 
@@ -1345,11 +1339,11 @@ function renderDashboard() {
           if (trend) {
             if (trend === "DoubleDown" || trend === "SingleDown") {
               const li = document.createElement("li");
-              li.innerHTML = `<span class="warning">📉 Tendencia a la baja. Evita correcciones agresivas.</span>`;
+              li.innerHTML = `< span class="warning" >📉 Tendencia a la baja.Evita correcciones agresivas.</span > `;
               explainList.appendChild(li);
             } else if (trend === "DoubleUp" || trend === "SingleUp") {
               const li = document.createElement("li");
-              li.innerHTML = `<span class="warning">📈 Tendencia al alza. Revisa en 20–30 min.</span>`;
+              li.innerHTML = `< span class="warning" >📈 Tendencia al alza.Revisa en 20–30 min.</span > `;
               explainList.appendChild(li);
             }
           }
@@ -1435,46 +1429,61 @@ function renderDashboard() {
       const { elapsed_min, remaining_min } = timing;
 
       timingHtml = `
-         <div class="u2-timing">
+    < div class="u2-timing" >
             <span>Transcurrido: <strong>${elapsed_min} min</strong></span>
             <span>U2 en: <strong>${remaining_min} min</strong></span>
-         </div>
-      `;
+         </div >
+    `;
 
       if (remaining_min === 0) {
-        warningHtml = `<div class="warning success-border">✅ U2 lista para administrar</div>`;
+        warningHtml = `< div class="warning success-border" >✅ U2 lista para administrar</div > `;
         btnText = "🔁 Recalcular U2 ahora";
       } else if (remaining_min < 20) {
-        warningHtml = `<div class="warning">⚠️ Muy cerca del momento de U2; recalcula justo antes de ponerla</div>`;
-        btnText = `Recalcular U2 (en ${remaining_min} min)`;
+        warningHtml = `< div class="warning" >⚠️ Muy cerca del momento de U2; recalcula justo antes de ponerla</div > `;
+        btnText = `Recalcular U2(en ${remaining_min} min)`;
       } else {
-        btnText = `Recalcular U2 (en ${remaining_min} min)`;
+        btnText = `Recalcular U2(en ${remaining_min} min)`;
       }
     } else {
-      timingHtml = `<small>(sin contador)</small>`;
+      timingHtml = `< small > (sin contador)</small > `;
     }
 
     parent.hidden = false;
     parent.innerHTML = `
       <section class="card u2-card">
          <div class="card-header">
-           <h2>⏱️ Segunda parte (U2)</h2>
+           <h3 style="margin:0; color:#1e40af;">⏱️ Bolo Dividido (U2)</h3>
            <button id="btn-clear-u2" class="ghost small">Ocultar</button>
          </div>
          <div class="stack">
-            <p><strong>Planificado:</strong> <span class="big-text">${plan.later_u_planned} U</span> <small>a los ${plan.later_after_min || plan.extended_duration_min} min</small></p>
-            ${timingHtml}
-            ${warningHtml}
-            <div class="row">
-               <label>Carbs adicionales (g)
-                  <input type="number" id="u2-carbs" value="0" style="width: 80px;" />
-               </label>
+            <div style="text-align:center;">
+               <div class="u2-timer-big">${remaining_min} min</div>
+               <div style="font-size:0.9rem; color:#64748b;">para la segunda dosis</div>
             </div>
-            <button id="btn-recalc-u2" class="primary">${btnText}</button>
+
+            <div style="display:flex; justify-content:space-around; background:#fff; padding:0.5rem; border-radius:8px;">
+               <div class="text-center">
+                  <div class="small text-muted">Planificado</div>
+                  <strong style="font-size:1.2rem; color:#2563eb;">${plan.later_u_planned} U</strong>
+               </div>
+               <div class="text-center">
+                   <div class="small text-muted">Transcurrido</div>
+                   <strong>${elapsed_min} min</strong>
+               </div>
+            </div>
+
+            ${warningHtml}
+
+            <div class="row" style="align-items:center;">
+               <label style="flex:1;">Carbs extra (g)
+                  <input type="number" id="u2-carbs" value="0" placeholder="0" />
+               </label>
+               <button id="btn-recalc-u2" class="primary" style="flex:1.5;">${btnText}</button>
+            </div>
             
-            <div id="u2-result" class="box" hidden>
+            <div id="u2-result" class="box" hidden style="background:#f0fdf4; border:1px solid #bbf7d0; padding:1rem; border-radius:8px; margin-top:0.5rem;">
                <div id="u2-details"></div>
-               <div id="u2-recommendation" class="big-number"></div>
+               <div id="u2-recommendation" class="big-number" style="text-align:center; margin:0.5rem 0;"></div>
                <ul id="u2-warnings" class="warning-list"></ul>
                <button id="btn-accept-u2" class="secondary" hidden>✅ Aceptar U2</button>
             </div>
@@ -1552,16 +1561,16 @@ function renderDashboard() {
 
         let recHtml = `${data.u2_recommended_u} U`;
         if (data.cap_u && data.u2_recommended_u >= data.cap_u) {
-          recHtml += ` <small>(Max)</small>`;
+          recHtml += ` < small > (Max)</small > `;
         }
         recDiv.innerHTML = recHtml;
 
         let det = "";
         if (data.bg_now_mgdl) {
-          det += `<div><strong>BG:</strong> ${Math.round(data.bg_now_mgdl)} mg/dL (${data.bg_age_min} min)</div>`;
+          det += `< div > <strong>BG:</strong> ${Math.round(data.bg_now_mgdl)} mg / dL(${data.bg_age_min} min)</div > `;
         }
         if (data.iob_now_u !== null) {
-          det += `<div><strong>IOB:</strong> ${data.iob_now_u.toFixed(2)} U</div>`;
+          det += `< div > <strong>IOB:</strong> ${data.iob_now_u.toFixed(2)} U</div > `;
         }
         detailsDiv.innerHTML = det;
 
@@ -1586,30 +1595,30 @@ function renderDashboard() {
 
 
   function renderBolusOutput(res) {
-    if (res.error) return `<span class='error'>${res.error}</span>`;
+    if (res.error) return `< span class='error' > ${res.error}</span > `;
 
     // Correction Mode Output
     if (state.calcMode === "correction") {
       if (res.upfront_u === 0) {
-        return `<div class="info-box">No se recomienda corrección. (BG &le; Objetivo)</div>`;
+        return `< div class="info-box" > No se recomienda corrección. (BG & le; Objetivo)</div > `;
       }
       return `
-          <div class="correction-res">
+    < div class="correction-res" >
              <div class="label">Bolo corrector recomendado</div>
              <div class="big-number">${res.upfront_u} U</div>
-          </div>
-       `;
+          </div >
+    `;
     }
 
     if (res.kind === "dual") {
       return `
-        <div class="dual-res">
+    < div class="dual-res" >
           <div>AHORA: <strong>${res.upfront_u} U</strong></div>
           <div>LUEGO: <strong>${res.later_u} U</strong> <small>(${res.duration_min} min)</small></div>
-        </div>
-      `;
+        </div >
+    `;
     }
-    return `<strong>${res.upfront_u} U</strong>`;
+    return `< strong > ${res.upfront_u} U</strong > `;
   }
 
 
@@ -1669,15 +1678,15 @@ function renderDashboard() {
       const data = await getIOBData(nsConfig && nsConfig.url ? nsConfig : null);
 
       iobDisplay.innerHTML = `
-          <div class="big-number">${data.iob_total} U</div>
-          ${(data.breakdown && data.breakdown.length) ? `<small>De ${data.breakdown.length} bolos</small>` : ""}
-       `;
+    < div class="big-number" > ${data.iob_total} U</div >
+      ${(data.breakdown && data.breakdown.length) ? `<small>De ${data.breakdown.length} bolos</small>` : ""}
+  `;
 
       if (data.graph && iobCanvas) {
         drawIOBGraph(iobCanvas, data.graph);
       }
     } catch (err) {
-      iobDisplay.innerHTML = `<span class="error small">${err.message}</span>`;
+      iobDisplay.innerHTML = `< span class="error small" > ${err.message}</span > `;
     }
   }
 
@@ -1724,18 +1733,18 @@ function renderDashboard() {
     const summaryDiv = document.querySelector("#vision-summary");
     if (summaryDiv) {
       summaryDiv.innerHTML = `
-        <div class="big-number">${data.carbs_estimate_g}g <small>carbs</small></div>
-        <div>Confianza: <strong>${data.confidence}</strong> <small>(Rango: ${data.carbs_range_g[0]}-${data.carbs_range_g[1]}g)</small></div>
-      `;
+    < div class="big-number" > ${data.carbs_estimate_g} g < small > carbs</small ></div >
+      <div>Confianza: <strong>${data.confidence}</strong> <small>(Rango: ${data.carbs_range_g[0]}-${data.carbs_range_g[1]}g)</small></div>
+  `;
     }
 
     // 2. Bars (Fat / Slow)
     const barsDiv = document.querySelector("#vision-bars");
     if (barsDiv) {
       barsDiv.innerHTML = `
-        <div class="bar-row">Grasa: <progress value="${data.fat_score}" max="1"></progress></div>
-        <div class="bar-row">Absorción lenta: <progress value="${data.slow_absorption_score}" max="1"></progress></div>
-      `;
+    < div class="bar-row" > Grasa: <progress value="${data.fat_score}" max="1"></progress></div >
+      <div class="bar-row">Absorción lenta: <progress value="${data.slow_absorption_score}" max="1"></progress></div>
+  `;
     }
 
     // 3. Items
@@ -1747,7 +1756,7 @@ function renderDashboard() {
         li.textContent = `${item.name} (~${item.carbs_g}g)`;
         if (item.notes) {
           const span = document.createElement("small");
-          span.textContent = ` - ${item.notes}`;
+          span.textContent = ` - ${item.notes} `;
           li.appendChild(span);
         }
         list.appendChild(li);
@@ -1759,11 +1768,11 @@ function renderDashboard() {
     if (bolusDiv) {
       if (data.bolus) {
         bolusDiv.classList.remove("hidden");
-        let html = `<h4>Bolo Recomendado (${data.bolus.kind === 'extended' ? 'EXTENDIDO' : 'NORMAL'})</h4>`;
+        let html = `< h4 > Bolo Recomendado(${data.bolus.kind === 'extended' ? 'EXTENDIDO' : 'NORMAL'})</h4 > `;
 
         if (data.bolus.kind === 'extended') {
           html += `
-                <div class="split-bolus">
+    < div class="split-bolus" >
                    <div class="split-part">
                       <strong>AHORA</strong>
                       <span class="val">${data.bolus.upfront_u} U</span>
@@ -1772,14 +1781,14 @@ function renderDashboard() {
                       <strong>LUEGO (+${data.bolus.delay_min} min)</strong>
                       <span class="val">${data.bolus.later_u} U</span>
                    </div>
-                </div>
-              `;
+                </div >
+    `;
         } else {
-          html += `<div class="big-number">${data.bolus.upfront_u} U</div>`;
+          html += `< div class="big-number" > ${data.bolus.upfront_u} U</div > `;
         }
 
         if (data.bolus.explain && data.bolus.explain.length) {
-          html += `<ul>${data.bolus.explain.map(e => `<li>${e}</li>`).join('')}</ul>`;
+          html += `< ul > ${data.bolus.explain.map(e => `<li>${e}</li>`).join('')}</ul > `;
         }
         bolusDiv.innerHTML = html;
       } else {
@@ -1910,7 +1919,7 @@ function ensureAuthenticated() {
 function renderHeader() {
   if (!state.user) return "";
   return `
-    <header class="topbar">
+    < header class="topbar" >
       <div class="brand">Bolus AI</div>
       <div class="nav-links">
         <a href="#/" class="nav-link">Calculadora</a>
@@ -1923,13 +1932,13 @@ function renderHeader() {
         </div>
         <button id="logout-btn" class="ghost">Salir</button>
       </div>
-    </header>
-  `;
+    </header >
+    `;
 }
 
 function renderLogin() {
   app.innerHTML = `
-    <main class="auth-page">
+    < main class="auth-page" >
       <section class="card auth-card">
         <h1>Inicia sesión</h1>
         <p class="hint">API base: <code>${getApiBase() || "(no configurado)"}</code></p>
@@ -1945,8 +1954,8 @@ function renderLogin() {
           <p class="error" id="login-error" hidden></p>
         </form>
       </section>
-    </main>
-  `;
+    </main >
+    `;
 
   const form = document.querySelector("#login-form");
   const errorBox = document.querySelector("#login-error");
@@ -1976,23 +1985,23 @@ function renderChangePassword() {
   if (!ensureAuthenticated()) return;
   app.innerHTML = `
     ${renderHeader()}
-    <main class="page narrow">
-      <section class="card auth-card">
-        <h2>Cambiar contraseña</h2>
-        <p class="hint">Introduce tu contraseña actual y una nueva (mínimo 8 caracteres).</p>
-        <form id="password-form" class="stack">
-          <label>Contraseña actual
-            <input type="password" id="old-password" autocomplete="current-password" required />
-          </label>
-          <label>Nueva contraseña
-            <input type="password" id="new-password" autocomplete="new-password" required minlength="8" />
-          </label>
-          <button type="submit">Actualizar</button>
-          <p class="error" id="password-error" hidden></p>
-          <p class="success" id="password-success" hidden>Contraseña actualizada.</p>
-        </form>
-      </section>
-    </main>
+  <main class="page narrow">
+    <section class="card auth-card">
+      <h2>Cambiar contraseña</h2>
+      <p class="hint">Introduce tu contraseña actual y una nueva (mínimo 8 caracteres).</p>
+      <form id="password-form" class="stack">
+        <label>Contraseña actual
+          <input type="password" id="old-password" autocomplete="current-password" required />
+        </label>
+        <label>Nueva contraseña
+          <input type="password" id="new-password" autocomplete="new-password" required minlength="8" />
+        </label>
+        <button type="submit">Actualizar</button>
+        <p class="error" id="password-error" hidden></p>
+        <p class="success" id="password-success" hidden>Contraseña actualizada.</p>
+      </form>
+    </section>
+  </main>
   `;
 
   const form = document.querySelector("#password-form");
@@ -2040,136 +2049,136 @@ function renderSettings() {
 
   app.innerHTML = `
     ${renderHeader()}
-    <main class="page">
-      <section class="card">
-        <div class="tabs">
-           <button id="tab-ns" class="tab active">Conexión Nightscout</button>
-           <button id="tab-calc" class="tab">Parámetros Cálculo</button>
-        </div>
-        
-        <div id="panel-ns">
-           <h2>Nightscout</h2>
-           <p class="hint">La configuración se guarda en <strong>este dispositivo</strong>.</p>
-           
-           <form id="ns-form" class="stack">
-              <label>URL
-                <input type="url" id="ns-url" placeholder="https://tusitio.herokuapp.com" required />
+  <main class="page">
+    <section class="card">
+      <div class="tabs">
+        <button id="tab-ns" class="tab active">Conexión Nightscout</button>
+        <button id="tab-calc" class="tab">Parámetros Cálculo</button>
+      </div>
+
+      <div id="panel-ns">
+        <h2>Nightscout</h2>
+        <p class="hint">La configuración se guarda en <strong>este dispositivo</strong>.</p>
+
+        <form id="ns-form" class="stack">
+          <label>URL
+            <input type="url" id="ns-url" placeholder="https://tusitio.herokuapp.com" required />
+          </label>
+          <label>Token / API Secret
+            <input type="password" id="ns-token" placeholder="Dejar vacío si es público" />
+          </label>
+          <div class="actions">
+            <button type="button" id="ns-test-btn" class="secondary">Probar</button>
+            <button type="submit">Guardar</button>
+          </div>
+          <div id="ns-status-box" class="status-box hidden"></div>
+        </form>
+      </div>
+
+      <div id="panel-calc" hidden>
+        <h2>Parámetros Clínicos</h2>
+        <p class="hint warning">Ajusta con ayuda de tu endocrino. Se guardan en navegador.</p>
+
+        <form id="calc-form" class="stack">
+          <!-- Slots Tabs inside form -->
+          <div class="sub-tabs">
+            <button type="button" data-slot="breakfast" class="sub-tab active">Desayuno</button>
+            <button type="button" data-slot="lunch" class="sub-tab">Comida</button>
+            <button type="button" data-slot="dinner" class="sub-tab">Cena</button>
+            <button type="button" data-slot="snack" class="sub-tab">Snack</button>
+          </div>
+
+          <div id="slot-fields">
+            <label>Ratio Insulina/Carbs (ICR)
+              <input type="number" step="0.1" id="slot-icr" required min="1" />
+              <small>1u por X gramos</small>
+            </label>
+            <label>Factor Sensibilidad (ISF)
+              <input type="number" step="1" id="slot-isf" required min="5" />
+              <small>1u baja X mg/dL</small>
+            </label>
+            <label>Objetivo (Target)
+              <input type="number" step="1" id="slot-target" required min="70" max="200" />
+              <small>mg/dL</small>
+            </label>
+          </div>
+
+          <hr />
+
+          <label>Duración Insulina Activa (DIA)
+            <input type="number" step="0.5" id="global-dia" required min="2" max="8" value="4" />
+            <small>Horas</small>
+          </label>
+
+          <label>Paso de redondeo
+            <select id="global-step">
+              <option value="0.1">0.1 U</option>
+              <option value="0.5">0.5 U</option>
+              <option value="1.0">1.0 U</option>
+            </select>
+          </label>
+
+          <label>Máximo Bolo (Seguridad)
+            <input type="number" step="0.5" id="global-max" required min="1" max="50" value="10" />
+            <small>Unidades límite por bolo</small>
+          </label>
+
+          <button type="submit">Guardar Parámetros</button>
+          <p id="calc-msg" class="success" hidden></p>
+        </form>
+
+        <hr style="margin: 2rem 0" />
+
+        <!-- ADVANCED SPLIT SETTINGS -->
+        <details id="advanced-settings">
+          <summary>Avanzado (Bolo Dividido)</summary>
+          <form id="split-form" class="stack" style="margin-top: 1rem; border: 1px solid #e2e8f0; padding: 1rem; border-radius: 8px;">
+            <label class="row-label">
+              <input type="checkbox" id="split-default-enabled" />
+              Activar bolo dividido por defecto
+            </label>
+
+            <div class="row">
+              <label>
+                % Ahora
+                <input type="number" id="split-percent" min="10" max="90" required />
               </label>
-              <label>Token / API Secret
-                <input type="password" id="ns-token" placeholder="Dejar vacío si es público" />
+              <label>
+                Redondeo (U)
+                <select id="split-step">
+                  <option value="0.1">0.1</option>
+                  <option value="0.5">0.5</option>
+                  <option value="1.0">1.0</option>
+                </select>
               </label>
-              <div class="actions">
-                <button type="button" id="ns-test-btn" class="secondary">Probar</button>
-                <button type="submit">Guardar</button>
-              </div>
-              <div id="ns-status-box" class="status-box hidden"></div>
-           </form>
-        </div>
-        
-        <div id="panel-calc" hidden>
-           <h2>Parámetros Clínicos</h2>
-           <p class="hint warning">Ajusta con ayuda de tu endocrino. Se guardan en navegador.</p>
-           
-           <form id="calc-form" class="stack">
-             <!-- Slots Tabs inside form -->
-             <div class="sub-tabs">
-                <button type="button" data-slot="breakfast" class="sub-tab active">Desayuno</button>
-                <button type="button" data-slot="lunch" class="sub-tab">Comida</button>
-                <button type="button" data-slot="dinner" class="sub-tab">Cena</button>
-                <button type="button" data-slot="snack" class="sub-tab">Snack</button>
-             </div>
-             
-             <div id="slot-fields">
-                <label>Ratio Insulina/Carbs (ICR)
-                   <input type="number" step="0.1" id="slot-icr" required min="1" />
-                   <small>1u por X gramos</small>
-                </label>
-                <label>Factor Sensibilidad (ISF)
-                   <input type="number" step="1" id="slot-isf" required min="5" />
-                   <small>1u baja X mg/dL</small>
-                </label>
-                <label>Objetivo (Target)
-                   <input type="number" step="1" id="slot-target" required min="70" max="200" />
-                   <small>mg/dL</small>
-                </label>
-             </div>
-             
-             <hr/>
-             
-             <label>Duración Insulina Activa (DIA)
-               <input type="number" step="0.5" id="global-dia" required min="2" max="8" value="4" />
-               <small>Horas</small>
-             </label>
-             
-             <label>Paso de redondeo
-               <select id="global-step">
-                 <option value="0.1">0.1 U</option>
-                 <option value="0.5">0.5 U</option>
-                 <option value="1.0">1.0 U</option>
-               </select>
-             </label>
+            </div>
 
-             <label>Máximo Bolo (Seguridad)
-               <input type="number" step="0.5" id="global-max" required min="1" max="50" value="10" />
-               <small>Unidades límite por bolo</small>
-             </label>
+            <div class="row">
+              <label>
+                Duración Extendida (min)
+                <input type="number" id="split-duration" min="30" max="480" step="15" required />
+              </label>
+              <label>
+                Recordar 2ª parte tras (min)
+                <input type="number" id="split-later-min" min="15" max="360" step="15" required />
+              </label>
+            </div>
 
-             <button type="submit">Guardar Parámetros</button>
-              <p id="calc-msg" class="success" hidden></p>
-           </form>
-           
-           <hr style="margin: 2rem 0" />
-           
-           <!-- ADVANCED SPLIT SETTINGS -->
-           <details id="advanced-settings">
-             <summary>Avanzado (Bolo Dividido)</summary>
-             <form id="split-form" class="stack" style="margin-top: 1rem; border: 1px solid #e2e8f0; padding: 1rem; border-radius: 8px;">
-                <label class="row-label">
-                   <input type="checkbox" id="split-default-enabled" />
-                   Activar bolo dividido por defecto
-                </label>
-                
-                <div class="row">
-                  <label>
-                     % Ahora
-                     <input type="number" id="split-percent" min="10" max="90" required />
-                  </label>
-                  <label>
-                     Redondeo (U)
-                     <select id="split-step">
-                       <option value="0.1">0.1</option>
-                       <option value="0.5">0.5</option>
-                       <option value="1.0">1.0</option>
-                     </select>
-                  </label>
-                </div>
+            <button type="submit" class="secondary">Guardar Avanzado</button>
+          </form>
+        </details>
+      </div>
 
-                <div class="row">
-                   <label>
-                      Duración Extendida (min)
-                      <input type="number" id="split-duration" min="30" max="480" step="15" required />
-                   </label>
-                   <label>
-                      Recordar 2ª parte tras (min)
-                      <input type="number" id="split-later-min" min="15" max="360" step="15" required />
-                   </label>
-                </div>
-                
-                <button type="submit" class="secondary">Guardar Avanzado</button>
-             </form>
-           </details>
-        </div>
-        
-      </section>
+    </section>
 
-      <section class="card">
-        <div class="card-header">
-          <h2>Estado del backend</h2>
-          <button id="health-btn" class="ghost">Comprobar</button>
-        </div>
-        <pre id="health-output">${state.healthStatus}</pre>
-      </section>
-    </main>
+    <section class="card">
+      <div class="card-header">
+        <h2>Estado del backend</h2>
+        <button id="health-btn" class="ghost">Comprobar</button>
+      </div>
+      <pre id="health-output">${state.healthStatus}</pre>
+    </section>
+  </main>
   `;
 
   const tabNs = document.querySelector("#tab-ns");
@@ -2185,7 +2194,7 @@ function renderSettings() {
       state.healthStatus = JSON.stringify(health, null, 2);
       output.textContent = state.healthStatus;
     } catch (error) {
-      state.healthStatus = `Error: ${error.message}`;
+      state.healthStatus = `Error: ${error.message} `;
       output.textContent = state.healthStatus;
     }
   });
@@ -2343,7 +2352,7 @@ function initCalcPanel() {
     for (const key of ["breakfast", "lunch", "dinner", "snack"]) {
       const s = finalParams[key];
       if (!s || s.icr <= 0 || s.isf <= 0 || s.target < 0) {
-        alert(`Error en validación de ${key}. Revisa los valores (ICR, ISF > 0).`);
+        alert(`Error en validación de ${key}. Revisa los valores(ICR, ISF > 0).`);
         return;
       }
     }
