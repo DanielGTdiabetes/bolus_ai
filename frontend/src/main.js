@@ -1422,6 +1422,8 @@ function renderScan() {
     if (input) input.onchange = handleImg;
   });
 
+
+
   // --- SCALE HANDLERS ---
   const btnConn = document.getElementById('btn-scale-conn');
   const btnTare = document.getElementById('btn-scale-tare');
@@ -1431,19 +1433,38 @@ function renderScan() {
 
   const updateScaleUI = () => {
     const s = state.scale;
-    lblWeight.textContent = `${s.grams} g`;
-    lblStatus.textContent = s.connected ? "Conectado" : "Desconectado";
-    lblStatus.className = s.connected ? "status-badge success" : "status-badge";
-
-    if (s.connected) {
-      btnConn.textContent = "Desconectar";
-      btnTare.disabled = false;
-      btnUse.disabled = false;
-    } else {
-      btnConn.textContent = "Conectar";
-      btnTare.disabled = true;
-      btnUse.disabled = true;
+    if (lblWeight) lblWeight.textContent = (s.grams !== null && s.grams !== undefined) ? `${s.grams} g` : "--";
+    if (lblStatus) {
+      lblStatus.textContent = s.connected ? "Conectado" : "Desconectado";
+      lblStatus.className = s.connected ? "status-badge success" : "status-badge";
     }
+
+    if (btnConn) {
+      if (s.connected) {
+        btnConn.textContent = "Desconectar";
+        btnTare.disabled = false;
+        btnUse.disabled = false;
+      } else {
+        btnConn.textContent = "Conectar";
+        btnTare.disabled = true;
+        btnUse.disabled = true;
+      }
+    }
+  };
+
+  // Callback logic - defined cleanly to be reusable
+  const handleScaleData = (data) => {
+    // guard against disconnect events having no grams
+    if (typeof data.grams === 'number') {
+      state.scale.grams = data.grams;
+    }
+    if (typeof data.stable === 'boolean') {
+      state.scale.stable = data.stable;
+    }
+    if (typeof data.connected === 'boolean') {
+      state.scale.connected = data.connected;
+    }
+    updateScaleUI();
   };
 
   btnConn.onclick = async () => {
@@ -1456,22 +1477,27 @@ function renderScan() {
         btnConn.textContent = "Conectando...";
         await connectScale();
         state.scale.connected = true;
-        setOnData((data) => {
-          // Callback receives object: { connected, grams, stable, battery }
-          state.scale.grams = data.grams;
-          state.scale.stable = data.stable;
-          // Optionally update battery or connection status if provided
-          if (typeof data.connected === 'boolean') state.scale.connected = data.connected;
-
-          updateScaleUI();
-        });
+        setOnData(handleScaleData); // bind
         updateScaleUI();
       } catch (e) {
         alert("Error conectando: " + e.message);
+        state.scale.connected = false;
         updateScaleUI();
       }
     }
   };
+
+  btnTare.onclick = async () => {
+    await tare();
+  };
+
+  // Re-bind if already connected (e.g. view reload)
+  if (state.scale.connected) {
+    setOnData(handleScaleData);
+  }
+
+  // Init
+  updateScaleUI();
 
   // --- PLATE BUILDER LOGIC ---
   const plateList = document.getElementById('plate-entries');
