@@ -32,11 +32,11 @@ def _data_store(settings: Settings = Depends(get_settings)) -> DataStore:
     return DataStore(Path(settings.data.data_dir))
 
 @router.post("/plan", response_model=BolusPlanResponse, summary="Create a split bolus plan")
-async def api_create_plan(payload: BolusPlanRequest, _: dict = Depends(get_current_user)):
+async def api_create_plan(payload: BolusPlanRequest):
     return create_plan(payload)
 
 @router.post("/recalc-second", response_model=RecalcSecondResponse, summary="Recalculate second tranche")
-async def api_recalc_second(payload: RecalcSecondRequest, _: dict = Depends(get_current_user)):
+async def api_recalc_second(payload: RecalcSecondRequest):
     return await recalc_second(payload)
 
 @router.post("/calc", response_model=BolusResponseV2, summary="Calculate bolus (Stateless V2)")
