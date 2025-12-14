@@ -591,9 +591,26 @@ function renderDashboard() {
       payload.nightscout = { url: nsConfig.url, token: nsConfig.token };
     }
 
-    const calcSettings = getCalcParams(); // MOVED TO getCalcParams
-    if (calcSettings) {
-      payload.settings = calcSettings;
+    const calcParams = getCalcParams();
+    if (calcParams) {
+      // Extract specific slot settings (default to lunch if missing or invalid)
+      const slotName = payload.meal_slot || "lunch";
+      const mealSettings = calcParams[slotName] || calcParams.lunch || { icr: 10, isf: 50, target: 110 };
+
+      // Map to flat structure expected by BolusRequestV2 settings
+      payload.settings = {
+        cr_g_per_u: mealSettings.icr,
+        isf_mgdl_per_u: mealSettings.isf,
+        target_mgdl: mealSettings.target,
+        // Globals
+        dia_hours: calcParams.dia_hours || 4,
+        max_bolus_u: calcParams.max_bolus_u || 10,
+        round_step_u: calcParams.round_step_u || 0.1
+      };
+
+      // If user overrode target in UI, that takes precedence over settings->target_mgdl
+      // but payload.target_mgdl is already set above if input exists.
+      // Backend usually prefers the top-level target_mgdl if present.
     } else {
       bolusError.textContent = "⚠️ Configura primero los parámetros de cálculo en 'Configuración'.";
       bolusError.hidden = false;
