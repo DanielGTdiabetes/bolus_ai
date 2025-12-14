@@ -1242,53 +1242,61 @@ function initCalcPanel() {
 
   form.onsubmit = (e) => {
     e.preventDefault();
+    // Ensure current slot inputs are flushed to memory
     saveCurrentSlotToMemory();
 
-    // 1. Read Globals from Inputs
+    // 1. Read Globals (Global Inputs)
     const diaVal = parseFloat(document.querySelector("#global-dia").value);
     const stepVal = parseFloat(document.querySelector("#global-step").value);
     const maxVal = parseFloat(document.querySelector("#global-max").value);
 
     // 2. Validate Globals
     if (isNaN(diaVal) || diaVal <= 0) {
-      alert("La duración de insulina (DIA) debe ser positiva.");
+      alert("DIA (Duración) debe ser > 0.");
       return;
     }
     if (isNaN(stepVal) || stepVal <= 0) {
-      alert("El paso de redondeo debe ser positivo.");
+      alert("Round Step debe ser > 0.");
       return;
     }
     if (isNaN(maxVal) || maxVal <= 0) {
-      alert("El bolo máximo debe ser positivo.");
+      alert("Max Bolus debe ser > 0.");
       return;
     }
 
-    // 3. Update Globals
-    currentSettings.dia_hours = diaVal;
-    currentSettings.round_step_u = stepVal;
-    currentSettings.max_bolus_u = maxVal;
+    // 3. Construct the Final Object explicitely
+    // We already have 'currentSettings' holding the slot data (breakfast, lunch, dinner)
+    // from 'saveCurrentSlotToMemory' and previous data.
+    // We update the globals now.
 
-    // 4. Validate Slots (ICR, ISF, Target for all slots)
-    // Since we only edit one slot at a time, we trust the defaults/loaded values for others,
-    // but we should check the current slot inputs if they are valid.
-    /* Note: saveCurrentSlotToMemory() populates from inputs. If input was empty/invalid, it used fallback or NaN.
-       Let's check currentSettings deeply. */
+    const finalParams = {
+      breakfast: { ...currentSettings.breakfast },
+      lunch: { ...currentSettings.lunch },
+      dinner: { ...currentSettings.dinner },
+      dia_hours: diaVal,
+      round_step_u: stepVal,
+      max_bolus_u: maxVal
+    };
 
-    // Check all slots
-    const slots = ["breakfast", "lunch", "dinner"];
-    for (const slot of slots) {
-      const s = currentSettings[slot];
-      if (s.icr <= 0 || s.isf <= 0 || s.target < 0) {
-        alert(`Error en franja '${slot}': Revisa ICR, ISF y Objetivo.`);
+    // 4. Validate Slots deeply
+    for (const key of ["breakfast", "lunch", "dinner"]) {
+      const s = finalParams[key];
+      if (!s || s.icr <= 0 || s.isf <= 0 || s.target < 0) {
+        alert(`Error en validación de ${key}. Revisa los valores (ICR, ISF > 0).`);
         return;
       }
     }
 
-    // Save with new key
-    saveCalcParams(currentSettings);
+    // 5. Persist
+    saveCalcParams(finalParams);
+
+    // Update local variable to stay in sync
+    currentSettings = finalParams;
+
+    console.log("Calculated parameters saved:", finalParams);
 
     const msg = document.querySelector("#calc-msg");
-    msg.textContent = "Configuración guardada.";
+    msg.textContent = "Guardado en localStorage OK.";
     msg.hidden = false;
     setTimeout(() => msg.hidden = true, 3000);
   };
