@@ -138,6 +138,16 @@ function formatTrend(trend, stale) {
   return icons[trend] || trend || "";
 }
 
+// --- SCALER HELPER ---
+function getScaleReading() {
+  return {
+    grams: state.scale.grams,
+    stable: state.scale.stable,
+    connected: state.scale.connected,
+    battery: state.scale.battery
+  };
+}
+
 // --- RENDER DASHBOARD ---
 function renderDashboard() {
   if (!ensureAuthenticated()) return;
@@ -239,7 +249,10 @@ function renderDashboard() {
 
          <div class="actions">
             <button id="btn-plate-undo" class="secondary" disabled>↩️ Deshacer</button>
-            <button id="btn-plate-transfer" class="primary" disabled>✅ Usar Total</button>
+            <button id="btn-plate-undo" class="secondary" disabled>↩️ Deshacer</button>
+            <button id="btn-plate-finalize" class="primary" hidden>✅ Finalizar plato</button>
+            <button id="btn-plate-reopen" class="secondary" hidden>✏️ Reabrir plato</button>
+            <!-- LEAVE TRANSFER BUTTON FOR BACKWARD COMPAT OR REMOVE? Request says "Replaces Transfer with Finalize flow", but technically "Añadir botón 'Finalizar plato'". I will keep Transfer as pure copy, or hide it if Finalize is better. Let's hide Transfer if Finalize takes over. Actually request says "Copiar... al input" which is what Transfer did. I will replace Transfer with Finalize flow for clarity. -->
          </div>
          <p class="error" id="plate-error" hidden></p>
       </section>
@@ -456,6 +469,8 @@ function renderDashboard() {
     state.scale.battery = data.battery;
 
     updateScaleUI();
+    // Force Builder Update for real-time stable/value feedback
+    renderPlateBuilder();
   });
 
   function updateScaleUI() {
@@ -666,11 +681,24 @@ function renderDashboard() {
       let weightToSend = null;
       let newBase = null;
 
-      if (state.plateBuilder.mode_weight === "incremental") {
-        if (!state.scale.connected) throw new Error("Conecta la báscula para modo incremental.");
-        if (!state.scale.stable) throw new Error("Espera a que el peso sea estable.");
+      const reading = getScaleReading();
 
-        const currentW = state.scale.grams;
+      // Check Finalized State
+      if (state.plateBuilder.finalized) {
+        throw new Error("El plato está finalizado. Pulsa 'Reabrir plato' para añadir más.");
+      }
+
+      if (state.plateBuilder.mode_weight === "incremental") {
+        if (!reading.connected) throw new Error("Conecta la báscula para modo incremental.");
+
+        // STABILITY CHECK: Relaxed. If badge says stable, it's stable.
+        // Fallback: if not explicitly stable but we have a reading, warn or block?
+        // User request: "Si conectado pero no estable: Espera a ESTABLE".
+        if (!reading.stable) {
+          throw new Error("Espera a que el peso sea ESTABLE (verde) para incremental.");
+        }
+
+        const currentW = reading.grams;
         const inc = currentW - state.plateBuilder.weight_base_grams;
         if (inc <= 0) throw new Error("Peso incremental inválido (<= 0). Revisa el plato o fija base.");
 
@@ -678,8 +706,8 @@ function renderDashboard() {
         newBase = currentW; // Will update after success
       } else {
         // Single mode
-        weightToSend = (state.scale.connected && state.scale.grams > 0)
-          ? state.scale.grams
+        weightToSend = (reading.connected && reading.grams > 0)
+          ? reading.grams
           : (state.plateWeightGrams || null);
       }
 
@@ -770,17 +798,39 @@ function renderDashboard() {
     });
 
     // Update Buttons State
+    // Update Buttons State
     const undoBtn = root.querySelector("#btn-plate-undo");
-    const resetBtn = root.querySelector("#btn-plate-reset");
-    const transferBtn = root.querySelector("#btn-plate-transfer");
-    const hasEntries = state.plateBuilder.entries.length > 0;
+    const finalizeBtn = root.querySelector("#btn-plate-finalize");
+    const reopenBtn = root.querySelector("#btn-plate-reopen");
+    // const transferBtn = root.querySelector("#btn-plate-transfer"); // Removed per plan
 
-    undoBtn.disabled = !hasEntries;
-    transferBtn.disabled = !hasEntries;
+    const hasEntries = state.plateBuilder.entries.length > 0;
+    const isFinalized = !!state.plateBuilder.finalized;
+
+    undoBtn.disabled = !hasEntries || isFinalized;
+    // transferBtn.disabled = !hasEntries; 
+
+    if (isFinalized) {
+      finalizeBtn.hidden = true;
+      reopenBtn.hidden = false;
+      root.querySelector("#plate-meta-info").innerHTML = "<span class='badge success'>✅ FINALIZADO</span>";
+    } else {
+      finalizeBtn.hidden = !hasEntries;
+      reopenBtn.hidden = true;
+      finalizeBtn.disabled = false;
+    }
+
+    // Vision Button Control (Remote)
+    const visionBtn = document.querySelector("#vision-submit-btn");
+    if (visionBtn) {
+      visionBtn.disabled = isFinalized;
+      visionBtn.title = isFinalized ? "Plato finalizado. Reabre para añadir." : "";
+    }
 
     // Update Weight Controls UI
     const modeRadios = root.querySelectorAll("input[name='weight-mode']");
     modeRadios.forEach(r => {
+      r.disabled = isFinalized; // Disable mode switch if finalized
       r.checked = (r.value === state.plateBuilder.mode_weight);
       r.onclick = () => {
         state.plateBuilder.mode_weight = r.value;
@@ -790,18 +840,49 @@ function renderDashboard() {
     });
 
     const incControls = root.querySelector("#incremental-controls");
-    incControls.hidden = (state.plateBuilder.mode_weight !== "incremental");
+    const isInc = state.plateBuilder.mode_weight === "incremental";
+    incControls.hidden = !isInc;
 
-    if (state.plateBuilder.mode_weight === "incremental") {
+    if (isInc) {
       root.querySelector("#lbl-base-weight").textContent = state.plateBuilder.weight_base_grams;
+
+      // Set Base Button Logic
+      const btnSetBase = root.querySelector("#btn-set-base");
+      btnSetBase.disabled = isFinalized; // Disable if finalized
+      btnSetBase.onclick = handleSetBase;
+
+      // Update Scale Link
       updateScaleUI();
     }
 
     // Bind Actions (avoid multiple binds by checking flag or just re-binding is cheap here)
-    root.querySelector("#btn-set-base").onclick = handleSetBase;
-    resetBtn.onclick = handleResetPlate;
+    // root.querySelector("#btn-set-base").onclick = handleSetBase; // Bound above inside if(isInc)
+    root.querySelector("#btn-plate-reset").onclick = handleResetPlate;
     undoBtn.onclick = handleUndoEntry;
-    transferBtn.onclick = handleTransferToCalc;
+
+    finalizeBtn.onclick = handleFinalizePlate;
+    reopenBtn.onclick = handleReopenPlate;
+  }
+
+  function handleFinalizePlate() {
+    if (state.plateBuilder.entries.length === 0) return;
+
+    // 1. Copy Total
+    document.querySelector("#carbs").value = Math.round(state.plateBuilder.carbs_total * 10) / 10;
+
+    // 2. Set State
+    state.plateBuilder.finalized = true;
+
+    // 3. Render
+    renderPlateBuilder();
+
+    // 4. Scroll
+    document.querySelector("#bolus-form").scrollIntoView({ behavior: "smooth" });
+  }
+
+  function handleReopenPlate() {
+    state.plateBuilder.finalized = false;
+    renderPlateBuilder();
   }
 
   function addToPlate(data, slot, weightUsed, newBase) {
@@ -828,15 +909,17 @@ function renderDashboard() {
   }
 
   function handleSetBase() {
-    if (!state.scale.connected) {
+    const reading = getScaleReading();
+    if (!reading.connected) {
       alert("Conecta la báscula primero.");
       return;
     }
-    if (!state.scale.stable) {
+    // Relaxed stable check? No, for SETTING base we want strict stable
+    if (!reading.stable) {
       alert("Espera a que el peso sea estable.");
       return;
     }
-    state.plateBuilder.weight_base_grams = state.scale.grams;
+    state.plateBuilder.weight_base_grams = reading.grams;
     renderPlateBuilder();
   }
 
@@ -845,7 +928,7 @@ function renderDashboard() {
     state.plateBuilder.entries = [];
     state.plateBuilder.carbs_total = 0;
     state.plateBuilder.weight_base_grams = 0;
-    // mode stays same
+    state.plateBuilder.finalized = false; // Reset finalized
     renderPlateBuilder();
   }
 
