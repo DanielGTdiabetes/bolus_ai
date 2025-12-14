@@ -815,6 +815,7 @@ function navigate(hash) {
   window.location.hash = hash;
 }
 window.navigate = navigate;
+window.logout = logout;
 
 function redirectToLogin() {
   navigate("#/login");
