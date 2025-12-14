@@ -163,13 +163,7 @@ function renderDashboard() {
         </div>
       </section>
 
-      <section class="card">
-        <div class="card-header">
-          <h2>Estado del backend</h2>
-          <button id="health-btn" class="ghost">Comprobar</button>
-        </div>
-        <pre id="health-output">${state.healthStatus}</pre>
-      </section>
+
       
       <section class="card">
         <div class="card-header">
@@ -503,19 +497,7 @@ function renderDashboard() {
   }
 
 
-  document.querySelector("#health-btn").addEventListener("click", async () => {
-    // ... existing health handler ...
-    const output = document.querySelector("#health-output");
-    output.textContent = "Consultando...";
-    try {
-      const health = await fetchHealth();
-      state.healthStatus = JSON.stringify(health, null, 2);
-      output.textContent = state.healthStatus;
-    } catch (error) {
-      state.healthStatus = `Error: ${error.message}`;
-      output.textContent = state.healthStatus;
-    }
-  });
+
 
   document.querySelector("#change-password-link").addEventListener("click", () => navigate("#/change-password"));
 
@@ -993,6 +975,14 @@ function renderSettings() {
         </div>
 
       </section>
+
+      <section class="card">
+        <div class="card-header">
+          <h2>Estado del backend</h2>
+          <button id="health-btn" class="ghost">Comprobar</button>
+        </div>
+        <pre id="health-output">${state.healthStatus}</pre>
+      </section>
     </main>
   `;
 
@@ -1000,6 +990,19 @@ function renderSettings() {
   const tabCalc = document.querySelector("#tab-calc");
   const panelNs = document.querySelector("#panel-ns");
   const panelCalc = document.querySelector("#panel-calc");
+
+  document.querySelector("#health-btn").addEventListener("click", async () => {
+    const output = document.querySelector("#health-output");
+    output.textContent = "Consultando...";
+    try {
+      const health = await fetchHealth();
+      state.healthStatus = JSON.stringify(health, null, 2);
+      output.textContent = state.healthStatus;
+    } catch (error) {
+      state.healthStatus = `Error: ${error.message}`;
+      output.textContent = state.healthStatus;
+    }
+  });
 
   tabNs.onclick = () => {
     tabNs.classList.add("active"); tabCalc.classList.remove("active");
