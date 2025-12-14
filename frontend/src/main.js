@@ -441,23 +441,46 @@ function renderBolusOutput(res) {
 
 // --- IOB HELPERS (Kept) ---
 
+// --- IOB HELPERS (Kept) ---
+
 async function updateIOB() {
-  if (!iobDisplay) return;
-  iobDisplay.innerHTML = '<span class="loading-text">...</span>';
+  const iobValEl = document.getElementById('metric-iob-val');
+  const iobCircle = document.querySelector('.iob-progress');
+
+  if (!iobValEl) return;
+
+  // Set Loading/Default
+  if (iobValEl.textContent === '--') iobValEl.innerHTML = '<span class="loading-dots">...</span>';
+
   try {
     const nsConfig = getLocalNsConfig();
     const data = await getIOBData(nsConfig && nsConfig.url ? nsConfig : null);
 
-    iobDisplay.innerHTML = `
-    < div class="big-number" > ${data.iob_total} U</div >
-      ${(data.breakdown && data.breakdown.length) ? `<small>De ${data.breakdown.length} bolos</small>` : ""}
-  `;
+    // Update Text
+    iobValEl.textContent = data.iob_total.toFixed(2);
 
-    if (data.graph && iobCanvas) {
-      drawIOBGraph(iobCanvas, data.graph);
+    // Update Circle Graph
+    // Concept: 0 IOB = Empty Ring. Max IOB (e.g. 5U or 10U) = Full Ring.
+    // User asked: "indicate how much is left".
+    // 0..10 Scale for visualization.
+    const maxScale = 8.0;
+    const val = Math.max(0, parseFloat(data.iob_total));
+    const percent = Math.min(100, (val / maxScale) * 100);
+
+    if (iobCircle) {
+      // stroke-dasharray is pathLength=100.
+      // offset 100 = empty. offset 0 = full.
+      const offset = 100 - percent;
+      iobCircle.style.strokeDashoffset = offset;
+
+      // Color dynamic?
+      if (val > 5) iobCircle.style.stroke = "var(--warning)";
+      else iobCircle.style.stroke = "var(--primary)";
     }
+
   } catch (err) {
-    iobDisplay.innerHTML = `< span class="error small" > ${err.message}</span > `;
+    console.error(err);
+    iobValEl.innerHTML = `<span style="font-size:0.8rem; color:red">err</span>`;
   }
 }
 
@@ -1202,9 +1225,18 @@ async function renderHome() {
 
       <!-- Metrics -->
       <div class="metrics-grid">
-        <div class="metric-tile">
+        <div class="metric-tile iob-tile">
             <div class="metric-head"><span class="metric-icon">💧</span> IOB</div>
-            <div class="metric-val" id="metric-iob">-- <span class="metric-unit">U</span></div>
+            <div class="iob-circle-container">
+               <svg class="iob-ring" viewBox="0 0 100 100">
+                  <circle class="iob-track" cx="50" cy="50" r="40" />
+                  <circle class="iob-progress" cx="50" cy="50" r="40" pathLength="100" />
+               </svg>
+               <div class="iob-value-center">
+                  <span id="metric-iob-val">--</span>
+                  <span class="unit">U</span>
+               </div>
+            </div>
         </div>
         <div class="metric-tile cob">
             <div class="metric-head"><span class="metric-icon">🍪</span> COB</div>
