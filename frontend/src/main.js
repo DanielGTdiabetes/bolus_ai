@@ -1662,6 +1662,17 @@ function renderBolus() {
         </div>
       </div>
 
+      <!-- Dual Bolus Controls -->
+       <div class="card" style="margin-bottom:1.5rem">
+         <div style="display:flex; justify-content:space-between; align-items:center;">
+             <div style="font-weight:600">🌊 Bolo Dual / Extendido</div>
+             <input type="checkbox" id="chk-dual-enabled" class="toggle-switch">
+         </div>
+         <div id="dual-info" hidden style="margin-top:0.5rem; font-size:0.8rem; color:var(--text-muted); background:#f8fafc; padding:0.5rem; border-radius:6px;">
+             <!-- Info populated by JS -->
+         </div>
+       </div>
+
       <!-- IOB Banner -->
       <div style="background:#eff6ff; padding:1rem; border-radius:12px; display:flex; justify-content:space-between; align-items:center; margin-bottom:2rem;">
         <div>
@@ -1737,6 +1748,27 @@ function renderBolus() {
     }
   }
 
+  // Sync Dual Controls
+  const chkDual = document.getElementById('chk-dual-enabled');
+  const divDualInfo = document.getElementById('dual-info');
+
+  if (chkDual && divDualInfo) {
+    const updateInfo = () => {
+      const s = getSplitSettings() || {};
+      divDualInfo.textContent = `Configurado: ${s.percent_now || 70}% ahora, resto en ${s.duration_min || 120} min.`;
+      divDualInfo.hidden = !chkDual.checked;
+    };
+
+    chkDual.onchange = updateInfo;
+
+    // Init default
+    const defs = getSplitSettings();
+    if (defs && defs.enabled_default) {
+      chkDual.checked = true;
+    }
+    updateInfo();
+  }
+
   // Calculate Action
   if (calcBtn) {
     calcBtn.onclick = async () => {
@@ -1785,9 +1817,29 @@ function renderBolus() {
 
         console.log("Sending Bolus Calc Payload:", payload);
 
-        // Check Split Settings
-        const splitSettings = getSplitSettings();
-        const useSplit = (splitSettings?.enabled_default && !isCorrection && carbs > 0);
+        // Split Logic
+        const isDual = document.getElementById('chk-dual-enabled').checked;
+        let splitSettings = getSplitSettings() || {};
+
+        // Override enabled flag if manually checked
+        if (isDual) {
+          splitSettings = {
+            ...splitSettings,
+            enabled: true
+          };
+        } else {
+          splitSettings = {
+            ...splitSettings,
+            enabled: false
+          };
+        }
+
+        // Check logic: Enabled manually OR (default enabled AND not correction only AND carbs > 0)
+        // actually, if we have manual UI, we trust the UI 'isDual' state mainly.
+        // But if user didn't touch it? logic should match UI initialization.
+        // UI initialization sets check based on default. So trusting UI is safe.
+
+        const useSplit = (isDual && !isCorrection && carbs > 0);
 
         const res = await calculateBolusWithOptionalSplit(payload, useSplit ? splitSettings : null);
 
