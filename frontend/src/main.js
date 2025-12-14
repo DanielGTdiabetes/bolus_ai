@@ -118,6 +118,13 @@ const state = {
     mode_weight: "single", // "single" | "incremental"
     weight_base_grams: 0,
     base_history: [],
+  },
+  scaleReading: {
+    grams: null,
+    stable: false,
+    battery: null,
+    lastUpdateTs: 0,
+    window: [] // [{ts, grams}]
   }
 };
 
@@ -139,13 +146,39 @@ function formatTrend(trend, stale) {
 }
 
 // --- SCALER HELPER ---
-function getScaleReading() {
+// --- SCALER HELPER WITH DERIVED STABILITY ---
+
+function getDerivedStability() {
+  const w = state.scaleReading?.window || [];
+  if (w.length < 3) return { derivedStable: false, delta: null };
+  const grams = w.map(p => p.grams);
+  const delta = Math.max(...grams) - Math.min(...grams);
+  // Stable if variation <= 2g in the window
+  return { derivedStable: delta <= 2, delta };
+}
+
+function getPlateBuilderReading() {
+  const r = state.scaleReading || {};
+  const { derivedStable, delta } = getDerivedStability();
+
+  // Use DERIVED stability for strict incremental checks
+  // Fallback to flag if derived logic fails somehow? No, trust derived.
+  // Actually, allow if purely stable by flag OR derived?
+  // User asked: "usar estabilidad derivada SIEMPRE para incremental"
+
   return {
-    grams: state.scale.grams,
-    stable: state.scale.stable,
-    connected: state.scale.connected,
-    battery: state.scale.battery
+    grams: typeof r.grams === "number" ? r.grams : null,
+    stable: derivedStable, // OVERRIDE stable flag
+    battery: r.battery ?? null,
+    ageMs: r.lastUpdateTs ? (Date.now() - r.lastUpdateTs) : null,
+    delta: delta,
+    connected: state.scale.connected // keep connection status
   };
+}
+
+// Legacy helper for Main Card (optional, or redirect to above)
+function getScaleReading() {
+  return getPlateBuilderReading();
 }
 
 // --- RENDER DASHBOARD ---
@@ -242,6 +275,8 @@ function renderDashboard() {
                   Actual: <span id="lbl-current-weight">--</span> g | 
                   Inc: <strong id="lbl-inc-weight">--</strong> g
                </div>
+               <!-- Debug Info -->
+               <div id="plate-debug" style="font-size: 0.7rem; color: #94a3b8; margin-top: 4px; font-family: monospace;"></div>
             </div>
          </div>
 
@@ -463,10 +498,24 @@ function renderDashboard() {
       return;
     }
 
+    const now = Date.now();
     state.scale.connected = true;
     state.scale.grams = data.grams;
     state.scale.stable = data.stable;
     state.scale.battery = data.battery;
+
+    // Advanced Reading & Windowing
+    if (!state.scaleReading) state.scaleReading = { window: [] }; // Safety
+
+    state.scaleReading.grams = data.grams;
+    state.scaleReading.stable = data.stable; // Store raw flag
+    state.scaleReading.battery = data.battery;
+    state.scaleReading.lastUpdateTs = now;
+
+    // Add to window
+    state.scaleReading.window.push({ ts: now, grams: data.grams });
+    // Filter last 1200ms
+    state.scaleReading.window = state.scaleReading.window.filter(p => (now - p.ts) <= 1200);
 
     updateScaleUI();
     // Force Builder Update for real-time stable/value feedback
@@ -513,12 +562,17 @@ function renderDashboard() {
 
     // Update Plate Builder Realtime Weight Texts
     if (document.querySelector("#lbl-current-weight")) {
-      document.querySelector("#lbl-current-weight").textContent = state.scale.connected ? state.scale.grams : "--";
-      if (state.scale.connected && state.plateBuilder.mode_weight === "incremental") {
-        const inc = state.scale.grams - state.plateBuilder.weight_base_grams;
+      const r = getPlateBuilderReading();
+      document.querySelector("#lbl-current-weight").textContent = r.connected ? r.grams : "--";
+
+      if (r.connected && state.plateBuilder.mode_weight === "incremental") {
+        const inc = r.grams - state.plateBuilder.weight_base_grams;
         const incEl = document.querySelector("#lbl-inc-weight");
         incEl.textContent = inc;
         incEl.style.color = inc > 0 ? "#166534" : "#991b1b";
+
+        // Also update debug line if present, called by renderPlateBuilder? 
+        // We do it in renderPlateBuilder for cleanliness.
       }
     }
   }
@@ -681,7 +735,7 @@ function renderDashboard() {
       let weightToSend = null;
       let newBase = null;
 
-      const reading = getScaleReading();
+      const reading = getPlateBuilderReading();
 
       // Check Finalized State
       if (state.plateBuilder.finalized) {
@@ -691,11 +745,12 @@ function renderDashboard() {
       if (state.plateBuilder.mode_weight === "incremental") {
         if (!reading.connected) throw new Error("Conecta la báscula para modo incremental.");
 
-        // STABILITY CHECK: Relaxed. If badge says stable, it's stable.
-        // Fallback: if not explicitly stable but we have a reading, warn or block?
-        // User request: "Si conectado pero no estable: Espera a ESTABLE".
+        // STABILITY CHECK: Custom Derived
+        // User request: "reading.grams == null o reading.ageMs > 2000 o reading.stable === false"
+        if (reading.grams === null) throw new Error("Sin lectura de peso.");
+        if (reading.ageMs > 2000) throw new Error("Lectura de peso antigua (>2s).");
         if (!reading.stable) {
-          throw new Error("Espera a que el peso sea ESTABLE (verde) para incremental.");
+          throw new Error(`Espera a ESTABLE (Delta ${reading.delta ?? "?"}g).`);
         }
 
         const currentW = reading.grams;
@@ -846,6 +901,13 @@ function renderDashboard() {
     if (isInc) {
       root.querySelector("#lbl-base-weight").textContent = state.plateBuilder.weight_base_grams;
 
+      // Update Debug Info
+      const dbg = getPlateBuilderReading();
+      if (dbg.grams !== null) {
+        const dbgEl = root.querySelector("#plate-debug");
+        if (dbgEl) dbgEl.textContent = `BLE: g=${dbg.grams} stable=${dbg.stable} age=${dbg.ageMs}ms d=${dbg.delta}g`;
+      }
+
       // Set Base Button Logic
       const btnSetBase = root.querySelector("#btn-set-base");
       btnSetBase.disabled = isFinalized; // Disable if finalized
@@ -909,14 +971,14 @@ function renderDashboard() {
   }
 
   function handleSetBase() {
-    const reading = getScaleReading();
+    const reading = getPlateBuilderReading();
     if (!reading.connected) {
       alert("Conecta la báscula primero.");
       return;
     }
     // Relaxed stable check? No, for SETTING base we want strict stable
     if (!reading.stable) {
-      alert("Espera a que el peso sea estable.");
+      alert(`Espera a que el peso sea estable (Delta: ${reading.delta}g).`);
       return;
     }
     state.plateBuilder.weight_base_grams = reading.grams;
