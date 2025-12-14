@@ -322,6 +322,18 @@ export async function calculateBolusWithOptionalSplit(calcPayload, splitSettings
 }
 
 
+export async function recalcSecondBolus(payload) {
+  const response = await apiFetch("/api/bolus/recalc-second", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+  const data = await toJson(response);
+  if (!response.ok) {
+    throw new Error(data.detail || "Error al recalcular segunda parte");
+  }
+  return data;
+}
+
 export function logout() {
   clearSession();
   if (unauthorizedHandler) unauthorizedHandler();

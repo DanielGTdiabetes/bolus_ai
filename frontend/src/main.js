@@ -138,6 +138,9 @@ function renderDashboard() {
     <main class="page">
       ${needsChange ? '<div class="warning">Debes cambiar la contraseña predeterminada.</div>' : ""}
       
+      <!-- U2 Panel Container -->
+      <div id="u2-panel-container" hidden></div>
+
       <!-- Current Glucose Card -->
       <section class="card glucose-card">
          <div class="card-header">
@@ -734,6 +737,10 @@ function renderDashboard() {
   const bolusForm = document.querySelector("#bolus-form");
   const explainBlock = document.querySelector("#bolus-explain");
   const explainList = document.querySelector("#explain-list");
+
+  // Render U2 Panel (now that container exists)
+  renderDualPanel();
+
   const bolusOutput = document.querySelector("#bolus-output");
   const bolusError = document.querySelector("#bolus-error");
   const useSplitCheckbox = document.querySelector("#use-split");
@@ -813,91 +820,245 @@ function renderDashboard() {
     // to "construir calcPayload así" with flat fields.
 
     try {
-      // Choose strategy
-      const splitConfig = getSplitSettings();
-      const useSplit = document.querySelector("#use-split").checked;
-
-      const strategySettings = useSplit ? {
-        enabled: true,
-        ...splitConfig
-      } : { enabled: false };
-
-      const result = await calculateBolusWithOptionalSplit(payload, strategySettings);
-      const data = result.calc; // The base calculation
-
-      currentCalculatedBolus = data;
-
-      if (result.error) {
-        // If split failed but we got calc, show warning
-        state.bolusError = "Aviso: Falló plan dividido, mostrando normal. " + result.error;
-        bolusError.textContent = state.bolusError;
-        bolusError.hidden = false;
-      } else {
-        state.bolusError = "";
+      // Inject Nightscout if present
+      if (nsConfig && nsConfig.url) {
+        calcPayload.nightscout = { url: nsConfig.url, token: nsConfig.token };
       }
 
-      // Display logic
-      if (result.kind === "dual") {
-        const plan = result.plan;
-        state.bolusResult = `
-            <div class="split-result">
-               <div class="split-row"><strong>AHORA:</strong> ${plan.now_u} U</div>
-               <div class="split-row"><strong>LUEGO:</strong> ${plan.later_u_planned} U</div>
-               <div class="split-detail">en ${plan.later_after_min} min (Duración: ${plan.extended_duration_min || "N/A"}m)</div>
-               <div class="split-total">Total: ${plan.total_recommended_u} U</div>
-            </div>
-          `;
-        // We update currentCalculatedBolus total to match total if needed.
-      } else {
-        // Normal
-        state.bolusResult = `<div class="big-number">${data.total_u} U</div>`;
+      // 2. Decide Split
+      const useSplit = useSplitCheckbox ? useSplitCheckbox.checked : false;
+      let splitSettings = null;
+      if (useSplit) {
+        splitSettings = getSplitSettings();
       }
 
+      // 3. Perform Calc
+      const res = await calculateBolusWithOptionalSplit(calcPayload, splitSettings);
+
+      // 4. Render & Save Plan if Dual
+      if (res.kind === "dual" && res.plan) {
+        // Save active plan
+        saveDualPlan({
+          plan_id: res.plan.plan_id, // stored but not strictly needed for recalc-second logic if stateless
+          later_u_planned: res.plan.later_u_planned,
+          later_after_min: res.plan.later_after_min,
+          extended_duration_min: res.plan.extended_duration_min,
+          created_at_ts: Date.now(),
+          slot: payload.meal_slot
+        });
+        // Refresh Dashboard to show U2 panel
+        renderDualPanel();
+      }
+
+      state.bolusResult = renderBolusOutput(res);
       bolusOutput.innerHTML = state.bolusResult;
 
-      // Show actions
-      if (bolusActions) {
-        bolusActions.hidden = false;
-        if (acceptMsg) {
-          acceptMsg.hidden = true;
-          acceptMsg.textContent = "";
-        }
-      }
-
-      if (data.iob_u > 0) {
-        // Append IOB info
-        bolusOutput.innerHTML += `<div class="iob-info">(IOB Restado: ${data.iob_u} U)</div>`;
-      }
-
-      // Additional Warnings
-      if ((data.warnings && data.warnings.length > 0) || (result.plan && result.plan.warnings.length > 0)) {
-        const dimWarns = data.warnings || [];
-        const planWarns = result.plan ? result.plan.warnings : [];
-        const allWarns = [...dimWarns, ...planWarns];
-        if (allWarns.length > 0) {
-          const warnDiv = document.createElement("div");
-          warnDiv.className = "warning";
-          warnDiv.innerHTML = allWarns.join("<br>");
-          explainBlock.appendChild(warnDiv);
-        }
-      }
-
-      if (Array.isArray(data.explain) && data.explain.length) {
+      // Handle explanations
+      if (res.calc && res.calc.explain) {
         explainBlock.hidden = false;
-        data.explain.forEach((item) => {
+        res.calc.explain.forEach(t => {
           const li = document.createElement("li");
-          li.textContent = item;
+          li.textContent = t;
           explainList.appendChild(li);
         });
+        if (res.kind === "dual") {
+          const li = document.createElement("li");
+          li.innerHTML = `<strong>Bolo Dual:</strong> ${res.upfront_u}U ahora + ${res.later_u}U en ${res.duration_min}min.`;
+          explainList.appendChild(li);
+        }
       }
-    } catch (error) {
-      state.bolusError = error.message;
-      bolusError.textContent = state.bolusError;
+
+      // Actions (Accept) - MVP placeholder
+      const ba = document.querySelector("#bolus-actions");
+      if (ba) {
+        ba.hidden = false;
+        // Clean prev listeners if any... (simplified)
+        const btn = document.querySelector("#accept-bolus-btn");
+        btn.onclick = async () => {
+          // Save treatment logic...
+          document.querySelector("#accept-msg").textContent = "Guardado (simulado)";
+          document.querySelector("#accept-msg").hidden = false;
+        };
+      }
+
+    } catch (e) {
+      bolusError.textContent = e.message;
       bolusError.hidden = false;
       bolusOutput.textContent = "";
-      if (bolusActions) bolusActions.hidden = true;
     }
   });
+
+  // --- DUAL PLAN HELPERS ---
+  const DUAL_PLAN_KEY = "bolusai_active_dual_plan";
+
+  function getDualPlan() {
+    try {
+      const raw = localStorage.getItem(DUAL_PLAN_KEY);
+      if (!raw) return null;
+      const plan = JSON.parse(raw);
+      // Optional: expire after 6 hours?
+      if (Date.now() - plan.created_at_ts > 6 * 60 * 60 * 1000) {
+        localStorage.removeItem(DUAL_PLAN_KEY);
+        return null;
+      }
+      return plan;
+    } catch (e) { return null; }
+  }
+
+  function saveDualPlan(plan) {
+    state.activeDualPlan = plan;
+    localStorage.setItem(DUAL_PLAN_KEY, JSON.stringify(plan));
+  }
+
+  // --- U2 PANEL LOGIC ---
+  function renderDualPanel() {
+    const parent = document.querySelector("#u2-panel-container");
+    if (!parent) return; // Should be in HTML
+
+    const plan = getDualPlan();
+    if (!plan) {
+      parent.innerHTML = "";
+      parent.hidden = true;
+      return;
+    }
+    state.activeDualPlan = plan;
+
+    parent.hidden = false;
+    parent.innerHTML = `
+      <section class="card u2-card">
+         <div class="card-header">
+           <h2>⏱️ Segunda parte (U2)</h2>
+           <button id="btn-clear-u2" class="ghost small">Ocultar</button>
+         </div>
+         <div class="stack">
+            <p><strong>Planificado:</strong> <span class="big-text">${plan.later_u_planned} U</span> <small>a los ${plan.later_after_min || plan.extended_duration_min} min</small></p>
+            <div class="row">
+               <label>Carbs adicionales (g)
+                  <input type="number" id="u2-carbs" value="0" style="width: 80px;" />
+               </label>
+            </div>
+            <button id="btn-recalc-u2" class="primary">🔁 Recalcular U2 ahora</button>
+            
+            <div id="u2-result" class="box" hidden>
+               <div id="u2-details"></div>
+               <div id="u2-recommendation" class="big-number"></div>
+               <ul id="u2-warnings" class="warning-list"></ul>
+               <button id="btn-accept-u2" class="secondary" hidden>✅ Aceptar U2</button>
+            </div>
+            <p class="error" id="u2-error" hidden></p>
+         </div>
+      </section>
+    `;
+
+    // Handlers
+    parent.querySelector("#btn-clear-u2").onclick = () => {
+      if (confirm("¿Borrar plan activo?")) {
+        localStorage.removeItem(DUAL_PLAN_KEY);
+        state.activeDualPlan = null;
+        renderDualPanel();
+      }
+    };
+
+    const btnRecalc = parent.querySelector("#btn-recalc-u2");
+    const errDisplay = parent.querySelector("#u2-error");
+    const resDiv = parent.querySelector("#u2-result");
+    const recDiv = parent.querySelector("#u2-recommendation");
+    const detailsDiv = parent.querySelector("#u2-details");
+    const warnList = parent.querySelector("#u2-warnings");
+
+    btnRecalc.onclick = async () => {
+      if (!plan) return;
+      errDisplay.hidden = true;
+      resDiv.hidden = true;
+      btnRecalc.disabled = true;
+      btnRecalc.textContent = "Calculando...";
+
+      try {
+        const nsConfig = getLocalNsConfig();
+        if (!nsConfig || !nsConfig.url) {
+          throw new Error("Configura Nightscout para recalcular U2");
+        }
+
+        const calcParams = getCalcParams();
+        const slot = plan.slot || "lunch";
+        const mealParams = calcParams ? (calcParams[slot] || getDefaultMealParams(calcParams)) : null;
+
+        if (!mealParams) throw new Error("Faltan parámetros de cálculo (CR, ISF).");
+
+        const extraCarbs = parseFloat(parent.querySelector("#u2-carbs").value) || 0;
+
+        const payload = {
+          later_u_planned: plan.later_u_planned,
+          carbs_additional_g: extraCarbs,
+          params: {
+            cr_g_per_u: mealParams.icr, // mapped
+            isf_mgdl_per_u: mealParams.isf, // mapped
+            target_bg_mgdl: mealParams.target, // mapped
+            round_step_u: calcParams.round_step_u || 0.05,
+            max_bolus_u: calcParams.max_bolus_u || 10,
+            stale_bg_minutes: 15
+          },
+          nightscout: {
+            url: nsConfig.url,
+            token: nsConfig.token,
+            units: nsConfig.units || "mgdl"
+          }
+        };
+
+        const data = await import("./lib/api").then(m => m.recalcSecondBolus(payload));
+
+        // Render Results
+        resDiv.hidden = false;
+
+        let recHtml = `${data.u2_recommended_u} U`;
+        if (data.cap_u && data.u2_recommended_u >= data.cap_u) {
+          recHtml += ` <small>(Max)</small>`;
+        }
+        recDiv.innerHTML = recHtml;
+
+        let det = "";
+        if (data.bg_now_mgdl) {
+          det += `<div><strong>BG:</strong> ${Math.round(data.bg_now_mgdl)} mg/dL (${data.bg_age_min} min)</div>`;
+        }
+        if (data.iob_now_u !== null) {
+          det += `<div><strong>IOB:</strong> ${data.iob_now_u.toFixed(2)} U</div>`;
+        }
+        detailsDiv.innerHTML = det;
+
+        warnList.innerHTML = "";
+        if (data.warnings && data.warnings.length) {
+          data.warnings.forEach(w => {
+            const li = document.createElement("li");
+            li.textContent = w;
+            warnList.appendChild(li);
+          });
+        }
+
+      } catch (e) {
+        errDisplay.textContent = e.message;
+        errDisplay.hidden = false;
+      } finally {
+        btnRecalc.disabled = false;
+        btnRecalc.textContent = "🔁 Recalcular U2 ahora";
+      }
+    };
+  }
+
+
+  function renderBolusOutput(res) {
+    if (res.error) return `<span class='error'>${res.error}</span>`;
+    if (res.kind === "dual") {
+      return `
+        <div class="dual-res">
+          <div>AHORA: <strong>${res.upfront_u} U</strong></div>
+          <div>LUEGO: <strong>${res.later_u} U</strong> <small>(${res.duration_min} min)</small></div>
+        </div>
+      `;
+    }
+    return `<strong>${res.upfront_u} U</strong>`;
+  }
+
+
 
   // === IOB GRAPH & ACTIONS ===
   const iobDisplay = document.querySelector("#iob-display");
