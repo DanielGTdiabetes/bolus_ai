@@ -110,6 +110,7 @@ const state = {
     timestamp: 0
   },
   activeDualPlan: null,
+  activeDualTimer: null,
   calcMode: "meal",
 };
 
@@ -1008,6 +1009,14 @@ function renderDashboard() {
     } catch (e) { return null; }
   }
 
+  function getDualPlanTiming(plan) {
+    if (!plan?.created_at_ts || !plan?.later_after_min) return null;
+    const elapsed_min = Math.floor((Date.now() - plan.created_at_ts) / 60000);
+    const duration = plan.extended_duration_min || plan.later_after_min;
+    const remaining_min = Math.max(0, duration - elapsed_min);
+    return { elapsed_min, remaining_min };
+  }
+
   function saveDualPlan(plan) {
     state.activeDualPlan = plan;
     localStorage.setItem(DUAL_PLAN_KEY, JSON.stringify(plan));
@@ -1018,6 +1027,12 @@ function renderDashboard() {
     const parent = document.querySelector("#u2-panel-container");
     if (!parent) return; // Should be in HTML
 
+    // Clear existing timer to avoid multiples
+    if (state.activeDualTimer) {
+      clearInterval(state.activeDualTimer);
+      state.activeDualTimer = null;
+    }
+
     const plan = getDualPlan();
     if (!plan) {
       parent.innerHTML = "";
@@ -1025,6 +1040,35 @@ function renderDashboard() {
       return;
     }
     state.activeDualPlan = plan;
+
+    // Calc Timing
+    const timing = getDualPlanTiming(plan);
+    let timingHtml = "";
+    let btnText = "🔁 Recalcular U2 ahora";
+    let warningHtml = "";
+
+    if (timing) {
+      const { elapsed_min, remaining_min } = timing;
+
+      timingHtml = `
+         <div class="u2-timing">
+            <span>Transcurrido: <strong>${elapsed_min} min</strong></span>
+            <span>U2 en: <strong>${remaining_min} min</strong></span>
+         </div>
+      `;
+
+      if (remaining_min === 0) {
+        warningHtml = `<div class="warning success-border">✅ U2 lista para administrar</div>`;
+        btnText = "🔁 Recalcular U2 ahora";
+      } else if (remaining_min < 20) {
+        warningHtml = `<div class="warning">⚠️ Muy cerca del momento de U2; recalcula justo antes de ponerla</div>`;
+        btnText = `Recalcular U2 (en ${remaining_min} min)`;
+      } else {
+        btnText = `Recalcular U2 (en ${remaining_min} min)`;
+      }
+    } else {
+      timingHtml = `<small>(sin contador)</small>`;
+    }
 
     parent.hidden = false;
     parent.innerHTML = `
@@ -1035,12 +1079,14 @@ function renderDashboard() {
          </div>
          <div class="stack">
             <p><strong>Planificado:</strong> <span class="big-text">${plan.later_u_planned} U</span> <small>a los ${plan.later_after_min || plan.extended_duration_min} min</small></p>
+            ${timingHtml}
+            ${warningHtml}
             <div class="row">
                <label>Carbs adicionales (g)
                   <input type="number" id="u2-carbs" value="0" style="width: 80px;" />
                </label>
             </div>
-            <button id="btn-recalc-u2" class="primary">🔁 Recalcular U2 ahora</button>
+            <button id="btn-recalc-u2" class="primary">${btnText}</button>
             
             <div id="u2-result" class="box" hidden>
                <div id="u2-details"></div>
@@ -1053,11 +1099,18 @@ function renderDashboard() {
       </section>
     `;
 
+    // Start Timer to refresh UI every 15s
+    state.activeDualTimer = setInterval(() => {
+      // Only re-render if plan still active
+      if (getDualPlan()) renderDualPanel();
+    }, 15000);
+
     // Handlers
     parent.querySelector("#btn-clear-u2").onclick = () => {
       if (confirm("¿Borrar plan activo?")) {
         localStorage.removeItem(DUAL_PLAN_KEY);
         state.activeDualPlan = null;
+        if (state.activeDualTimer) clearInterval(state.activeDualTimer);
         renderDualPanel();
       }
     };
