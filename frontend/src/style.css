@@ -427,3 +427,24 @@ details>summary {
   color: #15803d !important;
 }
 
+
+/* Plate Builder */
+#plate-builder-card .plate-summary {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  background: #f1f5f9;
+  padding: 1rem;
+  border-radius: 8px;
+  margin-bottom: 0.5rem;
+}
+
+#plate-builder-card .plate-meta {
+  color: #64748b;
+  font-weight: 500;
+}
+
+#plate-builder-card .weight-mode-controls {
+  font-size: 0.95rem;
+}
+
