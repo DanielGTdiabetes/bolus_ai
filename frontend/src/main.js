@@ -21,6 +21,14 @@ import {
   calculateBolusWithOptionalSplit,
 } from "./lib/api";
 
+import {
+  connectScale,
+  disconnectScale,
+  tare,
+  setOnData,
+  isBleSupported
+} from "./lib/bleScale";
+
 const CALC_PARAMS_KEY = "bolusai_calc_params";
 const LEGACY_CALC_SETTINGS_KEY = "bolusai_calc_settings";
 const SPLIT_SETTINGS_KEY = "bolusai_split_settings";
@@ -87,6 +95,14 @@ const state = {
   healthStatus: "Pulsa el botón para comprobar.",
   visionResult: null,
   visionError: null,
+  plateWeightGrams: null, // Temporary weight usage
+  scale: {
+    connected: false,
+    grams: 0,
+    stable: false,
+    battery: null,
+    status: "Desconectado"
+  },
   currentGlucose: {
     loading: false,
     data: null, // { bg_mgdl, trend, age, stale, ok, error }
@@ -143,6 +159,29 @@ function renderDashboard() {
             <span class="loading-text">Cargando...</span>
          </div>
          <canvas id="iob-graph" width="350" height="150" style="width:100%; max-height:150px; margin-top:10px;"></canvas>
+      </section>
+      
+      <!-- BLE Scale Card -->
+      <section class="card">
+         <div class="card-header">
+           <h2>Báscula (BLE)</h2>
+           <span id="scale-status-badge" class="badge neutral">${state.scale.status}</span>
+         </div>
+         <div class="scale-box">
+            <div id="scale-display" class="big-number">-- g</div>
+            <div id="scale-meta" class="scale-meta"></div>
+         </div>
+         
+         <div class="actions" style="margin-top:1rem;">
+            ${!isBleSupported()
+      ? '<div class="warning small">Navegador no soporta BLE. Usa Bluefy en iOS.</div>'
+      : `
+                 <button id="btn-scale-connect" class="secondary small">Conectar</button>
+                 <button id="btn-scale-tare" class="ghost small" disabled>Tara</button>
+               `
+    }
+            <button id="btn-scale-use" class="primary small" disabled>Usar Peso</button>
+         </div>
       </section>
 
       <!-- Vision Card -->
@@ -263,6 +302,125 @@ function renderDashboard() {
   // GLUCOSE REFRESH
   const refreshBgBtn = document.querySelector("#refresh-bg-btn");
   const glucoseDisplay = document.querySelector("#glucose-display");
+
+  // === SCALE HANDLERS ===
+  const btnScaleConnect = document.querySelector("#btn-scale-connect");
+  const btnScaleTare = document.querySelector("#btn-scale-tare");
+  const btnScaleUse = document.querySelector("#btn-scale-use");
+  const scaleDisplay = document.querySelector("#scale-display");
+  const scaleMeta = document.querySelector("#scale-meta");
+  const scaleBadge = document.querySelector("#scale-status-badge");
+
+  if (btnScaleConnect) {
+    btnScaleConnect.onclick = async () => {
+      if (state.scale.connected) {
+        await disconnectScale();
+        state.scale.connected = false;
+        updateScaleUI();
+      } else {
+        try {
+          btnScaleConnect.disabled = true;
+          btnScaleConnect.textContent = "Conectando...";
+          scaleBadge.textContent = "Conectando...";
+
+          const name = await connectScale();
+          state.scale.connected = true;
+
+          updateScaleUI();
+        } catch (e) {
+          console.error(e);
+          alert("Error BLE: " + e.message);
+          state.scale.connected = false;
+          updateScaleUI();
+        }
+      }
+    };
+  }
+
+  if (btnScaleTare) {
+    btnScaleTare.onclick = async () => {
+      try {
+        await tare();
+      } catch (e) { console.error(e); }
+    };
+  }
+
+  if (btnScaleUse) {
+    btnScaleUse.onclick = () => {
+      // Save to generic global state or vision override
+      const grams = state.scale.grams;
+      state.plateWeightGrams = grams;
+
+      // Show feedback
+      const explainBlock = document.querySelector("#bolus-explain");
+      const explainList = document.querySelector("#explain-list");
+
+      // Append info item about weight
+      explainBlock.hidden = false;
+      const li = document.createElement("li");
+      li.innerHTML = `<strong>Peso Báscula:</strong> ${grams} g <span class="badge neutral">Usado</span>`;
+      explainList.prepend(li); // Show at top
+
+      // If we had input fields for weight in vision form, we would set them here. 
+      // For now just storing it.
+    };
+  }
+
+  // Define onData callback
+  setOnData((data) => {
+    if (!data.connected) {
+      state.scale.connected = false;
+      state.scale.status = "Desconectado";
+      updateScaleUI();
+      return;
+    }
+
+    state.scale.connected = true;
+    state.scale.grams = data.grams;
+    state.scale.stable = data.stable;
+    state.scale.battery = data.battery;
+
+    updateScaleUI();
+  });
+
+  function updateScaleUI() {
+    // Button State
+    if (state.scale.connected) {
+      btnScaleConnect.textContent = "Desconectar";
+      btnScaleConnect.disabled = false;
+      btnScaleTare.disabled = false;
+      scaleBadge.textContent = "Conectado";
+      scaleBadge.className = "badge success";
+      btnScaleUse.disabled = false;
+    } else {
+      btnScaleConnect.textContent = "Conectar";
+      btnScaleConnect.disabled = false;
+      btnScaleTare.disabled = true;
+      btnScaleUse.disabled = true;
+      scaleBadge.textContent = "Desconectado";
+      scaleBadge.className = "badge neutral";
+    }
+
+    // Display Value
+    if (state.scale.connected) {
+      scaleDisplay.textContent = `${state.scale.grams} g`;
+      // Stable badge
+      let metaHtml = "";
+      if (state.scale.stable) {
+        metaHtml += `<span class="badge success">ESTABLE</span>`;
+      } else {
+        metaHtml += `<span class="badge warning">...</span>`;
+      }
+
+      if (state.scale.battery !== null) {
+        metaHtml += ` <small>🔋 ${state.scale.battery}%</small>`;
+      }
+      scaleMeta.innerHTML = metaHtml;
+    } else {
+      scaleDisplay.textContent = "-- g";
+      scaleMeta.innerHTML = "";
+    }
+  }
 
   async function updateGlucoseDisplay() {
     glucoseDisplay.innerHTML = '<span class="loading-text">Actualizando...</span>';
