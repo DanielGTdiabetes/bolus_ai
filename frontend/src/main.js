@@ -1320,7 +1320,13 @@ function renderScan() {
     actions.innerHTML = '<div class="spinner">⏳ Analizando imagen...</div>';
 
     try {
-      const result = await estimateCarbsFromImage(file);
+      const options = {};
+      if (state.scale?.grams > 0) {
+        options.plate_weight_grams = state.scale.grams;
+        console.log("Incluyendo peso de báscula en análisis:", state.scale.grams);
+      }
+
+      const result = await estimateCarbsFromImage(file, options);
       state.visionResult = result;
       // Navigate to Bolus with result
       state.tempCarbs = result.carbs_estimate_g;
