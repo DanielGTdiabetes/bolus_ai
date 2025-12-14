@@ -196,6 +196,7 @@ pre {
   margin: 0 auto;
 }
 
+
 @media (max-width: 640px) {
   .topbar {
     flex-direction: column;
@@ -210,4 +211,138 @@ pre {
   .page {
     padding: 1rem;
   }
+}
+
+/* Bolus Output Stylings */
+.bolus-box {
+  background: #0f172a;
+  color: #e2e8f0;
+  padding: 1rem;
+  border-radius: 10px;
+  overflow: auto;
+  min-height: 3rem;
+  margin-top: 0.5rem;
+  text-align: center;
+}
+
+.big-number {
+  font-size: 2rem;
+  font-weight: 800;
+  color: #60a5fa;
+}
+
+.iob-info {
+  margin-top: 0.5rem;
+  font-size: 0.85rem;
+  color: #94a3b8;
+}
+
+/* Split Bolus Styles */
+.split-result {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.split-row {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: #e2e8f0;
+}
+
+.split-row strong {
+  color: #60a5fa;
+  margin-right: 0.5rem;
+}
+
+.split-detail {
+  font-size: 0.9rem;
+  color: #cbd5e1;
+  font-style: italic;
+}
+
+.split-total {
+  margin-top: 0.5rem;
+  border-top: 1px solid #334155;
+  padding-top: 0.5rem;
+  font-size: 0.9rem;
+  color: #94a3b8;
+}
+
+/* Row Label for Checkboxes */
+.row-label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: normal;
+  cursor: pointer;
+  background: #f1f5f9;
+  padding: 0.5rem;
+  border-radius: 8px;
+}
+
+.row-label input {
+  margin: 0;
+}
+
+.row {
+  display: flex;
+  gap: 1rem;
+}
+
+.row>* {
+  flex: 1;
+}
+
+details>summary {
+  cursor: pointer;
+  padding: 0.5rem;
+  font-weight: 600;
+  background: #f8fafc;
+  border-radius: 6px;
+  margin-bottom: 0.5rem;
+}
+
+/* Tabs for Settings */
+.tabs {
+  display: flex;
+  border-bottom: 2px solid #e2e8f0;
+  margin-bottom: 1.5rem;
+}
+
+.tab {
+  flex: 1;
+  background: transparent;
+  border: none;
+  border-bottom: 3px solid transparent;
+  color: #64748b;
+  border-radius: 0;
+  padding: 1rem;
+}
+
+.tab.active {
+  border-bottom-color: #2563eb;
+  color: #2563eb;
+  background: #eff6ff;
+}
+
+/* Sub-tabs for Slots */
+.sub-tabs {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.sub-tab {
+  flex: 1;
+  padding: 0.5rem;
+  font-size: 0.9rem;
+  background: #f1f5f9;
+  color: #475569;
+}
+
+.sub-tab.active {
+  background: #2563eb;
+  color: white;
 }

@@ -18,9 +18,36 @@ import {
   getCurrentGlucose,
   saveTreatment,
   getIOBData,
+  calculateBolusWithOptionalSplit,
 } from "./lib/api";
 
 const CALC_SETTINGS_KEY = "bolusai_calc_settings";
+const SPLIT_SETTINGS_KEY = "bolusai_split_settings";
+
+function getSplitSettings() {
+  try {
+    const raw = localStorage.getItem(SPLIT_SETTINGS_KEY);
+    return raw ? JSON.parse(raw) : {
+      enabled_default: false,
+      percent_now: 70,
+      duration_min: 120,
+      later_after_min: 120,
+      round_step_u: 0.5
+    };
+  } catch (e) {
+    return {
+      enabled_default: false,
+      percent_now: 70,
+      duration_min: 120,
+      later_after_min: 120,
+      round_step_u: 0.5
+    };
+  }
+}
+
+function saveSplitSettings(settings) {
+  localStorage.setItem(SPLIT_SETTINGS_KEY, JSON.stringify(settings));
+}
 
 function getCalcSettings() {
   try {
@@ -165,6 +192,7 @@ function renderDashboard() {
 
 
       
+
       <section class="card">
         <div class="card-header">
           <h2>Calculadora manual</h2>
@@ -187,10 +215,16 @@ function renderDashboard() {
           <label>Objetivo (mg/dL, opcional)
             <input type="number" step="1" id="target" />
           </label>
+          
+          <label class="row-label">
+             <input type="checkbox" id="use-split" />
+             🔄 Bolo dividido (Dual)
+          </label>
+
           <button type="submit">Calcular</button>
           <p class="error" id="bolus-error" ${state.bolusError ? "" : "hidden"}>${state.bolusError || ""}</p>
         </form>
-        <pre id="bolus-output">${state.bolusResult || "Pendiente de cálculo."}</pre>
+        <div id="bolus-output" class="bolus-box">${state.bolusResult || "Pendiente de cálculo."}</div>
         <div class="actions" id="bolus-actions" hidden>
            <button type="button" id="accept-bolus-btn" class="primary">✅ Aceptar bolo</button>
            <span id="accept-msg" class="success" hidden></span>
@@ -506,6 +540,13 @@ function renderDashboard() {
   const explainList = document.querySelector("#explain-list");
   const bolusOutput = document.querySelector("#bolus-output");
   const bolusError = document.querySelector("#bolus-error");
+  const useSplitCheckbox = document.querySelector("#use-split");
+
+  // Init Split Checkbox default
+  if (useSplitCheckbox) {
+    const sp = getSplitSettings();
+    useSplitCheckbox.checked = sp.enabled_default;
+  }
 
   // Clear actions on change
   document.querySelector("#carbs").oninput = () => {
@@ -519,7 +560,7 @@ function renderDashboard() {
     bolusError.hidden = true;
     explainBlock.hidden = true;
     explainList.innerHTML = "";
-    bolusOutput.textContent = "Calculando...";
+    bolusOutput.innerHTML = "Calculando...";
 
     const payload = {
       carbs_g: parseFloat(document.querySelector("#carbs").value || "0"),
@@ -549,12 +590,47 @@ function renderDashboard() {
     }
 
     try {
-      const data = await calculateBolus(payload);
-      currentCalculatedBolus = data; // Store for accept
+      // Choose strategy
+      const splitConfig = getSplitSettings();
+      const useSplit = document.querySelector("#use-split").checked;
 
-      state.bolusError = "";
-      state.bolusResult = `Recomendación: ${data.total_u} U`;
-      bolusOutput.textContent = state.bolusResult;
+      const strategySettings = useSplit ? {
+        enabled: true,
+        ...splitConfig
+      } : { enabled: false };
+
+      const result = await calculateBolusWithOptionalSplit(payload, strategySettings);
+      const data = result.calc; // The base calculation
+
+      currentCalculatedBolus = data;
+
+      if (result.error) {
+        // If split failed but we got calc, show warning
+        state.bolusError = "Aviso: Falló plan dividido, mostrando normal. " + result.error;
+        bolusError.textContent = state.bolusError;
+        bolusError.hidden = false;
+      } else {
+        state.bolusError = "";
+      }
+
+      // Display logic
+      if (result.kind === "dual") {
+        const plan = result.plan;
+        state.bolusResult = `
+            <div class="split-result">
+               <div class="split-row"><strong>AHORA:</strong> ${plan.now_u} U</div>
+               <div class="split-row"><strong>LUEGO:</strong> ${plan.later_u_planned} U</div>
+               <div class="split-detail">en ${plan.later_after_min} min (Duración: ${plan.extended_duration_min || "N/A"}m)</div>
+               <div class="split-total">Total: ${plan.total_recommended_u} U</div>
+            </div>
+          `;
+        // We update currentCalculatedBolus total to match total if needed.
+      } else {
+        // Normal
+        state.bolusResult = `<div class="big-number">${data.total_u} U</div>`;
+      }
+
+      bolusOutput.innerHTML = state.bolusResult;
 
       // Show actions
       if (bolusActions) {
@@ -566,16 +642,21 @@ function renderDashboard() {
       }
 
       if (data.iob_u > 0) {
-        state.bolusResult += ` (IOB Restado: ${data.iob_u} U)`;
-        bolusOutput.textContent = state.bolusResult;
+        // Append IOB info
+        bolusOutput.innerHTML += `<div class="iob-info">(IOB Restado: ${data.iob_u} U)</div>`;
       }
 
       // Additional Warnings
-      if (data.warnings && data.warnings.length > 0) {
-        const warnDiv = document.createElement("div");
-        warnDiv.className = "warning";
-        warnDiv.innerHTML = data.warnings.join("<br>");
-        explainBlock.appendChild(warnDiv);
+      if ((data.warnings && data.warnings.length > 0) || (result.plan && result.plan.warnings.length > 0)) {
+        const dimWarns = data.warnings || [];
+        const planWarns = result.plan ? result.plan.warnings : [];
+        const allWarns = [...dimWarns, ...planWarns];
+        if (allWarns.length > 0) {
+          const warnDiv = document.createElement("div");
+          warnDiv.className = "warning";
+          warnDiv.innerHTML = allWarns.join("<br>");
+          explainBlock.appendChild(warnDiv);
+        }
       }
 
       if (Array.isArray(data.explain) && data.explain.length) {
@@ -970,10 +1051,51 @@ function renderSettings() {
              </label>
 
              <button type="submit">Guardar Parámetros</button>
-             <p id="calc-msg" class="success" hidden></p>
+              <p id="calc-msg" class="success" hidden></p>
            </form>
-        </div>
+           
+           <hr style="margin: 2rem 0" />
+           
+           <!-- ADVANCED SPLIT SETTINGS -->
+           <details id="advanced-settings">
+             <summary>Avanzado (Bolo Dividido)</summary>
+             <form id="split-form" class="stack" style="margin-top: 1rem; border: 1px solid #e2e8f0; padding: 1rem; border-radius: 8px;">
+                <label class="row-label">
+                   <input type="checkbox" id="split-default-enabled" />
+                   Activar bolo dividido por defecto
+                </label>
+                
+                <div class="row">
+                  <label>
+                     % Ahora
+                     <input type="number" id="split-percent" min="10" max="90" required />
+                  </label>
+                  <label>
+                     Redondeo (U)
+                     <select id="split-step">
+                       <option value="0.1">0.1</option>
+                       <option value="0.5">0.5</option>
+                       <option value="1.0">1.0</option>
+                     </select>
+                  </label>
+                </div>
 
+                <div class="row">
+                   <label>
+                      Duración Extendida (min)
+                      <input type="number" id="split-duration" min="30" max="480" step="15" required />
+                   </label>
+                   <label>
+                      Recordar 2ª parte tras (min)
+                      <input type="number" id="split-later-min" min="15" max="360" step="15" required />
+                   </label>
+                </div>
+                
+                <button type="submit" class="secondary">Guardar Avanzado</button>
+             </form>
+           </details>
+        </div>
+        
       </section>
 
       <section class="card">
@@ -1119,6 +1241,29 @@ function initCalcPanel() {
     msg.textContent = "Configuración guardada.";
     msg.hidden = false;
     setTimeout(() => msg.hidden = true, 3000);
+  };
+
+  // Init Split Form
+  const splitForm = document.querySelector("#split-form");
+  const splitSettings = getSplitSettings();
+
+  document.querySelector("#split-default-enabled").checked = splitSettings.enabled_default;
+  document.querySelector("#split-percent").value = splitSettings.percent_now;
+  document.querySelector("#split-duration").value = splitSettings.duration_min;
+  document.querySelector("#split-later-min").value = splitSettings.later_after_min;
+  document.querySelector("#split-step").value = splitSettings.round_step_u;
+
+  splitForm.onsubmit = (e) => {
+    e.preventDefault();
+    const newSettings = {
+      enabled_default: document.querySelector("#split-default-enabled").checked,
+      percent_now: parseInt(document.querySelector("#split-percent").value),
+      duration_min: parseInt(document.querySelector("#split-duration").value),
+      later_after_min: parseInt(document.querySelector("#split-later-min").value),
+      round_step_u: parseFloat(document.querySelector("#split-step").value)
+    };
+    saveSplitSettings(newSettings);
+    alert("Configuración de bolo dividido guardada.");
   };
 }
 

@@ -245,6 +245,75 @@ export async function saveTreatment(payload) {
   return data;
 }
 
+export async function createBolusPlan(payload) {
+  const response = await apiFetch("/api/bolus/plan", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+  const data = await toJson(response);
+  if (!response.ok) {
+    throw new Error(data.detail || "Error al planificar bolo");
+  }
+  return data;
+}
+
+export async function calculateBolusWithOptionalSplit(calcPayload, splitSettings) {
+  // 1. Calculate Standard Bolus
+  const calcData = await calculateBolus(calcPayload);
+
+  // Decide total to use (final clamped or fallback)
+  const totalU = calcData.total_u_final ?? calcData.total_u ?? 0;
+
+  // 2. Check if Split needed
+  if (splitSettings && splitSettings.enabled && totalU > 0) {
+    try {
+      const planPayload = {
+        mode: "dual",
+        total_recommended_u: totalU,
+        round_step_u: splitSettings.round_step_u || 0.5,
+        dual: {
+          percent_now: splitSettings.percent_now || 70,
+          duration_min: splitSettings.duration_min || 120,
+          later_after_min: splitSettings.later_after_min || 120
+        }
+      };
+
+      const planData = await createBolusPlan(planPayload);
+
+      return {
+        kind: "dual",
+        calc: calcData,
+        plan: planData,
+        upfront_u: planData.now_u,
+        later_u: planData.later_u_planned,
+        duration_min: planData.extended_duration_min ?? planData.later_after_min
+      };
+
+    } catch (err) {
+      console.warn("Split plan failed, falling back to normal bolus", err);
+      // Fallback to normal
+      return {
+        kind: "normal",
+        calc: calcData,
+        upfront_u: totalU,
+        later_u: 0,
+        duration_min: 0,
+        error: "Split plan failed: " + err.message
+      };
+    }
+  }
+
+  // 3. Normal Bolus
+  return {
+    kind: "normal",
+    calc: calcData,
+    upfront_u: totalU,
+    later_u: 0,
+    duration_min: 0
+  };
+}
+
+
 export function logout() {
   clearSession();
   if (unauthorizedHandler) unauthorizedHandler();
