@@ -283,7 +283,7 @@ async def estimate_from_image(
         # Rounding (step 0.05)
         step = user_settings.round_step_u
         def round_step(val):
-            return round(val / step) * step
+            return round(round(val / step) * step, 2)
 
         final_upfront = round_step(raw_upfront)
         final_later = round_step(total_u - final_upfront)

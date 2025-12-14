@@ -27,7 +27,7 @@ class BolusRequestData:
 
 
 def _round_units(value: float, step: float) -> float:
-    return round(value / step) * step
+    return round(round(value / step) * step, 2)
 
 
 def recommend_bolus(request: BolusRequestData, settings: UserSettings, iob_u: float) -> BolusResponse:
