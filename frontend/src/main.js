@@ -19,6 +19,7 @@ import {
   saveTreatment,
   getIOBData,
   calculateBolusWithOptionalSplit,
+  recalcSecondBolus,
 } from "./lib/api";
 
 import {
@@ -107,7 +108,8 @@ const state = {
     loading: false,
     data: null, // { bg_mgdl, trend, age, stale, ok, error }
     timestamp: 0
-  }
+  },
+  activeDualPlan: null,
 };
 
 const app = document.getElementById("app");
@@ -1005,7 +1007,7 @@ function renderDashboard() {
           }
         };
 
-        const data = await import("./lib/api").then(m => m.recalcSecondBolus(payload));
+        const data = await recalcSecondBolus(payload);
 
         // Render Results
         resDiv.hidden = false;

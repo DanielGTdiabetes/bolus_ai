@@ -322,6 +322,35 @@ export async function calculateBolusWithOptionalSplit(calcPayload, splitSettings
 }
 
 
+/**
+ * Recalculates the second part (U2) of a dual bolus.
+ * @param {{
+ *   later_u_planned: number,
+ *   carbs_additional_g?: number,
+ *   params: {
+ *     cr_g_per_u: number,
+ *     isf_mgdl_per_u: number,
+ *     target_bg_mgdl: number,
+ *     round_step_u: number,
+ *     max_bolus_u: number,
+ *     stale_bg_minutes: number
+ *   },
+ *   nightscout?: {
+ *     url: string,
+ *     token: string,
+ *     units: string
+ *   }
+ * }} payload
+ * @returns {Promise<{
+ *   bg_now_mgdl?: number,
+ *   bg_age_min?: number,
+ *   iob_now_u?: number,
+ *   u2_recommended_u: number,
+ *   cap_u?: number,
+ *   warnings: string[],
+ *   components: any
+ * }>}
+ */
 export async function recalcSecondBolus(payload) {
   const response = await apiFetch("/api/bolus/recalc-second", {
     method: "POST",
