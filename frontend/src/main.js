@@ -1568,6 +1568,191 @@ function renderScan() {
   updatePlateUI();
 }
 
+
+function renderBolusResult(res) {
+  const calcBtn = document.getElementById('btn-calc-bolus');
+  if (calcBtn) calcBtn.hidden = true;
+
+  // Remove existing result if any
+  const existing = document.querySelector('.result-card');
+  if (existing) existing.remove();
+
+  const container = document.querySelector('main.page');
+  // If not on main page (e.g. somehow), use app
+  const target = container || app;
+
+  const div = document.createElement('div');
+
+  // Save plan to state mostly for runtime usage
+  if (res.kind === 'dual') {
+    state.lastBolusPlan = res.plan;
+    state.bolusPlanCreatedAt = Date.now();
+  }
+
+  div.innerHTML = `
+        <div class="card result-card" style="margin-top:1rem; border:2px solid var(--primary);">
+            <div style="text-align:center">
+                <div class="text-muted">Bolo Recomendado</div>
+                <div class="big-number" style="color:var(--primary)">${res.upfront_u} U</div>
+                ${res.kind === 'dual' ? `
+                    <div class="text-muted" id="dual-breakdown">
+                        + <span id="val-later-u">${res.later_u}</span> U extendido (${res.duration_min} min)
+                    </div>
+                ` : ''}
+            </div>
+            
+            ${res.calc?.explain ? `
+                <ul class="explain-list" style="margin-top:1rem; font-size:0.8rem; text-align:left; color:#64748b">
+                    ${res.calc.explain.map(t => `<li>${t}</li>`).join('')}
+                </ul>
+            ` : ''}
+
+            <!-- EXTRA CARBS SECTION (Dual Only) -->
+            ${res.kind === 'dual' ? `
+                <div id="extra-carbs-block" style="margin-top:1rem; padding-top:1rem; border-top:1px dashed #eee;">
+                    <div style="font-weight:600; font-size:0.9rem; color:#0f766e">➕ Añadir extra (postre / más)</div>
+                    <div style="display:flex; gap:0.5rem; margin-top:0.5rem">
+                        <input type="number" id="u2-extra-carbs" placeholder="g Carbs" style="width:80px; text-align:center; border:1px solid #ccc; border-radius:6px">
+                        <button id="btn-recalc-u2" class="btn-ghost" style="font-size:0.8rem; border:1px solid var(--primary); color:var(--primary)">Recalcular 2ª parte</button>
+                    </div>
+                    <div id="u2-recalc-result" style="margin-top:0.5rem; display:none; background:#f0fdfa; padding:0.5rem; border-radius:6px; font-size:0.8rem;">
+                        <!-- dynamic content -->
+                    </div>
+                </div>
+            ` : ''}
+
+            <div style="display:flex; gap:0.5rem; margin-top:1rem">
+                <button id="btn-accept" class="btn-primary" style="background:var(--success); flex:1">✅ Administrar</button>
+                <button class="btn-ghost" onclick="renderBolus()" style="flex:1">Cancelar</button>
+            </div>
+        </div>
+    `;
+
+  target.appendChild(div);
+  div.scrollIntoView({ behavior: 'smooth' });
+
+  // --- HANDLERS ---
+
+  // 1. Recalc U2 Handler
+  if (res.kind === 'dual') {
+    const btnRecalc = div.querySelector('#btn-recalc-u2');
+    const inpExtra = div.querySelector('#u2-extra-carbs');
+    const resContainer = div.querySelector('#u2-recalc-result');
+
+    btnRecalc.onclick = async () => {
+      const extra = parseFloat(inpExtra.value);
+      if (!extra || extra <= 0) {
+        alert("Introduce hidratos extra primero.");
+        return;
+      }
+
+      btnRecalc.textContent = "Calculando...";
+      btnRecalc.disabled = true;
+
+      try {
+        // Prepare Payload
+        const slot = document.getElementById('meal-slot').value;
+        const mealParams = getCalcParams();
+        const slotParams = mealParams[slot];
+
+        // key safety
+        const nsConfig = getLocalNsConfig ? getLocalNsConfig() : {};
+
+        const payload = {
+          later_u_planned: state.lastBolusPlan.later_u_planned, // original planned
+          carbs_additional_g: extra,
+          params: {
+            cr_g_per_u: slotParams.icr,
+            isf_mgdl_per_u: slotParams.isf,
+            target_bg_mgdl: slotParams.target,
+            round_step_u: mealParams.round_step_u || 0.5,
+            max_bolus_u: mealParams.max_bolus_u || 15,
+            stale_bg_minutes: 15
+          },
+          nightscout: {
+            url: nsConfig.url || "",
+            token: nsConfig.token || ""
+          }
+        };
+
+        // Call API
+        const u2Res = await recalcSecondBolus(payload);
+        state.lastRecalcSecond = u2Res;
+
+        // Render Result
+        resContainer.style.display = 'block';
+        resContainer.innerHTML = `
+                    <div style="font-weight:700; color:#0f766e">Recomendado: ${u2Res.u2_recommended_u} U</div>
+                    <div style="color:#666">
+                       (Componentes: +${u2Res.components?.meal_u || 0}U comida, -${u2Res.components?.iob_applied_u || 0}U IOB)
+                    </div>
+                    ${u2Res.warnings && u2Res.warnings.length ? `<div style="color:orange">⚠️ ${u2Res.warnings.join(', ')}</div>` : ''}
+                    
+                    <button id="btn-use-u2" class="btn-primary" style="margin-top:0.5rem; padding:0.3rem; font-size:0.8rem; width:100%">Usar esta 2ª parte</button>
+                    <button id="btn-clear-u2" class="btn-ghost" style="margin-top:0.2rem; padding:0.2rem; font-size:0.7rem; width:100%">Limpiar</button>
+                `;
+
+        // Bind actions
+        const btnUse = resContainer.querySelector('#btn-use-u2');
+        const btnClear = resContainer.querySelector('#btn-clear-u2');
+
+        btnUse.onclick = () => {
+          // Update UI
+          document.getElementById('val-later-u').textContent = u2Res.u2_recommended_u;
+          // Mutate res closure
+          res.later_u = u2Res.u2_recommended_u;
+          // Plan Update
+          if (state.lastBolusPlan) {
+            state.lastBolusPlan.later_u_planned = u2Res.u2_recommended_u;
+          }
+          resContainer.style.display = 'none';
+          inpExtra.value = "";
+        };
+
+        btnClear.onclick = () => {
+          resContainer.style.display = 'none';
+          inpExtra.value = "";
+          state.lastRecalcSecond = null;
+          btnRecalc.textContent = "Recalcular 2ª parte";
+          btnRecalc.disabled = false;
+        };
+
+      } catch (e) {
+        alert("Error recalculando: " + e.message);
+        btnRecalc.textContent = "Recalcular 2ª parte";
+        btnRecalc.disabled = false;
+      }
+    };
+  }
+
+  // 2. Accept Handler
+  div.querySelector('#btn-accept').onclick = async () => {
+    try {
+      const carbs = parseFloat(document.getElementById('carbs').value || 0);
+      const bg = parseFloat(document.getElementById('bg').value || 0);
+
+      const treatment = {
+        eventType: "Meal Bolus",
+        created_at: new Date().toISOString(),
+        carbs: carbs,
+        insulin: res.upfront_u,
+        enteredBy: state.user?.username || "BolusAI",
+        notes: `BolusAI: ${res.kind === 'dual' ? 'Dual' : 'Normal'}. Gr: ${carbs}g. BG: ${bg}`
+      };
+
+      if (res.kind === 'dual') {
+        treatment.notes += ` (Split: ${res.upfront_u} now + ${res.later_u} over ${res.duration_min}m)`;
+      }
+
+      await saveTreatment(treatment);
+      alert("Bolo registrado con éxito.");
+      navigate('#/');
+    } catch (e) {
+      alert("Error guardando tratamiento: " + e.message);
+    }
+  };
+}
+
 // --- VIEW: BOLUS (Calcular) ---
 
 function renderPlateSummary() {
