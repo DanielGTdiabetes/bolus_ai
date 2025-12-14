@@ -1296,8 +1296,60 @@ async function renderHome() {
   updateActivity();
 
   // Restore Dual Bolus Panel if active
-  if (typeof renderDualPanel === 'function') {
-    renderDualPanel();
+  if (state.lastBolusPlan) {
+    const activeCard = document.createElement('div');
+    activeCard.className = "card";
+    activeCard.style.cssText = "background:#f0fdfa; border:1px solid #ccfbf1; margin-bottom:1.5rem";
+    activeCard.innerHTML = `
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.5rem">
+            <span style="font-weight:700; color:#0f766e">🌊 Bolo Extendido Activo</span>
+            <span style="font-size:0.8rem; background:white; padding:2px 6px; border-radius:4px; border:1px solid #ccfbf1">
+               ${state.lastBolusPlan.later_u_planned} U pend.
+            </span>
+        </div>
+        <div style="font-size:0.85rem; color:#0d9488; margin-bottom:0.8rem">
+           Finaliza en aprox: ${state.lastBolusPlan.extended_duration_min || 120} min
+        </div>
+        <div style="display:flex; gap:0.5rem">
+             <button id="btn-dash-extra" class="btn-primary" style="font-size:0.85rem; padding:6px 12px; flex:1">
+                ➕ Añadir Extra
+             </button>
+        </div>
+      `;
+
+    // We insert after the header (which is not in main)
+    // Actually we insert at top of main
+    const main = document.querySelector('main.page');
+    if (main) main.prepend(activeCard);
+
+    const btnDashExtra = activeCard.querySelector('#btn-dash-extra');
+    if (btnDashExtra) {
+      btnDashExtra.onclick = () => {
+        // We go to a special view or render the Bolus Result View passing the stored plan?
+        // The BolusResult view expects a 'res' object.
+        // We can reconstruct a 'res' object from state.lastBolusPlan
+        // Not perfect but works for MVP.
+
+        state.calcMode = 'dual_extra'; // Mark mode
+
+        // Construct mock res
+        const mockRes = {
+          kind: 'dual',
+          upfront_u: state.lastBolusPlan.now_u,
+          later_u: state.lastBolusPlan.later_u_planned,
+          duration_min: state.lastBolusPlan.extended_duration_min || 120,
+          plan: state.lastBolusPlan
+        };
+
+        // Clear app
+        app.innerHTML = `
+                ${renderHeader("Añadir Extra", true)}
+                <main class="page"></main>
+                ${renderBottomNav('home')}
+             `;
+        renderBolusResult(mockRes);
+      };
+    }
   }
 }
 
@@ -1343,17 +1395,21 @@ function renderScan() {
 
       <!-- Plate Builder Section -->
       <div id="plate-builder-area" class="card" style="margin-top:1.5rem">
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem">
-           <h3 style="margin:0">🍽️ Mi Plato</h3>
-           <span style="font-weight:700; color:var(--primary)"><span id="plate-total-carbs">0</span>g Total</span>
-        </div>
-        
-        <div id="plate-entries" style="font-size:0.9rem; margin-bottom:1rem; min-height:50px">
-           <!-- Entries go here -->
-           <div class="text-muted" style="text-align:center; padding:1rem">Plato vacío</div>
-        </div>
-        
-        <button id="btn-finalize-plate" class="btn-primary" hidden>🧮 Calcular con Total</button>
+         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem">
+            <h3 style="margin:0">🍽️ Mi Plato</h3>
+            <span style="font-weight:700; color:var(--primary)"><span id="plate-total-carbs">0</span>g Total</span>
+         </div>
+         
+         <div id="plate-entries" style="font-size:0.9rem; margin-bottom:1rem; min-height:50px">
+            <!-- Entries go here -->
+            <div class="text-muted" style="text-align:center; padding:1rem">Plato vacío</div>
+         </div>
+         
+         <div style="display:flex; gap:0.5rem">
+            <button id="btn-finalize-plate" class="btn-primary" style="flex:1" hidden>🧮 Calcular con Total</button>
+            <!-- If we are in 'dual_extra' mode, show specific button -->
+            <button id="btn-finalize-plate-extra" class="btn-secondary" style="flex:1; background:#0f766e; color:white" hidden>➕ Añadir al Extendido</button>
+         </div>
       </div>
 
     </main>
@@ -1501,8 +1557,8 @@ function renderScan() {
 
   // --- PLATE BUILDER LOGIC ---
   const plateList = document.getElementById('plate-entries');
-  const btnAddToPlate = document.getElementById('btn-add-plate');
   const btnFinPlate = document.getElementById('btn-finalize-plate');
+  const btnFinPlateExtra = document.getElementById('btn-finalize-plate-extra');
   const plateTotalEl = document.getElementById('plate-total-carbs');
 
   // Reset builder on load if empty (optional, or keep state)
@@ -1529,13 +1585,18 @@ function renderScan() {
       plateList.appendChild(li);
     });
     state.plateBuilder.total = total;
-    plateTotalEl.textContent = total; // total integer
+    if (plateTotalEl) plateTotalEl.textContent = total;
 
-    // Show Finalize button if there are any entries (even if 0 carbs, e.g. for logging)
-    if (state.plateBuilder.entries.length > 0) {
-      btnFinPlate.hidden = false;
-    } else {
-      btnFinPlate.hidden = true;
+    // Visibility Logic
+    const hasEntries = state.plateBuilder.entries.length > 0;
+
+    if (btnFinPlate) btnFinPlate.hidden = !hasEntries;
+
+    if (btnFinPlateExtra) {
+      // Only show if we have an active bolus plan AND entries
+      btnFinPlateExtra.hidden = !(hasEntries && state.lastBolusPlan);
+      // Prioritize extra button if active
+      if (!btnFinPlateExtra.hidden && btnFinPlate) btnFinPlate.hidden = true;
     }
   };
 
@@ -1545,21 +1606,56 @@ function renderScan() {
     updatePlateUI();
   };
 
-  btnFinPlate.onclick = () => {
-    state.tempCarbs = state.plateBuilder.total;
-    // create a combined note?
-    state.tempReason = "plate_builder";
-    navigate('#/bolus');
-  };
+  if (btnFinPlate) {
+    btnFinPlate.onclick = () => {
+      state.tempCarbs = state.plateBuilder.total;
+      state.tempReason = "plate_builder";
+      navigate('#/bolus');
+    };
+  }
 
-  btnUse.onclick = () => {
-    // Just use raw weight as carbs (dumb mode) or add as unknown
-    // User requested "Usar Peso" -> Auto convert to carbs? No, "Usar Peso" usually puts it into calculator 
-    // but if we are building a plate, maybe we want to add it as an entry without photo?
-    // Let's keep original behavior: Go to Bolus with this weight as carbs input
-    state.tempCarbs = state.scale.grams;
-    navigate('#/bolus');
-  };
+  if (btnFinPlateExtra) {
+    btnFinPlateExtra.onclick = () => {
+      // Mock Nav to Extra View
+      state.calcMode = 'dual_extra';
+
+      const mockRes = {
+        kind: 'dual',
+        upfront_u: state.lastBolusPlan.now_u,
+        later_u: state.lastBolusPlan.later_u_planned,
+        duration_min: state.lastBolusPlan.extended_duration_min || 120,
+        plan: state.lastBolusPlan
+      };
+
+      app.innerHTML = `
+              ${renderHeader("Añadir Extra", true)}
+              <main class="page"></main>
+              ${renderBottomNav('home')}
+           `;
+
+      // We need to render content into main
+      // renderBolusResult(mockRes) appends to main.page
+      renderBolusResult(mockRes);
+
+      // Wait for render then pre-fill
+      setTimeout(() => {
+        const inp = document.getElementById('u2-extra-carbs');
+        if (inp) inp.value = state.plateBuilder.total;
+
+        // Auto trigger recalc
+        const btn = document.getElementById('btn-recalc-u2');
+        if (btn) btn.click();
+      }, 150);
+    };
+  }
+
+  if (btnUse) {
+    btnUse.onclick = () => {
+      // Scale Use
+      state.tempCarbs = state.scale.grams;
+      navigate('#/bolus');
+    };
+  }
 
   // Connect add button (only active after analysis)
   // Logic inside handleImg will enable/handle this.
@@ -1615,6 +1711,16 @@ function renderBolusResult(res) {
                         <input type="number" id="u2-extra-carbs" placeholder="g Carbs" style="width:80px; text-align:center; border:1px solid #ccc; border-radius:6px">
                         <button id="btn-recalc-u2" class="btn-ghost" style="font-size:0.8rem; border:1px solid var(--primary); color:var(--primary)">Recalcular 2ª parte</button>
                     </div>
+
+                    <!-- Quick Import from Plate (if entries exist) -->
+                    ${state.plateBuilder && state.plateBuilder.entries.length > 0 ? `
+                        <div style="margin-top:0.5rem">
+                           <button id="btn-import-plate-extra" class="btn-secondary" style="font-size:0.8rem; width:100%">
+                              🍽️ Importar ${state.plateBuilder.total}g del Plato
+                           </button>
+                        </div>
+                    ` : ''}
+
                     <div id="u2-recalc-result" style="margin-top:0.5rem; display:none; background:#f0fdfa; padding:0.5rem; border-radius:6px; font-size:0.8rem;">
                         <!-- dynamic content -->
                     </div>
@@ -1623,7 +1729,7 @@ function renderBolusResult(res) {
 
             <div style="display:flex; gap:0.5rem; margin-top:1rem">
                 <button id="btn-accept" class="btn-primary" style="background:var(--success); flex:1">✅ Administrar</button>
-                <button class="btn-ghost" onclick="renderBolus()" style="flex:1">Cancelar</button>
+                <button id="btn-cancel-res" class="btn-ghost" style="flex:1">Cancelar</button>
             </div>
         </div>
     `;
@@ -1633,11 +1739,28 @@ function renderBolusResult(res) {
 
   // --- HANDLERS ---
 
+  // 0. Cancel Handler
+  const btnCancel = div.querySelector('#btn-cancel-res');
+  if (btnCancel) {
+    btnCancel.onclick = () => {
+      renderBolus();
+    };
+  }
+
   // 1. Recalc U2 Handler
   if (res.kind === 'dual') {
     const btnRecalc = div.querySelector('#btn-recalc-u2');
     const inpExtra = div.querySelector('#u2-extra-carbs');
     const resContainer = div.querySelector('#u2-recalc-result');
+    const btnImport = div.querySelector('#btn-import-plate-extra');
+
+    // Import Logic
+    if (btnImport) {
+      btnImport.onclick = () => {
+        inpExtra.value = state.plateBuilder.total;
+        btnRecalc.click();
+      }
+    }
 
     btnRecalc.onclick = async () => {
       const extra = parseFloat(inpExtra.value);
@@ -1752,6 +1875,7 @@ function renderBolusResult(res) {
     }
   };
 }
+
 
 // --- VIEW: BOLUS (Calcular) ---
 
