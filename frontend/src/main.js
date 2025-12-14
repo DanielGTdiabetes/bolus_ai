@@ -1715,32 +1715,124 @@ function renderDashboard() {
     ctx.stroke();
   }
 
+  // FIX: renderVisionResults restored to full logic matching backend model
   function renderVisionResults(data) {
     visionResults.hidden = false;
-    visionResults.innerHTML = `
-    <div class="vision-summary">
-      <div class="vision-summary-item">
-        <span class="label">Carbs</span>
-        <span class="value">${data.carbs_g}g</span>
-      </div>
-      <div class="vision-summary-item">
-        <span class="label">Fat</span>
-        <span class="value">${data.fat_g}g</span>
-      </div>
-      <div class="vision-summary-item">
-        <span class="label">Protein</span>
-        <span class="value">${data.protein_g}g</span>
-      </div>
-    </div>
-    <div class="vision-details">
-      ${data.items.map(item => `
-        <div class="vision-item">
-          <span class="item-name">${item.name}</span>
-          <span class="item-macros">${item.carbs_g}g C / ${item.fat_g}g F / ${item.protein_g}g P</span>
-        </div>
-      `).join('')}
-    </div>
-  `;
+
+    // 1. Summary
+    const summaryDiv = document.querySelector("#vision-summary");
+    if (summaryDiv) {
+      summaryDiv.innerHTML = `
+        <div class="big-number">${data.carbs_estimate_g}g <small>carbs</small></div>
+        <div>Confianza: <strong>${data.confidence}</strong> <small>(Rango: ${data.carbs_range_g[0]}-${data.carbs_range_g[1]}g)</small></div>
+      `;
+    }
+
+    // 2. Bars (Fat / Slow)
+    const barsDiv = document.querySelector("#vision-bars");
+    if (barsDiv) {
+      barsDiv.innerHTML = `
+        <div class="bar-row">Grasa: <progress value="${data.fat_score}" max="1"></progress></div>
+        <div class="bar-row">Absorción lenta: <progress value="${data.slow_absorption_score}" max="1"></progress></div>
+      `;
+    }
+
+    // 3. Items
+    const list = document.querySelector("#vision-items");
+    if (list) {
+      list.innerHTML = "";
+      data.items.forEach(item => {
+        const li = document.createElement("li");
+        li.textContent = `${item.name} (~${item.carbs_g}g)`;
+        if (item.notes) {
+          const span = document.createElement("small");
+          span.textContent = ` - ${item.notes}`;
+          li.appendChild(span);
+        }
+        list.appendChild(li);
+      });
+    }
+
+    // 4. Bolus
+    const bolusDiv = document.querySelector("#vision-bolus");
+    if (bolusDiv) {
+      if (data.bolus) {
+        bolusDiv.classList.remove("hidden");
+        let html = `<h4>Bolo Recomendado (${data.bolus.kind === 'extended' ? 'EXTENDIDO' : 'NORMAL'})</h4>`;
+
+        if (data.bolus.kind === 'extended') {
+          html += `
+                <div class="split-bolus">
+                   <div class="split-part">
+                      <strong>AHORA</strong>
+                      <span class="val">${data.bolus.upfront_u} U</span>
+                   </div>
+                   <div class="split-part">
+                      <strong>LUEGO (+${data.bolus.delay_min} min)</strong>
+                      <span class="val">${data.bolus.later_u} U</span>
+                   </div>
+                </div>
+              `;
+        } else {
+          html += `<div class="big-number">${data.bolus.upfront_u} U</div>`;
+        }
+
+        if (data.bolus.explain && data.bolus.explain.length) {
+          html += `<ul>${data.bolus.explain.map(e => `<li>${e}</li>`).join('')}</ul>`;
+        }
+        bolusDiv.innerHTML = html;
+      } else {
+        bolusDiv.classList.add("hidden");
+      }
+    }
+
+    // 5. User Input Questions (if any)
+    const questions = data.needs_user_input || [];
+    if (questions.length > 0) {
+      const div = document.createElement("div");
+      div.className = "warning";
+      div.innerHTML = "<strong>Nota:</strong> " + questions.map(q => q.question).join("<br>");
+      visionResults.appendChild(div);
+    }
+
+    // Bind actions
+    const useBtn = document.querySelector("#use-vision-btn");
+    if (useBtn) {
+      useBtn.onclick = () => {
+        // Set values
+        const carbsInput = document.querySelector("#carbs");
+        if (carbsInput) carbsInput.value = data.carbs_estimate_g;
+
+        const mealSlot = document.querySelector("#meal-slot");
+        const visionSlot = document.querySelector("#vision-meal-slot");
+        if (mealSlot && visionSlot) mealSlot.value = visionSlot.value;
+
+        if (data.bolus) {
+          state.bolusResult = `Bolo recomendado: ${data.bolus.upfront_u} U`;
+          if (data.bolus.kind === 'extended') {
+            state.bolusResult += ` (+ ${data.bolus.later_u} U en ${data.bolus.delay_min} min)`;
+          }
+          const output = document.querySelector("#bolus-output");
+          if (output) output.textContent = state.bolusResult;
+
+          const explainList = document.querySelector("#explain-list");
+          const explainBlock = document.querySelector("#bolus-explain");
+
+          if (explainList) {
+            explainList.innerHTML = "";
+            data.bolus.explain.forEach((item) => {
+              const li = document.createElement("li");
+              li.textContent = item;
+              explainList.appendChild(li);
+            });
+          }
+          if (explainBlock) explainBlock.hidden = false;
+
+          const bf = document.querySelector("#bolus-form");
+          if (bf) bf.scrollIntoView({ behavior: "smooth" });
+        }
+      };
+    }
   }
 
   if (refreshIobBtn) refreshIobBtn.onclick = updateIOB;
