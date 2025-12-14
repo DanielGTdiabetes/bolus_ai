@@ -770,6 +770,8 @@ function renderDashboard() {
         updateCalcModeUI();
       });
     });
+    // Init UI state
+    updateCalcModeUI();
   }
 
   function updateCalcModeUI() {
