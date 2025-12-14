@@ -181,1275 +181,90 @@ function getScaleReading() {
   return getPlateBuilderReading();
 }
 
-// --- RENDER DASHBOARD ---
-function renderDashboard() {
-  if (!ensureAuthenticated()) return;
-  const needsChange = state.user?.needs_password_change;
+// --- RENDER FUNCTIONS REMOVED HERE, MOVED TO MODULAR VIEWS BELOW --- 
+// (renderDashboard replaced by renderHome, renderScan, renderBolus above)
+// --- DUAL PLAN HELPERS (Kept) ---
 
-  // Render structure (Mobile First Redesign)
-  app.innerHTML = `
-    ${renderHeader()}
-  <main class="page">
-    ${needsChange ? '<div class="warning">Debes cambiar la contraseña predeterminada.</div>' : ""}
+// --- DUAL PLAN HELPERS ---
+const DUAL_PLAN_KEY = "bolusai_active_dual_plan";
 
-    <!-- 1. Result Card (Top Hierarchy) -->
-    <section class="card result-card" id="result-card" ${!state.bolusResult ? 'hidden' : ''}>
-      <div class="result-sub">Bolo recomendado</div>
-      <div id="bolus-output" class="result-main">${state.bolusResult || "0.0 U"}</div>
-      <!-- Warning/Details could go here -->
-      <div id="result-warnings" class="result-warnings" hidden></div>
-    </section>
+function getDualPlan() {
+  try {
+    const raw = localStorage.getItem(DUAL_PLAN_KEY);
+    if (!raw) return null;
+    const plan = JSON.parse(raw);
+    // Optional: expire after 6 hours?
+    if (Date.now() - plan.created_at_ts > 6 * 60 * 60 * 1000) {
+      localStorage.removeItem(DUAL_PLAN_KEY);
+      return null;
+    }
+    return plan;
+  } catch (e) { return null; }
+}
 
-    <!-- U2 Panel Container (High priority if active) -->
-    <div id="u2-panel-container" hidden></div>
+function getDualPlanTiming(plan) {
+  if (!plan?.created_at_ts || !plan?.later_after_min) return null;
+  const elapsed_min = Math.floor((Date.now() - plan.created_at_ts) / 60000);
+  const duration = plan.extended_duration_min || plan.later_after_min;
+  const remaining_min = Math.max(0, duration - elapsed_min);
+  return { elapsed_min, remaining_min };
+}
 
-    <!-- 2. Calculation Mode (Pills) -->
-    <div class="mode-pills segment-control">
-      <button type="button" data-mode="meal" class="mode-pill ${state.calcMode === 'meal' ? 'active' : ''}">🍽️ Comida</button>
-      <button type="button" data-mode="correction" class="mode-pill ${state.calcMode === 'correction' ? 'active' : ''}">💉 Corrector</button>
-    </div>
+function saveDualPlan(plan) {
+  state.activeDualPlan = plan;
+  localStorage.setItem(DUAL_PLAN_KEY, JSON.stringify(plan));
+}
 
-    <!-- 3. Data Inputs Card -->
-    <section class="card" id="input-card">
-      <div class="card-header">
-        <h3>Datos</h3>
-        <div id="glucose-display-mini" class="badge neutral">BG: --</div>
-      </div>
+// --- U2 PANEL LOGIC ---
+function renderDualPanel() {
+  const parent = document.querySelector("#u2-panel-container");
+  if (!parent) return; // Should be in HTML
 
-      <form id="bolus-form" class="stack">
-        <div class="data-grid">
-          <!-- Glucose Input with Auto Toggle visual intent -->
-          <label>
-            Glucosa
-            <input type="number" step="1" id="bg" placeholder="Nightscout" />
-            <button type="button" id="refresh-bg-btn" class="ghost" style="margin-top:-38px; margin-right:4px; float:right; width:auto; padding:4px;">↻</button>
-          </label>
-
-          <!-- Franja -->
-          <label>Franja
-            <select id="meal-slot">
-              <option value="breakfast">Desayuno</option>
-              <option value="lunch" selected>Comida</option>
-              <option value="dinner">Cena</option>
-              <option value="snack">Snack</option>
-            </select>
-          </label>
-        </div>
-
-        <!-- Carbs Input (Syncs with Plate) -->
-        <label>
-          Carbohidratos (g)
-          <input type="number" step="0.1" id="carbs" required class="big-input" />
-        </label>
-
-        <!-- IOB Display & Refresh -->
-        <div style="background:#f8fafc; padding:0.75rem; border-radius:12px; display:flex; justify-content:space-between; align-items:center;">
-          <span style="font-size:0.9rem; font-weight:600; color:#64748b;">IOB (Insulina Activa)</span>
-          <div style="display:flex; align-items:center; gap:0.5rem;">
-            <div id="iob-display" style="font-weight:700;">-- U</div>
-            <button type="button" id="refresh-iob-btn" class="ghost" style="padding:4px;">↻</button>
-          </div>
-        </div>
-        <canvas id="iob-graph" width="300" height="80" style="width:100%; max-height:80px; display:none;"></canvas>
-
-        <!-- Advanced Toggles -->
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-top:0.5rem;">
-          <label class="row-label" id="split-wrapper">
-            <span>🔄 Bolo dividido</span>
-            <input type="checkbox" id="use-split" />
-          </label>
-          <!-- Target override only accessible via small link or settings?
-          User asked to move advanced to Settings. We keep invisible Target unless needed?
-          Actually current logic reads #target. We can hide it or keep it small. 
-                      Let's hide it by default to clean up, or put it in details. -->
-          <details>
-            <summary style="font-size:0.8rem; color:#94a3b8;">Ops. Avanzadas</summary>
-            <label>Objetivo (mg/dL)
-              <input type="number" step="1" id="target" />
-            </label>
-          </details>
-        </div>
-
-        <button type="submit" class="primary big-btn" style="margin-top:1rem;">Calcular Bolo</button>
-        <p class="error" id="bolus-error" ${state.bolusError ? "" : "hidden"}>${state.bolusError || ""}</p>
-      </form>
-
-      <div class="actions" id="bolus-actions" hidden style="margin-top:1rem;">
-        <button type="button" id="accept-bolus-btn" class="secondary">✅ Aceptar bolo</button>
-        <span id="accept-msg" class="success" hidden></span>
-      </div>
-    </section>
-
-    <!-- 4. Combined Vision + Scale Card (The "Adder") -->
-    <section class="card" id="vision-scale-card">
-      <div class="card-header">
-        <h3>Añadir Alimento</h3>
-        <span class="badge success" id="scale-status-badge">BLE OFF</span>
-      </div>
-
-      <!-- Vision Actions -->
-      <form id="vision-form">
-        <!-- Hidden inputs -->
-        <input type="file" id="cameraInput" accept="image/*" capture="environment" hidden />
-        <input type="file" id="photosInput" accept="image/*" hidden />
-
-        <!-- Hidden builder configs -->
-        <div hidden>
-          <select id="vision-meal-slot"><option value="lunch" selected>Comida</option></select>
-          <select id="vision-portion"><option value="" id="vision-portion-auto">Auto</option></select>
-          <input type="checkbox" id="vision-extended" checked />
-        </div>
-
-        <div class="vision-actions">
-          <button type="button" id="btn-camera" class="secondary big-icon-btn">
-            <span>📷</span> <small>Cámara</small>
-          </button>
-          <button type="button" id="btn-gallery" class="secondary big-icon-btn">
-            <span>🖼️</span> <small>Galería</small>
-          </button>
-        </div>
-
-        <!-- Unified Scale Readout -->
-        <div class="scale-section">
-          <div class="scale-info">
-            <div id="scale-display" class="scale-readout">-- g</div>
-            <div class="scale-status" id="scale-meta">Conectar para pesar</div>
-          </div>
-          <div class="scale-controls" style="display:flex; flex-direction:column; gap:0.5rem;">
-            <button type="button" id="btn-scale-connect" class="ghost small">Conectar</button>
-            <button type="button" id="btn-scale-tare" class="ghost small" disabled>Tara</button>
-            <!-- "Use Weight" button -->
-            <button type="button" id="btn-scale-use" class="secondary small" disabled>Usar</button>
-          </div>
-        </div>
-
-        <!-- Preview Area -->
-        <div id="preview-container" hidden style="margin-top:1rem;">
-          <img id="image-preview" src="" class="preview-img" />
-          <button type="button" id="btn-clear-img" class="ghost small" style="margin-top:0.5rem;">Cancelar</button>
-          <button type="submit" id="vision-submit-btn" class="primary" style="margin-top:0.5rem;" disabled>Analizar</button>
-        </div>
-        <p class="error" id="vision-error" hidden></p>
-
-        <!-- Vision Results (Temporary overlay or inline) -->
-        <div id="vision-results" class="results-box" hidden>
-          <h4>Resultado IA</h4>
-          <div id="vision-summary"></div>
-          <!-- Need 'vision-bars' and 'vision-items' logic to work -->
-          <div id="vision-bars"></div>
-          <ul id="vision-items" class="mini-list"></ul>
-          <div id="vision-bolus" hidden></div> <!-- Hidden logic used by old code -->
-          <button type="button" id="use-vision-btn" class="primary small" style="margin-top:0.5rem;">Añadir al plato</button>
-        </div>
-      </form>
-    </section>
-
-    <!-- 5. Plate Builder List & Finalize -->
-    <section class="card" id="plate-builder-card">
-      <div class="card-header">
-        <h3>Mi Plato</h3>
-        <button id="btn-plate-reset" class="ghost small">🗑️</button>
-      </div>
-
-      <!-- Summary Header -->
-      <div class="plate-summary">
-        <div>
-          <div class="big-number" id="plate-total-carbs">0 g</div>
-          <small id="plate-meta-info" style="color:#64748b;">0 items</small>
-        </div>
-        <div class="weight-mode-controls">
-          <!-- Keep existing structure for logic compatibility but styled cleaner -->
-          <div style="font-size:0.8rem; margin-bottom:0.25rem;">Modo Peso:</div>
-          <label style="flex-direction:row; align-items:center; gap:4px;">
-            <input type="radio" name="weight-mode" value="single" checked> Individual
-          </label>
-          <label style="flex-direction:row; align-items:center; gap:4px;">
-            <input type="radio" name="weight-mode" value="incremental"> Incremental
-          </label>
-        </div>
-      </div>
-
-      <!-- Incremental Controls (Hidden by default logic) -->
-      <div id="incremental-controls" hidden style="background:#f1f5f9; padding:0.5rem; border-radius:8px; margin-bottom:0.5rem;">
-        <div style="display:flex; justify-content:space-between; align-items:center;">
-          <button id="btn-set-base" class="secondary small" style="width:auto;">📍 Fijar Base</button>
-          <div style="text-align:right;">
-            <div>Base: <strong id="lbl-base-weight">0</strong></div>
-            <div>Inc: <strong id="lbl-inc-weight" style="font-size:1.1rem;">0</strong> g</div>
-          </div>
-        </div>
-        <!-- Needed for logic updates -->
-        <span id="lbl-current-weight" hidden></span>
-      </div>
-      <div id="plate-debug" style="font-size: 0.7rem; color: #94a3b8; margin-top: 4px; font-family: monospace; min-height: 1em;">BLE: Sin datos</div>
-
-      <ul id="plate-entries" class="plate-list" style="margin-bottom:1rem;"></ul>
-
-      <div class="actions">
-        <button id="btn-plate-undo" class="secondary" disabled>Deshacer</button>
-        <button id="btn-plate-finalize" class="primary" hidden>✅ Finalizar y Copiar</button>
-        <button id="btn-plate-reopen" class="secondary" hidden>✏️ Reabrir</button>
-      </div>
-      <p class="error" id="plate-error" hidden></p>
-    </section>
-
-    <section class="card" id="bolus-explain" hidden>
-      <h3>Explicación</h3>
-      <ul id="explain-list"></ul>
-    </section>
-
-    <p class="hint text-center" style="margin-top:2rem;">Ver. Mobile 1.0 • ${state.user.username}</p>
-  </main>
-  `;
-
-  // --- Handlers ---
-  const logoutBtn = document.querySelector("#logout-btn");
-  if (logoutBtn) logoutBtn.addEventListener("click", () => logout());
-
-  // GLUCOSE REFRESH
-  const refreshBgBtn = document.querySelector("#refresh-bg-btn");
-  const glucoseDisplay = document.querySelector("#glucose-display");
-
-  // === SCALE HANDLERS ===
-  const btnScaleConnect = document.querySelector("#btn-scale-connect");
-  const btnScaleTare = document.querySelector("#btn-scale-tare");
-  const btnScaleUse = document.querySelector("#btn-scale-use");
-  const scaleDisplay = document.querySelector("#scale-display");
-  const scaleMeta = document.querySelector("#scale-meta");
-  const scaleBadge = document.querySelector("#scale-status-badge");
-
-  if (btnScaleConnect) {
-    btnScaleConnect.onclick = async () => {
-      if (state.scale.connected) {
-        await disconnectScale();
-        state.scale.connected = false;
-        updateScaleUI();
-      } else {
-        try {
-          btnScaleConnect.disabled = true;
-          btnScaleConnect.textContent = "Conectando...";
-          scaleBadge.textContent = "Conectando...";
-
-          const name = await connectScale();
-          state.scale.connected = true;
-
-          updateScaleUI();
-        } catch (e) {
-          console.error(e);
-          alert("Error BLE: " + e.message);
-          state.scale.connected = false;
-          updateScaleUI();
-        }
-      }
-    };
+  // Clear existing timer to avoid multiples
+  if (state.activeDualTimer) {
+    clearInterval(state.activeDualTimer);
+    state.activeDualTimer = null;
   }
 
-  if (btnScaleTare) {
-    btnScaleTare.onclick = async () => {
-      try {
-        await tare();
-      } catch (e) { console.error(e); }
-    };
+  const plan = getDualPlan();
+  if (!plan) {
+    parent.innerHTML = "";
+    parent.hidden = true;
+    return;
   }
+  state.activeDualPlan = plan;
 
-  if (btnScaleUse) {
-    btnScaleUse.onclick = () => {
-      // Save to generic global state or vision override
-      const grams = state.scale.grams;
-      state.plateWeightGrams = grams;
+  // Calc Timing
+  const timing = getDualPlanTiming(plan);
+  let timingHtml = "";
+  let btnText = "🔁 Recalcular U2 ahora";
+  let warningHtml = "";
 
-      // Show feedback
-      const explainBlock = document.querySelector("#bolus-explain");
-      const explainList = document.querySelector("#explain-list");
+  if (timing) {
+    const { elapsed_min, remaining_min } = timing;
 
-      // Append info item about weight
-      explainBlock.hidden = false;
-      const li = document.createElement("li");
-      li.innerHTML = `< strong > Peso Báscula:</strong > ${grams} g < span class="badge neutral" > Usado</span > `;
-      explainList.prepend(li); // Show at top
-
-      // If we had input fields for weight in vision form, we would set them here. 
-      // Update Vision Form "Auto" label to show captured weight
-      const autoOpt = document.querySelector("#vision-portion-auto");
-      const visionSelect = document.querySelector("#vision-portion");
-      if (autoOpt) {
-        autoOpt.textContent = `(Auto / ${grams}g)`;
-        visionSelect.value = ""; // Select Auto
-      }
-
-      console.log("Weight captured manually:", grams);
-    };
-  }
-
-  // Define onData callback
-  setOnData((data) => {
-    if (!data.connected) {
-      state.scale.connected = false;
-      state.scale.status = "Desconectado";
-      updateScaleUI();
-      return;
-    }
-
-    const now = Date.now();
-    state.scale.connected = true;
-    state.scale.grams = data.grams;
-    state.scale.stable = data.stable;
-    state.scale.battery = data.battery;
-
-    // Advanced Reading & Windowing
-    if (!state.scaleReading) state.scaleReading = { window: [] }; // Safety
-
-    state.scaleReading.grams = data.grams;
-    state.scaleReading.stable = data.stable; // Store raw flag
-    state.scaleReading.battery = data.battery;
-    state.scaleReading.lastUpdateTs = now;
-
-    // Add to window
-    state.scaleReading.window.push({ ts: now, grams: data.grams });
-    // Filter last 1200ms
-    state.scaleReading.window = state.scaleReading.window.filter(p => (now - p.ts) <= 1200);
-
-    updateScaleUI();
-    // Force Builder Update for real-time stable/value feedback
-    renderPlateBuilder();
-  });
-
-  function updateScaleUI() {
-    // Button State
-    if (state.scale.connected) {
-      btnScaleConnect.textContent = "Desconectar";
-      btnScaleConnect.disabled = false;
-      btnScaleTare.disabled = false;
-      scaleBadge.textContent = "Conectado";
-      scaleBadge.className = "badge success";
-      btnScaleUse.disabled = false;
-    } else {
-      btnScaleConnect.textContent = "Conectar";
-      btnScaleConnect.disabled = false;
-      btnScaleTare.disabled = true;
-      btnScaleUse.disabled = true;
-      scaleBadge.textContent = "Desconectado";
-      scaleBadge.className = "badge neutral";
-    }
-
-    // Display Value
-    if (state.scale.connected) {
-      scaleDisplay.textContent = `${state.scale.grams} g`;
-      // Stable badge
-      let metaHtml = "";
-      if (state.scale.stable) {
-        metaHtml += `< span class="badge success" > ESTABLE</span > `;
-      } else {
-        metaHtml += `< span class="badge warning" >...</span > `;
-      }
-
-      if (state.scale.battery !== null) {
-        metaHtml += ` < small >🔋 ${state.scale.battery}%</small > `;
-      }
-      scaleMeta.innerHTML = metaHtml;
-    } else {
-      scaleDisplay.textContent = "-- g";
-      scaleMeta.innerHTML = "";
-    }
-
-    // Update Plate Builder Realtime Weight Texts
-    if (document.querySelector("#lbl-current-weight")) {
-      const r = getPlateBuilderReading();
-      document.querySelector("#lbl-current-weight").textContent = r.connected ? r.grams : "--";
-
-      if (r.connected && state.plateBuilder.mode_weight === "incremental") {
-        const inc = r.grams - state.plateBuilder.weight_base_grams;
-        const incEl = document.querySelector("#lbl-inc-weight");
-        incEl.textContent = inc;
-        incEl.style.color = inc > 0 ? "#166534" : "#991b1b";
-
-        // Also update debug line if present, called by renderPlateBuilder? 
-        // We do it in renderPlateBuilder for cleanliness.
-      }
-    }
-  }
-
-  async function updateGlucoseDisplay() {
-    glucoseDisplay.innerHTML = '<span class="loading-text">Actualizando...</span>';
-
-    const config = getLocalNsConfig();
-    if (!config || !config.url) {
-      glucoseDisplay.innerHTML = `< span class="bg-error" > No configurado(local)</span > `;
-      return;
-    }
-
-    try {
-      const res = await getCurrentGlucose(config);
-      state.currentGlucose.data = res;
-      state.currentGlucose.loading = false;
-
-      if (!res.ok) {
-        glucoseDisplay.innerHTML = `< span class="bg-error" > ${res.error || "No configurado"}</span > `;
-        return;
-      }
-
-      // Format
-      const bgVal = Math.round(res.bg_mgdl);
-      const trendIcon = res.trendArrow || formatTrend(res.trend, res.stale);
-      const age = Math.round(res.age_minutes);
-      const staleClass = res.stale ? "stale" : "fresh";
-      const staleText = res.stale ? "ANTIGUO" : "OK";
-
-      glucoseDisplay.innerHTML = `
-    < div class="glucose-main ${staleClass}" >
-                <span class="bg-value">${bgVal}</span>
-                <span class="bg-arrow">${trendIcon}</span>
-             </div >
-    <div class="glucose-meta">
-      <span>Hace ${age} min</span>
-      <span class="status-badge ${staleClass}">${staleText}</span>
-    </div>
-  `;
-
-    } catch (err) {
-      glucoseDisplay.innerHTML = `< span class="bg-error" > Error conexión</span > `;
-    }
-  }
-
-  refreshBgBtn.addEventListener("click", updateGlucoseDisplay);
-
-  // Initial load if not loaded recently (e.g. < 1 min)
-  if (!state.currentGlucose.data || (Date.now() - state.currentGlucose.timestamp > 60000)) {
-    updateGlucoseDisplay();
-    state.currentGlucose.timestamp = Date.now();
-  } else {
-    updateGlucoseDisplay();
-  }
-
-
-  // === VISION HANDLERS ===
-  const visionForm = document.querySelector("#vision-form");
-  const cameraInput = document.querySelector("#cameraInput");
-  const photosInput = document.querySelector("#photosInput");
-  const btnCamera = document.querySelector("#btn-camera");
-  const btnGallery = document.querySelector("#btn-gallery");
-  const previewContainer = document.querySelector("#preview-container");
-  const imagePreview = document.querySelector("#image-preview");
-  const btnClearImg = document.querySelector("#btn-clear-img");
-
-  const visionError = document.querySelector("#vision-error");
-  const visionResults = document.querySelector("#vision-results");
-  const visionSubmitBtn = document.querySelector("#vision-submit-btn");
-
-  let selectedFile = null;
-
-  function handleFileSelect(evt) {
-    if (evt.target.files && evt.target.files[0]) {
-      selectedFile = evt.target.files[0];
-      // Show preview
-      imagePreview.src = URL.createObjectURL(selectedFile);
-      previewContainer.hidden = false;
-      visionSubmitBtn.disabled = false;
-      visionError.hidden = true;
-      // Reset other input to avoid confusion
-      if (evt.target === cameraInput) photosInput.value = "";
-      else cameraInput.value = "";
-    }
-  }
-
-  btnCamera.onclick = () => cameraInput.click();
-  btnGallery.onclick = () => photosInput.click();
-
-  cameraInput.onchange = handleFileSelect;
-  photosInput.onchange = handleFileSelect;
-
-  btnClearImg.onclick = () => {
-    selectedFile = null;
-    imagePreview.src = "";
-    previewContainer.hidden = true;
-    visionSubmitBtn.disabled = true;
-    cameraInput.value = "";
-    photosInput.value = "";
-  };
-
-  async function compressImage(file) {
-    return new Promise((resolve, reject) => {
-      const img = new Image();
-      img.onload = () => {
-        const canvas = document.createElement("canvas");
-        let width = img.width;
-        let height = img.height;
-        const maxDim = 1280;
-
-        if (width > maxDim || height > maxDim) {
-          if (width > height) {
-            height = Math.round(height * (maxDim / width));
-            width = maxDim;
-          } else {
-            width = Math.round(width * (maxDim / height));
-            height = maxDim;
-          }
-        }
-
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext("2d");
-        ctx.drawImage(img, 0, 0, width, height);
-
-        let quality = 0.75;
-        if (file.size > 2 * 1024 * 1024) quality = 0.6;
-
-        canvas.toBlob((blob) => {
-          if (blob) resolve(blob);
-          else reject(new Error("Error al comprimir imagen"));
-        }, "image/jpeg", quality);
-      };
-      img.onerror = (err) => reject(err);
-      img.src = URL.createObjectURL(file);
-    });
-  }
-
-  visionForm.addEventListener("submit", async (evt) => {
-    evt.preventDefault();
-    visionError.hidden = true;
-    visionResults.hidden = true;
-
-    if (!selectedFile) {
-      visionError.textContent = "Selecciona una imagen primero.";
-      visionError.hidden = false;
-      return;
-    }
-
-    visionSubmitBtn.disabled = true;
-    const originalText = visionSubmitBtn.textContent;
-    visionSubmitBtn.textContent = "Comprimiendo...";
-
-    try {
-      const compressedBlob = await compressImage(selectedFile);
-      visionSubmitBtn.textContent = "Analizando...";
-
-      // --- WEIGHT LOGIC FOR BUILDER ---
-      let weightToSend = null;
-      let newBase = null;
-
-      const reading = getPlateBuilderReading();
-
-      // Check Finalized State
-      if (state.plateBuilder.finalized) {
-        throw new Error("El plato está finalizado. Pulsa 'Reabrir plato' para añadir más.");
-      }
-
-      if (state.plateBuilder.mode_weight === "incremental") {
-        if (!reading.connected) throw new Error("Conecta la báscula para modo incremental.");
-
-        // STABILITY CHECK: Custom Derived
-        // User request: "reading.grams == null... actually remove ageMs check for silent scales"
-        if (reading.grams === null) throw new Error("Sin lectura de peso.");
-        // if (reading.ageMs > 2000) throw new Error("Lectura de peso antigua (>2s)."); // Disabled
-
-        if (!reading.stable) {
-          throw new Error(`Espera a ESTABLE(Delta ${reading.delta ?? "?"}g).`);
-        }
-
-        const currentW = reading.grams;
-        const inc = currentW - state.plateBuilder.weight_base_grams;
-        if (inc <= 0) throw new Error("Peso incremental inválido (<= 0). Revisa el plato o fija base.");
-
-        weightToSend = inc;
-        newBase = currentW; // Will update after success
-      } else {
-        // Single mode
-        weightToSend = (reading.connected && reading.grams > 0)
-          ? reading.grams
-          : (state.plateWeightGrams || null);
-      }
-
-      const options = {
-        meal_slot: document.querySelector("#vision-meal-slot").value,
-        portion_hint: document.querySelector("#vision-portion").value,
-        prefer_extended: document.querySelector("#vision-extended").checked,
-        plate_weight_grams: weightToSend
-      };
-
-      console.log("Submitting Vision Request for Builder:", options);
-
-      const currentBg = document.querySelector("#bg").value;
-      if (currentBg) options.bg_mgdl = currentBg;
-
-      const nsConfig = getLocalNsConfig();
-      if (nsConfig && nsConfig.url) {
-        options.nightscout = { url: nsConfig.url, token: nsConfig.token };
-      }
-
-      // Inject Calculator Params (Rounding) if available locally
-      const calcParams = getCalcParams();
-      if (calcParams && calcParams.round_step_u) {
-        options.round_step_u = calcParams.round_step_u;
-      }
-
-      const data = await estimateCarbsFromImage(compressedBlob, options);
-
-      // SUCCESS: Add to Builder
-      addToPlate(data, options.meal_slot, weightToSend, newBase);
-
-      // Also show result briefly or just clear? User wants "Acumular".
-      // We'll update the builder UI and maybe scroll to it.
-      visionSubmitBtn.textContent = "¡Añadido!";
-      setTimeout(() => visionSubmitBtn.textContent = originalText, 1500);
-
-      // Clear image preview to be ready for next
-      // btnClearImg.click(); // Optional: user might want to see what they just added? 
-      // User request: "Permitir analizar varios... sumar carbs".
-      // Let's keep the result in "visionResult" just in case they want to see details, 
-      // but primarily update the builder.
-      state.visionResult = data;
-      renderVisionResults(data);
-
-    } catch (e) {
-      visionError.textContent = e.message;
-      visionError.hidden = false;
-    } finally {
-      visionSubmitBtn.disabled = false;
-      if (visionSubmitBtn.textContent !== "¡Añadido!") {
-        visionSubmitBtn.textContent = originalText;
-      }
-    }
-  });
-
-  // --- PLATE BUILDER LOGIC ---
-  function renderPlateBuilder() {
-    const root = document.querySelector("#plate-builder-card");
-    if (!root) return;
-
-    // Update Summary
-    root.querySelector("#plate-total-carbs").textContent = `${Math.round(state.plateBuilder.carbs_total * 10) / 10} g`;
-    root.querySelector("#plate-meta-info").textContent = `${state.plateBuilder.entries.length} alimentos`;
-
-    // Render List
-    const list = root.querySelector("#plate-entries");
-    list.innerHTML = "";
-    [...state.plateBuilder.entries].reverse().forEach(entry => {
-      const li = document.createElement("li");
-      li.style.display = "flex";
-      li.style.justifyContent = "space-between";
-      li.style.borderBottom = "1px solid #f1f5f9";
-      li.style.padding = "0.5rem 0";
-
-      let desc = entry.items && entry.items[0] ? entry.items[0].name : "Alimento";
-      if (entry.items && entry.items.length > 1) desc += ` (+${entry.items.length - 1})`;
-
-      const time = new Date(entry.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-
-      li.innerHTML = `
-    < div >
-             <div style="font-weight:600;">${desc}</div>
-             <small style="color:#64748b;">${time} • ${entry.weight_used_grams ? entry.weight_used_grams + 'g' : 'Sin peso'}</small>
-           </div >
-    <strong style="color:#2563eb;">${entry.carbs_g} g</strong>
-  `;
-      list.appendChild(li);
-    });
-
-    // Update Buttons State
-    // Update Buttons State
-    const undoBtn = root.querySelector("#btn-plate-undo");
-    const finalizeBtn = root.querySelector("#btn-plate-finalize");
-    const reopenBtn = root.querySelector("#btn-plate-reopen");
-    // const transferBtn = root.querySelector("#btn-plate-transfer"); // Removed per plan
-
-    const hasEntries = state.plateBuilder.entries.length > 0;
-    const isFinalized = !!state.plateBuilder.finalized;
-
-    undoBtn.disabled = !hasEntries || isFinalized;
-    // transferBtn.disabled = !hasEntries; 
-
-    if (isFinalized) {
-      finalizeBtn.hidden = true;
-      reopenBtn.hidden = false;
-      root.querySelector("#plate-meta-info").innerHTML = "<span class='badge success'>✅ FINALIZADO</span>";
-    } else {
-      finalizeBtn.hidden = !hasEntries;
-      reopenBtn.hidden = true;
-      finalizeBtn.disabled = false;
-    }
-
-    // Vision Button Control (Remote)
-    const visionBtn = document.querySelector("#vision-submit-btn");
-    if (visionBtn) {
-      visionBtn.disabled = isFinalized;
-      visionBtn.title = isFinalized ? "Plato finalizado. Reabre para añadir." : "";
-    }
-
-    // Update Weight Controls UI
-    const modeRadios = root.querySelectorAll("input[name='weight-mode']");
-    modeRadios.forEach(r => {
-      r.disabled = isFinalized; // Disable mode switch if finalized
-      r.checked = (r.value === state.plateBuilder.mode_weight);
-      r.onclick = () => {
-        state.plateBuilder.mode_weight = r.value;
-        renderPlateBuilder(); // Re-render to toggle controls
-        updateScaleUI(); // Update texts
-      };
-    });
-
-    const incControls = root.querySelector("#incremental-controls");
-    const isInc = state.plateBuilder.mode_weight === "incremental";
-    incControls.hidden = !isInc;
-
-    // DEBUG UPDATE (Always)
-    const dbgEl = root.querySelector("#plate-debug");
-    if (dbgEl) {
-      const dbg = getPlateBuilderReading();
-      if (dbg.grams !== null) {
-        dbgEl.textContent = `BLE: g = ${dbg.grams} stable = ${dbg.stable} age = ${dbg.ageMs}ms d = ${dbg.delta} g`;
-      } else {
-        dbgEl.textContent = "BLE: Sin datos";
-      }
-    }
-
-    if (isInc) {
-      root.querySelector("#lbl-base-weight").textContent = state.plateBuilder.weight_base_grams;
-
-      // Set Base Button Logic
-      const btnSetBase = root.querySelector("#btn-set-base");
-      btnSetBase.disabled = isFinalized; // Disable if finalized
-      btnSetBase.onclick = handleSetBase;
-
-      // Update Scale Link
-      updateScaleUI();
-    }
-
-    // Bind Actions (avoid multiple binds by checking flag or just re-binding is cheap here)
-    // root.querySelector("#btn-set-base").onclick = handleSetBase; // Bound above inside if(isInc)
-    root.querySelector("#btn-plate-reset").onclick = handleResetPlate;
-    undoBtn.onclick = handleUndoEntry;
-
-    finalizeBtn.onclick = handleFinalizePlate;
-    reopenBtn.onclick = handleReopenPlate;
-  }
-
-  function handleFinalizePlate() {
-    if (state.plateBuilder.entries.length === 0) return;
-
-    // 1. Copy Total
-    document.querySelector("#carbs").value = Math.round(state.plateBuilder.carbs_total * 10) / 10;
-
-    // 2. Set State
-    state.plateBuilder.finalized = true;
-
-    // 3. Render
-    renderPlateBuilder();
-
-    // 4. Scroll
-    document.querySelector("#bolus-form").scrollIntoView({ behavior: "smooth" });
-  }
-
-  function handleReopenPlate() {
-    state.plateBuilder.finalized = false;
-    renderPlateBuilder();
-  }
-
-  function addToPlate(data, slot, weightUsed, newBase) {
-    const entry = {
-      id: crypto.randomUUID(),
-      ts: Date.now(),
-      slot: slot,
-      carbs_g: data.carbs_estimate_g,
-      confidence: data.confidence,
-      items: data.items,
-      weight_used_grams: weightUsed,
-      base_before: state.plateBuilder.weight_base_grams, // for undo
-      base_after: newBase // what it became
-    };
-
-    state.plateBuilder.entries.push(entry);
-    state.plateBuilder.carbs_total += entry.carbs_g;
-
-    if (newBase !== null) {
-      state.plateBuilder.weight_base_grams = newBase;
-    }
-
-    renderPlateBuilder();
-  }
-
-  function handleSetBase() {
-    const reading = getPlateBuilderReading();
-    if (!reading.connected) {
-      alert("Conecta la báscula primero.");
-      return;
-    }
-    // Relaxed stable check? No, for SETTING base we want strict stable
-    if (!reading.stable) {
-      alert(`Espera a que el peso sea estable(Delta: ${reading.delta}g).`);
-      return;
-    }
-    state.plateBuilder.weight_base_grams = reading.grams;
-    renderPlateBuilder();
-  }
-
-  function handleResetPlate() {
-    if (!confirm("¿Borrar todo el plato?")) return;
-    state.plateBuilder.entries = [];
-    state.plateBuilder.carbs_total = 0;
-    state.plateBuilder.weight_base_grams = 0;
-    state.plateBuilder.finalized = false; // Reset finalized
-    renderPlateBuilder();
-  }
-
-  function handleUndoEntry() {
-    const entry = state.plateBuilder.entries.pop();
-    if (!entry) return;
-
-    state.plateBuilder.carbs_total -= entry.carbs_g;
-    if (state.plateBuilder.carbs_total < 0) state.plateBuilder.carbs_total = 0;
-
-    // Revert base if it was changed by this entry
-    if (state.plateBuilder.mode_weight === "incremental" && entry.base_after !== null) {
-      // We accept that we revert to base_before. 
-      // NOTE: This assumes sequential consistency.
-      state.plateBuilder.weight_base_grams = entry.base_before;
-    }
-
-    renderPlateBuilder();
-  }
-
-  function handleTransferToCalc() {
-    document.querySelector("#carbs").value = Math.round(state.plateBuilder.carbs_total * 10) / 10;
-    document.querySelector("#bolus-form").scrollIntoView({ behavior: "smooth" });
-  }
-
-  // --- Initial Render of Helper ---
-  renderPlateBuilder(); // Initial call
-
-  function renderVisionResults(data) {
-    visionResults.hidden = false;
-
-    // 1. Summary
-    const summaryDiv = document.querySelector("#vision-summary");
-    summaryDiv.innerHTML = `
-    < div class="big-number" > ${data.carbs_estimate_g} g < small > carbs</small ></div >
-      <div>Confianza: <strong>${data.confidence}</strong> (Rango: ${data.carbs_range_g[0]}-${data.carbs_range_g[1]}g)</div>
-  `;
-
-    // 2. Bars (Fat / Slow)
-    const barsDiv = document.querySelector("#vision-bars");
-    barsDiv.innerHTML = `
-    < div class="bar-row" > Grasa: <progress value="${data.fat_score}" max="1"></progress></div >
-      <div class="bar-row">Absorción lenta: <progress value="${data.slow_absorption_score}" max="1"></progress></div>
-  `;
-
-    // 3. Items
-    const list = document.querySelector("#vision-items");
-    list.innerHTML = "";
-    data.items.forEach(item => {
-      const li = document.createElement("li");
-      li.textContent = `${item.name} (~${item.carbs_g}g)`;
-      if (item.notes) {
-        const span = document.createElement("small");
-        span.textContent = ` - ${item.notes} `;
-        li.appendChild(span);
-      }
-      list.appendChild(li);
-    });
-
-    // 4. Bolus
-    const bolusDiv = document.querySelector("#vision-bolus");
-    if (data.bolus) {
-      bolusDiv.classList.remove("hidden");
-      let html = `< h4 > Bolo Recomendado(${data.bolus.kind === 'extended' ? 'EXTENDIDO' : 'NORMAL'})</h4 > `;
-
-      if (data.bolus.kind === 'extended') {
-        html += `
-    < div class="split-bolus" >
-                 <div class="split-part">
-                    <strong>AHORA</strong>
-                    <span class="val">${data.bolus.upfront_u} U</span>
-                 </div>
-                 <div class="split-part">
-                    <strong>LUEGO (+${data.bolus.delay_min} min)</strong>
-                    <span class="val">${data.bolus.later_u} U</span>
-                 </div>
-              </div >
-    `;
-      } else {
-        html += `< div class="big-number" > ${data.bolus.upfront_u} U</div > `;
-      }
-
-      html += `< ul > ${data.bolus.explain.map(e => `<li>${e}</li>`).join('')}</ul > `;
-      bolusDiv.innerHTML = html;
-    } else {
-      bolusDiv.classList.add("hidden");
-    }
-
-    // 5. User Input Questions (if any)
-    if (data.needs_user_input && data.needs_user_input.length > 0) {
-      const div = document.createElement("div");
-      div.className = "warning";
-      div.innerHTML = "<strong>Nota:</strong> " + data.needs_user_input.map(q => q.question).join("<br>");
-      visionResults.appendChild(div);
-    }
-
-    // Bind actions
-    const useBtn = document.querySelector("#use-vision-btn");
-    useBtn.onclick = () => {
-      document.querySelector("#carbs").value = data.carbs_estimate_g;
-      document.querySelector("#meal-slot").value = document.querySelector("#vision-meal-slot").value;
-
-      if (data.bolus) {
-        state.bolusResult = `Bolo recomendado: ${data.bolus.upfront_u} U`;
-        if (data.bolus.kind === 'extended') {
-          state.bolusResult += ` (+ ${data.bolus.later_u} U en ${data.bolus.delay_min} min)`;
-        }
-        const output = document.querySelector("#bolus-output");
-        output.textContent = state.bolusResult;
-
-        const explainList = document.querySelector("#explain-list");
-        const explainBlock = document.querySelector("#bolus-explain");
-        explainList.innerHTML = "";
-        data.bolus.explain.forEach((item) => {
-          const li = document.createElement("li");
-          li.textContent = item;
-          explainList.appendChild(li);
-        });
-        explainBlock.hidden = false;
-        document.querySelector("#bolus-form").scrollIntoView({ behavior: "smooth" });
-      }
-    };
-  }
-
-
-
-
-  document.querySelector("#change-password-link").addEventListener("click", () => navigate("#/change-password"));
-
-  const bolusForm = document.querySelector("#bolus-form");
-  const explainBlock = document.querySelector("#bolus-explain");
-  const explainList = document.querySelector("#explain-list");
-
-  // Render U2 Panel (now that container exists)
-  renderDualPanel();
-
-  const bolusOutput = document.querySelector("#bolus-output");
-  const bolusError = document.querySelector("#bolus-error");
-  const useSplitCheckbox = document.querySelector("#use-split");
-
-  // Init Split Checkbox default
-  if (useSplitCheckbox) {
-    const sp = getSplitSettings();
-    useSplitCheckbox.checked = sp.enabled_default;
-  }
-
-  // === MODE SELECTOR LOGIC ===
-  const modeBtns = document.querySelectorAll(".mode-pills .mode-pill");
-  if (modeBtns) {
-    modeBtns.forEach(btn => {
-      btn.addEventListener("click", () => {
-        state.calcMode = btn.dataset.mode;
-        updateCalcModeUI();
-      });
-    });
-    // Init UI state
-    updateCalcModeUI();
-  }
-
-  function updateCalcModeUI() {
-    const isCorrection = state.calcMode === "correction";
-
-    // Toggle active class on buttons
-    modeBtns.forEach(btn => {
-      if (btn.dataset.mode === state.calcMode) btn.classList.add("active");
-      else btn.classList.remove("active");
-    });
-
-    // Toggle fields
-    toggleVisibility("#vision-scale-card", !isCorrection);
-    toggleVisibility("#plate-builder-card", !isCorrection); // Plate builder also hidden in correction? Usually yes.
-    toggleVisibility("#split-wrapper", !isCorrection);
-
-    // In new design, Carbs input is inside Input Card. It remains visible but we might disable it or clear it.
-    // Actually, correction mode shouldn't show Carbs input usually, or show as 0/disabled.
-    // The previous logic cleared it.
-    const carbsInput = document.querySelector("#carbs");
-    if (isCorrection) {
-      carbsInput.parentElement.hidden = true; // Hide the Label wrapper
-      carbsInput.removeAttribute("required");
-      carbsInput.value = "";
-    } else {
-      carbsInput.parentElement.hidden = false;
-      carbsInput.setAttribute("required", "true");
-    }
-
-    // Clear previous results/errors
-    document.querySelector("#bolus-output").innerHTML = "0.0 U";
-    document.querySelector("#bolus-error").hidden = true;
-    document.querySelector("#bolus-explain").hidden = true;
-  }
-
-  function toggleVisibility(selector, visible) {
-    const el = document.querySelector(selector);
-    if (el) el.hidden = !visible;
-  }
-
-
-  // Clear actions on change
-  document.querySelector("#carbs").oninput = () => {
-    state.lastCalc = null;
-    const ba = document.querySelector("#bolus-actions");
-    if (ba) ba.hidden = true;
-  };
-
-  bolusForm.addEventListener("submit", async (evt) => {
-    evt.preventDefault();
-    bolusError.hidden = true;
-    explainBlock.hidden = true;
-    explainList.innerHTML = "";
-    bolusOutput.innerHTML = "Calculando...";
-
-    const payload = {
-      carbs_g: parseFloat(document.querySelector("#carbs").value || "0"),
-      meal_slot: document.querySelector("#meal-slot").value,
-    };
-
-    // Optional BG/Target overrides
-    const bg = document.querySelector("#bg").value;
-    if (bg) payload.bg_mgdl = parseFloat(bg);
-    const target = document.querySelector("#target").value;
-    if (target) payload.target_mgdl = parseFloat(target);
-
-    // INJECT SETTINGS
-    const nsConfig = getLocalNsConfig();
-    if (nsConfig && nsConfig.url) {
-      payload.nightscout = { url: nsConfig.url, token: nsConfig.token };
-    }
-
-    const calcParams = getCalcParams();
-    const meal = calcParams ? (calcParams[payload.meal_slot] || getDefaultMealParams(calcParams)) : null;
-
-    if (!calcParams || !meal) {
-      bolusError.textContent = "⚠️ Configura primero los parámetros de cálculo en 'Configuración'.";
-      bolusError.hidden = false;
-      bolusOutput.textContent = "";
-      return;
-    }
-
-    // Construct Flat Payload as requested
-    const calcPayload = {
-      carbs_g: payload.carbs_g,
-      // Use explicit glucose_mgdl if backend supports it, or bg_mgdl (standard). 
-      // User asked for "glucose_mgdl: bg" but standard is usually bg_mgdl. 
-      // We will send BOTH to be safe given the confusion or strict compliance.
-      // But adhering to exact user snippet:
-      glucose_mgdl: payload.bg_mgdl, // mapped from stored payload.bg_mgdl
-      bg_mgdl: payload.bg_mgdl,      // Keeping original key for compatibility just in case
-
-      bg_mgdl: payload.bg_mgdl,      // Keeping original key for compatibility just in case
-
-      target_mgdl: payload.target_mgdl || meal.target,
-      cr_g_per_u: meal.icr,
-      isf_mgdl_per_u: meal.isf,
-
-      dia_hours: calcParams.dia_hours,
-      round_step_u: calcParams.round_step_u,
-      max_bolus_u: calcParams.max_bolus_u,
-
-      // Inject Nightscout if present
-      nightscout: payload.nightscout
-    };
-
-    // --- CORRECTION MODE OVERRIDES ---
-    if (state.calcMode === "correction") {
-      calcPayload.carbs_g = 0;
-      calcPayload.cr_g_per_u = 999; // Dummy value required by backend
-
-      // Safety Checks
-      const manualBg = payload.bg_mgdl; // from input
-
-      // 1. Stale BG Check
-      if (!manualBg) {
-        // Must rely on Nightscout
-        const nsData = state.currentGlucose.data;
-        if (!nsData || !nsData.ok) {
-          bolusError.textContent = "Error: No hay datos de glucosa. Introduce un valor manual.";
-          bolusError.hidden = false;
-          bolusOutput.textContent = "";
-          return;
-        }
-
-        // Check age (15 min limit)
-        if (nsData.age_minutes > 15 || nsData.stale) {
-          bolusError.textContent = "⚠️ Lectura de glucosa antigua. Introduce un valor manual para corregir.";
-          bolusError.hidden = false;
-          bolusOutput.textContent = "";
-          return;
-        }
-      }
-    }
-
-    // User asked not to ignore missing params condition, but we handled it above.
-
-    // NOTE: The previous payload.settings structure is REMOVED as per instruction 
-    // to "construir calcPayload así" with flat fields.
-
-    try {
-      // Inject Nightscout if present
-      if (nsConfig && nsConfig.url) {
-        calcPayload.nightscout = { url: nsConfig.url, token: nsConfig.token };
-      }
-
-      // 2. Decide Split
-      const useSplit = (state.calcMode !== "correction") && (useSplitCheckbox ? useSplitCheckbox.checked : false);
-      let splitSettings = null;
-      if (useSplit) {
-        splitSettings = getSplitSettings();
-      }
-
-      // 3. Perform Calc
-      const res = await calculateBolusWithOptionalSplit(calcPayload, splitSettings);
-
-      // 4. Render & Save Plan if Dual
-      if (res.kind === "dual" && res.plan) {
-        // Save active plan
-        saveDualPlan({
-          plan_id: res.plan.plan_id, // stored but not strictly needed for recalc-second logic if stateless
-          later_u_planned: res.plan.later_u_planned,
-          later_after_min: res.plan.later_after_min,
-          extended_duration_min: res.plan.extended_duration_min,
-          created_at_ts: Date.now(),
-          slot: payload.meal_slot
-        });
-        // Refresh Dashboard to show U2 panel
-        renderDualPanel();
-      }
-
-      state.bolusResult = renderBolusOutput(res);
-      bolusOutput.innerHTML = state.bolusResult;
-
-      // Handle explanations
-      if (res.calc && res.calc.explain) {
-        explainBlock.hidden = false;
-        res.calc.explain.forEach(t => {
-          const li = document.createElement("li");
-          li.textContent = t;
-          explainList.appendChild(li);
-        });
-        if (res.kind === "dual") {
-          const li = document.createElement("li");
-          li.innerHTML = `< strong > Bolo Dual:</strong > ${res.upfront_u}U ahora + ${res.later_u}U en ${res.duration_min} min.`;
-          explainList.appendChild(li);
-        }
-
-        // Add Correction Warnings (Trends)
-        if (state.calcMode === "correction") {
-          const trend = state.currentGlucose.data?.trend;
-          if (trend) {
-            if (trend === "DoubleDown" || trend === "SingleDown") {
-              const li = document.createElement("li");
-              li.innerHTML = `< span class="warning" >📉 Tendencia a la baja.Evita correcciones agresivas.</span > `;
-              explainList.appendChild(li);
-            } else if (trend === "DoubleUp" || trend === "SingleUp") {
-              const li = document.createElement("li");
-              li.innerHTML = `< span class="warning" >📈 Tendencia al alza.Revisa en 20–30 min.</span > `;
-              explainList.appendChild(li);
-            }
-          }
-        }
-      }
-
-      // Actions (Accept) - MVP placeholder
-      const ba = document.querySelector("#bolus-actions");
-      if (ba) {
-        ba.hidden = false;
-        // Clean prev listeners if any... (simplified)
-        const btn = document.querySelector("#accept-bolus-btn");
-        btn.onclick = async () => {
-          // Save treatment logic...
-          document.querySelector("#accept-msg").textContent = "Guardado (simulado)";
-          document.querySelector("#accept-msg").hidden = false;
-        };
-      }
-
-    } catch (e) {
-      bolusError.textContent = e.message;
-      bolusError.hidden = false;
-      bolusOutput.textContent = "";
-    }
-  });
-
-  // --- DUAL PLAN HELPERS ---
-  const DUAL_PLAN_KEY = "bolusai_active_dual_plan";
-
-  function getDualPlan() {
-    try {
-      const raw = localStorage.getItem(DUAL_PLAN_KEY);
-      if (!raw) return null;
-      const plan = JSON.parse(raw);
-      // Optional: expire after 6 hours?
-      if (Date.now() - plan.created_at_ts > 6 * 60 * 60 * 1000) {
-        localStorage.removeItem(DUAL_PLAN_KEY);
-        return null;
-      }
-      return plan;
-    } catch (e) { return null; }
-  }
-
-  function getDualPlanTiming(plan) {
-    if (!plan?.created_at_ts || !plan?.later_after_min) return null;
-    const elapsed_min = Math.floor((Date.now() - plan.created_at_ts) / 60000);
-    const duration = plan.extended_duration_min || plan.later_after_min;
-    const remaining_min = Math.max(0, duration - elapsed_min);
-    return { elapsed_min, remaining_min };
-  }
-
-  function saveDualPlan(plan) {
-    state.activeDualPlan = plan;
-    localStorage.setItem(DUAL_PLAN_KEY, JSON.stringify(plan));
-  }
-
-  // --- U2 PANEL LOGIC ---
-  function renderDualPanel() {
-    const parent = document.querySelector("#u2-panel-container");
-    if (!parent) return; // Should be in HTML
-
-    // Clear existing timer to avoid multiples
-    if (state.activeDualTimer) {
-      clearInterval(state.activeDualTimer);
-      state.activeDualTimer = null;
-    }
-
-    const plan = getDualPlan();
-    if (!plan) {
-      parent.innerHTML = "";
-      parent.hidden = true;
-      return;
-    }
-    state.activeDualPlan = plan;
-
-    // Calc Timing
-    const timing = getDualPlanTiming(plan);
-    let timingHtml = "";
-    let btnText = "🔁 Recalcular U2 ahora";
-    let warningHtml = "";
-
-    if (timing) {
-      const { elapsed_min, remaining_min } = timing;
-
-      timingHtml = `
+    timingHtml = `
     < div class="u2-timing" >
             <span>Transcurrido: <strong>${elapsed_min} min</strong></span>
             <span>U2 en: <strong>${remaining_min} min</strong></span>
          </div >
     `;
 
-      if (remaining_min === 0) {
-        warningHtml = `< div class="warning success-border" >✅ U2 lista para administrar</div > `;
-        btnText = "🔁 Recalcular U2 ahora";
-      } else if (remaining_min < 20) {
-        warningHtml = `< div class="warning" >⚠️ Muy cerca del momento de U2; recalcula justo antes de ponerla</div > `;
-        btnText = `Recalcular U2(en ${remaining_min} min)`;
-      } else {
-        btnText = `Recalcular U2(en ${remaining_min} min)`;
-      }
+    if (remaining_min === 0) {
+      warningHtml = `< div class="warning success-border" >✅ U2 lista para administrar</div > `;
+      btnText = "🔁 Recalcular U2 ahora";
+    } else if (remaining_min < 20) {
+      warningHtml = `< div class="warning" >⚠️ Muy cerca del momento de U2; recalcula justo antes de ponerla</div > `;
+      btnText = `Recalcular U2(en ${remaining_min} min)`;
     } else {
-      timingHtml = `< small > (sin contador)</small > `;
+      btnText = `Recalcular U2(en ${remaining_min} min)`;
     }
+  } else {
+    timingHtml = `< small > (sin contador)</small > `;
+  }
 
-    parent.hidden = false;
-    parent.innerHTML = `
+  parent.hidden = false;
+  parent.innerHTML = `
       <section class="card u2-card">
          <div class="card-header">
            <h3 style="margin:0; color:#1e40af;">⏱️ Bolo Dividido (U2)</h3>
@@ -1492,374 +307,234 @@ function renderDashboard() {
       </section>
     `;
 
-    // Start Timer to refresh UI every 15s
-    state.activeDualTimer = setInterval(() => {
-      // Only re-render if plan still active
-      if (getDualPlan()) renderDualPanel();
-    }, 15000);
+  // Start Timer to refresh UI every 15s
+  state.activeDualTimer = setInterval(() => {
+    // Only re-render if plan still active
+    if (getDualPlan()) renderDualPanel();
+  }, 15000);
 
-    // Handlers
-    parent.querySelector("#btn-clear-u2").onclick = () => {
-      if (confirm("¿Borrar plan activo?")) {
-        localStorage.removeItem(DUAL_PLAN_KEY);
-        state.activeDualPlan = null;
-        if (state.activeDualTimer) clearInterval(state.activeDualTimer);
-        renderDualPanel();
+  // Handlers
+  parent.querySelector("#btn-clear-u2").onclick = () => {
+    if (confirm("¿Borrar plan activo?")) {
+      localStorage.removeItem(DUAL_PLAN_KEY);
+      state.activeDualPlan = null;
+      if (state.activeDualTimer) clearInterval(state.activeDualTimer);
+      renderDualPanel();
+    }
+  };
+
+  const btnRecalc = parent.querySelector("#btn-recalc-u2");
+  const errDisplay = parent.querySelector("#u2-error");
+  const resDiv = parent.querySelector("#u2-result");
+  const recDiv = parent.querySelector("#u2-recommendation");
+  const detailsDiv = parent.querySelector("#u2-details");
+  const warnList = parent.querySelector("#u2-warnings");
+
+  btnRecalc.onclick = async () => {
+    if (!plan) return;
+    errDisplay.hidden = true;
+    resDiv.hidden = true;
+    btnRecalc.disabled = true;
+    btnRecalc.textContent = "Calculando...";
+
+    try {
+      const nsConfig = getLocalNsConfig();
+      if (!nsConfig || !nsConfig.url) {
+        throw new Error("Configura Nightscout para recalcular U2");
       }
-    };
 
-    const btnRecalc = parent.querySelector("#btn-recalc-u2");
-    const errDisplay = parent.querySelector("#u2-error");
-    const resDiv = parent.querySelector("#u2-result");
-    const recDiv = parent.querySelector("#u2-recommendation");
-    const detailsDiv = parent.querySelector("#u2-details");
-    const warnList = parent.querySelector("#u2-warnings");
+      const calcParams = getCalcParams();
+      const slot = plan.slot || "lunch";
+      const mealParams = calcParams ? (calcParams[slot] || getDefaultMealParams(calcParams)) : null;
 
-    btnRecalc.onclick = async () => {
-      if (!plan) return;
-      errDisplay.hidden = true;
-      resDiv.hidden = true;
-      btnRecalc.disabled = true;
-      btnRecalc.textContent = "Calculando...";
+      if (!mealParams) throw new Error("Faltan parámetros de cálculo (CR, ISF).");
 
-      try {
-        const nsConfig = getLocalNsConfig();
-        if (!nsConfig || !nsConfig.url) {
-          throw new Error("Configura Nightscout para recalcular U2");
+      const extraCarbs = parseFloat(parent.querySelector("#u2-carbs").value) || 0;
+
+      const payload = {
+        later_u_planned: plan.later_u_planned,
+        carbs_additional_g: extraCarbs,
+        params: {
+          cr_g_per_u: mealParams.icr, // mapped
+          isf_mgdl_per_u: mealParams.isf, // mapped
+          target_bg_mgdl: mealParams.target, // mapped
+          round_step_u: calcParams.round_step_u || 0.05,
+          max_bolus_u: calcParams.max_bolus_u || 10,
+          stale_bg_minutes: 15
+        },
+        nightscout: {
+          url: nsConfig.url,
+          token: nsConfig.token,
+          units: nsConfig.units || "mgdl"
         }
+      };
 
-        const calcParams = getCalcParams();
-        const slot = plan.slot || "lunch";
-        const mealParams = calcParams ? (calcParams[slot] || getDefaultMealParams(calcParams)) : null;
+      const data = await recalcSecondBolus(payload);
 
-        if (!mealParams) throw new Error("Faltan parámetros de cálculo (CR, ISF).");
+      // Render Results
+      resDiv.hidden = false;
 
-        const extraCarbs = parseFloat(parent.querySelector("#u2-carbs").value) || 0;
-
-        const payload = {
-          later_u_planned: plan.later_u_planned,
-          carbs_additional_g: extraCarbs,
-          params: {
-            cr_g_per_u: mealParams.icr, // mapped
-            isf_mgdl_per_u: mealParams.isf, // mapped
-            target_bg_mgdl: mealParams.target, // mapped
-            round_step_u: calcParams.round_step_u || 0.05,
-            max_bolus_u: calcParams.max_bolus_u || 10,
-            stale_bg_minutes: 15
-          },
-          nightscout: {
-            url: nsConfig.url,
-            token: nsConfig.token,
-            units: nsConfig.units || "mgdl"
-          }
-        };
-
-        const data = await recalcSecondBolus(payload);
-
-        // Render Results
-        resDiv.hidden = false;
-
-        let recHtml = `${data.u2_recommended_u} U`;
-        if (data.cap_u && data.u2_recommended_u >= data.cap_u) {
-          recHtml += ` < small > (Max)</small > `;
-        }
-        recDiv.innerHTML = recHtml;
-
-        let det = "";
-        if (data.bg_now_mgdl) {
-          det += `< div > <strong>BG:</strong> ${Math.round(data.bg_now_mgdl)} mg / dL(${data.bg_age_min} min)</div > `;
-        }
-        if (data.iob_now_u !== null) {
-          det += `< div > <strong>IOB:</strong> ${data.iob_now_u.toFixed(2)} U</div > `;
-        }
-        detailsDiv.innerHTML = det;
-
-        warnList.innerHTML = "";
-        if (data.warnings && data.warnings.length) {
-          data.warnings.forEach(w => {
-            const li = document.createElement("li");
-            li.textContent = w;
-            warnList.appendChild(li);
-          });
-        }
-
-      } catch (e) {
-        errDisplay.textContent = e.message;
-        errDisplay.hidden = false;
-      } finally {
-        btnRecalc.disabled = false;
-        btnRecalc.textContent = "🔁 Recalcular U2 ahora";
+      let recHtml = `${data.u2_recommended_u} U`;
+      if (data.cap_u && data.u2_recommended_u >= data.cap_u) {
+        recHtml += ` < small > (Max)</small > `;
       }
-    };
-  }
+      recDiv.innerHTML = recHtml;
 
-
-  function renderBolusOutput(res) {
-    if (res.error) return `< span class='error' > ${res.error}</span > `;
-
-    // Correction Mode Output
-    if (state.calcMode === "correction") {
-      if (res.upfront_u === 0) {
-        return `< div class="info-box" > No se recomienda corrección. (BG & le; Objetivo)</div > `;
+      let det = "";
+      if (data.bg_now_mgdl) {
+        det += `< div > <strong>BG:</strong> ${Math.round(data.bg_now_mgdl)} mg / dL(${data.bg_age_min} min)</div > `;
       }
-      return `
+      if (data.iob_now_u !== null) {
+        det += `< div > <strong>IOB:</strong> ${data.iob_now_u.toFixed(2)} U</div > `;
+      }
+      detailsDiv.innerHTML = det;
+
+      warnList.innerHTML = "";
+      if (data.warnings && data.warnings.length) {
+        data.warnings.forEach(w => {
+          const li = document.createElement("li");
+          li.textContent = w;
+          warnList.appendChild(li);
+        });
+      }
+
+    } catch (e) {
+      errDisplay.textContent = e.message;
+      errDisplay.hidden = false;
+    } finally {
+      btnRecalc.disabled = false;
+      btnRecalc.textContent = "🔁 Recalcular U2 ahora";
+    }
+  };
+}
+
+
+function renderBolusOutput(res) {
+  if (res.error) return `< span class='error' > ${res.error}</span > `;
+
+  // Correction Mode Output
+  if (state.calcMode === "correction") {
+    if (res.upfront_u === 0) {
+      return `< div class="info-box" > No se recomienda corrección. (BG & le; Objetivo)</div > `;
+    }
+    return `
     < div class="correction-res" >
              <div class="label">Bolo corrector recomendado</div>
              <div class="big-number">${res.upfront_u} U</div>
           </div >
     `;
-    }
+  }
 
-    if (res.kind === "dual") {
-      return `
+  if (res.kind === "dual") {
+    return `
     < div class="dual-res" >
           <div>AHORA: <strong>${res.upfront_u} U</strong></div>
           <div>LUEGO: <strong>${res.later_u} U</strong> <small>(${res.duration_min} min)</small></div>
         </div >
     `;
-    }
-    return `< strong > ${res.upfront_u} U</strong > `;
   }
+  return `< strong > ${res.upfront_u} U</strong > `;
+}
 
 
 
-  // === IOB GRAPH & ACTIONS ===
-  const iobDisplay = document.querySelector("#iob-display");
-  const refreshIobBtn = document.querySelector("#refresh-iob-btn");
-  const iobCanvas = document.querySelector("#iob-graph");
-  const bolusActions = document.querySelector("#bolus-actions");
-  const acceptBolusBtn = document.querySelector("#accept-bolus-btn");
-  const acceptMsg = document.querySelector("#accept-msg");
+// --- IOB HELPERS (Kept) ---
 
-  let currentCalculatedBolus = null; // Re-defined in scope, but we use the closure variable above? 
-  // Wait, currentCalculatedBolus needs to be accessible by both the submit handler and the accept handler.
-  // I defined it above inside renderDashboard scope? No, I need to define it at top of renderDashboard or shared.
-  // Actually, I can just define it here and assign it in the submit handler if I move the variable definition up.
-  // OR simply look at state.
+async function updateIOB() {
+  if (!iobDisplay) return;
+  iobDisplay.innerHTML = '<span class="loading-text">...</span>';
+  try {
+    const nsConfig = getLocalNsConfig();
+    const data = await getIOBData(nsConfig && nsConfig.url ? nsConfig : null);
 
-  // Let's attach it to state to be safe?
-  // state.lastCalc = ...
-
-  if (acceptBolusBtn) {
-    acceptBolusBtn.onclick = async () => {
-      if (!currentCalculatedBolus) return;
-
-      acceptBolusBtn.disabled = true;
-      acceptBolusBtn.textContent = "Guardando...";
-      try {
-        const payload = {
-          insulin: currentCalculatedBolus.total_u,
-          carbs: parseFloat(document.querySelector("#carbs").value || 0),
-          created_at: new Date().toISOString(),
-          enteredBy: state.user.username,
-          nightscout: getLocalNsConfig()
-        };
-        await saveTreatment(payload);
-        acceptMsg.textContent = "Guardado y subido.";
-        acceptMsg.className = "success";
-        acceptMsg.hidden = false;
-        setTimeout(updateIOB, 1000);
-      } catch (e) {
-        acceptMsg.textContent = "Error: " + e.message;
-        acceptMsg.className = "error";
-        acceptMsg.hidden = false;
-      } finally {
-        acceptBolusBtn.textContent = "✅ Aceptar bolo";
-        acceptBolusBtn.disabled = false;
-      }
-    };
-  }
-
-  async function updateIOB() {
-    if (!iobDisplay) return;
-    iobDisplay.innerHTML = '<span class="loading-text">...</span>';
-    try {
-      const nsConfig = getLocalNsConfig();
-      const data = await getIOBData(nsConfig && nsConfig.url ? nsConfig : null);
-
-      iobDisplay.innerHTML = `
+    iobDisplay.innerHTML = `
     < div class="big-number" > ${data.iob_total} U</div >
       ${(data.breakdown && data.breakdown.length) ? `<small>De ${data.breakdown.length} bolos</small>` : ""}
   `;
 
-      if (data.graph && iobCanvas) {
-        drawIOBGraph(iobCanvas, data.graph);
-      }
-    } catch (err) {
-      iobDisplay.innerHTML = `< span class="error small" > ${err.message}</span > `;
+    if (data.graph && iobCanvas) {
+      drawIOBGraph(iobCanvas, data.graph);
     }
+  } catch (err) {
+    iobDisplay.innerHTML = `< span class="error small" > ${err.message}</span > `;
   }
+}
 
-  function drawIOBGraph(canvas, points) {
-    const ctx = canvas.getContext("2d");
-    const width = canvas.width;
-    const height = canvas.height;
-    ctx.clearRect(0, 0, width, height);
+function drawIOBGraph(canvas, points) {
+  const ctx = canvas.getContext("2d");
+  const width = canvas.width;
+  const height = canvas.height;
+  ctx.clearRect(0, 0, width, height);
 
-    if (!points || points.length < 2) return;
+  if (!points || points.length < 2) return;
 
-    const maxIOB = Math.max(...points.map(p => p.iob), 0.1);
-    const durationMin = points[points.length - 1].min_from_now;
-    const padL = 30; const padB = 20;
-    const W = width - padL; const H = height - padB;
+  const maxIOB = Math.max(...points.map(p => p.iob), 0.1);
+  const durationMin = points[points.length - 1].min_from_now;
+  const padL = 30; const padB = 20;
+  const W = width - padL; const H = height - padB;
 
-    const x = (min) => padL + (min / durationMin) * W;
-    const y = (val) => H - (val / maxIOB) * H;
+  const x = (min) => padL + (min / durationMin) * W;
+  const y = (val) => H - (val / maxIOB) * H;
 
-    ctx.strokeStyle = "#e2e8f0"; ctx.lineWidth = 1; ctx.beginPath();
-    for (let i = 0; i <= durationMin; i += 60) {
-      ctx.moveTo(x(i), 0); ctx.lineTo(x(i), H);
-      ctx.fillStyle = "#64748b"; ctx.font = "10px sans-serif"; ctx.fillText(i + "m", x(i), height - 5);
-    }
-    ctx.stroke();
-
-    ctx.fillStyle = "rgba(59, 130, 246, 0.2)"; ctx.beginPath(); ctx.moveTo(x(0), H);
-    points.forEach(p => ctx.lineTo(x(p.min_from_now), y(p.iob)));
-    ctx.lineTo(x(durationMin), H); ctx.closePath(); ctx.fill();
-
-    ctx.strokeStyle = "#2563eb"; ctx.lineWidth = 2; ctx.beginPath();
-    points.forEach((p, i) => {
-      if (i === 0) ctx.moveTo(x(p.min_from_now), y(p.iob));
-      else ctx.lineTo(x(p.min_from_now), y(p.iob));
-    });
-    ctx.stroke();
+  ctx.strokeStyle = "#e2e8f0"; ctx.lineWidth = 1; ctx.beginPath();
+  for (let i = 0; i <= durationMin; i += 60) {
+    ctx.moveTo(x(i), 0); ctx.lineTo(x(i), H);
+    ctx.fillStyle = "#64748b"; ctx.font = "10px sans-serif"; ctx.fillText(i + "m", x(i), height - 5);
   }
+  ctx.stroke();
 
-  // FIX: renderVisionResults restored to full logic matching backend model
-  function renderVisionResults(data) {
-    visionResults.hidden = false;
+  ctx.fillStyle = "rgba(59, 130, 246, 0.2)"; ctx.beginPath(); ctx.moveTo(x(0), H);
+  points.forEach(p => ctx.lineTo(x(p.min_from_now), y(p.iob)));
+  ctx.lineTo(x(durationMin), H); ctx.closePath(); ctx.fill();
 
-    // 1. Summary
-    const summaryDiv = document.querySelector("#vision-summary");
-    if (summaryDiv) {
-      summaryDiv.innerHTML = `
-    < div class="big-number" > ${data.carbs_estimate_g} g < small > carbs</small ></div >
-      <div>Confianza: <strong>${data.confidence}</strong> <small>(Rango: ${data.carbs_range_g[0]}-${data.carbs_range_g[1]}g)</small></div>
-  `;
-    }
-
-    // 2. Bars (Fat / Slow)
-    const barsDiv = document.querySelector("#vision-bars");
-    if (barsDiv) {
-      barsDiv.innerHTML = `
-    < div class="bar-row" > Grasa: <progress value="${data.fat_score}" max="1"></progress></div >
-      <div class="bar-row">Absorción lenta: <progress value="${data.slow_absorption_score}" max="1"></progress></div>
-  `;
-    }
-
-    // 3. Items
-    const list = document.querySelector("#vision-items");
-    if (list) {
-      list.innerHTML = "";
-      data.items.forEach(item => {
-        const li = document.createElement("li");
-        li.textContent = `${item.name} (~${item.carbs_g}g)`;
-        if (item.notes) {
-          const span = document.createElement("small");
-          span.textContent = ` - ${item.notes} `;
-          li.appendChild(span);
-        }
-        list.appendChild(li);
-      });
-    }
-
-    // 4. Bolus
-    const bolusDiv = document.querySelector("#vision-bolus");
-    if (bolusDiv) {
-      if (data.bolus) {
-        bolusDiv.classList.remove("hidden");
-        let html = `< h4 > Bolo Recomendado(${data.bolus.kind === 'extended' ? 'EXTENDIDO' : 'NORMAL'})</h4 > `;
-
-        if (data.bolus.kind === 'extended') {
-          html += `
-    < div class="split-bolus" >
-                   <div class="split-part">
-                      <strong>AHORA</strong>
-                      <span class="val">${data.bolus.upfront_u} U</span>
-                   </div>
-                   <div class="split-part">
-                      <strong>LUEGO (+${data.bolus.delay_min} min)</strong>
-                      <span class="val">${data.bolus.later_u} U</span>
-                   </div>
-                </div >
-    `;
-        } else {
-          html += `< div class="big-number" > ${data.bolus.upfront_u} U</div > `;
-        }
-
-        if (data.bolus.explain && data.bolus.explain.length) {
-          html += `< ul > ${data.bolus.explain.map(e => `<li>${e}</li>`).join('')}</ul > `;
-        }
-        bolusDiv.innerHTML = html;
-      } else {
-        bolusDiv.classList.add("hidden");
-      }
-    }
-
-    // 5. User Input Questions (if any)
-    const questions = data.needs_user_input || [];
-    if (questions.length > 0) {
-      const div = document.createElement("div");
-      div.className = "warning";
-      div.innerHTML = "<strong>Nota:</strong> " + questions.map(q => q.question).join("<br>");
-      visionResults.appendChild(div);
-    }
-
-    // Bind actions
-    const useBtn = document.querySelector("#use-vision-btn");
-    if (useBtn) {
-      useBtn.onclick = () => {
-        // Set values
-        const carbsInput = document.querySelector("#carbs");
-        if (carbsInput) carbsInput.value = data.carbs_estimate_g;
-
-        const mealSlot = document.querySelector("#meal-slot");
-        const visionSlot = document.querySelector("#vision-meal-slot");
-        if (mealSlot && visionSlot) mealSlot.value = visionSlot.value;
-
-        if (data.bolus) {
-          state.bolusResult = `Bolo recomendado: ${data.bolus.upfront_u} U`;
-          if (data.bolus.kind === 'extended') {
-            state.bolusResult += ` (+ ${data.bolus.later_u} U en ${data.bolus.delay_min} min)`;
-          }
-          const output = document.querySelector("#bolus-output");
-          if (output) output.textContent = state.bolusResult;
-
-          const explainList = document.querySelector("#explain-list");
-          const explainBlock = document.querySelector("#bolus-explain");
-
-          if (explainList) {
-            explainList.innerHTML = "";
-            data.bolus.explain.forEach((item) => {
-              const li = document.createElement("li");
-              li.textContent = item;
-              explainList.appendChild(li);
-            });
-          }
-          if (explainBlock) explainBlock.hidden = false;
-
-          const bf = document.querySelector("#bolus-form");
-          if (bf) bf.scrollIntoView({ behavior: "smooth" });
-        }
-      };
-    }
-  }
-
-  if (refreshIobBtn) refreshIobBtn.onclick = updateIOB;
-  updateIOB();
-
-  // Fix: Ensure UI state is consistent after render (specifically dual checkbox visibility)
-  queueMicrotask(() => {
-    if (typeof updateCalcModeUI === "function") updateCalcModeUI();
+  ctx.strokeStyle = "#2563eb"; ctx.lineWidth = 2; ctx.beginPath();
+  points.forEach((p, i) => {
+    if (i === 0) ctx.moveTo(x(p.min_from_now), y(p.iob));
+    else ctx.lineTo(x(p.min_from_now), y(p.iob));
   });
+  ctx.stroke();
+}
+
+// (Old vision logic removed)
+
+// --- HELPER FUNCTIONS FOR UI ---
+async function updateMetrics() {
+  // 1. IOB
+  await updateIOB();
+
+  // 2. COB (Mock for now or fetch)
+  // 3. Last Bolus
+}
+
+function ensureAuthenticated() {
+  if (!state.token) {
+    navigate('#/login');
+    return false;
+  }
+  return true;
+}
+
+async function updateGlucoseUI() {
+  const config = getLocalNsConfig();
+  if (!config || !config.url) return;
+  try {
+    const res = await getCurrentGlucose(config);
+    state.currentGlucose.data = res;
+    state.currentGlucose.timestamp = Date.now();
+    // Re-render handled by current view calling updateGlucoseUI or purely data update?
+    // If we are in renderHome, we might want to update partial DOM if it exists
+    const valEl = document.querySelector('.gh-value');
+    if (valEl) {
+      valEl.textContent = Math.round(res.bg_mgdl);
+      const arrEl = document.querySelector('.gh-arrow');
+      if (arrEl) arrEl.textContent = res.trendArrow || formatTrend(res.trend, false);
+      const timeEl = document.querySelector('.gh-time');
+      if (timeEl) timeEl.textContent = `Hace ${Math.round(res.age_minutes)} min`;
+    }
+  } catch (e) { console.error(e); }
 }
 
 function navigate(hash) {
-  if (window.location.hash === hash) {
-    if (hash === "#/") renderDashboard();
-    else render();
-    return;
-  }
   window.location.hash = hash;
 }
 
@@ -1908,37 +583,51 @@ async function bootstrapSession() {
   }
 }
 
-function ensureAuthenticated() {
-  if (!state.token) {
-    redirectToLogin();
-    return false;
-  }
-  return true;
-}
-
-function renderHeader() {
+function renderHeader(title = "Bolus AI", showBack = false) {
   if (!state.user) return "";
   return `
-    < header class="topbar" >
-      <div class="brand">Bolus AI</div>
-      <div class="nav-links">
-        <a href="#/" class="nav-link">Calculadora</a>
-        <a href="#/settings" class="nav-link">Configuración</a>
-      </div>
-      <div class="session-info">
-        <div>
-          <div class="username">${state.user.username}</div>
-          <small class="role">${state.user.role}</small>
+      <header class="topbar">
+        ${showBack
+      ? `<div class="header-action" onclick="window.history.back()">‹</div>`
+      : `<div class="header-profile">👤</div>`
+    }
+        <div class="header-title-group">
+          <div class="header-title">${title}</div>
+          ${!showBack ? `<div class="header-subtitle">Tu asistente de diabetes</div>` : ''}
         </div>
-        <button id="logout-btn" class="ghost">Salir</button>
-      </div>
-    </header >
+        <div class="header-action has-dot" id="notifications-btn">🔔</div>
+      </header>
     `;
 }
 
+function renderBottomNav(activeTab = 'home') {
+  return `
+      <nav class="bottom-nav">
+        <button class="nav-btn ${activeTab === 'home' ? 'active' : ''}" onclick="navigate('#/')">
+          <span class="nav-icon">🏠</span>
+          <span class="nav-lbl">Inicio</span>
+        </button>
+        <button class="nav-btn ${activeTab === 'scan' ? 'active' : ''}" onclick="navigate('#/scan')">
+          <span class="nav-icon">📷</span>
+          <span class="nav-lbl">Escanear</span>
+        </button>
+        <button class="nav-btn ${activeTab === 'bolus' ? 'active' : ''}" onclick="navigate('#/bolus')">
+          <span class="nav-icon">🧮</span>
+          <span class="nav-lbl">Bolo</span>
+        </button>
+        <button class="nav-btn ${activeTab === 'history' ? 'active' : ''}" onclick="navigate('#/history')">
+          <span class="nav-icon">⏱️</span>
+          <span class="nav-lbl">Historial</span>
+        </button>
+        <button class="nav-btn ${activeTab === 'settings' ? 'active' : ''}" onclick="navigate('#/settings')">
+          <span class="nav-icon">⚙️</span>
+          <span class="nav-lbl">Ajustes</span>
+        </button>
+      </nav>
+    `;
+}
 function renderLogin() {
   app.innerHTML = `
-    < main class="auth-page" >
       <section class="card auth-card">
         <h1>Inicia sesión</h1>
         <p class="hint">API base: <code>${getApiBase() || "(no configurado)"}</code></p>
@@ -2402,10 +1091,12 @@ function initCalcPanel() {
   };
 }
 
+// --- ROUTER & VIEWS ---
+
 function render() {
   const route = window.location.hash || "#/";
-  if (!state.token && route !== "#/login") {
-    redirectToLogin();
+  if (!state.user && route !== "#/login") {
+    renderLogin();
     return;
   }
 
@@ -2414,11 +1105,432 @@ function render() {
   } else if (route === "#/change-password") {
     renderChangePassword();
   } else if (route === "#/settings") {
-    renderSettings();
+    renderSettings(); // Already exists
+  } else if (route === "#/scan") {
+    renderScan();
+  } else if (route === "#/bolus") {
+    renderBolus();
+  } else if (route === "#/history") {
+    renderHistory();
   } else {
-    renderDashboard();
+    renderHome(); // Default to Home
   }
 }
 
-bootstrapSession();
+// --- VIEW: HOME (Inicio) ---
+async function renderHome() {
+  const glucoseData = state.currentGlucose.data || {};
+  const bgValue = glucoseData.bg_mgdl ? Math.round(glucoseData.bg_mgdl) : '--';
+  const trendArrow = glucoseData.trendArrow || '→';
+  const ageMin = glucoseData.age_minutes ? Math.round(glucoseData.age_minutes) : '--';
+  const isStale = glucoseData.stale;
+
+  app.innerHTML = `
+    ${renderHeader("Bolus AI")}
+    <main class="page">
+      <!-- Glucose Hero -->
+      <section class="card glucose-hero">
+        <div class="gh-header">
+          <div>
+            <div class="gh-title">Glucosa Actual</div>
+            <div class="gh-source">Nightscout</div>
+          </div>
+          <button class="gh-refresh" id="refresh-bg-btn">↻</button>
+        </div>
+        <div class="gh-value-group">
+            <span class="gh-value">${bgValue}</span>
+            <div class="gh-unit-group">
+                <span class="gh-arrow">${trendArrow}</span>
+                <span class="gh-unit">mg/dL</span>
+            </div>
+        </div>
+        <div class="gh-status-pill">
+            <span>En rango</span>
+            <span style="font-weight:400; color:var(--success)">•</span>
+            <span class="gh-time">Hace ${ageMin} min</span>
+        </div>
+      </section>
+
+      <!-- Metrics -->
+      <div class="metrics-grid">
+        <div class="metric-tile">
+            <div class="metric-head"><span class="metric-icon">💧</span> IOB</div>
+            <div class="metric-val" id="metric-iob">-- <span class="metric-unit">U</span></div>
+        </div>
+        <div class="metric-tile cob">
+            <div class="metric-head"><span class="metric-icon">🍪</span> COB</div>
+            <div class="metric-val">-- <span class="metric-unit">g</span></div>
+        </div>
+        <div class="metric-tile last">
+            <div class="metric-head"><span class="metric-icon">💉</span> Último</div>
+            <div class="metric-val">-- <span class="metric-unit">U</span></div>
+        </div>
+      </div>
+
+      <!-- Quick Actions -->
+      <h3 class="section-title" style="margin-bottom:1rem">Acciones Rápidas</h3>
+      <div class="qa-grid">
+        <button class="qa-btn qa-photo" onclick="navigate('#/scan')">
+            <div class="qa-icon-box">📷</div>
+            <span class="qa-label">Foto Plato</span>
+        </button>
+        <button class="qa-btn qa-calc" onclick="navigate('#/bolus')">
+            <div class="qa-icon-box">🧮</div>
+            <span class="qa-label">Calcular</span>
+        </button>
+        <button class="qa-btn qa-scale" onclick="navigate('#/scan')">
+            <div class="qa-icon-box">⚖️</div>
+            <span class="qa-label">Báscula</span>
+        </button>
+        <button class="qa-btn qa-food" onclick="navigate('#/bolus')">
+            <div class="qa-icon-box">🍴</div>
+            <span class="qa-label">Alimentos</span>
+        </button>
+      </div>
+
+      <!-- Activity -->
+      <div class="section-head">
+        <h3 class="section-title" style="margin:0">Actividad Reciente</h3>
+        <span class="link-btn" onclick="navigate('#/history')">Ver todo</span>
+      </div>
+      <div class="activity-list">
+        <!-- Mock Data -->
+        <div class="activity-item">
+            <div class="act-icon">💉</div>
+            <div class="act-details">
+                <div class="act-val">3.5 U</div>
+                <div class="act-sub">Almuerzo</div>
+            </div>
+            <div class="act-time">12:30</div>
+        </div>
+        <div class="activity-item">
+            <div class="act-icon" style="color:#f59e0b">🍪</div>
+            <div class="act-details">
+                <div class="act-val">45 g</div>
+                <div class="act-sub">Pasta</div>
+            </div>
+            <div class="act-time">12:28</div>
+        </div>
+      </div>
+    </main>
+    ${renderBottomNav('home')}
+  `;
+
+  // Handlers
+  const refreshBtn = document.querySelector("#refresh-bg-btn");
+  if (refreshBtn) refreshBtn.onclick = () => updateGlucoseUI();
+
+  // Load Data
+  updateGlucoseUI();
+  updateMetrics();
+}
+
+// --- VIEW: SCAN (Foto) ---
+function renderScan() {
+  app.innerHTML = `
+    ${renderHeader("Foto del Plato", true)}
+    <main class="page">
+      <div class="camera-placeholder" onclick="document.getElementById('cameraInput').click()">
+        <div class="camera-icon-big">📷</div>
+        <div>Toca para tomar foto</div>
+      </div>
+
+      <div class="vision-actions">
+        <button class="btn-primary" onclick="document.getElementById('cameraInput').click()">
+            📷 Tomar Foto
+        </button>
+        <button class="btn-secondary" onclick="document.getElementById('photosInput').click()">
+            🖼️ Subir desde Galería
+        </button>
+      </div>
+
+      <!-- Hidden Inputs -->
+      <input type="file" id="cameraInput" accept="image/*" capture="environment" hidden />
+      <input type="file" id="photosInput" accept="image/*" hidden />
+
+      <div class="card tips-card">
+        <h4 style="margin-top:0">Consejos para mejores resultados:</h4>
+        <ul style="padding-left:1.5rem; color:var(--text-secondary); font-size:0.9rem;">
+            <li>Buena iluminación natural</li>
+            <li>Foto desde arriba, mostrando todo el plato</li>
+            <li>Evita sombras y reflejos</li>
+        </ul>
+      </div>
+
+      <!-- Results Overlay will be handled by logic or nav to Bolus with params -->
+    </main>
+    ${renderBottomNav('scan')}
+  `;
+
+  // Attach handlers
+  const fileInputs = [document.getElementById('cameraInput'), document.getElementById('photosInput')];
+
+  const handleImg = async (e) => {
+    if (!e.target.files || !e.target.files.length) return;
+    const file = e.target.files[0];
+
+    // Show loading state
+    const actions = document.querySelector('.vision-actions');
+    const originalContent = actions.innerHTML;
+    actions.innerHTML = '<div class="spinner">⏳ Analizando...</div>';
+
+    try {
+      // 1. Estimate
+      const result = await estimateCarbsFromImage(file);
+      state.visionResult = result;
+
+      // 2. Navigate to Bolus with Pre-fill
+      // We can pass data via state or URL. Using state is cleaner.
+      state.tempCarbs = result.carbs_estimate_g;
+
+      // Notify user
+      actions.innerHTML = '<div class="success-msg">✅ ¡Listo!</div>';
+      setTimeout(() => navigate('#/bolus'), 500);
+
+    } catch (err) {
+      console.error(err);
+      actions.innerHTML = `<div class="error-msg">❌ Error: ${err.message}</div>`;
+      setTimeout(() => actions.innerHTML = originalContent, 3000);
+    }
+  };
+
+  fileInputs.forEach(input => {
+    if (input) input.onchange = handleImg;
+  });
+}
+
+// --- VIEW: BOLUS (Calcular) ---
+function renderBolus() {
+  app.innerHTML = `
+    ${renderHeader("Calcular Bolo", true)}
+    <main class="page">
+      
+      <!-- Glucose Input -->
+      <div class="form-group">
+         <div class="label-row">
+            <span class="label-text">💧 Glucosa Actual</span>
+         </div>
+         <div style="position:relative">
+            <input type="number" id="bg" placeholder="mg/dL" class="text-center" style="font-size:1.5rem; color:var(--primary); font-weight:800;">
+            <span style="position:absolute; right:1rem; top:1rem; color:var(--text-muted)">mg/dL</span>
+         </div>
+         <!-- Slider could go here -->
+         <input type="range" min="40" max="400" id="bg-slider" class="w-full mt-md">
+      </div>
+
+      <!-- Carbs Input -->
+       <div class="form-group">
+         <div class="label-row">
+            <span class="label-text">🍪 Carbohidratos</span>
+         </div>
+         <div style="position:relative">
+            <input type="number" id="carbs" placeholder="0" class="text-center" style="font-size:1.5rem; font-weight:800;">
+            <span style="position:absolute; right:1rem; top:1rem; color:var(--text-muted)">g</span>
+         </div>
+         <div class="carb-presets">
+            <button class="preset-chip" onclick="addCarbs(0)">0g</button>
+            <button class="preset-chip" onclick="addCarbs(15)">15g</button>
+            <button class="preset-chip" onclick="addCarbs(30)">30g</button>
+            <button class="preset-chip active" onclick="addCarbs(45)">45g</button>
+            <button class="preset-chip" onclick="addCarbs(60)">60g</button>
+         </div>
+      </div>
+
+      <!-- Config Summary -->
+      <div class="card" style="background:#f8fafc; border:none;">
+        <div style="display:flex; align-items:center; gap:0.5rem; margin-bottom:1rem;">
+            <span>⚙️ Configuración Actual</span>
+        </div>
+        <div style="display:flex; justify-content:space-between; text-align:center;">
+             <div>
+                <div style="font-weight:700; font-size:1.2rem;">100</div>
+                <div style="font-size:0.75rem; color:var(--text-muted)">OBJETIVO</div>
+             </div>
+             <div>
+                <div style="font-weight:700; font-size:1.2rem;">1:30</div>
+                <div style="font-size:0.75rem; color:var(--text-muted)">ISF</div>
+             </div>
+             <div>
+                <div style="font-weight:700; font-size:1.2rem;">1:10</div>
+                <div style="font-size:0.75rem; color:var(--text-muted)">I:C</div>
+             </div>
+        </div>
+      </div>
+
+      <!-- IOB Banner -->
+      <div style="background:#eff6ff; padding:1rem; border-radius:12px; display:flex; justify-content:space-between; align-items:center; margin-bottom:2rem;">
+        <div>
+            <div style="font-weight:600; color:#1e40af">Insulina Activa (IOB)</div>
+            <div style="font-size:0.8rem; color:#60a5fa">Se restará del bolo</div>
+        </div>
+        <div style="font-size:1.5rem; font-weight:700; color:#1e40af">1.8 <span style="font-size:1rem">U</span></div>
+      </div>
+
+      <button class="btn-primary" id="btn-calc-bolus">Calcular Bolo</button>
+
+    </main>
+    ${renderBottomNav('bolus')}
+  `;
+
+  // Handlers
+  const bgInput = document.getElementById('bg');
+  const bgSlider = document.getElementById('bg-slider');
+  const carbsInput = document.getElementById('carbs');
+  const calcBtn = document.getElementById('btn-calc-bolus');
+
+  // Sync Slider
+  if (bgInput && bgSlider) {
+    bgSlider.oninput = (e) => bgInput.value = e.target.value;
+    bgInput.oninput = (e) => bgSlider.value = e.target.value;
+    // Set initial
+    if (state.currentGlucose.data?.bg_mgdl) {
+      bgInput.value = Math.round(state.currentGlucose.data.bg_mgdl);
+      bgSlider.value = bgInput.value;
+    }
+  }
+
+  // Pre-fill Carbs from Vision if available
+  if (state.tempCarbs) {
+    if (carbsInput) carbsInput.value = state.tempCarbs;
+    state.tempCarbs = null; // Clear
+  }
+
+  // Presets
+  window.addCarbs = (val) => {
+    if (carbsInput) carbsInput.value = val;
+    document.querySelectorAll('.preset-chip').forEach(c => c.classList.remove('active'));
+    event.target.classList.add('active');
+  };
+
+  // Calculate Action
+  if (calcBtn) {
+    calcBtn.onclick = async () => {
+      calcBtn.disabled = true;
+      calcBtn.textContent = "Calculando...";
+
+      try {
+        const carbs = parseFloat(carbsInput.value || 0);
+        const bg = parseFloat(bgInput.value || 0);
+
+        // Get Config
+        // For now assuming 'lunch' or derive from time?
+        // Let's default to 'lunch' or user choice if we had a selector.
+        // We'll use 'meal_slot' from state or default.
+        const slot = "lunch"; // Simplify for now
+        const calcParams = getCalcParams();
+        const meal = calcParams ? (calcParams[slot] || getDefaultMealParams(calcParams)) : null;
+
+        if (!meal) throw new Error("Configura tus parámetros (ICR/ISF) en Ajustes.");
+
+        const payload = {
+          carbs_g: carbs,
+          glucose_mgdl: bg,
+          bg_mgdl: bg,
+          target_mgdl: meal.target,
+          cr_g_per_u: meal.icr,
+          isf_mgdl_per_u: meal.isf,
+          dia_hours: calcParams?.dia_hours || 4,
+          round_step_u: calcParams?.round_step_u || 0.1,
+          max_bolus_u: calcParams?.max_bolus_u || 10
+        };
+
+        const res = await calculateBolusWithOptionalSplit(payload, null);
+
+        // Render Result overlay or replace button
+        calcBtn.hidden = true;
+
+        // Show Result Card
+        const resHtml = `
+                <div class="card result-card" style="margin-top:1rem; border:2px solid var(--primary);">
+                    <div style="text-align:center">
+                        <div class="text-muted">Bolo Recomendado</div>
+                        <div class="big-number" style="color:var(--primary)">${res.upfront_u} U</div>
+                        ${res.kind === 'dual' ? `<div class="text-muted">+ ${res.later_u} U extendido</div>` : ''}
+                    </div>
+                    ${res.calc?.explain ? `<ul class="explain-list" style="margin-top:1rem; font-size:0.8rem; text-align:left; color:#64748b">${res.calc.explain.map(t => `<li>${t}</li>`).join('')}</ul>` : ''}
+                    <button id="btn-accept" class="btn-primary" style="background:var(--success); margin-top:1rem;">✅ Administrar</button>
+                    <button class="btn-ghost" onclick="renderBolus()" style="margin-top:0.5rem">Cancelar</button>
+                </div>
+             `;
+
+        const container = document.querySelector('main.page');
+        const div = document.createElement('div');
+        div.innerHTML = resHtml;
+        container.appendChild(div);
+        div.scrollIntoView({ behavior: 'smooth' });
+
+        document.getElementById('btn-accept').onclick = async () => {
+          try {
+            // Save Treatment
+            await saveTreatment({
+              insulin: res.total_u,
+              carbs: carbs,
+              created_at: new Date().toISOString(),
+              enteredBy: state.user.username
+            });
+            alert("Guardado en Nightscout");
+            navigate('#/');
+          } catch (e) {
+            alert("Error guardando: " + e.message);
+          }
+        };
+
+      } catch (e) {
+        alert(e.message);
+        calcBtn.disabled = false;
+        calcBtn.textContent = "Calcular Bolo";
+      }
+    };
+  }
+}
+
+// --- VIEW: HISTORY ---
+function renderHistory() {
+  app.innerHTML = `
+      ${renderHeader("Historial", true)}
+      <main class="page">
+        <!-- Stats Row -->
+        <div class="metrics-grid">
+            <div class="metric-tile" style="background:#eff6ff; text-align:center; padding:1.5rem 0.5rem">
+                <div style="font-size:1.5rem; font-weight:800; color:#2563eb">12.4</div>
+                <div style="font-size:0.7rem; color:#93c5fd; font-weight:700">INSULINA HOY</div>
+            </div>
+            <div class="metric-tile" style="background:#fff7ed; text-align:center; padding:1.5rem 0.5rem">
+                <div style="font-size:1.5rem; font-weight:800; color:#f97316">145</div>
+                <div style="font-size:0.7rem; color:#fdba74; font-weight:700">CARBOS HOY</div>
+            </div>
+            <div class="metric-tile" style="background:#dcfce7; text-align:center; padding:1.5rem 0.5rem">
+                <div style="font-size:1.5rem; font-weight:800; color:#16a34a">72%</div>
+                <div style="font-size:0.7rem; color:#86efac; font-weight:700">EN RANGO</div>
+            </div>
+        </div>
+
+        <h4 style="margin-bottom:1rem; color:var(--text-muted)">Hoy</h4>
+        
+        <div class="activity-list">
+             <!-- Mock History Items -->
+             <div class="activity-item">
+                <div class="act-icon" style="background:#eff6ff; color:#2563eb">💉</div>
+                <div class="act-details">
+                    <div class="act-val">3.5 U <span style="font-size:0.8rem; font-weight:400; background:#f1f5f9; padding:2px 6px; border-radius:4px;">142 mg/dL</span></div>
+                    <div class="act-sub">Almuerzo</div>
+                </div>
+                <div class="act-time">12:30 ›</div>
+             </div>
+
+             <div class="activity-item">
+                <div class="act-icon" style="background:#fff7ed; color:#f97316">🍪</div>
+                <div class="act-details">
+                    <div class="act-val">45 g</div>
+                    <div class="act-sub">Pasta</div>
+                </div>
+                <div class="act-time">12:28 ›</div>
+             </div>
+        </div>
+      </main>
+      ${renderBottomNav('history')}
+    `;
+}
+
+// Router invoke
 render();
