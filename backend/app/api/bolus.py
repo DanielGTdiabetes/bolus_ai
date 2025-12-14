@@ -12,7 +12,12 @@ from app.models.settings import UserSettings
 from app.models.schemas import NightscoutSGV
 
 from app.models.bolus_v2 import BolusRequestV2, BolusResponseV2, GlucoseUsed
+from app.models.bolus_split import (
+    BolusPlanRequest, BolusPlanResponse, 
+    RecalcSecondRequest, RecalcSecondResponse
+)
 from app.services.bolus_engine import calculate_bolus_v2
+from app.services.bolus_split import create_plan, recalc_second
 
 from app.services.iob import compute_iob_from_sources
 from app.services.nightscout_client import NightscoutClient, NightscoutError
@@ -26,6 +31,13 @@ router = APIRouter()
 def _data_store(settings: Settings = Depends(get_settings)) -> DataStore:
     return DataStore(Path(settings.data.data_dir))
 
+@router.post("/plan", response_model=BolusPlanResponse, summary="Create a split bolus plan")
+async def api_create_plan(payload: BolusPlanRequest, _: dict = Depends(get_current_user)):
+    return create_plan(payload)
+
+@router.post("/recalc-second", response_model=RecalcSecondResponse, summary="Recalculate second tranche")
+async def api_recalc_second(payload: RecalcSecondRequest, _: dict = Depends(get_current_user)):
+    return await recalc_second(payload)
 
 @router.post("/calc", response_model=BolusResponseV2, summary="Calculate bolus (Stateless V2)")
 async def calculate_bolus_stateless(
