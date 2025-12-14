@@ -1197,6 +1197,9 @@ async function renderHome() {
         </div>
       </section>
 
+      <!-- Dual Bolus Panel Container -->
+      <div id="u2-panel-container" hidden style="margin-bottom:1rem"></div>
+
       <!-- Metrics -->
       <div class="metrics-grid">
         <div class="metric-tile">
@@ -1258,6 +1261,11 @@ async function renderHome() {
   updateGlucoseUI();
   updateMetrics();
   updateActivity();
+
+  // Restore Dual Bolus Panel if active
+  if (typeof renderDualPanel === 'function') {
+    renderDualPanel();
+  }
 }
 
 // --- VIEW: SCAN (Foto + Báscula) ---
