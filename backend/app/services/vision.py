@@ -211,6 +211,8 @@ def _build_user_prompt(hints: dict) -> str:
         user_prompt += f" Portion hint: {hints['portion_hint']}."
     if hints.get("meal_slot"):
         user_prompt += f" Meal slot: {hints['meal_slot']}."
+    if hints.get("plate_weight_grams"):
+        user_prompt += f" Total plate weight: {hints['plate_weight_grams']} grams."
     return user_prompt
 
 

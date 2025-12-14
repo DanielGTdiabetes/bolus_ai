@@ -89,8 +89,8 @@ async def estimate_from_image(
     portion_hint: Optional[str] = Form(None),
     
     # Weight from scale
-    plate_weight_grams: Optional[int] = Form(None, alias="plateWeightGrams"), # Handle camelCase too via alias potentially, but FastAPI Form alias might need Pydantic model. 
-    # Actually, simpler to accept multiple args covering common cases or rely on frontend sending standard param.
+    plate_weight_grams: Optional[int] = Form(None),
+    # Handled via explicit args below if frontend sends camelCase or short name
     # We will accept standard snake_case and rely on frontend mapping, but user asked to accept multiple names implicitly.
     # FastAPI Form does not support alias effectively for multiple names in function signature directly. 
     # We'll just define the specific one expected from frontend (which we control). 
@@ -154,6 +154,7 @@ async def estimate_from_image(
     hints = {
         "meal_slot": meal_slot,
         "portion_hint": portion_hint,
+        "plate_weight_grams": effective_weight,
     }
     
     # Update settings with our resolved env vars to ensure service uses them
