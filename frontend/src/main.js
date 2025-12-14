@@ -20,7 +20,6 @@ import {
   getIOBData,
   calculateBolusWithOptionalSplit,
   recalcSecondBolus,
-  recalcSecondBolus,
   fetchTreatments,
   createBasalEntry,
   getBasalEntries,

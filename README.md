@@ -61,7 +61,9 @@ Si prefieres desplegar solo el backend como imagen Docker en Render:
 ## Datos y persistencia
 - En local, el backend guarda los JSON en `backend/data` (o en la ruta indicada por `DATA_DIR`).
 - En Render, `DATA_DIR` se fija a `/var/data` y se monta un disco llamado `bolus-data` para persistir `settings.json`, `users.json`, `events.json`, `changes.json` y `sessions.json`.
+- En Render, `DATA_DIR` se fija a `/var/data` y se monta un disco llamado `bolus-data` para persistir `settings.json`, `users.json`, `events.json`, `changes.json` y `sessions.json`.
 - Docker Compose ya mapea `./config/config.json` y un volumen nombrado `backend_data` a `/app/backend/data` para mantener los datos entre reinicios.
+- **Basal Tracking**: Si defines la variable de entorno `DATABASE_URL` (PostgreSQL), se usarán tablas reales. De lo contrario, se usa un almacén en memoria (volátil).
 
 ## Endpoints principales
 - `POST /api/auth/login` → devuelve `{access_token, token_type, user}`
@@ -70,7 +72,9 @@ Si prefieres desplegar solo el backend como imagen Docker en Render:
 - `GET /api/settings` (auth requerido)
 - `PUT /api/settings` (rol admin)
 - `GET /api/changes` (auth)
+- `GET /api/changes` (auth)
 - `POST /api/bolus/recommend` (auth)
+- `POST /api/basal/entry`, `POST /api/basal/checkin`, `GET /api/basal/active` (Basal Tracking)
 
 ## Pruebas
 ```bash
