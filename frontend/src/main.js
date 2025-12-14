@@ -606,6 +606,12 @@ function renderDashboard() {
         options.nightscout = { url: nsConfig.url, token: nsConfig.token };
       }
 
+      // Inject Calculator Params (Rounding) if available locally
+      const calcParams = getCalcParams();
+      if (calcParams && calcParams.round_step_u) {
+        options.round_step_u = calcParams.round_step_u;
+      }
+
       const data = await estimateCarbsFromImage(compressedBlob, options);
       state.visionResult = data;
       renderVisionResults(data);

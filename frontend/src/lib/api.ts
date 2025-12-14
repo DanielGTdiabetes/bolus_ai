@@ -203,6 +203,10 @@ export async function estimateCarbsFromImage(file: any, options: any = {}) {
     if (options.nightscout.token) formData.append("nightscout_token", options.nightscout.token);
   }
 
+  if (typeof options.round_step_u !== 'undefined') {
+    formData.append("round_step_u", String(options.round_step_u));
+  }
+
   // Special handle for apiFetch with FormData: do NOT set Content-Type
   const headers: any = { Accept: "application/json" };
   const token = getStoredToken();

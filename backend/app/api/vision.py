@@ -105,6 +105,8 @@ async def estimate_from_image(
     nightscout_url: Optional[str] = Form(None),
     nightscout_token: Optional[str] = Form(None),
     
+    round_step_u: Optional[float] = Form(None),
+
     current_user: dict = Depends(get_current_user),
     settings: Settings = Depends(get_settings),
     store: DataStore = Depends(_data_store),
@@ -178,6 +180,10 @@ async def estimate_from_image(
     # 3. Bolus Calculation Context
     user_settings: UserSettings = store.load_settings()
     
+    # Apply Overrides
+    if round_step_u is not None:
+        user_settings.round_step_u = round_step_u
+
     # 3a. Resolve BG
     resolved_bg = bg_mgdl
     ns_source = None
