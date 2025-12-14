@@ -1293,7 +1293,13 @@ function initCalcPanel() {
     setTimeout(() => msg.hidden = true, 3000);
   };
 
-  // Init Split Form
+  // Auto-save defaults if storage is empty
+  if (!getCalcParams()) {
+    console.log("No calc params found, saving defaults...");
+    saveCalcParams(defaults);
+    currentSettings = defaults; // Ensure sync
+  }
+
   const splitForm = document.querySelector("#split-form");
   const splitSettings = getSplitSettings();
 
@@ -1313,6 +1319,7 @@ function initCalcPanel() {
       round_step_u: parseFloat(document.querySelector("#split-step").value)
     };
     saveSplitSettings(newSettings);
+    // Force reload split settings? The dashboard reads them on submit, so it's fine.
     alert("Configuración de bolo dividido guardada.");
   };
 }
