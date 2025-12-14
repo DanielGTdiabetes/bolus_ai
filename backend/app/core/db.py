@@ -6,6 +6,7 @@ from datetime import datetime
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy import text, select
+from sqlalchemy.engine import make_url
 
 from app.core.settings import get_settings
 
@@ -29,8 +30,35 @@ def init_db():
     global _async_engine, _async_session_factory
 
     if url:
-        logger.info(f"Connecting to database: {url.split('@')[-1]}") # Log safe part
-        _async_engine = create_async_engine(url, echo=False)
+        # Sanitized log
+        safe_url = url.split('@')[-1] if '@' in url else '...'
+        logger.info(f"Connecting to database: {safe_url}")
+        
+        # Handle asyncpg sslmode/channel_binding issues
+        if "asyncpg" in url:
+            u = make_url(url)
+            q = dict(u.query)
+            connect_args = {}
+            
+            # Extract sslmode -> connect_args['ssl']
+            if "sslmode" in q:
+                mode = q.pop("sslmode")
+                if mode == "require" or mode == "verify-full":
+                    connect_args["ssl"] = "require"
+                elif mode == "disable":
+                    connect_args["ssl"] = False
+                # defaulting to leaving it out if unknown, or passing it? 
+                # asyncpg mostly wants 'require' or boolean.
+            
+            # Remove channel_binding (often unsupported kwarg for asyncpg via SA)
+            if "channel_binding" in q:
+                q.pop("channel_binding")
+                
+            u = u._replace(query=q)
+            _async_engine = create_async_engine(u, connect_args=connect_args, echo=False)
+        else:
+            _async_engine = create_async_engine(url, echo=False)
+
         _async_session_factory = async_sessionmaker(_async_engine, expire_on_commit=False)
     else:
         logger.warning("DATABASE_URL not set. Using in-memory (dict) storage. Data will be lost on restart.")
