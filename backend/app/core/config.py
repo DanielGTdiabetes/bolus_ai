@@ -20,8 +20,8 @@ def get_google_api_key() -> str:
     return get_env("GOOGLE_API_KEY") or get_env("GEMINI_API_KEY") or ""
 
 def get_gemini_model() -> str:
-    # Fallback to 1.5-flash which has higher rate limits (1500 RPD vs 20 RPD for 2.5)
-    return get_env("GEMINI_MODEL") or "gemini-1.5-flash"
+    # 2.5 Flash is still supported (deprecation not before later date). Use it as default.
+    return get_env("GEMINI_MODEL") or "gemini-2.5-flash"
 
 def get_vision_timeout() -> int:
     try:
