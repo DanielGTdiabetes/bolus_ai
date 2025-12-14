@@ -593,6 +593,9 @@ function renderDashboard() {
           : (state.plateWeightGrams || null)
       };
 
+      console.log("Submitting Vision Request with options:", options);
+      if (options.plate_weight_grams) console.log("Weight to send:", options.plate_weight_grams);
+
       const currentBg = document.querySelector("#bg").value;
       if (currentBg) options.bg_mgdl = currentBg;
 
