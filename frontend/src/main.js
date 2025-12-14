@@ -275,9 +275,10 @@ function renderDashboard() {
                   Actual: <span id="lbl-current-weight">--</span> g | 
                   Inc: <strong id="lbl-inc-weight">--</strong> g
                </div>
-               <!-- Debug Info -->
-               <div id="plate-debug" style="font-size: 0.7rem; color: #94a3b8; margin-top: 4px; font-family: monospace;"></div>
             </div>
+            <!-- Debug Info (Always Visible) -->
+            <div id="plate-debug" style="font-size: 0.7rem; color: #94a3b8; margin-top: 4px; font-family: monospace; min-height: 1em;">BLE: Sin datos</div>
+         </div>
          </div>
 
          <ul id="plate-entries" class="item-list" style="max-height: 200px; overflow-y: auto;"></ul>
@@ -898,15 +899,19 @@ function renderDashboard() {
     const isInc = state.plateBuilder.mode_weight === "incremental";
     incControls.hidden = !isInc;
 
-    if (isInc) {
-      root.querySelector("#lbl-base-weight").textContent = state.plateBuilder.weight_base_grams;
-
-      // Update Debug Info
+    // DEBUG UPDATE (Always)
+    const dbgEl = root.querySelector("#plate-debug");
+    if (dbgEl) {
       const dbg = getPlateBuilderReading();
       if (dbg.grams !== null) {
-        const dbgEl = root.querySelector("#plate-debug");
-        if (dbgEl) dbgEl.textContent = `BLE: g=${dbg.grams} stable=${dbg.stable} age=${dbg.ageMs}ms d=${dbg.delta}g`;
+        dbgEl.textContent = `BLE: g=${dbg.grams} stable=${dbg.stable} age=${dbg.ageMs}ms d=${dbg.delta}g`;
+      } else {
+        dbgEl.textContent = "BLE: Sin datos";
       }
+    }
+
+    if (isInc) {
+      root.querySelector("#lbl-base-weight").textContent = state.plateBuilder.weight_base_grams;
 
       // Set Base Button Logic
       const btnSetBase = root.querySelector("#btn-set-base");
