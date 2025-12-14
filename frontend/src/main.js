@@ -1864,7 +1864,7 @@ function renderBolus() {
             <div style="font-weight:600; color:#1e40af">Insulina Activa (IOB)</div>
             <div style="font-size:0.8rem; color:#60a5fa">Se restará del bolo</div>
         </div>
-        <div style="font-size:1.5rem; font-weight:700; color:#1e40af">1.8 <span style="font-size:1rem">U</span></div>
+        <div id="iob-display-value" style="font-size:1.5rem; font-weight:700; color:#1e40af">-- <span style="font-size:1rem">U</span></div>
       </div>
 
       <button class="btn-primary" id="btn-calc-bolus">Calcular Bolo</button>
@@ -1917,8 +1917,7 @@ function renderBolus() {
 
   // Correction Toggle Handler
   const chkCorr = document.getElementById('chk-correction-only');
-  const divCarbs = document.querySelector('.form-group .label-row .label-text:contains("Carbohidratos")')?.closest('.form-group'); // This selector is pseudo, better use ID
-  // Actually let's just use the carbs input container
+  // Removed invalid querySelector with :contains
 
   if (chkCorr) {
     chkCorr.onchange = () => {
@@ -1952,6 +1951,23 @@ function renderBolus() {
       chkDual.checked = true;
     }
     updateInfo();
+  }
+
+  // Sync IOB
+  const iobEl = document.getElementById('iob-display-value');
+  if (iobEl) {
+    const nsConfig = getLocalNsConfig();
+    if (nsConfig && nsConfig.url) {
+      getIOBData(nsConfig).then(d => {
+        const val = typeof d.iob === 'number' ? d.iob.toFixed(2) : 0;
+        iobEl.innerHTML = `${val} <span style="font-size:1rem">U</span>`;
+      }).catch(err => {
+        console.error("IOB Fetch Error", err);
+        iobEl.innerHTML = `? <span style="font-size:1rem">U</span>`;
+      });
+    } else {
+      iobEl.innerHTML = `N/A`;
+    }
   }
 
   // Calculate Action
