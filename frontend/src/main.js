@@ -20,6 +20,7 @@ import {
   getIOBData,
   calculateBolusWithOptionalSplit,
   recalcSecondBolus,
+  fetchTreatments
 } from "./lib/api";
 
 import {
@@ -499,11 +500,63 @@ function drawIOBGraph(canvas, points) {
 
 // --- HELPER FUNCTIONS FOR UI ---
 async function updateMetrics() {
+  const config = getLocalNsConfig();
+  if (!config) return;
+
   // 1. IOB
   await updateIOB();
 
-  // 2. COB (Mock for now or fetch)
-  // 3. Last Bolus
+  // 2. Last Bolus
+  try {
+    const treatments = await fetchTreatments({ ...config, count: 5 }); // fetch few recent
+    const lastBolus = treatments.find(t => t.insulin > 0 && t.eventType !== 'Temp Basal');
+    const lbl = document.getElementById('metric-last');
+    if (lbl && lastBolus) {
+      lbl.innerHTML = `${lastBolus.insulin} <span class="metric-unit">U</span>`;
+    }
+    // 3. COB (Naive impl, or use IOB response if it contains COB)
+    const lblCob = document.getElementById('metric-cob');
+    if (lblCob) {
+      // Some IOB backends return cob explicitly, else we assume 0 or --
+      lblCob.innerHTML = `-- <span class="metric-unit">g</span>`;
+    }
+
+  } catch (e) { console.error("Metrics Loop Error", e); }
+}
+
+async function updateActivity() {
+  const config = getLocalNsConfig();
+  const list = document.getElementById('home-activity-list');
+  if (!list || !config) return;
+
+  try {
+    const fullTreatments = await fetchTreatments(config);
+    const treatments = fullTreatments.slice(0, 3); // Top 3
+
+    list.innerHTML = "";
+    treatments.forEach(t => {
+      if (!t.insulin && !t.carbs) return;
+      const el = document.createElement('div');
+      el.className = 'activity-item';
+      const icon = t.insulin ? "💉" : "🍪";
+      const time = new Date(t.created_at || t.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+      el.innerHTML = `
+                <div class="act-icon" style="${t.insulin ? '' : 'background:#fff7ed; color:#f97316'}">${icon}</div>
+                <div class="act-details">
+                    <div class="act-val">${t.insulin ? t.insulin + ' U' : t.carbs + ' g'}</div>
+                    <div class="act-sub">${t.notes || 'Entrada'}</div>
+                </div>
+                <div class="act-time">${time}</div>
+            `;
+      list.appendChild(el);
+    });
+    if (treatments.length === 0) list.innerHTML = "<div class='hint'>Sin actividad reciente</div>";
+
+  } catch (e) {
+    // Silent fail for widget
+    console.warn(e);
+  }
 }
 
 function ensureAuthenticated() {
@@ -1119,35 +1172,28 @@ function render() {
 
 // --- VIEW: HOME (Inicio) ---
 async function renderHome() {
-  const glucoseData = state.currentGlucose.data || {};
-  const bgValue = glucoseData.bg_mgdl ? Math.round(glucoseData.bg_mgdl) : '--';
-  const trendArrow = glucoseData.trendArrow || '→';
-  const ageMin = glucoseData.age_minutes ? Math.round(glucoseData.age_minutes) : '--';
-  const isStale = glucoseData.stale;
+  // Ensure we have user config
+  const config = getLocalNsConfig();
 
+  // Basic Shell
   app.innerHTML = `
     ${renderHeader("Bolus AI")}
     <main class="page">
       <!-- Glucose Hero -->
       <section class="card glucose-hero">
         <div class="gh-header">
-          <div>
             <div class="gh-title">Glucosa Actual</div>
-            <div class="gh-source">Nightscout</div>
-          </div>
-          <button class="gh-refresh" id="refresh-bg-btn">↻</button>
+            <button class="gh-refresh" id="refresh-bg-btn">↻</button>
         </div>
         <div class="gh-value-group">
-            <span class="gh-value">${bgValue}</span>
+            <span class="gh-value">--</span>
             <div class="gh-unit-group">
-                <span class="gh-arrow">${trendArrow}</span>
+                <span class="gh-arrow">--</span>
                 <span class="gh-unit">mg/dL</span>
             </div>
         </div>
         <div class="gh-status-pill">
-            <span>En rango</span>
-            <span style="font-weight:400; color:var(--success)">•</span>
-            <span class="gh-time">Hace ${ageMin} min</span>
+            <span class="gh-time">-- min</span>
         </div>
       </section>
 
@@ -1159,11 +1205,11 @@ async function renderHome() {
         </div>
         <div class="metric-tile cob">
             <div class="metric-head"><span class="metric-icon">🍪</span> COB</div>
-            <div class="metric-val">-- <span class="metric-unit">g</span></div>
+            <div class="metric-val" id="metric-cob">-- <span class="metric-unit">g</span></div>
         </div>
         <div class="metric-tile last">
             <div class="metric-head"><span class="metric-icon">💉</span> Último</div>
-            <div class="metric-val">-- <span class="metric-unit">U</span></div>
+            <div class="metric-val" id="metric-last">-- <span class="metric-unit">U</span></div>
         </div>
       </div>
 
@@ -1193,24 +1239,8 @@ async function renderHome() {
         <h3 class="section-title" style="margin:0">Actividad Reciente</h3>
         <span class="link-btn" onclick="navigate('#/history')">Ver todo</span>
       </div>
-      <div class="activity-list">
-        <!-- Mock Data -->
-        <div class="activity-item">
-            <div class="act-icon">💉</div>
-            <div class="act-details">
-                <div class="act-val">3.5 U</div>
-                <div class="act-sub">Almuerzo</div>
-            </div>
-            <div class="act-time">12:30</div>
-        </div>
-        <div class="activity-item">
-            <div class="act-icon" style="color:#f59e0b">🍪</div>
-            <div class="act-details">
-                <div class="act-val">45 g</div>
-                <div class="act-sub">Pasta</div>
-            </div>
-            <div class="act-time">12:28</div>
-        </div>
+      <div class="activity-list" id="home-activity-list">
+         <div class="spinner">Cargando...</div>
       </div>
     </main>
     ${renderBottomNav('home')}
@@ -1218,18 +1248,24 @@ async function renderHome() {
 
   // Handlers
   const refreshBtn = document.querySelector("#refresh-bg-btn");
-  if (refreshBtn) refreshBtn.onclick = () => updateGlucoseUI();
+  if (refreshBtn) refreshBtn.onclick = () => {
+    updateGlucoseUI();
+    updateMetrics();
+    updateActivity();
+  };
 
-  // Load Data
+  // Initial Load
   updateGlucoseUI();
   updateMetrics();
+  updateActivity();
 }
 
-// --- VIEW: SCAN (Foto) ---
+// --- VIEW: SCAN (Foto + Báscula) ---
 function renderScan() {
   app.innerHTML = `
-    ${renderHeader("Foto del Plato", true)}
+    ${renderHeader("Escanear / Pesar", true)}
     <main class="page">
+      <!-- Camera Zone -->
       <div class="camera-placeholder" onclick="document.getElementById('cameraInput').click()">
         <div class="camera-icon-big">📷</div>
         <div>Toca para tomar foto</div>
@@ -1237,59 +1273,65 @@ function renderScan() {
 
       <div class="vision-actions">
         <button class="btn-primary" onclick="document.getElementById('cameraInput').click()">
-            📷 Tomar Foto
+            📷 Cámara
         </button>
         <button class="btn-secondary" onclick="document.getElementById('photosInput').click()">
-            🖼️ Subir desde Galería
+            🖼️ Galería
         </button>
       </div>
-
+      
       <!-- Hidden Inputs -->
       <input type="file" id="cameraInput" accept="image/*" capture="environment" hidden />
       <input type="file" id="photosInput" accept="image/*" hidden />
 
-      <div class="card tips-card">
-        <h4 style="margin-top:0">Consejos para mejores resultados:</h4>
-        <ul style="padding-left:1.5rem; color:var(--text-secondary); font-size:0.9rem;">
-            <li>Buena iluminación natural</li>
-            <li>Foto desde arriba, mostrando todo el plato</li>
-            <li>Evita sombras y reflejos</li>
-        </ul>
+      <!-- Scale Zone -->
+      <div class="card scale-card" style="margin-top:1.5rem">
+        <h3 style="margin:0 0 1rem 0">⚖️ Báscula Bluetooth</h3>
+        <div style="display:flex; justify-content:space-between; align-items:center">
+            <div id="scale-status" class="status-badge">Desconectado</div>
+            <div style="text-align:right">
+                <div id="scale-weight" style="font-size:2rem; font-weight:800; color:var(--primary)">0 g</div>
+            </div>
+        </div>
+        <div style="display:flex; gap:0.5rem; margin-top:1rem;">
+             <button id="btn-scale-conn" class="btn-secondary" style="flex:1">Conectar</button>
+             <button id="btn-scale-tare" class="btn-ghost" disabled>Tarar</button>
+             <button id="btn-scale-use" class="btn-primary" disabled>Usar Peso</button>
+        </div>
       </div>
 
-      <!-- Results Overlay will be handled by logic or nav to Bolus with params -->
+      <div class="card tips-card">
+        <p class="hint">Usa la cámara para estimar carbohidratos vía IA, o la báscula para pesar ingredientes exactos.</p>
+      </div>
     </main>
     ${renderBottomNav('scan')}
   `;
 
-  // Attach handlers
+  // --- VISION HANDLERS ---
   const fileInputs = [document.getElementById('cameraInput'), document.getElementById('photosInput')];
 
   const handleImg = async (e) => {
     if (!e.target.files || !e.target.files.length) return;
     const file = e.target.files[0];
 
-    // Show loading state
+    // Show loading...
     const actions = document.querySelector('.vision-actions');
     const originalContent = actions.innerHTML;
-    actions.innerHTML = '<div class="spinner">⏳ Analizando...</div>';
+    actions.innerHTML = '<div class="spinner">⏳ Analizando imagen...</div>';
 
     try {
-      // 1. Estimate
       const result = await estimateCarbsFromImage(file);
       state.visionResult = result;
-
-      // 2. Navigate to Bolus with Pre-fill
-      // We can pass data via state or URL. Using state is cleaner.
+      // Navigate to Bolus with result
       state.tempCarbs = result.carbs_estimate_g;
+      state.tempReason = "vision"; // mark source
 
-      // Notify user
-      actions.innerHTML = '<div class="success-msg">✅ ¡Listo!</div>';
+      actions.innerHTML = '<div class="success-msg">✅ ¡Análisis completado!</div>';
       setTimeout(() => navigate('#/bolus'), 500);
 
     } catch (err) {
       console.error(err);
-      actions.innerHTML = `<div class="error-msg">❌ Error: ${err.message}</div>`;
+      actions.innerHTML = `<div class="error-msg">❌ ${err.message}</div>`;
       setTimeout(() => actions.innerHTML = originalContent, 3000);
     }
   };
@@ -1297,6 +1339,72 @@ function renderScan() {
   fileInputs.forEach(input => {
     if (input) input.onchange = handleImg;
   });
+
+  // --- SCALE HANDLERS ---
+  const btnConn = document.getElementById('btn-scale-conn');
+  const btnTare = document.getElementById('btn-scale-tare');
+  const btnUse = document.getElementById('btn-scale-use');
+  const lblWeight = document.getElementById('scale-weight');
+  const lblStatus = document.getElementById('scale-status');
+
+  const updateScaleUI = () => {
+    const s = state.scale;
+    lblWeight.textContent = `${s.grams} g`;
+    lblStatus.textContent = s.connected ? "Conectado" : "Desconectado";
+    lblStatus.className = s.connected ? "status-badge success" : "status-badge";
+
+    if (s.connected) {
+      btnConn.textContent = "Desconectar";
+      btnTare.disabled = false;
+      btnUse.disabled = false;
+    } else {
+      btnConn.textContent = "Conectar";
+      btnTare.disabled = true;
+      btnUse.disabled = true;
+    }
+  };
+
+  btnConn.onclick = async () => {
+    if (state.scale.connected) {
+      await disconnectScale();
+      state.scale.connected = false;
+      updateScaleUI();
+    } else {
+      try {
+        btnConn.textContent = "Conectando...";
+        await connectScale();
+        state.scale.connected = true;
+        setOnData((grams, stable) => {
+          state.scale.grams = grams;
+          state.scale.stable = stable;
+          updateScaleUI();
+        });
+        updateScaleUI();
+      } catch (e) {
+        alert("Error conectando: " + e.message);
+        updateScaleUI();
+      }
+    }
+  };
+
+  btnTare.onclick = async () => {
+    await tare();
+  };
+
+  btnUse.onclick = () => {
+    state.tempCarbs = state.scale.grams; // Assuming 1g weight = 1g carb? NO.
+    // Usually user wants to use weight to Calculate.
+    // But we map 'grams' to 'carbs' field?? 
+    // User must check it. Or maybe we navigate to Food Database?
+    // For MVP, lets just put it into text field in Bolus page and let user edit.
+    if (confirm(`¿Usar ${state.scale.grams}g como valor de entrada? (Recuerda ajustar según los carbohidratos reales del alimento)`)) {
+      state.tempCarbs = state.scale.grams;
+      navigate('#/bolus');
+    }
+  };
+
+  // Init
+  updateScaleUI();
 }
 
 // --- VIEW: BOLUS (Calcular) ---
@@ -1485,51 +1593,91 @@ function renderBolus() {
 }
 
 // --- VIEW: HISTORY ---
-function renderHistory() {
+async function renderHistory() {
   app.innerHTML = `
       ${renderHeader("Historial", true)}
       <main class="page">
         <!-- Stats Row -->
         <div class="metrics-grid">
             <div class="metric-tile" style="background:#eff6ff; text-align:center; padding:1.5rem 0.5rem">
-                <div style="font-size:1.5rem; font-weight:800; color:#2563eb">12.4</div>
+                <div style="font-size:1.5rem; font-weight:800; color:#2563eb" id="hist-daily-insulin">--</div>
                 <div style="font-size:0.7rem; color:#93c5fd; font-weight:700">INSULINA HOY</div>
             </div>
             <div class="metric-tile" style="background:#fff7ed; text-align:center; padding:1.5rem 0.5rem">
-                <div style="font-size:1.5rem; font-weight:800; color:#f97316">145</div>
+                <div style="font-size:1.5rem; font-weight:800; color:#f97316" id="hist-daily-carbs">--</div>
                 <div style="font-size:0.7rem; color:#fdba74; font-weight:700">CARBOS HOY</div>
-            </div>
-            <div class="metric-tile" style="background:#dcfce7; text-align:center; padding:1.5rem 0.5rem">
-                <div style="font-size:1.5rem; font-weight:800; color:#16a34a">72%</div>
-                <div style="font-size:0.7rem; color:#86efac; font-weight:700">EN RANGO</div>
             </div>
         </div>
 
-        <h4 style="margin-bottom:1rem; color:var(--text-muted)">Hoy</h4>
+        <h4 style="margin-bottom:1rem; color:var(--text-muted)">Últimas Transacciones</h4>
         
-        <div class="activity-list">
-             <!-- Mock History Items -->
-             <div class="activity-item">
-                <div class="act-icon" style="background:#eff6ff; color:#2563eb">💉</div>
-                <div class="act-details">
-                    <div class="act-val">3.5 U <span style="font-size:0.8rem; font-weight:400; background:#f1f5f9; padding:2px 6px; border-radius:4px;">142 mg/dL</span></div>
-                    <div class="act-sub">Almuerzo</div>
-                </div>
-                <div class="act-time">12:30 ›</div>
-             </div>
-
-             <div class="activity-item">
-                <div class="act-icon" style="background:#fff7ed; color:#f97316">🍪</div>
-                <div class="act-details">
-                    <div class="act-val">45 g</div>
-                    <div class="act-sub">Pasta</div>
-                </div>
-                <div class="act-time">12:28 ›</div>
-             </div>
+        <div class="activity-list" id="full-history-list">
+             <div class="spinner">Cargando...</div>
         </div>
       </main>
       ${renderBottomNav('history')}
-    `;
+  `;
+
+  // Fetch Logic
+  try {
+    const config = getLocalNsConfig();
+    if (!config || !config.url) throw new Error("Configura Nightscout para ver el historial.");
+
+    // We fetch last 50 treatments
+    const treatments = await fetchTreatments({ ...config, count: 50 });
+
+    const listContainer = document.getElementById('full-history-list');
+    listContainer.innerHTML = "";
+
+    let todayInsulin = 0;
+    let todayCarbs = 0;
+    const today = new Date().toDateString();
+
+    // Filter useful items
+    const validItems = treatments.filter(t => t.insulin || t.carbs || t.eventType === 'Meal Bolus' || t.eventType === 'Correction Bolus');
+
+    validItems.forEach(t => {
+      const date = new Date(t.created_at || t.timestamp || t.date);
+      const timeStr = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+      // Stats Accumulation
+      if (date.toDateString() === today) {
+        if (t.insulin) todayInsulin += parseFloat(t.insulin);
+        if (t.carbs) todayCarbs += parseFloat(t.carbs);
+      }
+
+      const isBolus = parseFloat(t.insulin) > 0;
+      const isCarb = parseFloat(t.carbs) > 0;
+
+      if (!isBolus && !isCarb) return;
+
+      const el = document.createElement('div');
+      el.className = "activity-item";
+      const icon = isBolus ? "💉" : "🍪";
+      const typeLbl = t.enteredBy ? t.enteredBy : "Entrada";
+
+      let mainVal = "";
+      if (isBolus) mainVal += `${t.insulin} U `;
+      if (isCarb) mainVal += `${t.carbs} g`;
+
+      el.innerHTML = `
+            <div class="act-icon" style="${isBolus ? '' : 'background:#fff7ed; color:#f97316'}">${icon}</div>
+            <div class="act-details">
+                <div class="act-val">${mainVal}</div>
+                <div class="act-sub">${t.notes || typeLbl}</div>
+            </div>
+            <div class="act-time">${timeStr}</div>
+         `;
+      listContainer.appendChild(el);
+    });
+
+    // Update Stats
+    document.getElementById('hist-daily-insulin').textContent = todayInsulin.toFixed(1);
+    document.getElementById('hist-daily-carbs').textContent = Math.round(todayCarbs);
+
+  } catch (e) {
+    document.getElementById('full-history-list').innerHTML = `<div class="error-msg">${e.message}</div>`;
+  }
 }
 
 // Router invoke

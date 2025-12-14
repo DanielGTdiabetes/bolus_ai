@@ -253,6 +253,20 @@ export async function saveTreatment(payload) {
   return data;
 }
 
+export async function fetchTreatments(config) {
+  let url = "/api/nightscout/treatments";
+  if (config) {
+    const params = new URLSearchParams();
+    if (config.url) params.append("url", config.url);
+    if (config.token) params.append("token", config.token);
+    url += "?" + params.toString();
+  }
+  const response = await apiFetch(url);
+  const data = await toJson(response);
+  if (!response.ok) throw new Error(data.detail || "Error al obtener tratamientos");
+  return data;
+}
+
 export async function createBolusPlan(payload) {
   const response = await apiFetch("/api/bolus/plan", {
     method: "POST",
