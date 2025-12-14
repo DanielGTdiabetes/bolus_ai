@@ -216,7 +216,7 @@ function renderDashboard() {
              </label>
              <label>Tamaño (aprox)
                 <select id="vision-portion">
-                   <option value="">(Auto)</option>
+                   <option value="" id="vision-portion-auto">(Auto / Báscula)</option>
                    <option value="small">Pequeño</option>
                    <option value="medium">Mediano</option>
                    <option value="large">Grande</option>
@@ -363,7 +363,13 @@ function renderDashboard() {
       explainList.prepend(li); // Show at top
 
       // If we had input fields for weight in vision form, we would set them here. 
-      // For now just storing it.
+      // Update Vision Form "Auto" label to show captured weight
+      const autoOpt = document.querySelector("#vision-portion-auto");
+      const visionSelect = document.querySelector("#vision-portion");
+      if (autoOpt) {
+        autoOpt.textContent = `(Auto / ${grams}g)`;
+        visionSelect.value = ""; // Select Auto
+      }
     };
   }
 
@@ -581,15 +587,10 @@ function renderDashboard() {
         meal_slot: document.querySelector("#vision-meal-slot").value,
         portion_hint: document.querySelector("#vision-portion").value,
         prefer_extended: document.querySelector("#vision-extended").checked,
-        // Add weight if available and positive (use raw grams from scale)
-        // Note: state.scale.grams might be updated real-time, 
-        // using state.plateWeightGrams if 'User Peso' was clicked might be safer?
-        // But requested to just use it.
-        // Actually best to use state.scale.grams if connected, or state.plateWeightGrams if "used".
-        // Let's prefer the "Used" weight if set (explicit action), else live weight if stable?
-        // User asked "Loggear y confirmar el peso... sin cambiar el flujo".
-        // Sending live connected weight seems most useful if user is weighing while taking photo.
-        plate_weight_grams: state.scale.connected ? state.scale.grams : (state.plateWeightGrams || null)
+        // Explicitly check for "Used" weight (state.plateWeightGrams) OR live weight if connected and non-zero
+        plate_weight_grams: (state.scale.connected && state.scale.grams > 0)
+          ? state.scale.grams
+          : (state.plateWeightGrams || null)
       };
 
       const currentBg = document.querySelector("#bg").value;
