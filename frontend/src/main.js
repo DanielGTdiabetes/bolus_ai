@@ -747,9 +747,10 @@ function renderDashboard() {
         if (!reading.connected) throw new Error("Conecta la báscula para modo incremental.");
 
         // STABILITY CHECK: Custom Derived
-        // User request: "reading.grams == null o reading.ageMs > 2000 o reading.stable === false"
+        // User request: "reading.grams == null... actually remove ageMs check for silent scales"
         if (reading.grams === null) throw new Error("Sin lectura de peso.");
-        if (reading.ageMs > 2000) throw new Error("Lectura de peso antigua (>2s).");
+        // if (reading.ageMs > 2000) throw new Error("Lectura de peso antigua (>2s)."); // Disabled
+
         if (!reading.stable) {
           throw new Error(`Espera a ESTABLE (Delta ${reading.delta ?? "?"}g).`);
         }
