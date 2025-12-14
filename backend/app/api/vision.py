@@ -89,6 +89,9 @@ async def estimate_from_image(
     portion_hint: Optional[str] = Form(None),
     prefer_extended: bool = Form(True),
     
+    nightscout_url: Optional[str] = Form(None),
+    nightscout_token: Optional[str] = Form(None),
+    
     current_user: dict = Depends(get_current_user),
     settings: Settings = Depends(get_settings),
     store: DataStore = Depends(_data_store),
@@ -161,12 +164,17 @@ async def estimate_from_image(
     
     if resolved_bg is None:
         ns_config = user_settings.nightscout
-        if ns_config.enabled and ns_config.url:
-            logger.info(f"Vision trying to fetch BG from NS: {ns_config.url}")
+        
+        # Effective NS config: Request Params > Stored Config
+        eff_ns_url = nightscout_url if nightscout_url else (ns_config.url if ns_config.enabled else None)
+        eff_ns_token = nightscout_token if nightscout_token else ns_config.token
+        
+        if eff_ns_url:
+            logger.info(f"Vision trying to fetch BG from NS: {eff_ns_url}")
             try:
                 ns_client_iob = NightscoutClient(
-                    base_url=ns_config.url,
-                    token=ns_config.token,
+                    base_url=eff_ns_url,
+                    token=eff_ns_token,
                     timeout_seconds=5
                 )
                 sgv = await ns_client_iob.get_latest_sgv()
@@ -188,15 +196,22 @@ async def estimate_from_image(
     # 3b. Compute IOB
     ns_client_iob = None
     ns_config = user_settings.nightscout
-    if ns_config.enabled and ns_config.url:
+    
+    eff_ns_url = nightscout_url if nightscout_url else (ns_config.url if ns_config.enabled else None)
+    eff_ns_token = nightscout_token if nightscout_token else ns_config.token
+
+    if eff_ns_url:
          ns_client_iob = NightscoutClient(
-                base_url=ns_config.url,
-                token=ns_config.token,
+                base_url=eff_ns_url,
+                token=eff_ns_token,
                 timeout_seconds=5
         )
     
     try:
+        # Note: compute_iob_from_sources also checks Settings if ns_client_iob is not provided
+        # But here we provide a constructed client, effectively overriding
         now = datetime.now(timezone.utc)
+        # We pass our explicit client
         iob_u, breakdown = await compute_iob_from_sources(now, user_settings, ns_client_iob, store)
     finally:
          if ns_client_iob:

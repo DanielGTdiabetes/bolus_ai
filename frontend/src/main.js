@@ -364,6 +364,11 @@ function renderDashboard() {
       const currentBg = document.querySelector("#bg").value;
       if (currentBg) options.bg_mgdl = currentBg;
 
+      const nsConfig = getLocalNsConfig();
+      if (nsConfig && nsConfig.url) {
+        options.nightscout = { url: nsConfig.url, token: nsConfig.token };
+      }
+
       const data = await estimateCarbsFromImage(compressedBlob, options);
       state.visionResult = data;
       renderVisionResults(data);

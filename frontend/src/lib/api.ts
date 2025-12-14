@@ -194,6 +194,11 @@ export async function estimateCarbsFromImage(file: any, options: any = {}) {
   if (options.portion_hint) formData.append("portion_hint", options.portion_hint);
   if (typeof options.prefer_extended !== 'undefined') formData.append("prefer_extended", options.prefer_extended);
 
+  if (options.nightscout) {
+    if (options.nightscout.url) formData.append("nightscout_url", options.nightscout.url);
+    if (options.nightscout.token) formData.append("nightscout_token", options.nightscout.token);
+  }
+
   // Special handle for apiFetch with FormData: do NOT set Content-Type
   const headers: any = { Accept: "application/json" };
   const token = getStoredToken();
