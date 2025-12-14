@@ -12,7 +12,7 @@ from app.core.security import auth_required
 from app.core.settings import get_settings, Settings
 from app.core.db import get_db_session, InMemorySession
 from app.models.basal import BasalEntry, BasalCheckin
-from app.services.nightscout import NightscoutService  # Assuming this exists or I'll use raw logic
+
 
 # Pydantic Schemas
 class BasalEntryCreate(BaseModel):
