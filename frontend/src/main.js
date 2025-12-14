@@ -370,6 +370,8 @@ function renderDashboard() {
         autoOpt.textContent = `(Auto / ${grams}g)`;
         visionSelect.value = ""; // Select Auto
       }
+
+      console.log("Weight captured manually:", grams);
     };
   }
 
