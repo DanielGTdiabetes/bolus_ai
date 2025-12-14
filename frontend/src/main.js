@@ -16,6 +16,8 @@ import {
   saveNightscoutConfig,
   estimateCarbsFromImage,
   getCurrentGlucose,
+  saveTreatment,
+  getIOBData,
 } from "./lib/api";
 
 const CALC_SETTINGS_KEY = "bolusai_calc_settings";
@@ -86,6 +88,18 @@ function renderDashboard() {
          <div id="glucose-display" class="glucose-box">
             <span class="loading-text">Cargando...</span>
          </div>
+      </section>
+
+      <!-- IOB Card -->
+      <section class="card">
+         <div class="card-header">
+           <h2>Insulina Activa (IOB)</h2>
+           <button id="refresh-iob-btn" class="ghost small">↻</button>
+         </div>
+         <div class="iob-box" id="iob-display">
+            <span class="loading-text">Cargando...</span>
+         </div>
+         <canvas id="iob-graph" width="350" height="150" style="width:100%; max-height:150px; margin-top:10px;"></canvas>
       </section>
 
       <!-- Vision Card -->
@@ -183,6 +197,11 @@ function renderDashboard() {
           <p class="error" id="bolus-error" ${state.bolusError ? "" : "hidden"}>${state.bolusError || ""}</p>
         </form>
         <pre id="bolus-output">${state.bolusResult || "Pendiente de cálculo."}</pre>
+        <div class="actions" id="bolus-actions" hidden>
+           <button type="button" id="accept-bolus-btn" class="primary">✅ Aceptar bolo</button>
+           <span id="accept-msg" class="success" hidden></span>
+        </div>
+        
         <div id="bolus-explain" class="explain" hidden>
           <h3>Detalles del cálculo</h3>
           <ul id="explain-list"></ul>
@@ -506,6 +525,13 @@ function renderDashboard() {
   const bolusOutput = document.querySelector("#bolus-output");
   const bolusError = document.querySelector("#bolus-error");
 
+  // Clear actions on change
+  document.querySelector("#carbs").oninput = () => {
+    state.lastCalc = null;
+    const ba = document.querySelector("#bolus-actions");
+    if (ba) ba.hidden = true;
+  };
+
   bolusForm.addEventListener("submit", async (evt) => {
     evt.preventDefault();
     bolusError.hidden = true;
@@ -542,9 +568,20 @@ function renderDashboard() {
 
     try {
       const data = await calculateBolus(payload);
+      currentCalculatedBolus = data; // Store for accept
+
       state.bolusError = "";
       state.bolusResult = `Recomendación: ${data.total_u} U`;
       bolusOutput.textContent = state.bolusResult;
+
+      // Show actions
+      if (bolusActions) {
+        bolusActions.hidden = false;
+        if (acceptMsg) {
+          acceptMsg.hidden = true;
+          acceptMsg.textContent = "";
+        }
+      }
 
       if (data.iob_u > 0) {
         state.bolusResult += ` (IOB Restado: ${data.iob_u} U)`;
@@ -572,8 +609,114 @@ function renderDashboard() {
       bolusError.textContent = state.bolusError;
       bolusError.hidden = false;
       bolusOutput.textContent = "";
+      if (bolusActions) bolusActions.hidden = true;
     }
   });
+
+  // === IOB GRAPH & ACTIONS ===
+  const iobDisplay = document.querySelector("#iob-display");
+  const refreshIobBtn = document.querySelector("#refresh-iob-btn");
+  const iobCanvas = document.querySelector("#iob-graph");
+  const bolusActions = document.querySelector("#bolus-actions");
+  const acceptBolusBtn = document.querySelector("#accept-bolus-btn");
+  const acceptMsg = document.querySelector("#accept-msg");
+
+  let currentCalculatedBolus = null; // Re-defined in scope, but we use the closure variable above? 
+  // Wait, currentCalculatedBolus needs to be accessible by both the submit handler and the accept handler.
+  // I defined it above inside renderDashboard scope? No, I need to define it at top of renderDashboard or shared.
+  // Actually, I can just define it here and assign it in the submit handler if I move the variable definition up.
+  // OR simply look at state.
+
+  // Let's attach it to state to be safe?
+  // state.lastCalc = ...
+
+  if (acceptBolusBtn) {
+    acceptBolusBtn.onclick = async () => {
+      if (!currentCalculatedBolus) return;
+
+      acceptBolusBtn.disabled = true;
+      acceptBolusBtn.textContent = "Guardando...";
+      try {
+        const payload = {
+          insulin: currentCalculatedBolus.total_u,
+          carbs: parseFloat(document.querySelector("#carbs").value || 0),
+          created_at: new Date().toISOString(),
+          enteredBy: state.user.username,
+          nightscout: getLocalNsConfig()
+        };
+        await saveTreatment(payload);
+        acceptMsg.textContent = "Guardado y subido.";
+        acceptMsg.className = "success";
+        acceptMsg.hidden = false;
+        setTimeout(updateIOB, 1000);
+      } catch (e) {
+        acceptMsg.textContent = "Error: " + e.message;
+        acceptMsg.className = "error";
+        acceptMsg.hidden = false;
+      } finally {
+        acceptBolusBtn.textContent = "✅ Aceptar bolo";
+        acceptBolusBtn.disabled = false;
+      }
+    };
+  }
+
+  async function updateIOB() {
+    if (!iobDisplay) return;
+    iobDisplay.innerHTML = '<span class="loading-text">...</span>';
+    try {
+      const nsConfig = getLocalNsConfig();
+      const data = await getIOBData(nsConfig && nsConfig.url ? nsConfig : null);
+
+      iobDisplay.innerHTML = `
+          <div class="big-number">${data.iob_total} U</div>
+          ${(data.breakdown && data.breakdown.length) ? `<small>De ${data.breakdown.length} bolos</small>` : ""}
+       `;
+
+      if (data.graph && iobCanvas) {
+        drawIOBGraph(iobCanvas, data.graph);
+      }
+    } catch (err) {
+      iobDisplay.innerHTML = `<span class="error small">${err.message}</span>`;
+    }
+  }
+
+  function drawIOBGraph(canvas, points) {
+    const ctx = canvas.getContext("2d");
+    const width = canvas.width;
+    const height = canvas.height;
+    ctx.clearRect(0, 0, width, height);
+
+    if (!points || points.length < 2) return;
+
+    const maxIOB = Math.max(...points.map(p => p.iob), 0.1);
+    const durationMin = points[points.length - 1].min_from_now;
+    const padL = 30; const padB = 20;
+    const W = width - padL; const H = height - padB;
+
+    const x = (min) => padL + (min / durationMin) * W;
+    const y = (val) => H - (val / maxIOB) * H;
+
+    ctx.strokeStyle = "#e2e8f0"; ctx.lineWidth = 1; ctx.beginPath();
+    for (let i = 0; i <= durationMin; i += 60) {
+      ctx.moveTo(x(i), 0); ctx.lineTo(x(i), H);
+      ctx.fillStyle = "#64748b"; ctx.font = "10px sans-serif"; ctx.fillText(i + "m", x(i), height - 5);
+    }
+    ctx.stroke();
+
+    ctx.fillStyle = "rgba(59, 130, 246, 0.2)"; ctx.beginPath(); ctx.moveTo(x(0), H);
+    points.forEach(p => ctx.lineTo(x(p.min_from_now), y(p.iob)));
+    ctx.lineTo(x(durationMin), H); ctx.closePath(); ctx.fill();
+
+    ctx.strokeStyle = "#2563eb"; ctx.lineWidth = 2; ctx.beginPath();
+    points.forEach((p, i) => {
+      if (i === 0) ctx.moveTo(x(p.min_from_now), y(p.iob));
+      else ctx.lineTo(x(p.min_from_now), y(p.iob));
+    });
+    ctx.stroke();
+  }
+
+  if (refreshIobBtn) refreshIobBtn.onclick = updateIOB;
+  updateIOB();
 }
 
 function navigate(hash) {
@@ -597,6 +740,8 @@ setUnauthorizedHandler(() => {
 });
 
 window.addEventListener("hashchange", () => render());
+
+
 
 async function bootstrapSession() {
   if (!state.token) {

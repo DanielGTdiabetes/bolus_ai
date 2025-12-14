@@ -182,3 +182,148 @@ async def calculate_bolus_stateless(
     finally:
         if ns_client:
             await ns_client.aclose()
+
+
+class BolusAcceptRequest(BaseModel):
+    insulin: float
+    carbs: float = 0
+    created_at: str
+    notes: Optional[str] = ""
+    enteredBy: str = "BolusAI"
+    nightscout: Optional[dict] = None  # {url, token}
+
+
+@router.post("/treatments", summary="Save a treatment (bolus) to NS/Local")
+async def save_treatment(
+    payload: BolusAcceptRequest,
+    _: dict = Depends(get_current_user),
+    store: DataStore = Depends(_data_store),
+):
+    # 1. Save locally (Always, as backup/primary)
+    treatment_data = {
+        "eventType": "Correction Bolus" if payload.carbs == 0 else "Meal Bolus",
+        "created_at": payload.created_at,
+        "insulin": payload.insulin,
+        "carbs": payload.carbs,
+        "notes": payload.notes,
+        "enteredBy": payload.enteredBy,
+        "type": "bolus",
+        "ts": payload.created_at, # Local store format
+        "units": payload.insulin   # Local store format
+    }
+    
+    events = store.load_events()
+    events.append(treatment_data)
+    # Keep last 1000?
+    if len(events) > 1000:
+        events = events[-1000:]
+    store.save_events(events)
+    
+    # 2. Upload to Nightscout if configured
+    ns_uploaded = False
+    error = None
+    
+    # Check payload config first, then stored settings
+    ns_url = payload.nightscout.get("url") if payload.nightscout else None
+    ns_token = payload.nightscout.get("token") if payload.nightscout else None
+    
+    if not ns_url:
+        settings = store.load_settings()
+        if settings.nightscout.enabled:
+            ns_url = settings.nightscout.url
+            ns_token = settings.nightscout.token
+
+    if ns_url:
+        try:
+            client = NightscoutClient(ns_url, ns_token, timeout_seconds=5)
+            # NS expects specific format
+            ns_payload = {
+                "eventType": treatment_data["eventType"],
+                "created_at": payload.created_at,
+                "insulin": payload.insulin,
+                "carbs": payload.carbs,
+                "notes": payload.notes,
+                "enteredBy": payload.enteredBy,
+            }
+            # Remove unused keys or just send
+            await client.upload_treatments([ns_payload])
+            await client.aclose()
+            ns_uploaded = True
+        except Exception as e:
+            logger.error(f"Failed to upload treatment to NS: {e}")
+            error = str(e)
+            
+    return {
+        "success": True, 
+        "local_saved": True, 
+        "nightscout_uploaded": ns_uploaded,
+        "nightscout_error": error
+    }
+
+
+@router.get("/iob", summary="Get current IOB and decay curve")
+async def get_current_iob(
+    nightscout_url: Optional[str] = None,
+    nightscout_token: Optional[str] = None,
+    store: DataStore = Depends(_data_store),
+):
+    # Construct settings or load
+    settings = store.load_settings()
+    
+    # NS Client
+    ns_client = None
+    eff_url = nightscout_url or (settings.nightscout.url if settings.nightscout.enabled else None)
+    eff_token = nightscout_token or settings.nightscout.token
+    
+    if eff_url:
+        ns_client = NightscoutClient(eff_url, eff_token, timeout_seconds=5)
+        
+    try:
+        now = datetime.now(timezone.utc)
+        total_iob, breakdown = await compute_iob_from_sources(now, settings, ns_client, store)
+        
+        # Calculate Curve for next 4 hours (every 10 min)
+        # We reused "insulin_activity_fraction" from iob.py? No it's internal.
+        # We should expose it or re-implement simply here for the graph points.
+        # Actually iob calculations are complex over multiple boluses.
+        # Ideally we simulate time forward.
+        
+        from app.services.iob import InsulinActionProfile, compute_iob
+        
+        profile = InsulinActionProfile(
+            dia_hours=settings.iob.dia_hours,
+            curve=settings.iob.curve,
+            peak_minutes=settings.iob.peak_minutes
+        )
+        
+        # Convert breakdown back to simple bolus list for simulation
+        # breakdown has {ts(iso), units, iob(contribution)}
+        # We need original units/ts to project forward.
+        # Fortunately breakdown has 'units' and 'ts' (original time).
+        
+        active_boluses = []
+        for b in breakdown:
+            active_boluses.append({"ts": b["ts"], "units": b["units"]})
+            
+        curve_points = []
+        from datetime import timedelta
+        
+        # 4 hours forward
+        for i in range(0, 241, 10): # 0 to 240 min
+            future_time = now + timedelta(minutes=i)
+            val = compute_iob(future_time, active_boluses, profile)
+            curve_points.append({
+                "min_from_now": i,
+                "iob": round(val, 2),
+                "time": future_time.isoformat()
+            })
+            
+        return {
+            "iob_total": round(total_iob, 2),
+            "breakdown": breakdown, # Top contributors
+            "graph": curve_points
+        }
+        
+    finally:
+        if ns_client:
+            await ns_client.aclose()

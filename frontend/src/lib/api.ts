@@ -221,6 +221,30 @@ export async function estimateCarbsFromImage(file: any, options: any = {}) {
   return data;
 }
 
+export async function getIOBData(config) {
+  let url = "/api/bolus/iob";
+  if (config) {
+    const params = new URLSearchParams();
+    if (config.url) params.append("nightscout_url", config.url);
+    if (config.token) params.append("nightscout_token", config.token);
+    url += "?" + params.toString();
+  }
+  const response = await apiFetch(url);
+  const data = await toJson(response);
+  if (!response.ok) throw new Error(data.detail || "Error al obtener IOB");
+  return data;
+}
+
+export async function saveTreatment(payload) {
+  const response = await apiFetch("/api/bolus/treatments", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+  const data = await toJson(response);
+  if (!response.ok) throw new Error(data.detail || "Error al guardar tratamiento");
+  return data;
+}
+
 export function logout() {
   clearSession();
   if (unauthorizedHandler) unauthorizedHandler();

@@ -147,6 +147,16 @@ pre {
   overflow: auto;
 }
 
+.preview-img {
+  max-width: 100%;
+  max-height: 300px;
+  object-fit: contain;
+  border-radius: 8px;
+  border: 1px solid #cbd5e1;
+  display: block;
+  margin: 0 auto;
+}
+
 .hint {
   color: #475569;
   margin: 0.25rem 0;

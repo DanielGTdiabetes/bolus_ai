@@ -110,5 +110,9 @@ class NightscoutClient:
         data = await self._handle_response(response)
         return [Treatment.model_validate(item) for item in data]
 
+    async def upload_treatments(self, treatments: list[dict]) -> Any:
+        response = await self.client.post("/api/v1/treatments.json", json=treatments)
+        return await self._handle_response(response)
+
     async def aclose(self) -> None:
         await self.client.aclose()
