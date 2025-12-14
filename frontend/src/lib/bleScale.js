@@ -109,8 +109,8 @@ function handleNotifications(event) {
     // Fix 1: Use false for bigEndian (or simply omit 2nd arg as default is big-endian, but explicit is better)
     const raw = view.getInt16(len - 2, false);
 
-    // 3) ESCALA (Décimas de gramo -> Gramos)
-    const calculatedGrams = raw / 10;
+    // 3) ESCALA (El valor raw YA SON GRAMOS, no décimas)
+    const calculatedGrams = raw;
 
     // 4) CLAMP DURO (0 - 2000g)
     let grams = calculatedGrams;
