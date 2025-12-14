@@ -19,7 +19,7 @@ from app.models.bolus_split import (
 from app.services.bolus_engine import calculate_bolus_v2
 from app.services.bolus_split import create_plan, recalc_second
 
-from app.services.iob import compute_iob_from_sources
+from app.services.iob import compute_iob_from_sources, compute_cob_from_sources
 from app.services.nightscout_client import NightscoutClient, NightscoutError
 from app.services.store import DataStore
 
@@ -356,8 +356,13 @@ async def get_current_iob(
                 "time": future_time.isoformat()
             })
             
+            
+        # Calculate COB
+        total_cob = await compute_cob_from_sources(now, ns_client, store)
+
         return {
             "iob_total": round(total_iob, 2),
+            "cob_total": round(total_cob, 0),
             "breakdown": breakdown, # Top contributors
             "graph": curve_points
         }

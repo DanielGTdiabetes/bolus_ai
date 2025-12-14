@@ -478,11 +478,15 @@ async function updateIOB() {
       else iobCircle.style.stroke = "var(--primary)";
     }
 
-  } catch (err) {
-    console.error(err);
-    iobValEl.innerHTML = `<span style="font-size:0.8rem; color:red">err</span>`;
+    return data;
+
+  } catch (e) {
+    console.error("IOB Fetch Error", e);
+    return null;
   }
 }
+
+
 
 function drawIOBGraph(canvas, points) {
   const ctx = canvas.getContext("2d");
@@ -526,8 +530,13 @@ async function updateMetrics() {
   const config = getLocalNsConfig();
   if (!config) return;
 
-  // 1. IOB
-  await updateIOB();
+  // 1. IOB (returns full status data including COB)
+  const statusData = await updateIOB();
+
+  if (statusData && typeof statusData.cob_total !== 'undefined') {
+    const lblCob = document.getElementById('metric-cob');
+    if (lblCob) lblCob.innerHTML = `${statusData.cob_total} <span class="metric-unit">g</span>`;
+  }
 
   // 2. Last Bolus
   try {
@@ -536,12 +545,6 @@ async function updateMetrics() {
     const lbl = document.getElementById('metric-last');
     if (lbl && lastBolus) {
       lbl.innerHTML = `${lastBolus.insulin} <span class="metric-unit">U</span>`;
-    }
-    // 3. COB (Naive impl, or use IOB response if it contains COB)
-    const lblCob = document.getElementById('metric-cob');
-    if (lblCob) {
-      // Some IOB backends return cob explicitly, else we assume 0 or --
-      lblCob.innerHTML = `-- <span class="metric-unit">g</span>`;
     }
 
   } catch (e) { console.error("Metrics Loop Error", e); }

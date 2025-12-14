@@ -143,3 +143,59 @@ async def compute_iob_from_sources(
 
     breakdown.sort(key=lambda item: item["ts"], reverse=True)
     return max(total, 0.0), breakdown
+
+
+def compute_cob(now: datetime, carb_entries: Sequence[dict[str, float]], duration_hours: float = 4.0) -> float:
+    total = 0.0
+    duration_min = duration_hours * 60
+    for entry in carb_entries:
+        ts_raw = entry.get("ts")
+        grams = float(entry.get("carbs", 0))
+        if not ts_raw or grams <= 0:
+            continue
+        ts = _parse_timestamp(str(ts_raw))
+        elapsed = (now - ts).total_seconds() / 60
+        if elapsed < 0: elapsed = 0
+        
+        if elapsed >= duration_min:
+            fraction = 0.0
+        else:
+            fraction = 1.0 - (elapsed / duration_min)
+        
+        total += grams * fraction
+    return max(total, 0.0)
+
+def _carbs_from_treatments(treatments) -> list[dict[str, float]]:
+    entries: list[dict[str, float]] = []
+    for treatment in treatments:
+        carbs = getattr(treatment, "carbs", None)
+        ts = getattr(treatment, "created_at", None)
+        if carbs is None or ts is None:
+            continue
+        entries.append({"ts": ts.isoformat(), "carbs": float(carbs)})
+    return entries
+
+async def compute_cob_from_sources(
+    now: datetime,
+    nightscout_client,
+    data_store: DataStore,
+) -> float:
+    entries = []
+    if nightscout_client:
+        try:
+            # 6 hours lookback for carbs
+            treatments = await nightscout_client.get_recent_treatments(hours=6)
+            entries.extend(_carbs_from_treatments(treatments))
+        except Exception as exc:
+             logger.warning("Nightscout treatments (for COB) unavailable", extra={"error": str(exc)})
+    
+    # Also Check Local? 
+    # Usually we rely on NS if enabled, but local if not.
+    if not entries:
+        # Minimal local fallback
+        events = data_store.load_events()
+        for e in events:
+             if e.get("carbs"):
+                 entries.append({"ts": e["ts"], "carbs": float(e["carbs"])})
+
+    return compute_cob(now, entries, duration_hours=4.0)
