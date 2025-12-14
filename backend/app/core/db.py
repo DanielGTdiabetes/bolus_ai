@@ -55,13 +55,32 @@ def init_db():
                 q.pop("channel_binding")
                 
             u = u._replace(query=q)
-            _async_engine = create_async_engine(u, connect_args=connect_args, echo=False)
+            _async_engine = create_async_engine(u, connect_args=connect_args, echo=False, pool_pre_ping=True)
         else:
-            _async_engine = create_async_engine(url, echo=False)
+            _async_engine = create_async_engine(url, echo=False, pool_pre_ping=True)
 
         _async_session_factory = async_sessionmaker(_async_engine, expire_on_commit=False)
     else:
         logger.warning("DATABASE_URL not set. Using in-memory (dict) storage. Data will be lost on restart.")
+
+async def check_db_health():
+    """Simple health check: SELECT now()"""
+    if not _async_engine:
+        return {"ok": False, "error": "No database engine initialized (using memory?)"}
+    
+    try:
+        async with _async_engine.connect() as conn:
+            result = await conn.execute(text("SELECT now()"))
+            row = result.fetchone()
+            return {
+                "ok": True,
+                "db_time": str(row[0]) if row else None,
+                "database": "neondb", # Assumption/Hardcoded or derive
+                "driver": _async_engine.driver
+            }
+    except Exception as e:
+        logger.error(f"DB Health Check Failed: {e}")
+        return {"ok": False, "error": str(e)}
 
 async def create_tables():
     if _async_engine:
