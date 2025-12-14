@@ -21,7 +21,8 @@ import {
   calculateBolusWithOptionalSplit,
 } from "./lib/api";
 
-const CALC_SETTINGS_KEY = "bolusai_calc_settings";
+const CALC_PARAMS_KEY = "bolusai_calc_params";
+const LEGACY_CALC_SETTINGS_KEY = "bolusai_calc_settings";
 const SPLIT_SETTINGS_KEY = "bolusai_split_settings";
 
 function getSplitSettings() {
@@ -49,17 +50,28 @@ function saveSplitSettings(settings) {
   localStorage.setItem(SPLIT_SETTINGS_KEY, JSON.stringify(settings));
 }
 
-function getCalcSettings() {
+function getCalcParams() {
   try {
-    const raw = localStorage.getItem(CALC_SETTINGS_KEY);
-    return raw ? JSON.parse(raw) : null;
+    // 1. Try new Key
+    const raw = localStorage.getItem(CALC_PARAMS_KEY);
+    if (raw) return JSON.parse(raw);
+
+    // 2. Fallback Legacy
+    const legacy = localStorage.getItem(LEGACY_CALC_SETTINGS_KEY);
+    if (legacy) {
+      console.log("Migrating legacy calc settings...");
+      const parsed = JSON.parse(legacy);
+      saveCalcParams(parsed); // Migrate
+      return parsed;
+    }
+    return null;
   } catch (e) {
     return null;
   }
 }
 
-function saveCalcSettings(settings) {
-  localStorage.setItem(CALC_SETTINGS_KEY, JSON.stringify(settings));
+function saveCalcParams(params) {
+  localStorage.setItem(CALC_PARAMS_KEY, JSON.stringify(params));
 }
 
 const state = {
@@ -1179,33 +1191,6 @@ function initNsPanel() {
   };
 }
 
-const CALC_PARAMS_KEY = "bolusai_calc_params";
-const LEGACY_CALC_SETTINGS_KEY = "bolusai_calc_settings";
-
-function getCalcParams() {
-  try {
-    // 1. Try new Key
-    const raw = localStorage.getItem(CALC_PARAMS_KEY);
-    if (raw) return JSON.parse(raw);
-
-    // 2. Fallback Legacy
-    const legacy = localStorage.getItem(LEGACY_CALC_SETTINGS_KEY);
-    if (legacy) {
-      console.log("Migrating legacy calc settings...");
-      const parsed = JSON.parse(legacy);
-      saveCalcParams(parsed); // Migrate
-      return parsed;
-    }
-    return null;
-  } catch (e) {
-    return null;
-  }
-}
-
-function saveCalcParams(params) {
-  localStorage.setItem(CALC_PARAMS_KEY, JSON.stringify(params));
-}
-
 function initCalcPanel() {
   const defaults = {
     breakfast: { icr: 10, isf: 50, target: 110 },
@@ -1259,9 +1244,45 @@ function initCalcPanel() {
     e.preventDefault();
     saveCurrentSlotToMemory();
 
-    currentSettings.dia_hours = parseFloat(document.querySelector("#global-dia").value) || 4;
-    currentSettings.round_step_u = parseFloat(document.querySelector("#global-step").value) || 0.1;
-    currentSettings.max_bolus_u = parseFloat(document.querySelector("#global-max").value) || 10;
+    // 1. Read Globals from Inputs
+    const diaVal = parseFloat(document.querySelector("#global-dia").value);
+    const stepVal = parseFloat(document.querySelector("#global-step").value);
+    const maxVal = parseFloat(document.querySelector("#global-max").value);
+
+    // 2. Validate Globals
+    if (isNaN(diaVal) || diaVal <= 0) {
+      alert("La duración de insulina (DIA) debe ser positiva.");
+      return;
+    }
+    if (isNaN(stepVal) || stepVal <= 0) {
+      alert("El paso de redondeo debe ser positivo.");
+      return;
+    }
+    if (isNaN(maxVal) || maxVal <= 0) {
+      alert("El bolo máximo debe ser positivo.");
+      return;
+    }
+
+    // 3. Update Globals
+    currentSettings.dia_hours = diaVal;
+    currentSettings.round_step_u = stepVal;
+    currentSettings.max_bolus_u = maxVal;
+
+    // 4. Validate Slots (ICR, ISF, Target for all slots)
+    // Since we only edit one slot at a time, we trust the defaults/loaded values for others,
+    // but we should check the current slot inputs if they are valid.
+    /* Note: saveCurrentSlotToMemory() populates from inputs. If input was empty/invalid, it used fallback or NaN.
+       Let's check currentSettings deeply. */
+
+    // Check all slots
+    const slots = ["breakfast", "lunch", "dinner"];
+    for (const slot of slots) {
+      const s = currentSettings[slot];
+      if (s.icr <= 0 || s.isf <= 0 || s.target < 0) {
+        alert(`Error en franja '${slot}': Revisa ICR, ISF y Objetivo.`);
+        return;
+      }
+    }
 
     // Save with new key
     saveCalcParams(currentSettings);
