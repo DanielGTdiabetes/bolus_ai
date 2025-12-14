@@ -46,6 +46,14 @@ class BolusRequestV2(BaseModel):
     nightscout: Optional[NightscoutConfigSimple] = None
     settings: Optional[CalcSettings] = None
 
+    # Flat Overrides (Hybrid mode)
+    cr_g_per_u: Optional[float] = Field(default=None, gt=0)
+    isf_mgdl_per_u: Optional[float] = Field(default=None, gt=0)
+    dia_hours: Optional[float] = Field(default=None, ge=2, le=8)
+    round_step_u: Optional[float] = Field(default=None, gt=0)
+    max_bolus_u: Optional[float] = Field(default=None, gt=0)
+    max_correction_u: Optional[float] = Field(default=None, gt=0)
+
     # New flags
     exercise: ExerciseParams = Field(default_factory=ExerciseParams)
     slow_meal: SlowMealParams = Field(default_factory=SlowMealParams)

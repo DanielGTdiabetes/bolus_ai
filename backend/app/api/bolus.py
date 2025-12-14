@@ -65,19 +65,11 @@ async def calculate_bolus_stateless(
             dinner=payload.settings.dinner.isf
         )
         
-        # Mean factors (cf = Sensitivity)
-        
-        # For targets, UserSettings uses low/mid/high range. We only have single target per slot in stateless.
-        # We can set 'mid' to the target of the requested slot, or just mock it.
-        target_settings = TargetRange(
-            low=70, 
-            mid=100, 
-            high=180
-        )
+        target_settings = TargetRange(low=70, mid=100, high=180)
         
         iob_settings = IOBConfig(
              dia_hours=payload.settings.dia_hours,
-             curve="bilinear", # Default
+             curve="bilinear", 
              peak_minutes=75 
         )
         
@@ -99,10 +91,45 @@ async def calculate_bolus_stateless(
             round_step_u=payload.settings.round_step_u
         )
         
-        # Pre-fill target from slot if not in request (handled by engine mostly, but good to have)
         if payload.target_mgdl is None:
              slot_profile = getattr(payload.settings, payload.meal_slot)
              payload.target_mgdl = slot_profile.target
+
+    elif payload.cr_g_per_u:
+        # Flat Overrides (Hybrid)
+        from app.models.settings import MealFactors, TargetRange, IOBConfig, NightscoutConfig
+        
+        # Apply single CR/ISF to ALL slots for safety/simplicity in this stateless request
+        cr_val = payload.cr_g_per_u
+        isf_val = payload.isf_mgdl_per_u or 30.0
+        
+        cr_settings = MealFactors(breakfast=cr_val, lunch=cr_val, dinner=cr_val)
+        isf_settings = MealFactors(breakfast=isf_val, lunch=isf_val, dinner=isf_val)
+        
+        target_settings = TargetRange(low=70, mid=payload.target_mgdl or 100, high=180)
+        
+        iob_settings = IOBConfig(
+             dia_hours=payload.dia_hours or 4.0,
+             curve="bilinear", 
+             peak_minutes=75
+        )
+        
+        ns_settings = NightscoutConfig(
+            enabled=bool(payload.nightscout and payload.nightscout.url),
+            url=payload.nightscout.url if payload.nightscout else "",
+            token=payload.nightscout.token if payload.nightscout else ""
+        )
+        
+        user_settings = UserSettings(
+            cr=cr_settings,
+            cf=isf_settings,
+            targets=target_settings,
+            iob=iob_settings,
+            nightscout=ns_settings,
+            max_bolus_u=payload.max_bolus_u or 10.0,
+            max_correction_u=payload.max_correction_u or 5.0,
+            round_step_u=payload.round_step_u or 0.05
+        )
 
     else:
         # Legacy: Load from DB
