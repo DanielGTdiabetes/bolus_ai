@@ -1,0 +1,133 @@
+import uuid
+from datetime import datetime, date
+from typing import List, Optional, Dict, Any
+from sqlalchemy import text
+from app.core.db import _async_engine
+import logging
+
+logger = logging.getLogger(__name__)
+
+# Fallback in-memory storage if DB is not active
+_mem_doses = []
+_mem_checkins = {} # (user_id, day) -> dict
+_mem_notes = []
+
+async def upsert_basal_dose(user_id: str, dose_u: float, effective_from: date = None) -> Dict[str, Any]:
+    if effective_from is None:
+        effective_from = date.today()
+    
+    entry_id = str(uuid.uuid4())
+    now = datetime.utcnow()
+    
+    if _async_engine:
+        # PostgreSQL
+        query = text("""
+            INSERT INTO basal_dose (id, user_id, dose_u, effective_from, created_at)
+            VALUES (:id, :user_id, :dose_u, :effective_from, :created_at)
+            RETURNING id, user_id, dose_u, effective_from, created_at
+        """)
+        params = {
+            "id": entry_id,
+            "user_id": user_id,
+            "dose_u": dose_u,
+            "effective_from": effective_from,
+            "created_at": now
+        }
+        async with _async_engine.begin() as conn:
+            result = await conn.execute(query, params)
+            row = result.fetchone()
+            if row:
+                return dict(row._mapping)
+    else:
+        # In-Memory
+        entry = {
+            "id": entry_id,
+            "user_id": user_id,
+            "dose_u": dose_u,
+            "effective_from": effective_from,
+            "created_at": now
+        }
+        _mem_doses.append(entry)
+        return entry
+
+async def get_latest_basal_dose(user_id: str) -> Optional[Dict[str, Any]]:
+    if _async_engine:
+        query = text("""
+            SELECT * FROM basal_dose 
+            WHERE user_id = :user_id 
+            ORDER BY effective_from DESC, created_at DESC 
+            LIMIT 1
+        """)
+        async with _async_engine.connect() as conn:
+            result = await conn.execute(query, {"user_id": user_id})
+            row = result.fetchone()
+            return dict(row._mapping) if row else None
+    else:
+        user_doses = [d for d in _mem_doses if d["user_id"] == user_id]
+        if not user_doses:
+            return None
+        # Sort by effective_from desc, then created_at desc
+        return sorted(user_doses, key=lambda x: (x["effective_from"], x["created_at"]), reverse=True)[0]
+
+async def upsert_daily_checkin(user_id: str, day: date, bg_mgdl: float, trend: str, age_min: int, source: str) -> Dict[str, Any]:
+    entry_id = str(uuid.uuid4())
+    now = datetime.utcnow()
+    
+    if _async_engine:
+        # Uses ON CONFLICT on (user_id, day) assuming unique constraint exists per user request
+        query = text("""
+            INSERT INTO basal_checkin (id, user_id, day, bg_mgdl, trend, age_min, source, created_at)
+            VALUES (:id, :user_id, :day, :bg, :trend, :age, :src, :now)
+            ON CONFLICT (user_id, day) DO UPDATE
+            SET bg_mgdl = EXCLUDED.bg_mgdl,
+                trend = EXCLUDED.trend,
+                age_min = EXCLUDED.age_min,
+                source = EXCLUDED.source,
+                created_at = EXCLUDED.created_at
+            RETURNING *
+        """)
+        params = {
+            "id": entry_id,
+            "user_id": user_id,
+            "day": day,
+            "bg": bg_mgdl,
+            "trend": trend,
+            "age": age_min,
+            "src": source,
+            "now": now
+        }
+        async with _async_engine.begin() as conn:
+            result = await conn.execute(query, params)
+            row = result.fetchone()
+            return dict(row._mapping) if row else None
+    else:
+        key = (user_id, day)
+        entry = {
+            "id": entry_id,
+            "user_id": user_id,
+            "day": day,
+            "bg_mgdl": bg_mgdl,
+            "trend": trend,
+            "age_min": age_min,
+            "source": source,
+            "created_at": now
+        }
+        _mem_checkins[key] = entry
+        return entry
+
+async def list_checkins(user_id: str, days: int = 14) -> List[Dict[str, Any]]:
+    if _async_engine:
+        query = text("""
+            SELECT * FROM basal_checkin
+            WHERE user_id = :user_id
+            ORDER BY day DESC
+            LIMIT :limit
+        """)
+        async with _async_engine.connect() as conn:
+            result = await conn.execute(query, {"user_id": user_id, "limit": days})
+            rows = result.fetchall()
+            return [dict(r._mapping) for r in rows]
+    else:
+        user_checks = [v for k,v in _mem_checkins.items() if k[0] == user_id]
+        sorted_checks = sorted(user_checks, key=lambda x: x["day"], reverse=True)
+        return sorted_checks[:days]
