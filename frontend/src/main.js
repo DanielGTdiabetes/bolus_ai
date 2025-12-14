@@ -669,13 +669,16 @@ function renderHeader(title = "Bolus AI", showBack = false) {
       <header class="topbar">
         ${showBack
       ? `<div class="header-action" onclick="window.history.back()">‹</div>`
-      : `<div class="header-profile">👤</div>`
-    }
+      : `<div class="header-profile"><button id="profile-btn" class="ghost">👤</button></div>`}
         <div class="header-title-group">
           <div class="header-title">${title}</div>
           ${!showBack ? `<div class="header-subtitle">Tu asistente de diabetes</div>` : ''}
         </div>
-        <div class="header-action has-dot" id="notifications-btn">🔔</div>
+        <div class="header-action has-dot">
+          <button id="notifications-btn" class="ghost">🔔</button>
+        </div>
+        <button id="change-pwd-btn" class="small ghost" style="margin-left:0.5rem;" onclick="navigate('#/change-password')">Cambiar pwd</button>
+        <button id="logout-btn" class="small ghost" style="margin-left:0.5rem;" onclick="logout()">Logout</button>
       </header>
     `;
 }
