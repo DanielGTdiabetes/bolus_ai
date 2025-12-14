@@ -1505,8 +1505,8 @@ function renderScan() {
     state.plateBuilder.total = total;
     plateTotalEl.textContent = total; // total integer
 
-    // Update main Total Carbs Display if needed
-    if (total > 0) {
+    // Show Finalize button if there are any entries (even if 0 carbs, e.g. for logging)
+    if (state.plateBuilder.entries.length > 0) {
       btnFinPlate.hidden = false;
     } else {
       btnFinPlate.hidden = true;
