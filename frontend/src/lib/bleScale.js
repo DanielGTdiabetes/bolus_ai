@@ -90,34 +90,77 @@ export async function tare() {
     await rxChar.writeValue(encoder.encode(CMD_TARE));
 }
 
+
+let lastValidGrams = 0;
+let lastDebugTime = 0;
+
 function handleNotifications(event) {
     const value = event.target.value;
     // Parse data
-    // Expected: [ ... , battery, ... , weightL, weightH ] or similar
-    // Payload is binary. 
-    // Based on "antomanc/simple-prozis-bit-scale":
-    // Battery is at index 1 (0-100)
-    // Weight is last 2 bytes (int16 little endian)
+    const len = value.byteLength;
+    if (len < 4) return;
 
-    if (value.byteLength < 4) return;
+    const view = new DataView(value.buffer);
 
-    const batt = value.getUint8(1);
-    const grams = value.getInt16(value.byteLength - 2, true);
+    // 1) LECTURA BATERÍA
+    const batt = view.getUint8(1);
 
-    // Stability
+    // 2) LECTURA PESO (INT16 BIG-ENDIAN)
+    // Fix 1: Use false for bigEndian (or simply omit 2nd arg as default is big-endian, but explicit is better)
+    const raw = view.getInt16(len - 2, false);
+
+    // 3) ESCALA (Décimas de gramo -> Gramos)
+    const calculatedGrams = raw / 10;
+
+    // 4) CLAMP DURO (0 - 2000g)
+    let grams = calculatedGrams;
+    let inRange = true;
+
+    if (grams < 0 || grams > 2000) {
+        inRange = false;
+        // Maintain last valid value
+        grams = lastValidGrams;
+    } else {
+        lastValidGrams = grams;
+    }
+
+    // 5) DEBUG CONTROLADO
+    const debug = window.location.search.includes('bledebug=1');
+    if (debug) {
+        const now = Date.now();
+        if (now - lastDebugTime > 1000) {
+            // Log hex of last few bytes
+            const hex = [];
+            for (let i = 0; i < len; i++) hex.push(view.getUint8(i).toString(16).padStart(2, '0'));
+            console.log(`[BLE DEBUG] Raw: ${raw}, Calc: ${calculatedGrams}, Final: ${grams}, Hex: ${hex.join(' ')}`);
+            lastDebugTime = now;
+        }
+    }
+
+    // Stability Logic
     const now = Date.now();
-    history.push({ t: now, g: grams });
-    // Prune old history
-    history = history.filter(h => now - h.t <= STABLE_WINDOW_MS);
+    // Only push to history if in range, otherwise we might detect stability on "frozen" out-of-range value?
+    // User said "Marcar stable = false" if out of range.
 
     let stable = false;
-    if (history.length > 5) {
-        const vals = history.map(h => h.g);
-        const min = Math.min(...vals);
-        const max = Math.max(...vals);
-        if ((max - min) <= STABLE_THRESHOLD_G) {
-            stable = true;
+
+    if (inRange) {
+        history.push({ t: now, g: grams });
+        history = history.filter(h => now - h.t <= STABLE_WINDOW_MS);
+
+        if (history.length > 5) {
+            const vals = history.map(h => h.g);
+            const min = Math.min(...vals);
+            const max = Math.max(...vals);
+            if ((max - min) <= STABLE_THRESHOLD_G) {
+                stable = true;
+            }
         }
+    } else {
+        // Out of range -> Unstable
+        stable = false;
+        // Clear history to avoid mixing bad states
+        history = [];
     }
 
     if (onDataCallback) {
