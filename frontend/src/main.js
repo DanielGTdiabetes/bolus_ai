@@ -25,6 +25,10 @@ const CALC_PARAMS_KEY = "bolusai_calc_params";
 const LEGACY_CALC_SETTINGS_KEY = "bolusai_calc_settings";
 const SPLIT_SETTINGS_KEY = "bolusai_split_settings";
 
+function getDefaultMealParams(calcParams) {
+  return calcParams?.lunch ?? null; // default comida
+}
+
 function getSplitSettings() {
   try {
     const raw = localStorage.getItem(SPLIT_SETTINGS_KEY);
@@ -592,31 +596,41 @@ function renderDashboard() {
     }
 
     const calcParams = getCalcParams();
-    if (calcParams) {
-      // Extract specific slot settings (default to lunch if missing or invalid)
-      const slotName = payload.meal_slot || "lunch";
-      const mealSettings = calcParams[slotName] || calcParams.lunch || { icr: 10, isf: 50, target: 110 };
+    const meal = calcParams ? (calcParams[payload.meal_slot] || getDefaultMealParams(calcParams)) : null;
 
-      // Map to flat structure expected by BolusRequestV2 settings
-      payload.settings = {
-        cr_g_per_u: mealSettings.icr,
-        isf_mgdl_per_u: mealSettings.isf,
-        target_mgdl: mealSettings.target,
-        // Globals
-        dia_hours: calcParams.dia_hours || 4,
-        max_bolus_u: calcParams.max_bolus_u || 10,
-        round_step_u: calcParams.round_step_u || 0.1
-      };
-
-      // If user overrode target in UI, that takes precedence over settings->target_mgdl
-      // but payload.target_mgdl is already set above if input exists.
-      // Backend usually prefers the top-level target_mgdl if present.
-    } else {
+    if (!calcParams || !meal) {
       bolusError.textContent = "⚠️ Configura primero los parámetros de cálculo en 'Configuración'.";
       bolusError.hidden = false;
       bolusOutput.textContent = "";
       return;
     }
+
+    // Construct Flat Payload as requested
+    const calcPayload = {
+      carbs_g: payload.carbs_g,
+      // Use explicit glucose_mgdl if backend supports it, or bg_mgdl (standard). 
+      // User asked for "glucose_mgdl: bg" but standard is usually bg_mgdl. 
+      // We will send BOTH to be safe given the confusion or strict compliance.
+      // But adhering to exact user snippet:
+      glucose_mgdl: payload.bg_mgdl, // mapped from stored payload.bg_mgdl
+      bg_mgdl: payload.bg_mgdl,      // Keeping original key for compatibility just in case
+
+      target_mgdl: payload.target_mgdl || meal.target,
+      cr_g_per_u: meal.icr,
+      isf_mgdl_per_u: meal.isf,
+
+      dia_hours: calcParams.dia_hours,
+      round_step_u: calcParams.round_step_u,
+      max_bolus_u: calcParams.max_bolus_u,
+
+      // Inject Nightscout if present
+      nightscout: payload.nightscout
+    };
+
+    // User asked not to ignore missing params condition, but we handled it above.
+
+    // NOTE: The previous payload.settings structure is REMOVED as per instruction 
+    // to "construir calcPayload así" with flat fields.
 
     try {
       // Choose strategy
