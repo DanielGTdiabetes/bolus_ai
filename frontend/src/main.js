@@ -613,6 +613,7 @@ async function updateGlucoseUI() {
 function navigate(hash) {
   window.location.hash = hash;
 }
+window.navigate = navigate;
 
 function redirectToLogin() {
   navigate("#/login");

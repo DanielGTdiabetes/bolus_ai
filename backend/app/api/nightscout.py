@@ -182,3 +182,40 @@ async def update_config_legacy(
 ):
     return {"message": "Server-side config deprecated. Use client-side storage."}
 
+
+@router.get("/treatments", summary="Get recent treatments (Stateless Proxy)")
+async def get_treatments_proxy(
+    url: str,
+    token: Optional[str] = None,
+    count: int = 10,
+    _: dict = Depends(get_current_user),
+):
+    """
+    Proxies a GET request to Nightscout /api/v1/treatments.
+    """
+    if not url:
+        raise HTTPException(status_code=400, detail="Missing URL")
+
+    try:
+        client = NightscoutClient(base_url=url, token=token, timeout_seconds=10)
+        try:
+            # Reusing get_recent_treatments logic as it's cleaner
+            # count param is used as 'limit' in client if we passed it, but client has hardcoded defaults in signature?
+            # get_recent_treatments(self, hours: int = 24, limit: int = 200)
+            
+            # Since user wants history, let's fetch roughly last 24h or up to count.
+            # We can use the client to fetch.
+            treatments = await client.get_recent_treatments(hours=48, limit=count)
+            return treatments
+        finally:
+            await client.aclose()
+            
+    except NightscoutError as nse:
+        # Pass through the Nightscout error as 502
+         raise HTTPException(status_code=502, detail=str(nse))
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e)) 
+
+
