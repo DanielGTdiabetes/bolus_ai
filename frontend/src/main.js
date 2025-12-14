@@ -265,6 +265,7 @@ function renderDashboard() {
               <option value="breakfast">Desayuno</option>
               <option value="lunch" selected>Comida</option>
               <option value="dinner">Cena</option>
+              <option value="snack">Snack</option>
             </select>
           </label>
           <label>Objetivo (mg/dL, opcional)
@@ -1214,6 +1215,7 @@ function renderSettings() {
                 <button type="button" data-slot="breakfast" class="sub-tab active">Desayuno</button>
                 <button type="button" data-slot="lunch" class="sub-tab">Comida</button>
                 <button type="button" data-slot="dinner" class="sub-tab">Cena</button>
+                <button type="button" data-slot="snack" class="sub-tab">Snack</button>
              </div>
              
              <div id="slot-fields">
@@ -1385,12 +1387,19 @@ function initCalcPanel() {
     breakfast: { icr: 10, isf: 50, target: 110 },
     lunch: { icr: 10, isf: 50, target: 110 },
     dinner: { icr: 10, isf: 50, target: 110 },
+    snack: { icr: 10, isf: 50, target: 110 }, // New Snack Slot
     dia_hours: 4,
     round_step_u: 0.1,
     max_bolus_u: 10
   };
 
   let currentSettings = getCalcParams() || defaults;
+
+  // Migration: Ensure snack exists if loading old settings
+  if (!currentSettings.snack) {
+    currentSettings.snack = { ...defaults.snack }; // use defaults or clone lunch
+  }
+
   let currentSlot = "breakfast";
 
   const form = document.querySelector("#calc-form");
@@ -1454,21 +1463,23 @@ function initCalcPanel() {
     }
 
     // 3. Construct the Final Object explicitely
-    // We already have 'currentSettings' holding the slot data (breakfast, lunch, dinner)
-    // from 'saveCurrentSlotToMemory' and previous data.
-    // We update the globals now.
+    // We already have 'currentSettings' holding the slot data
+
+    // Check missing slots (parity with migration)
+    if (!currentSettings.snack) currentSettings.snack = { ...defaults.snack };
 
     const finalParams = {
       breakfast: { ...currentSettings.breakfast },
       lunch: { ...currentSettings.lunch },
       dinner: { ...currentSettings.dinner },
+      snack: { ...currentSettings.snack },
       dia_hours: diaVal,
       round_step_u: stepVal,
       max_bolus_u: maxVal
     };
 
     // 4. Validate Slots deeply
-    for (const key of ["breakfast", "lunch", "dinner"]) {
+    for (const key of ["breakfast", "lunch", "dinner", "snack"]) {
       const s = finalParams[key];
       if (!s || s.icr <= 0 || s.isf <= 0 || s.target < 0) {
         alert(`Error en validación de ${key}. Revisa los valores (ICR, ISF > 0).`);
