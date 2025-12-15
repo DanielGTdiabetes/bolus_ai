@@ -183,33 +183,30 @@ async def get_summary_service(user_id: str, days: int, db: AsyncSession):
     # Initialize
     for m in by_meal:
         for w in [2, 3, 5]:
-            by_meal[m][f"{w}h"] = {"short":0, "ok":0, "over":0, "missing":0}
+            # Added "unavailable_iob" to track quality per window
+            by_meal[m][f"{w}h"] = {"short":0, "ok":0, "over":0, "missing":0, "unavailable_iob": 0}
             
     # Process
     unique_boluses = set()
     
     for row in rows:
         unique_boluses.add(row.bolus_at)
-        if row.iob_status == "unavailable":
-            # Just count globally?
-            # "data_quality": { "iob_unavailable_events": X }
-            # Since checks are per window, if one window is unavailable, does it mean the event is?
-            # Usually iob_status is per bolus.
-            pass
-            
+        
         m = row.meal_slot
         w = f"{row.window_h}h"
         res = row.result
         
         if m in by_meal and w in by_meal[m]:
+            # if IOB is unavailable, we don't trust the outcome for pattern analysis, 
+            # but we track it for quality metrics.
+            if row.iob_status == "unavailable":
+                by_meal[m][w]["unavailable_iob"] += 1
+                continue
+                
             by_meal[m][w][res] += 1
             
     # Count iob_unavailable based on unique boluses?
-    # Or just sum from rows where iob_status = unavailable (divided by 3?)
-    # Let's count from rows directly. 
-    # Actually, iob_status is stored per window row, but comes from the bolus.
-    # We can count unique boluses with iob_status=unavailable.
-    
+    # We kept the global one for backward compatibility or general health check
     unavailable_boluses = set()
     for row in rows:
         if row.iob_status == "unavailable":
@@ -223,7 +220,18 @@ async def get_summary_service(user_id: str, days: int, db: AsyncSession):
     # "Para cada meal_slot y window_h... si n >= 5..."
     for m, windows in by_meal.items():
         for w_key, counts in windows.items():
-            total_valid = counts["short"] + counts["ok"] + counts["over"] # Ignore missing
+            total_valid = counts["short"] + counts["ok"] + counts["over"] # Ignore missing and unavailable for ratio
+            
+            # Check Quality (New requirement for suggestions, but good for insights too)
+            # If we have too many unavailable IOBs, maybe we shouldn't emit insight?
+            # Or currently we just emit based on valid data.
+            # User requirement: "proporción de eventos con iob_status='unavailable' <= 30%"
+            total_total = total_valid + counts["unavailable_iob"]
+            if total_total > 0:
+                bad_ratio = counts["unavailable_iob"] / total_total
+                if bad_ratio > 0.30:
+                    continue # Skip insight if data is poor quality
+            
             if total_valid >= 5:
                 short_ratio = counts["short"] / total_valid
                 over_ratio = counts["over"] / total_valid

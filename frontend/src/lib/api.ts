@@ -482,3 +482,40 @@ export async function getAnalysisSummary(days: number) {
   if (!response.ok) throw new Error(data.detail || "Error al obtener resumen");
   return data;
 }
+
+export async function generateSuggestions(days = 30) {
+  const response = await apiFetch("/api/suggestions/generate", {
+    method: "POST",
+    body: JSON.stringify({ days }),
+  });
+  const data = await toJson(response);
+  if (!response.ok) throw new Error(data.detail || "Error al generar sugerencias");
+  return data;
+}
+
+export async function getSuggestions(status = "pending") {
+  const response = await apiFetch(`/api/suggestions?status=${status}`);
+  const data = await toJson(response);
+  if (!response.ok) throw new Error(data.detail || "Error al obtener sugerencias");
+  return data;
+}
+
+export async function acceptSuggestion(id, note, proposed_change) {
+  const response = await apiFetch(`/api/suggestions/${id}/accept`, {
+    method: "POST",
+    body: JSON.stringify({ note, proposed_change }),
+  });
+  const data = await toJson(response);
+  if (!response.ok) throw new Error(data.detail || "Error al aceptar sugerencia");
+  return data;
+}
+
+export async function rejectSuggestion(id, note) {
+  const response = await apiFetch(`/api/suggestions/${id}/reject`, {
+    method: "POST",
+    body: JSON.stringify({ note }),
+  });
+  const data = await toJson(response);
+  if (!response.ok) throw new Error(data.detail || "Error al rechazar sugerencia");
+  return data;
+}

@@ -30,7 +30,11 @@ import {
   runNightScan,
   getBasalAdvice,
   runAnalysis,
-  getAnalysisSummary
+  getAnalysisSummary,
+  generateSuggestions,
+  getSuggestions,
+  acceptSuggestion,
+  rejectSuggestion
 } from "./lib/api";
 
 import {
@@ -1550,6 +1554,8 @@ function render() {
     renderHistory();
   } else if (route === "#/patterns") {
     renderPatterns();
+  } else if (route === "#/suggestions") {
+    renderSuggestions();
   } else {
     renderHome(); // Default to Home
   }
@@ -2857,6 +2863,186 @@ async function loadSummary(days) {
   }
 }
 
+// --- VIEW: SUGGESTIONS ---
+async function renderSuggestions() {
+  if (!ensureAuthenticated()) return;
+  app.innerHTML = `
+        ${renderHeader("Sugerencias", true)}
+        <main class="page">
+            <div style="display:flex; justify-content:flex-end; margin-bottom:1rem;">
+                <button id="btn-gen-sug" class="btn-primary" style="font-size:0.9rem; padding:0.5rem 1rem;">✨ Generar Nuevas</button>
+            </div>
+            
+            <div id="sug-list" style="display:flex; flex-direction:column; gap:1rem;">
+                <div class="spinner">Cargando sugerencias...</div>
+            </div>
+        </main>
+        ${renderBottomNav('suggestions')}
+        
+        <!-- Modal for Acceptance -->
+        <dialog id="accept-modal" style="border:none; border-radius:12px; padding:0; width:90%; max-width:400px; box-shadow:0 10px 25px rgba(0,0,0,0.2);">
+             <div style="padding:1.5rem;">
+                 <h3 style="margin-top:0; color:var(--primary)">Aceptar Cambio</h3>
+                 <p id="accept-modal-desc" style="font-size:0.9rem; color:#64748b; margin-bottom:1rem;"></p>
+                 
+                 <div style="margin-bottom:1rem;">
+                    <label style="display:block; font-size:0.8rem; font-weight:600; color:#64748b">Valor Actual</label>
+                    <div id="accept-current-val" style="font-size:1.1rem; font-weight:700;">--</div>
+                 </div>
+                 
+                 <div style="margin-bottom:1.5rem;">
+                    <label style="display:block; font-size:0.8rem; font-weight:600; color:#64748b">Nuevo Valor</label>
+                    <input type="number" id="accept-new-val" step="0.1" style="width:100%; padding:0.8rem; border:1px solid #cbd5e1; border-radius:8px; font-size:1.2rem; font-weight:700;">
+                 </div>
+                 
+                 <div style="display:flex; gap:0.5rem">
+                    <button id="btn-modal-cancel" class="btn-ghost" style="flex:1">Cancelar</button>
+                    <button id="btn-modal-confirm" class="btn-primary" style="flex:1">Guardar</button>
+                 </div>
+             </div>
+        </dialog>
+    `;
+
+  // Handlers
+  const btnGen = document.getElementById('btn-gen-sug');
+  const list = document.getElementById('sug-list');
+  const modal = document.getElementById('accept-modal');
+
+  // Load
+  loadList();
+
+  async function loadList() {
+    try {
+      const items = await getSuggestions("pending");
+      if (items.length === 0) {
+        list.innerHTML = `<div style="text-align:center; padding:3rem; color:#94a3b8; font-style:italic;">No hay sugerencias pendientes.</div>`;
+        return;
+      }
+
+      list.innerHTML = items.map(s => `
+                <div class="card" style="border-left:4px solid var(--primary);">
+                    <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+                        <div>
+                           <span class="chip" style="background:#e0f2fe; color:#0369a1; text-transform:capitalize;">${s.meal_slot}</span>
+                           <span class="chip" style="background:#f1f5f9; color:#475569; text-transform:uppercase;">${s.parameter}</span>
+                        </div>
+                        <small style="color:#94a3b8">${new Date(s.created_at).toLocaleDateString()}</small>
+                    </div>
+                    
+                    <p style="margin:1rem 0; font-weight:600; line-height:1.4;">${s.reason}</p>
+                    
+                    <div style="background:#f8fafc; padding:0.8rem; border-radius:6px; font-size:0.85rem; color:#64748b; margin-bottom:1rem;">
+                        <strong>Evidencia:</strong> Ventana ${s.evidence.window}. Ratio incidencia: ${Math.round(s.evidence.ratio * 100)}%. (Base ${s.evidence.days} días)
+                    </div>
+                    
+                    <div style="display:flex; gap:0.5rem;">
+                         <button onclick="handleReject('${s.id}')" class="btn-ghost" style="color:#b91c1c; border:1px solid #fecaca; flex:1">Rechazar</button>
+                         <button onclick="handleAccept('${s.id}', '${s.meal_slot}', '${s.parameter}')" class="btn-primary" style="flex:1">Revisar</button>
+                    </div>
+                </div>
+            `).join('');
+
+    } catch (e) {
+      list.innerHTML = `<div class="error">Error: ${e.message}</div>`;
+    }
+  }
+
+  btnGen.onclick = async () => {
+    btnGen.disabled = true;
+    btnGen.textContent = "Generando...";
+    try {
+      const res = await generateSuggestions(30);
+      alert(`Sugerencias generadas: ${res.created} nuevas.`);
+      loadList();
+    } catch (e) {
+      alert(e.message);
+    } finally {
+      btnGen.disabled = false;
+      btnGen.textContent = "✨ Generar Nuevas";
+    }
+  };
+
+  // Global handlers for buttons in HTML maps
+  window.handleReject = async (id) => {
+    const reason = prompt("¿Motivo del rechazo? (Opcional)");
+    if (reason === null) return; // cancelled
+    try {
+      await rejectSuggestion(id, reason || "Rechazado por usuario");
+      loadList(); // Refresh
+    } catch (e) {
+      alert(e.message);
+    }
+  };
+
+  window.handleAccept = (id, slotRaw, paramRaw) => {
+    // 1. Get current config
+    const settings = getCalcParams();
+    if (!settings) {
+      alert("Error: No se encontró configuración local.");
+      return;
+    }
+
+    // Slot mapping: backend uses 'breakfast', settings uses 'breakfast' keys
+    // Param mapping: backend 'icr' -> settings 'icr', 'isf' -> 'isf', 'target' -> 'target'
+    const slotData = settings[slotRaw];
+    if (!slotData) {
+      alert(`Error: No existe configuración para ${slotRaw}`);
+      return;
+    }
+
+    const currentVal = slotData[paramRaw]; // e.g. slotData.icr
+
+    // 2. Open Modal
+    document.getElementById('accept-current-val').textContent = currentVal;
+    document.getElementById('accept-new-val').value = currentVal; // prefill
+    document.getElementById('accept-modal-desc').textContent = `Estás revisando el ${paramRaw.toUpperCase()} para ${slotRaw}.`;
+
+    // Setup Bindings
+    const btnSave = document.getElementById('btn-modal-confirm');
+    const btnCancel = document.getElementById('btn-modal-cancel');
+
+    // Clear previous listeners to avoid dupes (rough way: replacing element or just proper scoping)
+    // Since we render modal in HTML string each time we verify 'renderSuggestions', events are fresh? 
+    // No, 'renderSuggestions' overwrites app.innerHTML, so new DOM elements each time.
+    // BUT window.handleAccept is global, it refers to current DOM.
+
+    // Simple 'onclick' will work.
+    btnCancel.onclick = () => modal.close();
+
+    btnSave.onclick = async () => {
+      const newVal = parseFloat(document.getElementById('accept-new-val').value);
+      if (isNaN(newVal) || newVal <= 0) {
+        alert("Valor inválido");
+        return;
+      }
+
+      // 3. Apply Change locally
+      settings[slotRaw][paramRaw] = newVal;
+      saveCalcParams(settings);
+
+      // 4. Call API Accept
+      try {
+        btnSave.textContent = "Guardando...";
+        await acceptSuggestion(id, "Aceptado por usuario", {
+          meal_slot: slotRaw,
+          parameter: paramRaw,
+          old_value: currentVal,
+          new_value: newVal
+        });
+        modal.close();
+        alert("Cambio aplicado y sugerencia marcada como aceptada.");
+        loadList();
+      } catch (e) {
+        alert("Error al guardar en backend: " + e.message);
+        btnSave.textContent = "Guardar";
+      }
+    };
+
+    modal.showModal();
+  };
+}
+
+
 function renderBottomNav(active) {
   const items = [
     { id: 'home', icon: '🏠', label: 'Inicio', hash: '#/' },
@@ -2864,6 +3050,7 @@ function renderBottomNav(active) {
     { id: 'basal', icon: '📉', label: 'Basal', hash: '#/basal' },
     { id: 'history', icon: '🕒', label: 'Hist.', hash: '#/history' },
     { id: 'patterns', icon: '📊', label: 'Patrones', hash: '#/patterns' },
+    { id: 'suggestions', icon: '💡', label: 'Suger.', hash: '#/suggestions' },
     { id: 'scan', icon: '📷', label: 'Escanear', hash: '#/scan' }
   ];
 
