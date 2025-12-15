@@ -564,6 +564,9 @@ function renderBasal() {
             <label>Duración efectiva (h)
                <input type="number" id="basal-hours" value="24" required />
             </label>
+            <label>Fecha/Hora (Opcional - Dejar vacío para 'Ahora')
+               <input type="datetime-local" id="basal-created-at" style="color:var(--text-main); background:var(--bg-input); border:1px solid var(--border-input); padding:0.5rem; border-radius:6px; width:100%"/>
+            </label>
             <button type="submit" class="secondary">Registrar Dosis</button>
             <p class="success" id="basal-success" hidden>Guardado.</p>
             <p class="error" id="basal-error" hidden></p>
@@ -627,17 +630,28 @@ function renderBasal() {
     const type = document.getElementById("basal-type").value;
     const units = parseFloat(document.getElementById("basal-units").value);
     const hours = parseInt(document.getElementById("basal-hours").value);
+    const createdAtVal = document.getElementById("basal-created-at").value;
+
     const err = document.getElementById("basal-error");
     const ok = document.getElementById("basal-success");
 
     err.hidden = true; ok.hidden = true;
 
     try {
-      await createBasalEntry({ basal_type: type, units, effective_hours: hours });
+      const payload = {
+        dose_u: units,
+        created_at: createdAtVal ? new Date(createdAtVal).toISOString() : null,
+        // Optional extras if backend supports them later
+        // basal_type: type, 
+        // effective_hours: hours 
+      };
+
+      await createBasalEntry(payload);
       ok.hidden = false;
       refreshBasalActive();
       refreshBasalHistory();
       document.getElementById("basal-units").value = "";
+      document.getElementById("basal-created-at").value = "";
     } catch (ex) {
       err.textContent = ex.message;
       err.hidden = false;

@@ -26,7 +26,7 @@ class BasalDoseCreate(BaseModel):
             values['dose_u'] = values['dose_units']
         return values
 
-    @validator('dose_u')
+    @validator('dose_u', always=True)
     def validate_dose_u(cls, v):
         if v is None:
             raise ValueError('dose_u is required')
@@ -88,8 +88,14 @@ async def log_dose(
     
     # Defensive handling if DB returns None (shouldn't happen but handles the reported error)
     saved_dose = res.get("dose_u") if res else None
+    
+    # Fallback to payload if DB return missing
     if saved_dose is None:
         saved_dose = payload.dose_u
+
+    # Final safety check
+    if saved_dose is None:
+        raise HTTPException(status_code=500, detail="Error saving basal dose: dose value missing")
         
     saved_eff = res.get("effective_from") if res else eff
     
@@ -126,7 +132,7 @@ async def get_latest_basal_root(username: str = Depends(auth_required)):
     if not res:
         return None
     return BasalDoseResponse(
-        dose_u=float(res["dose_u"]),
+        dose_u=float(res.get("dose_u") or 0.0),
         effective_from=res["effective_from"],
         created_at=res["created_at"]
     )
@@ -141,7 +147,7 @@ async def get_basal_history(
     """
     items = await basal_repo.get_dose_history(username, days=days)
     formatted_items = [
-        HistoryItem(effective_from=item['effective_from'], dose_u=float(item['dose_u']))
+        HistoryItem(effective_from=item['effective_from'], dose_u=float(item.get('dose_u') or 0.0))
         for item in items
     ]
     return HistoryResponse(days=days, items=formatted_items)
@@ -284,10 +290,11 @@ async def get_active_basal(username: str = Depends(auth_required)):
     
     duration = 24.0
     remaining_pct = max(0.0, 1.0 - (elapsed_h / duration))
-    remaining_u = float(latest["dose_u"]) * remaining_pct
+    dose_val = float(latest.get("dose_u") or 0.0)
+    remaining_u = dose_val * remaining_pct
     
     return ActiveResponse(
-        dose_u=float(latest["dose_u"]),
+        dose_u=dose_val,
         started_at=start_dt,
         elapsed_h=round(elapsed_h, 2),
         remaining_h=round(max(0, duration - elapsed_h), 2),
