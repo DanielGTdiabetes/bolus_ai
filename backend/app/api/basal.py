@@ -124,15 +124,23 @@ async def create_entry(
     """
     return await log_dose(payload, username)
 
-@router.get("/latest", response_model=Optional[BasalDoseResponse])
+class LatestBasalResponse(BaseModel):
+    dose_u: Optional[float] = None
+    effective_from: Optional[date] = None
+    created_at: Optional[datetime] = None
+
+# ...
+
+@router.get("/latest", response_model=LatestBasalResponse)
 async def get_latest_basal_root(username: str = Depends(auth_required)):
     """
     Devuelve la última dosis registrada.
     """
     res = await basal_repo.get_latest_basal_dose(username)
     if not res:
-        return None
-    return BasalDoseResponse(
+        return LatestBasalResponse(dose_u=None)
+    
+    return LatestBasalResponse(
         dose_u=float(res.get("dose_u") or 0.0),
         effective_from=res["effective_from"],
         created_at=res["created_at"]
