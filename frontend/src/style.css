@@ -572,7 +572,8 @@ input[type="number"],
 select,
 input[type="text"],
 input[type="password"],
-input[type="email"] {
+input[type="email"],
+input[type="url"] {
   width: 100%;
   padding: 1rem;
   border: 1px solid var(--border);
@@ -582,6 +583,14 @@ input[type="email"] {
   font-weight: 600;
   color: var(--text-main);
   transition: all 0.2s;
+  font-family: inherit;
+}
+
+input[type="password"] {
+  font-weight: normal;
+  /* Fix for thick dots */
+  letter-spacing: 2px;
+  /* A bit more space for dots */
 }
 
 input:focus,
