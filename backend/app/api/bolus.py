@@ -22,6 +22,10 @@ from app.services.bolus_split import create_plan, recalc_second
 from app.services.iob import compute_iob_from_sources, compute_cob_from_sources
 from app.services.nightscout_client import NightscoutClient, NightscoutError
 from app.services.store import DataStore
+from app.core.db import get_db_session
+from app.services.nightscout_secrets_service import get_ns_config
+from sqlalchemy.ext.asyncio import AsyncSession
+from app.core.security import CurrentUser
 
 logger = logging.getLogger(__name__)
 
@@ -308,14 +312,20 @@ async def save_treatment(
 @router.get("/iob", summary="Get current IOB and decay curve")
 async def get_current_iob(
     store: DataStore = Depends(_data_store),
+    user: CurrentUser = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db_session),
 ):
     # Construct settings or load
     settings = store.load_settings()
     
     # NS Client
     ns_client = None
-    eff_url = settings.nightscout.url if settings.nightscout.enabled else None
-    eff_token = settings.nightscout.token
+    
+    # Fetch user specific NS config
+    ns_config = await get_ns_config(session, user.username)
+    
+    eff_url = ns_config.url if ns_config and ns_config.enabled else None
+    eff_token = ns_config.api_secret if ns_config and ns_config.enabled else None
     
     if eff_url:
         ns_client = NightscoutClient(eff_url, eff_token, timeout_seconds=5)

@@ -193,12 +193,41 @@ export async function testNightscout(config) {
 }
 
 export async function saveNightscoutConfig(config) {
+  // Legacy support or usage of new endpoint if config matches new structure
+  // But strictly this function was PUT /api/nightscout/config (Legacy)
   const response = await apiFetch("/api/nightscout/config", {
     method: "PUT",
     body: JSON.stringify(config),
   });
   const data = await toJson(response);
   if (!response.ok) throw new Error(data.detail || "Error al guardar configuración");
+  return data;
+}
+
+export async function getNightscoutSecretStatus() {
+  const response = await apiFetch("/api/nightscout/secret");
+  const data = await toJson(response);
+  if (!response.ok) throw new Error(data.detail || "Error checkeando secretos");
+  return data;
+}
+
+export async function saveNightscoutSecret(payload) {
+  // payload: {url, api_secret, enabled}
+  const response = await apiFetch("/api/nightscout/secret", {
+    method: "PUT",
+    body: JSON.stringify(payload)
+  });
+  const data = await toJson(response);
+  if (!response.ok) throw new Error(data.detail || "Error guardando secretos");
+  return data;
+}
+
+export async function deleteNightscoutSecret() {
+  const response = await apiFetch("/api/nightscout/secret", {
+    method: "DELETE"
+  });
+  const data = await toJson(response);
+  if (!response.ok) throw new Error(data.detail || "Error eliminando secretos");
   return data;
 }
 

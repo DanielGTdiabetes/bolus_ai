@@ -1,7 +1,7 @@
 import { state, saveCalcParams, getCalcParams, getSplitSettings, saveSplitSettings } from '../core/store.js';
 import { navigate, ensureAuthenticated } from '../core/router.js';
 import { renderHeader, renderBottomNav } from '../components/layout.js';
-import { getLocalNsConfig, saveLocalNsConfig, testNightscout, fetchHealth, logout, exportUserData } from '../../lib/api.js';
+import { getNightscoutSecretStatus, saveNightscoutSecret, testNightscout, fetchHealth, logout, exportUserData } from '../../lib/api.js';
 
 export function renderSettings() {
   if (!ensureAuthenticated()) return;
@@ -247,23 +247,58 @@ export function renderSettings() {
   initCalcPanel();
 }
 
-function initNsPanel() {
+async function initNsPanel() {
   const form = document.querySelector("#ns-form");
   const urlInput = document.querySelector("#ns-url");
   const tokenInput = document.querySelector("#ns-token");
   const testBtn = document.querySelector("#ns-test-btn");
   const statusBox = document.querySelector("#ns-status-box");
 
-  const saved = getLocalNsConfig();
-  if (saved) {
-    urlInput.value = saved.url || "";
-    tokenInput.value = saved.token || "";
+  // Load status from server
+  try {
+    const status = await getNightscoutSecretStatus();
+    // {enabled, url, has_secret}
+    if (status.url) urlInput.value = status.url;
+    if (status.has_secret) {
+      tokenInput.placeholder = "Configurado (oculto) - Escribe para cambiar";
+      tokenInput.required = false;
+    } else {
+      tokenInput.placeholder = "API Secret / Token";
+    }
+  } catch (e) {
+    console.warn("Could not fetch secret status", e);
   }
 
   testBtn.onclick = async () => {
     statusBox.textContent = "Probando...";
     statusBox.className = "status-box neutral";
     statusBox.classList.remove("hidden");
+
+    // We can test efficiently by using the stateless test IF user typed something, 
+    // OR calling server status if they didn't change anything.
+    // For simplicity, we stick to stateless test if inputs are filled, or existing server logic.
+    // Actually, backend has /api/nightscout/status which uses stored secrets.
+
+    // If user hasn't typed a new token, we assume they want to test stored credentials.
+    // But 'testNightscout' helper calls /api/nightscout/test (Stateless).
+    // Let's rely on saving first or simple test.
+
+    const tokenVal = tokenInput.value.trim();
+    if (!tokenVal && tokenInput.placeholder.includes("Configurado")) {
+      // Test stored
+      try {
+        // We use getNightscoutStatus actually
+        const { getNightscoutStatus } = await import('../../lib/api.js');
+        const res = await getNightscoutStatus();
+        statusBox.textContent = res.ok ? "Conectado OK (Server)" : (res.error || "Error");
+        statusBox.className = res.ok ? "status-box success" : "status-box error";
+      } catch (e) {
+        statusBox.textContent = e.message;
+        statusBox.className = "status-box error";
+      }
+      return;
+    }
+
     try {
       const res = await testNightscout({ url: urlInput.value, token: tokenInput.value });
       statusBox.textContent = res.ok ? "Conectado OK" : (res.message || "Error");
@@ -274,13 +309,34 @@ function initNsPanel() {
     }
   };
 
-  form.onsubmit = (e) => {
+  form.onsubmit = async (e) => {
     e.preventDefault();
     if (!urlInput.value) return;
-    saveLocalNsConfig({ url: urlInput.value.trim(), token: tokenInput.value.trim() });
-    statusBox.textContent = "Guardado.";
-    statusBox.className = "status-box success";
-    statusBox.classList.remove("hidden");
+
+    try {
+      statusBox.textContent = "Guardando...";
+      statusBox.classList.remove("hidden");
+
+      await saveNightscoutSecret({
+        url: urlInput.value.trim(),
+        api_secret: tokenInput.value.trim(),
+        enabled: true
+      });
+
+      statusBox.textContent = "Guardado en servidor seguro.";
+      statusBox.className = "status-box success";
+
+      // Refresh status to update placeholder
+      const status = await getNightscoutSecretStatus();
+      if (status.has_secret) {
+        tokenInput.value = "";
+        tokenInput.placeholder = "Configurado (oculto) - Escribe para cambiar";
+      }
+
+    } catch (e) {
+      statusBox.textContent = e.message;
+      statusBox.className = "status-box error";
+    }
   };
 }
 

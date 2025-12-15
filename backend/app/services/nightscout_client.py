@@ -34,16 +34,13 @@ class NightscoutClient:
         headers["Accept"] = "application/json"
         
         # Prepare valid query parameters for authentication
-        # Many NS implementations (and forks) require 'token' as a query param 
-        # for Access/Subject tokens, while API-SECRET header is for the master password.
-        # We'll attach it to the client default params for maximum compatibility.
+        # We generally avoid sending credentials in query params for security (logs, browser history).
+        # We rely on 'API-SECRET' header (hashed) or 'Authorization: Bearer' (JWT).
         params = {}
-        if self.token and "Authorization" not in headers:
-            # If we didn't use Bearer auth (JWT), we assume it's either an API Secret or an Access Token.
-            # Passing it as ?token=... covers the Access Token case.
-            # We ALSO send the API-SECRET header (hashed) to cover the API Secret case.
-            # While redundant, this ensures we hit one of the valid auth methods.
-            params["token"] = self.token
+        # if self.token and "Authorization" not in headers:
+            # We skip adding token to params to comply with security requirements.
+            # Most modern Nightscout versions support headers.
+            # params["token"] = self.token
 
         self.client = client or httpx.AsyncClient(
             base_url=self.base_url,

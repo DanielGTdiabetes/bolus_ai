@@ -11,6 +11,10 @@ from app.models.settings import UserSettings
 from app.models.schemas import NightscoutSGV
 from app.services.nightscout_client import NightscoutClient, NightscoutError
 from app.services.store import DataStore
+from app.core.db import get_db_session
+from app.services.nightscout_secrets_service import get_ns_config, upsert_ns_config
+from sqlalchemy.ext.asyncio import AsyncSession
+from app.core.security import CurrentUser
 
 router = APIRouter()
 
@@ -48,18 +52,21 @@ def _data_store(settings: Settings = Depends(get_settings)) -> DataStore:
 
 @router.get("/status", response_model=NightscoutStatusResponse, summary="Get Nightscout status (Server-Stored)")
 async def get_status(
-    _: dict = Depends(get_current_user),
-    store: DataStore = Depends(_data_store),
+    user: CurrentUser = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db_session),
 ):
-    settings: UserSettings = store.load_settings()
-    ns = settings.nightscout
+    ns = await get_ns_config(session, user.username)
     
     ok = False
     error = None
+    url = None
+    enabled = False
     
-    if ns.enabled and ns.url:
+    if ns and ns.enabled and ns.url:
+        url = ns.url
+        enabled = ns.enabled
         try:
-            client = NightscoutClient(base_url=ns.url, token=ns.token, timeout_seconds=5)
+            client = NightscoutClient(base_url=ns.url, token=ns.api_secret, timeout_seconds=5)
             try:
                 await client.get_status()
                 ok = True
@@ -71,8 +78,8 @@ async def get_status(
              error = str(e)
     
     return NightscoutStatusResponse(
-        enabled=ns.enabled,
-        url=ns.url if ns.url else None,
+        enabled=enabled,
+        url=url,
         ok=ok,
         error=error,
     )
@@ -176,30 +183,39 @@ async def test_connection_stateless(
         return TestResponse(ok=False, reachable=False, message=f"System error: {str(e)}")
 
 
-@router.put("/config", summary="Update Nightscout configuration (Legacy/Server-Side)")
+class LegacyConfigPayload(BaseModel):
+    url: str
+    token: str
+    enabled: bool = True
+
+@router.put("/config", summary="Update Nightscout configuration (Legacy Backwards Compatibility)")
 async def update_config_legacy(
-    _: dict = Depends(get_current_user),
+    payload: LegacyConfigPayload,
+    user: CurrentUser = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db_session),
 ):
-    return {"message": "Server-side config deprecated. Use client-side storage."}
+    # Map 'token' to 'api_secret'
+    await upsert_ns_config(session, user.username, payload.url, payload.token, payload.enabled)
+    return {"message": "Config updated via legacy endpoint"}
 
 
 @router.get("/treatments", summary="Get recent treatments (Server-Stored)")
 async def get_treatments_server(
     count: int = 20,
-    _: dict = Depends(get_current_user),
-    store: DataStore = Depends(_data_store),
+    user: CurrentUser = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db_session)
 ):
     """
-    Fetches recent treatments using the server-stored Nightscout configuration.
+    Fetches recent treatments using the server-stored Nightscout configuration (Secrets DB).
     """
-    settings: UserSettings = store.load_settings()
-    ns = settings.nightscout
+    ns = await get_ns_config(session, user.username)
     
-    if not ns.enabled or not ns.url:
+    if not ns or not ns.enabled or not ns.url:
          raise HTTPException(status_code=400, detail="Nightscout is not configured or enabled on the server.")
 
     try:
-        client = NightscoutClient(base_url=ns.url, token=ns.token, timeout_seconds=10)
+        # Note: ns.api_secret is the decrypted secret from DB
+        client = NightscoutClient(base_url=ns.url, token=ns.api_secret, timeout_seconds=10)
         try:
             # We fetch roughly last 48h to be safe, limited by count
             treatments = await client.get_recent_treatments(hours=48, limit=count)
