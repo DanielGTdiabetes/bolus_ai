@@ -105,5 +105,7 @@ class BolusResponseV2(BaseModel):
     explain: list[str]
     warnings: list[str] = []
     
+    iob: Optional[dict] = None # Added for IOB info injection
+    
     clamped: bool = False
 

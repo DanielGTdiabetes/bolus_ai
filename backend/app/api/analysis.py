@@ -21,7 +21,7 @@ def _data_store(settings: Settings = Depends(get_settings)) -> DataStore:
 @router.post("/bolus/run", summary="Run post-bolus pattern analysis")
 async def run_analysis_endpoint(
     payload: dict = Body(...),
-    current_user: dict = Depends(get_current_user),
+    current_user: Any = Depends(get_current_user),
     store: DataStore = Depends(_data_store),
     db: AsyncSession = Depends(get_db_session)
 ):
@@ -35,7 +35,7 @@ async def run_analysis_endpoint(
         
     client = NightscoutClient(base_url=ns_config.url, token=ns_config.token)
     try:
-        user_id = current_user.get("username", "admin")
+        user_id = current_user.username
         
         result = await run_analysis_service(
             user_id=user_id,
@@ -53,8 +53,8 @@ async def run_analysis_endpoint(
 @router.get("/bolus/summary", summary="Get post-bolus analysis summary")
 async def get_summary_endpoint(
     days: int = 30,
-    current_user: dict = Depends(get_current_user),
+    current_user: Any = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session)
 ):
-    user_id = current_user.get("username", "admin")
+    user_id = current_user.username
     return await get_summary_service(user_id=user_id, days=days, db=db)
