@@ -121,20 +121,14 @@ class NightscoutClient:
 
     async def get_recent_treatments(self, hours: int = 24, limit: int = 200) -> list[Treatment]:
         try:
-            # Prepare Date Cutoff for Server-Side Filtering
-            # Nightscout API v1 supports find[created_at][$gte]=ISOString
-            from datetime import timezone
-            now_utc = datetime.now(timezone.utc)
-            cutoff = now_utc - timedelta(hours=hours)
-            cutoff_iso = cutoff.isoformat()
-
+             # Prepare Params - Fallback to basic count to ensure compatibility
             params = {
-                "count": limit,
-                "find[created_at][$gte]": cutoff_iso,
+                "count": limit, 
                 "sort[created_at]": -1,
             }
             
             # Use a slightly longer timeout for fetching large lists, but capped
+            # We use an internal loop for retries since httpx transport retries are basic
             import asyncio
             retries = 2
             last_err = None
@@ -151,16 +145,19 @@ class NightscoutClient:
                     
                     response.raise_for_status()
                     
-                    # New Empty Body Check Logic
+                    # Relaxed Empty Body Check Logic
                     raw_bytes = response.content
                     n_bytes = len(raw_bytes)
                     
                     if n_bytes == 0:
-                        raise NightscoutError("Empty body from Nightscout")
+                        # Empty body often means no results in some NS versions or empty results
+                        logger.debug("Empty body from Nightscout treatments, returning []")
+                        return []
                     
                     try:
                         data = json.loads(raw_bytes)
                     except ValueError:
+                         logger.error(f"Invalid JSON in treatments.")
                          raise NightscoutError("Invalid JSON received")
 
                     break # Success
@@ -180,6 +177,7 @@ class NightscoutClient:
                      await asyncio.sleep(wait_ms / 1000.0)
 
             # Check if we have data or exhausted retries
+            # If 'data' is not bound (loop finished without break), raise last error
             if 'data' not in locals():
                  raise last_err or NightscoutError("Unknown fetch failure")
 
@@ -187,18 +185,44 @@ class NightscoutClient:
                 logger.warning(f"Expected list for treatments, got {type(data)}")
                 return []
 
-            # Client-side validation / validation
+            # Client-side validation & Filtering
             valid_treatments = []
+            
+            # Use timezone-aware UTC for comparison
+            from datetime import timezone
+            now_utc = datetime.now(timezone.utc)
+            cutoff = now_utc - timedelta(hours=hours)
             
             for item in data:
                 try:
-                    # Validate against model
-                    valid_treatments.append(Treatment.model_validate(item))
+                    # 'created_at' usually contains ISO string: "2023-10-27T10:00:00.000Z"
+                    created_at_str = item.get("created_at")
+                    if not created_at_str:
+                        continue
+                    
+                    # Robust parsing
+                    # Replace Z with +00:00 for fromisoformat compatibility
+                    clean_ts = created_at_str.replace("Z", "+00:00")
+                    try:
+                        dt = datetime.fromisoformat(clean_ts)
+                    except ValueError:
+                        # Fallback for simple format if needed
+                         dt = datetime.strptime(clean_ts, "%Y-%m-%dT%H:%M:%S")
+
+                    # Normalize to aware UTC
+                    if dt.tzinfo is None:
+                        dt = dt.replace(tzinfo=timezone.utc)
+                    else:
+                        dt = dt.astimezone(timezone.utc)
+                    
+                    # Only include if within requested window (hours)
+                    if dt >= cutoff:
+                        valid_treatments.append(Treatment.model_validate(item))
                 except Exception as e:
                     # Skip malformed items
                     continue
                     
-            logger.info(f"Fetched {len(data)} treatments ({len(valid_treatments)} valid) >= {cutoff_iso}")
+            logger.info(f"Fetched {len(data)} treatments, {len(valid_treatments)} valid after filtering ({hours}h).")
             return valid_treatments
             
         except NightscoutError:
