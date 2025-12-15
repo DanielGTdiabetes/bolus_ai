@@ -465,3 +465,20 @@ export async function getBasalAdvice(days = 3) {
   if (!response.ok) throw new Error(data.detail || "Error al obtener consejo basal");
   return data;
 }
+
+export async function runAnalysis(days: number) {
+  const response = await apiFetch("/api/analysis/bolus/run", {
+    method: "POST",
+    body: JSON.stringify({ days }),
+  });
+  const data = await toJson(response);
+  if (!response.ok) throw new Error(data.detail || "Error al ejecutar análisis");
+  return data;
+}
+
+export async function getAnalysisSummary(days: number) {
+  const response = await apiFetch(`/api/analysis/bolus/summary?days=${days}`);
+  const data = await toJson(response);
+  if (!response.ok) throw new Error(data.detail || "Error al obtener resumen");
+  return data;
+}
