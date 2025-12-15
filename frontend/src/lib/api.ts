@@ -399,7 +399,7 @@ export async function createBasalEntry(payload: any) {
 }
 
 export async function getBasalEntries(days = 30) {
-  const response = await apiFetch(`/api/basal/entries?days=${days}`);
+  const response = await apiFetch(`/api/basal/history?days=${days}`);
   const data = await toJson(response);
   if (!response.ok) throw new Error(data.detail || "Error al obtener historial basal");
   return data;

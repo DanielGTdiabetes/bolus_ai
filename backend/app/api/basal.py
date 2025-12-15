@@ -17,6 +17,7 @@ class BasalDoseCreate(BaseModel):
     dose_u: Optional[float] = None
     dose_units: Optional[float] = None
     effective_from: Optional[date] = None
+    created_at: Optional[datetime] = None
 
     @root_validator(pre=True)
     def check_dose_alias(cls, values):
@@ -38,40 +39,7 @@ class BasalDoseResponse(BaseModel):
     effective_from: date
     created_at: datetime
 
-class HistoryItem(BaseModel):
-    effective_from: date
-    dose_u: float
-
-class HistoryResponse(BaseModel):
-    days: int
-    items: List[HistoryItem]
-
-class CheckinRequest(BaseModel):
-    nightscout_url: str
-    nightscout_token: Optional[str] = None
-    units: str = "mgdl"
-
-class HistoricCheckin(BaseModel):
-    date: date
-    bg: float
-    trend: Optional[str]
-
-class CheckinResponse(BaseModel):
-    bg_now_mgdl: float
-    bg_age_min: Optional[int]
-    trend: Optional[str]
-    last3: List[HistoricCheckin] = []
-    signal: Optional[str] = None
-
-class ActiveResponse(BaseModel):
-    dose_u: float
-    started_at: datetime
-    elapsed_h: float
-    remaining_h: float
-    remaining_u: float
-    note: str
-
-# --- Endpoints ---
+# ... (Previous code)
 
 @router.post("/dose", response_model=BasalDoseResponse)
 async def log_dose(
@@ -83,7 +51,7 @@ async def log_dose(
     """
     eff = payload.effective_from or date.today()
     # payload.dose_u is guaranteed not None by validator
-    res = await basal_repo.upsert_basal_dose(username, payload.dose_u, eff)
+    res = await basal_repo.upsert_basal_dose(username, payload.dose_u, eff, payload.created_at)
     
     # Defensive handling if DB returns None (shouldn't happen but handles the reported error)
     saved_dose = res.get("dose_u") if res else None
@@ -91,7 +59,14 @@ async def log_dose(
         saved_dose = payload.dose_u
         
     saved_eff = res.get("effective_from") if res else eff
-    saved_created = res.get("created_at") if res else datetime.utcnow()
+    
+    # Logic for created_at fallback
+    if res and res.get("created_at"):
+        saved_created = res["created_at"]
+    elif payload.created_at:
+        saved_created = payload.created_at
+    else:
+        saved_created = datetime.utcnow()
 
     return BasalDoseResponse(
         dose_u=float(saved_dose),

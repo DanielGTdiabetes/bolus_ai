@@ -12,12 +12,13 @@ _mem_doses = []
 _mem_checkins = {} # (user_id, day) -> dict
 _mem_notes = []
 
-async def upsert_basal_dose(user_id: str, dose_u: float, effective_from: date = None) -> Dict[str, Any]:
+async def upsert_basal_dose(user_id: str, dose_u: float, effective_from: date = None, created_at: datetime = None) -> Dict[str, Any]:
     if effective_from is None:
         effective_from = date.today()
     
     entry_id = str(uuid.uuid4())
-    now = datetime.utcnow()
+    # Use provided time or now
+    saved_at = created_at if created_at else datetime.utcnow()
     
     if _async_engine:
         # PostgreSQL
@@ -31,7 +32,7 @@ async def upsert_basal_dose(user_id: str, dose_u: float, effective_from: date = 
             "user_id": user_id,
             "dose_u": dose_u,
             "effective_from": effective_from,
-            "created_at": now
+            "created_at": saved_at
         }
         async with _async_engine.begin() as conn:
             result = await conn.execute(query, params)
@@ -45,7 +46,7 @@ async def upsert_basal_dose(user_id: str, dose_u: float, effective_from: date = 
             "user_id": user_id,
             "dose_u": dose_u,
             "effective_from": effective_from,
-            "created_at": now
+            "created_at": saved_at
         }
         _mem_doses.append(entry)
         return entry
