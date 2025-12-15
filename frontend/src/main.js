@@ -1118,8 +1118,7 @@ function renderSettings() {
 
           <label>Paso de redondeo
             <select id="global-step">
-              <option value="0.1">0.1 U</option>
-              <option value="0.5">0.5 U</option>
+              <option value="0.5">0.5 U (Mínimo)</option>
               <option value="1.0">1.0 U</option>
             </select>
           </label>
@@ -1152,7 +1151,6 @@ function renderSettings() {
               <label>
                 Redondeo (U)
                 <select id="split-step">
-                  <option value="0.1">0.1</option>
                   <option value="0.5">0.5</option>
                   <option value="1.0">1.0</option>
                 </select>
@@ -1265,7 +1263,7 @@ function initCalcPanel() {
     dinner: { icr: 10, isf: 50, target: 110 },
     snack: { icr: 10, isf: 50, target: 110 }, // New Snack Slot
     dia_hours: 4,
-    round_step_u: 0.1,
+    round_step_u: 0.5,
     max_bolus_u: 10
   };
 
