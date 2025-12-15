@@ -2247,9 +2247,15 @@ function renderBolusResult(res) {
         state.lastBolusPlan.now_u = finalInsulin;
       }
 
+      const dateInput = document.getElementById('bolus-date');
+      let customDate = new Date();
+      if (dateInput && dateInput.value) {
+        customDate = new Date(dateInput.value);
+      }
+
       const treatment = {
         eventType: "Meal Bolus",
-        created_at: new Date().toISOString(),
+        created_at: customDate.toISOString(),
         carbs: carbs,
         insulin: finalInsulin,
         enteredBy: state.user?.username || "BolusAI",
@@ -2306,6 +2312,12 @@ function renderBolus() {
             <span style="position:absolute; right:1rem; top:1rem; color:var(--text-muted)">mg/dL</span>
          </div>
          <input type="range" min="40" max="400" id="bg-slider" class="w-full mt-md">
+      </div>
+
+      <!-- Date/Time Input -->
+      <div class="form-group">
+          <label style="font-size:0.85rem; color:#64748b; margin-bottom:0.3rem; display:block">Fecha / Hora</label>
+          <input type="datetime-local" id="bolus-date" style="width:100%; padding:0.5rem; border:1px solid #cbd5e1; border-radius:8px; background:#fff; font-family:inherit;">
       </div>
 
       <!-- Mode / Slot Selector -->
@@ -2395,6 +2407,15 @@ function renderBolus() {
   const bgSlider = document.getElementById('bg-slider');
   const carbsInput = document.getElementById('carbs');
   const calcBtn = document.getElementById('btn-calc-bolus');
+  const dateInput = document.getElementById('bolus-date');
+
+  // Init Date
+  if (dateInput) {
+    const now = new Date();
+    // Local ISO format: YYYY-MM-DDTHH:mm
+    const localIso = new Date(now.getTime() - (now.getTimezoneOffset() * 60000)).toISOString().slice(0, 16);
+    dateInput.value = localIso;
+  }
 
   // Sync Slider
   if (bgInput && bgSlider) {
