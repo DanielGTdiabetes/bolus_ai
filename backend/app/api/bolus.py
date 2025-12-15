@@ -194,7 +194,7 @@ async def calculate_bolus_stateless(
 
     try:
         now = datetime.now(timezone.utc)
-        iob_u, breakdown = await compute_iob_from_sources(now, user_settings, ns_client, store)
+        iob_u, breakdown, iob_info, iob_warning = await compute_iob_from_sources(now, user_settings, ns_client, store)
         
         # 5. Call Engine
         glucose_info = GlucoseUsed(
@@ -211,6 +211,12 @@ async def calculate_bolus_stateless(
             iob_u=iob_u,
             glucose_info=glucose_info
         )
+
+        # Inject IOB Info
+        response.iob = iob_info
+
+        if iob_warning:
+            response.warnings.append(iob_warning)
         
         if breakdown:
              response.explain.append(f"   (IOB basado en {len(breakdown)} tratamientos recientes)")
@@ -318,7 +324,7 @@ async def get_current_iob(
         
     try:
         now = datetime.now(timezone.utc)
-        total_iob, breakdown = await compute_iob_from_sources(now, settings, ns_client, store)
+        total_iob, breakdown, iob_info, iob_warning = await compute_iob_from_sources(now, settings, ns_client, store)
         
         # Calculate Curve for next 4 hours (every 10 min)
         # We reused "insulin_activity_fraction" from iob.py? No it's internal.
@@ -364,7 +370,9 @@ async def get_current_iob(
             "iob_total": round(total_iob, 2),
             "cob_total": round(total_cob, 0),
             "breakdown": breakdown, # Top contributors
-            "graph": curve_points
+            "graph": curve_points,
+            "iob_info": iob_info.model_dump(),
+            "warning": iob_warning
         }
         
     finally:

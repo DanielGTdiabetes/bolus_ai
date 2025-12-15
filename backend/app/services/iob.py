@@ -102,12 +102,18 @@ def _boluses_from_treatments(treatments) -> list[dict[str, float]]:
     return boluses
 
 
+from app.models.iob import IOBInfo, IOBStatus
+
 async def compute_iob_from_sources(
     now: datetime,
     settings: UserSettings,
     nightscout_client,
     data_store: DataStore,
-) -> tuple[float, list[dict[str, float]]]:
+) -> tuple[float, list[dict[str, float]], IOBInfo, Optional[str]]:
+    """
+    Computes IOB with detailed status reporting.
+    Returns: (internal_iob, breakdown, iob_info, warning_msg)
+    """
     profile = InsulinActionProfile(
         dia_hours=settings.iob.dia_hours,
         curve=settings.iob.curve,
@@ -116,18 +122,75 @@ async def compute_iob_from_sources(
 
     boluses: list[dict[str, float]] = []
     breakdown: list[dict[str, float]] = []
+    
+    iob_status: IOBStatus = "unavailable"
+    iob_reason: Optional[str] = None
+    iob_source: str = "unknown"
+    warning_msg: Optional[str] = None
+    
+    ns_error = None
+    fetched_count = 0
 
+    # 1. Try Nightscout
     if nightscout_client:
         try:
+            iob_source = "nightscout"
             hours = max(1, math.ceil(settings.iob.dia_hours))
             treatments = await nightscout_client.get_recent_treatments(hours=hours, limit=1000)
+            
+            # If successful (list returned, even empty)
+            fetched_count = len(treatments)
             boluses.extend(_boluses_from_treatments(treatments))
-        except Exception as exc:  # pragma: no cover - network failure paths
-            logger.warning("Nightscout treatments unavailable", extra={"error": str(exc)})
-
-    if not boluses:
-        boluses.extend(_boluses_from_events(data_store.load_events()))
-
+            iob_status = "ok" # optimistically
+            
+        except Exception as exc:
+            ns_error = str(exc)
+            # Differentiate known errors for cleaner reason
+            if "Unauthorized" in ns_error:
+                iob_reason = "Nightscout no autorizado"
+            elif "Timeout" in ns_error:
+                iob_reason = "Nightscout timeout"
+            elif "Empty body" in ns_error:
+                iob_reason = "Respuesta vacía de Nightscout"
+            else:
+                 iob_reason = f"Error Nightscout: {ns_error}"
+                 
+            logger.warning("Nightscout treatments unavailable", extra={"error": ns_error})
+            # Fallback will attempt local
+    else:
+        # Not configured or offline
+        if settings.nightscout.enabled:
+             iob_reason = "Cliente Nightscout no inicializado"
+        else:
+             iob_source = "local_only"
+             iob_status = "ok" # Local only is valid if intended
+    
+    # 2. Fallback to Local Store if NS failed or returned nothing (and we want robustness)
+    # If NS failed (ns_error), we MUST fallback. 
+    # If NS returned 0 treatments, maybe it's correct? Yes.
+    
+    used_fallback = False
+    if ns_error or (not nightscout_client and not boluses):
+        local_events = data_store.load_events()
+        if local_events:
+            boluses.extend(_boluses_from_events(local_events))
+            used_fallback = True
+            iob_source = "local_db_fallback" if ns_error else "local_db"
+            
+            if ns_error:
+                # We have local data, so partial? Or just unavailable warning?
+                # Let's say partial if we have SOME local data but tailored to prompt: 
+                # "Unavailable" if we really can't trust it. 
+                # But here we have local history. 
+                iob_status = "partial"
+                warning_msg = f"IOB parcial (Nightscout falló: {iob_reason}). Usando datos locales."
+        else:
+            # NS failed AND no local data
+            if ns_error:
+                iob_status = "unavailable"
+                warning_msg = f"IOB no disponible: {iob_reason}. Se asume 0 U."
+    
+    # 3. Compute
     total = 0.0
     for bolus in boluses:
         ts_raw = bolus.get("ts")
@@ -142,7 +205,27 @@ async def compute_iob_from_sources(
         breakdown.append({"ts": ts.isoformat(), "units": units, "iob": contribution})
 
     breakdown.sort(key=lambda item: item["ts"], reverse=True)
-    return max(total, 0.0), breakdown
+    final_iob = max(total, 0.0)
+    
+    # 4. Construct Info
+    # If status is unavailable, we might still have computed 0.0, but we flag it as not trusted.
+    # The caller (calculate_bolus) should decide whether to use 0.0 or prompt user.
+    # Proposal says: "Unavailable -> iob_u_internal=0.0, iob_info.iob_u=None"
+    
+    public_iob = final_iob
+    if iob_status == "unavailable":
+        public_iob = None
+        final_iob = 0.0 # Safety for internal calculation (do not subtract anything)
+        
+    info = IOBInfo(
+        iob_u=public_iob,
+        status=iob_status,
+        reason=iob_reason,
+        source=iob_source,
+        fetched_at=now
+    )
+    
+    return final_iob, breakdown, info, warning_msg
 
 
 def compute_cob(now: datetime, carb_entries: Sequence[dict[str, float]], duration_hours: float = 4.0) -> float:

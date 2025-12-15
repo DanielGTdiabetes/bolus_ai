@@ -105,57 +105,111 @@ class NightscoutClient:
         return NightscoutSGV.model_validate(entry)
 
     async def get_recent_treatments(self, hours: int = 24, limit: int = 200) -> list[Treatment]:
-        # Fetching without date filter to avoid empty body issues on some NS versions
-        params = {
-            "count": limit,
-            "sort[created_at]": -1,
-        }
-        
-        response = await self.client.get("/api/v1/treatments.json", params=params)
-        data = await self._handle_response(response)
-        
-        if not isinstance(data, list):
-            logger.warning(f"Expected list for treatments, got {type(data)}")
-            return []
+        try:
+             # Prepare Params
+            params = {
+                "count": limit,
+                "sort[created_at]": -1,
+            }
+            
+            # Use a slightly longer timeout for fetching large lists, but capped
+            # We use an internal loop for retries since httpx transport retries are basic
+            import asyncio
+            retries = 2
+            last_err = None
 
-        # Client-side filtering
-        valid_treatments = []
-        
-        # Use timezone-aware UTC for comparison
-        from datetime import timezone
-        now_utc = datetime.now(timezone.utc)
-        cutoff = now_utc - timedelta(hours=hours)
-        
-        for item in data:
-            try:
-                # 'created_at' usually contains ISO string: "2023-10-27T10:00:00.000Z"
-                created_at_str = item.get("created_at")
-                if not created_at_str:
-                    continue
-                
-                # Robust parsing
-                # Replace Z with +00:00 for fromisoformat compatibility in some versions (though 3.11+ handles Z)
-                clean_ts = created_at_str.replace("Z", "+00:00")
+            for attempt in range(retries + 1):
                 try:
-                    dt = datetime.fromisoformat(clean_ts)
-                except ValueError:
-                    # Fallback for simple format if needed
-                     dt = datetime.strptime(clean_ts, "%Y-%m-%dT%H:%M:%S")
+                    # Explicit timeout per attempt (8s)
+                    response = await self.client.get("/api/v1/treatments.json", params=params, timeout=8.0)
+                    
+                    # Manual Handling
+                    if response.status_code in (401, 403):
+                        raise NightscoutError(f"Unauthorized: {response.status_code}")
+                    
+                    response.raise_for_status()
+                    
+                    content = response.content.strip()
+                    if not content:
+                        raise NightscoutError("Empty body from Nightscout")
+                    
+                    try:
+                        data = response.json()
+                    except ValueError:
+                         preview = response.text[:200]
+                         logger.error(f"Invalid JSON in treatments. Body start: {preview!r}")
+                         raise NightscoutError("Invalid JSON received")
 
-                # Normalize to aware UTC
-                if dt.tzinfo is None:
-                    dt = dt.replace(tzinfo=timezone.utc)
-                else:
-                    dt = dt.astimezone(timezone.utc)
+                    break # Success
+                except httpx.TimeoutException:
+                     last_err = NightscoutError("Timeout connecting to Nightscout")
+                except httpx.HTTPStatusError as e:
+                     # Log minimal info
+                     logger.warning(f"NS Error {e.response.status_code} fetching treatments.")
+                     if e.response.status_code in (401, 403):
+                         raise NightscoutError("Unauthorized")
+                     last_err = e
+                except Exception as e:
+                    last_err = e
                 
-                if dt >= cutoff:
-                    valid_treatments.append(Treatment.model_validate(item))
-            except Exception as e:
-                # Skip malformed items
-                continue
-                
-        logger.info(f"Fetched {len(data)} treatments, {len(valid_treatments)} valid after filtering ({hours}h).")
-        return valid_treatments
+                # If we are here, we failed an attempt
+                if attempt < retries:
+                     wait_ms = 250 if attempt == 0 else 750
+                     await asyncio.sleep(wait_ms / 1000.0)
+
+            # Check if we have data or exhausted retries
+            # If 'data' is not bound (loop finished without break), raise last error
+            if 'data' not in locals():
+                 raise last_err or NightscoutError("Unknown fetch failure")
+
+            if not isinstance(data, list):
+                logger.warning(f"Expected list for treatments, got {type(data)}")
+                return []
+
+            # Client-side filtering
+            valid_treatments = []
+            
+            # Use timezone-aware UTC for comparison
+            from datetime import timezone
+            now_utc = datetime.now(timezone.utc)
+            cutoff = now_utc - timedelta(hours=hours)
+            
+            for item in data:
+                try:
+                    # 'created_at' usually contains ISO string: "2023-10-27T10:00:00.000Z"
+                    created_at_str = item.get("created_at")
+                    if not created_at_str:
+                        continue
+                    
+                    # Robust parsing
+                    # Replace Z with +00:00 for fromisoformat compatibility in some versions (though 3.11+ handles Z)
+                    clean_ts = created_at_str.replace("Z", "+00:00")
+                    try:
+                        dt = datetime.fromisoformat(clean_ts)
+                    except ValueError:
+                        # Fallback for simple format if needed
+                         dt = datetime.strptime(clean_ts, "%Y-%m-%dT%H:%M:%S")
+
+                    # Normalize to aware UTC
+                    if dt.tzinfo is None:
+                        dt = dt.replace(tzinfo=timezone.utc)
+                    else:
+                        dt = dt.astimezone(timezone.utc)
+                    
+                    if dt >= cutoff:
+                        valid_treatments.append(Treatment.model_validate(item))
+                except Exception as e:
+                    # Skip malformed items
+                    continue
+                    
+            logger.info(f"Fetched {len(data)} treatments, {len(valid_treatments)} valid after filtering ({hours}h).")
+            return valid_treatments
+            
+        except NightscoutError:
+            raise
+        except Exception as e:
+             logger.error(f"Error fetching treatments: {str(e)}")
+             raise NightscoutError(f"Fetch failed: {str(e)}")
 
     async def get_sgv_range(self, start_dt: datetime, end_dt: datetime, count: int = 288) -> list[NightscoutSGV]:
         """
