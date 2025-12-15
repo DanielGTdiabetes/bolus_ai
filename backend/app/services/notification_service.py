@@ -1,0 +1,181 @@
+
+import logging
+from datetime import datetime, date
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, func, desc, update
+
+from app.models.notifications import UserNotificationState
+from app.models.suggestion import ParameterSuggestion
+from app.models.evaluation import SuggestionEvaluation
+from app.services.basal_engine import get_advice_service
+
+logger = logging.getLogger(__name__)
+
+async def get_notification_summary_service(user_id: str, db: AsyncSession):
+    # 1. Fetch Notification States
+    stmt = select(UserNotificationState).where(UserNotificationState.user_id == user_id)
+    states = (await db.execute(stmt)).scalars().all()
+    state_map = {s.key: s.seen_at for s in states}
+    
+    items = []
+    
+    # --- Check 1: Pending Suggestions ---
+    q_pend = select(ParameterSuggestion).where(
+        ParameterSuggestion.user_id == user_id,
+        ParameterSuggestion.status == 'pending'
+    ).order_by(ParameterSuggestion.created_at.desc())
+    pending = (await db.execute(q_pend)).scalars().all()
+    
+    count_pend = len(pending)
+    if count_pend > 0:
+        latest = pending[0].created_at
+        # Assuming timestamps are timezone aware/naive consistency. 
+        # Models usually use datetime.utcnow via default.
+        # UserNotificationState also uses datetime.utcnow.
+        
+        # If user has 'seen' record, compare timestamps
+        last_seen = state_map.get("suggestion_pending")
+        
+        is_unread = True
+        if last_seen and last_seen >= latest:
+            is_unread = False
+            
+        # Per prompt: show item if count > 0.
+        # But 'has_unread' depends on seen state.
+        # Wait, prompt says: "no visto" = evaluations creadas...
+        # Prompt logic: unread = count > 0 AND (no existe key OR seen_at < max(created_at)).
+        
+        # If read, do we show it in the list? 
+        # "listar items con ... badge count".
+        # Yes, we list current status, red dot depends on unread.
+        
+        # Actually prompt says: "Tipos de avisos... suggestion_pending: Condicion: existen pending."
+        # The unread flag drives the dot.
+        
+        if is_unread:
+             items.append({
+                 "type": "suggestion_pending",
+                 "count": count_pend,
+                 "title": "Sugerencias pendientes",
+                 "message": f"Tienes {count_pend} sugerencias por revisar.",
+                 "route": "#/suggestions",
+                 "unread": True
+             })
+        else:
+             # Even if read, user implies we might list them? 'abrir panel ... listar items'.
+             # PROMPT clarification: "Si no tienes seen... considera no visto".
+             # "Items (solo estos 3)". If seen, does it disappear from list?
+             # "Solo avisos accionables". If I already saw it, do I need to see it again in the list?
+             # Probably yes, until action taken. But red dot goes away.
+             # Let's include it with unread=False for UI logic?
+             # Prompt example response shows items. It doesn't explicitly say hide if read.
+             # BUT 'basal_review_today' says "Revisa ... y aun no se ha marcado visto".
+             # This implies if seen, it disappears from list?
+             # Let's assume list contains ACTIVE alerts. Unread status denotes NEW.
+             # EXCEPT basal advice: if seen for today, maybe we hide it to reduce noise?
+             # "Basal review today: Condicion ... y aun no se ha marcado visto".
+             # This implies if seen, it is GONE from list.
+             #
+             # Let's apply "Hide if seen" for basal review.
+             # For suggestions:Pending exists regardless of seen.
+             # "suggestion_pending ... Condicion: existen parameter_suggestion".
+             # It doesn't say "and not seen".
+             # Red dot logic: "Punto rojo se enciende si hay >= 1 aviso no visto".
+             # So list shows Pending Suggestions (even if seen), but red dot is off.
+             
+             items.append({
+                 "type": "suggestion_pending",
+                 "count": count_pend,
+                 "title": "Sugerencias pendientes",
+                 "message": f"Tienes {count_pend} sugerencias por revisar.",
+                 "route": "#/suggestions",
+                 "unread": False
+             })
+
+    # --- Check 2: Evaluation Ready ---
+    # Evaluations accepted but not seen/acknowledged.
+    # Logic: "evaluaciones con created_at > last_seen(evaluation_ready)"
+    # count = count(*) ...
+    # This implies we count NEW ones.
+    # If I see them, count goes to 0? Or just unread goes to false?
+    # "Evaluation Ready ... Condicion: existen sugerencias accepted con evaluacion disponible y no marcada como seen".
+    # This implies if marked seen, they drop from the "Evaluation Ready" condition.
+    # So we prefer to filter by seen_at.
+    
+    last_seen_eval = state_map.get("evaluation_ready")
+    
+    q_eval = select(SuggestionEvaluation).where(
+        SuggestionEvaluation.user_id == user_id
+    )
+    if last_seen_eval:
+        q_eval = q_eval.where(SuggestionEvaluation.created_at > last_seen_eval)
+        
+    evals = (await db.execute(q_eval)).scalars().all()
+    count_eval = len(evals)
+    
+    if count_eval > 0:
+        items.append({
+             "type": "evaluation_ready",
+             "count": count_eval,
+             "title": "Impacto disponible",
+             "message": f"Hay {count_eval} evaluación{'es' if count_eval>1 else ''} de impacto list{'as' if count_eval>1 else 'a'}.",
+             "route": "#/suggestions",
+             "unread": True # Always unread if appearing here per logic
+        })
+        
+    # --- Check 3: Basal Review Today ---
+    # Key: basal_review_YYYY-MM-DD
+    today_str = date.today().isoformat()
+    key_today = f"basal_review_{today_str}"
+    
+    if key_today not in state_map:
+        # Not seen yet. Check advice.
+        advice = await get_advice_service(user_id, 3, db)
+        msg = advice.get("message", "")
+        
+        # Condition: message starts with "Revisa" (or contains it per prompt "tipo 'Revisa tu basal...'")
+        if "Revisa" in msg:
+            items.append({
+                "type": "basal_review_today",
+                "count": 1,
+                "title": "Basal a revisar",
+                "message": msg,
+                "route": "#/basal",
+                "unread": True
+            })
+            
+    # Summary
+    has_unread = any(i.get("unread") for i in items)
+    
+    return {
+        "has_unread": has_unread,
+        "items": items
+    }
+
+async def mark_seen_service(types: list[str], user_id: str, db: AsyncSession):
+    now = datetime.utcnow()
+    
+    for t in types:
+        key = t
+        if t == "basal_review_today":
+            key = f"basal_review_{date.today().isoformat()}"
+            
+        # Upsert
+        stmt = select(UserNotificationState).where(
+            UserNotificationState.user_id == user_id,
+            UserNotificationState.key == key
+        )
+        existing = (await db.execute(stmt)).scalars().first()
+        
+        if existing:
+            existing.seen_at = now
+        else:
+            new_state = UserNotificationState(
+                user_id=user_id,
+                key=key,
+                seen_at=now
+            )
+            db.add(new_state)
+            
+    await db.commit()
+    return {"ok": True}
