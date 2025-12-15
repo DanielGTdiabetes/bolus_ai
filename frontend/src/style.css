@@ -537,6 +537,21 @@ header.topbar {
   margin-bottom: 1.5rem;
 }
 
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.stack label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+}
+
 .label-row {
   display: flex;
   justify-content: space-between;
@@ -555,7 +570,9 @@ header.topbar {
 
 input[type="number"],
 select,
-input[type="text"] {
+input[type="text"],
+input[type="password"],
+input[type="email"] {
   width: 100%;
   padding: 1rem;
   border: 1px solid var(--border);

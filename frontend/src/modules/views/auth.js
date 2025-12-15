@@ -4,8 +4,8 @@ import { renderHeader } from '../components/layout.js';
 import { getApiBase, loginRequest, changePassword, saveSession } from '../../lib/api.js';
 
 export function renderLogin() {
-    const app = document.getElementById("app");
-    app.innerHTML = `
+  const app = document.getElementById("app");
+  app.innerHTML = `
       <main class="page narrow">
       <header class="topbar">
          <div class="header-title-group">
@@ -22,7 +22,7 @@ export function renderLogin() {
           <label>Contraseña
             <input type="password" id="login-password" autocomplete="current-password" required />
           </label>
-          <button type="submit">Entrar</button>
+          <button type="submit" class="btn-primary">Entrar</button>
           <p class="hint">Se mantendrá la sesión (localStorage).</p>
           <p class="error" id="login-error" hidden></p>
         </form>
@@ -30,40 +30,40 @@ export function renderLogin() {
     </main >
     `;
 
-    const form = document.querySelector("#login-form");
-    const errorBox = document.querySelector("#login-error");
-    form.addEventListener("submit", async (evt) => {
-        evt.preventDefault();
-        errorBox.hidden = true;
-        const username = document.querySelector("#login-username").value.trim();
-        const password = document.querySelector("#login-password").value;
-        try {
-            const data = await loginRequest(username, password);
-            state.token = data.access_token;
-            state.user = data.user;
+  const form = document.querySelector("#login-form");
+  const errorBox = document.querySelector("#login-error");
+  form.addEventListener("submit", async (evt) => {
+    evt.preventDefault();
+    errorBox.hidden = true;
+    const username = document.querySelector("#login-username").value.trim();
+    const password = document.querySelector("#login-password").value;
+    try {
+      const data = await loginRequest(username, password);
+      state.token = data.access_token;
+      state.user = data.user;
 
-            // Save session if available
-            if (typeof saveSession === 'function') {
-                saveSession(state.token, state.user);
-            }
+      // Save session if available
+      if (typeof saveSession === 'function') {
+        saveSession(state.token, state.user);
+      }
 
-            if (data.user.needs_password_change) {
-                navigate("#/change-password");
-            } else {
-                navigate("#/");
-            }
-        } catch (error) {
-            errorBox.textContent = error.message || "No se pudo iniciar sesión";
-            errorBox.hidden = false;
-        }
-    });
+      if (data.user.needs_password_change) {
+        navigate("#/change-password");
+      } else {
+        navigate("#/");
+      }
+    } catch (error) {
+      errorBox.textContent = error.message || "No se pudo iniciar sesión";
+      errorBox.hidden = false;
+    }
+  });
 }
 
 export function renderChangePassword() {
-    if (!ensureAuthenticated()) return;
-    const app = document.getElementById("app");
+  if (!ensureAuthenticated()) return;
+  const app = document.getElementById("app");
 
-    app.innerHTML = `
+  app.innerHTML = `
     ${renderHeader("Seguridad", true)}
   <main class="page narrow">
     <section class="card auth-card">
@@ -76,7 +76,7 @@ export function renderChangePassword() {
         <label>Nueva contraseña
           <input type="password" id="new-password" autocomplete="new-password" required minlength="8" />
         </label>
-        <button type="submit">Actualizar</button>
+        <button type="submit" class="btn-primary">Actualizar</button>
         <p class="error" id="password-error" hidden></p>
         <p class="success" id="password-success" hidden>Contraseña actualizada.</p>
       </form>
@@ -84,29 +84,29 @@ export function renderChangePassword() {
   </main>
   `;
 
-    const form = document.querySelector("#password-form");
-    const err = document.querySelector("#password-error");
-    const ok = document.querySelector("#password-success");
+  const form = document.querySelector("#password-form");
+  const err = document.querySelector("#password-error");
+  const ok = document.querySelector("#password-success");
 
-    form.addEventListener("submit", async (evt) => {
-        evt.preventDefault();
-        err.hidden = true;
-        ok.hidden = true;
-        const oldPass = document.querySelector("#old-password").value;
-        const newPass = document.querySelector("#new-password").value;
-        try {
-            const result = await changePassword(oldPass, newPass);
-            state.user = result.user || state.user;
+  form.addEventListener("submit", async (evt) => {
+    evt.preventDefault();
+    err.hidden = true;
+    ok.hidden = true;
+    const oldPass = document.querySelector("#old-password").value;
+    const newPass = document.querySelector("#new-password").value;
+    try {
+      const result = await changePassword(oldPass, newPass);
+      state.user = result.user || state.user;
 
-            if (typeof saveSession === 'function') {
-                saveSession(state.token, state.user);
-            }
+      if (typeof saveSession === 'function') {
+        saveSession(state.token, state.user);
+      }
 
-            ok.hidden = false;
-            setTimeout(() => navigate("#/"), 1000);
-        } catch (error) {
-            err.textContent = error.message || "No se pudo actualizar";
-            err.hidden = false;
-        }
-    });
+      ok.hidden = false;
+      setTimeout(() => navigate("#/"), 1000);
+    } catch (error) {
+      err.textContent = error.message || "No se pudo actualizar";
+      err.hidden = false;
+    }
+  });
 }
