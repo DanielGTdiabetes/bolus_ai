@@ -244,8 +244,9 @@ class BolusAcceptRequest(BaseModel):
 @router.post("/treatments", summary="Save a treatment (bolus) to NS/Local")
 async def save_treatment(
     payload: BolusAcceptRequest,
-    _: dict = Depends(get_current_user),
+    user: CurrentUser = Depends(get_current_user),
     store: DataStore = Depends(_data_store),
+    session: AsyncSession = Depends(get_db_session)
 ):
     # 1. Save locally (Always, as backup/primary)
     treatment_data = {
@@ -272,14 +273,19 @@ async def save_treatment(
     error = None
     
     # Check payload config first, then stored settings
-    ns_url = payload.nightscout.get("url") if payload.nightscout else None
-    ns_token = payload.nightscout.get("token") if payload.nightscout else None
+    # ns_url = payload.nightscout.get("url") if payload.nightscout else None
+    # ns_token = payload.nightscout.get("token") if payload.nightscout else None
     
-    if not ns_url:
-        settings = store.load_settings()
-        if settings.nightscout.enabled:
-            ns_url = settings.nightscout.url
-            ns_token = settings.nightscout.token
+    # Secure Store Lookup
+    ns_config = await get_ns_config(session, user.username)
+    
+    if ns_config and ns_config.enabled and ns_config.url:
+        ns_url = ns_config.url
+        ns_token = ns_config.api_secret
+    else:
+        # Fallback to payload/legacy only if really needed, but we prefer secure store
+        ns_url = None
+        ns_token = None
 
     if ns_url:
         try:
