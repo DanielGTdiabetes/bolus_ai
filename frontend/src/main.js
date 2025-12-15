@@ -808,7 +808,7 @@ async function updateMetrics() {
 
   // 2. Last Bolus
   try {
-    const treatments = await fetchTreatments({ ...config, count: 10 }); // fetch a few more to be safe
+    const treatments = await fetchTreatments({ ...config, count: 100 }); // fetch more to find valid bolus
     // Filter for valid insulin events (Meal Bolus, Correction Bolus, or just insulin > 0)
     // EXCLUDE Temp Basal explicitly
     const lastBolus = treatments.find(t => {
@@ -837,7 +837,7 @@ async function updateActivity() {
   if (!list || !config) return;
 
   try {
-    const fullTreatments = await fetchTreatments(config);
+    const fullTreatments = await fetchTreatments({ ...config, count: 100 });
     // Filter before slicing to avoid showing 3 empty/invalid items
     const validTreatments = fullTreatments.filter(t => {
       const u = parseFloat(t.insulin);

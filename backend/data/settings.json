@@ -1,0 +1,132 @@
+{
+  "units": "mg/dL",
+  "targets": {
+    "low": 90,
+    "mid": 100,
+    "high": 120
+  },
+  "cf": {
+    "breakfast": 30.0,
+    "lunch": 30.0,
+    "dinner": 30.0
+  },
+  "cr": {
+    "breakfast": 10.0,
+    "lunch": 10.0,
+    "dinner": 10.0
+  },
+  "max_bolus_u": 10.0,
+  "max_correction_u": 5.0,
+  "round_step_u": 0.05,
+  "tdd_u": null,
+  "iob": {
+    "dia_hours": 4.0,
+    "curve": "walsh",
+    "peak_minutes": 75
+  },
+  "learning": {
+    "mode": "B",
+    "cr_on": true,
+    "step_pct": 5,
+    "weekly_cap_pct": 20,
+    "auto_apply_safe": true,
+    "schedule": {
+      "enabled": false,
+      "weekday": "friday",
+      "time_local": "20:00"
+    }
+  },
+  "adaptive": {
+    "fat": {
+      "breakfast": {
+        "fu": 1.0,
+        "fl": 1.0,
+        "delay_min": 0
+      },
+      "lunch": {
+        "fu": 1.0,
+        "fl": 1.0,
+        "delay_min": 0
+      },
+      "dinner": {
+        "fu": 1.0,
+        "fl": 1.0,
+        "delay_min": 0
+      }
+    },
+    "exercise": {
+      "breakfast": {
+        "walking": {
+          "within90": 1.0,
+          "after90": 1.0
+        },
+        "cardio": {
+          "within90": 1.0,
+          "after90": 1.0
+        },
+        "running": {
+          "within90": 1.0,
+          "after90": 1.0
+        },
+        "gym": {
+          "within90": 1.0,
+          "after90": 1.0
+        },
+        "other": {
+          "within90": 1.0,
+          "after90": 1.0
+        }
+      },
+      "lunch": {
+        "walking": {
+          "within90": 1.0,
+          "after90": 1.0
+        },
+        "cardio": {
+          "within90": 1.0,
+          "after90": 1.0
+        },
+        "running": {
+          "within90": 1.0,
+          "after90": 1.0
+        },
+        "gym": {
+          "within90": 1.0,
+          "after90": 1.0
+        },
+        "other": {
+          "within90": 1.0,
+          "after90": 1.0
+        }
+      },
+      "dinner": {
+        "walking": {
+          "within90": 1.0,
+          "after90": 1.0
+        },
+        "cardio": {
+          "within90": 1.0,
+          "after90": 1.0
+        },
+        "running": {
+          "within90": 1.0,
+          "after90": 1.0
+        },
+        "gym": {
+          "within90": 1.0,
+          "after90": 1.0
+        },
+        "other": {
+          "within90": 1.0,
+          "after90": 1.0
+        }
+      }
+    }
+  },
+  "nightscout": {
+    "enabled": false,
+    "url": "",
+    "token": null,
+    "units": "mg/dl"
+  }
+}

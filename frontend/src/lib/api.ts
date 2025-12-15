@@ -263,6 +263,7 @@ export async function fetchTreatments(config) {
     const params = new URLSearchParams();
     if (config.url) params.append("url", config.url);
     if (config.token) params.append("token", config.token);
+    if (config.count) params.append("count", String(config.count));
     url += "?" + params.toString();
   }
   const response = await apiFetch(url);

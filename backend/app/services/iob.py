@@ -120,7 +120,7 @@ async def compute_iob_from_sources(
     if nightscout_client:
         try:
             hours = max(1, math.ceil(settings.iob.dia_hours))
-            treatments = await nightscout_client.get_recent_treatments(hours=hours)
+            treatments = await nightscout_client.get_recent_treatments(hours=hours, limit=1000)
             boluses.extend(_boluses_from_treatments(treatments))
         except Exception as exc:  # pragma: no cover - network failure paths
             logger.warning("Nightscout treatments unavailable", extra={"error": str(exc)})
@@ -184,7 +184,7 @@ async def compute_cob_from_sources(
     if nightscout_client:
         try:
             # 6 hours lookback for carbs
-            treatments = await nightscout_client.get_recent_treatments(hours=6)
+            treatments = await nightscout_client.get_recent_treatments(hours=6, limit=1000)
             entries.extend(_carbs_from_treatments(treatments))
         except Exception as exc:
              logger.warning("Nightscout treatments (for COB) unavailable", extra={"error": str(exc)})
