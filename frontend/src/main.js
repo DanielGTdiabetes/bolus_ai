@@ -1100,7 +1100,7 @@ function renderSettings() {
               <small>1u por X gramos</small>
             </label>
             <label>Factor Sensibilidad (ISF)
-              <input type="number" step="1" id="slot-isf" required min="5" />
+              <input type="number" step="0.01" id="slot-isf" required min="5" />
               <small>1u baja X mg/dL</small>
             </label>
             <label>Objetivo (Target)
@@ -2404,7 +2404,7 @@ function renderBolus() {
           target_mgdl: slotParams.target,
           cr_g_per_u: slotParams.icr,
           isf_mgdl_per_u: slotParams.isf,
-          
+
           dia_hours: mealParams.dia_hours || 4.0,
           round_step_u: mealParams.round_step_u || 0.5,
           max_bolus_u: mealParams.max_bolus_u || 15,
