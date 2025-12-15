@@ -138,7 +138,11 @@ async def get_latest_basal_root(username: str = Depends(auth_required)):
     """
     res = await basal_repo.get_latest_basal_dose(username)
     if not res:
-        return LatestBasalResponse(dose_u=None)
+        return LatestBasalResponse(
+            dose_u=None,
+            effective_from=None,
+            created_at=None
+        )
     
     return LatestBasalResponse(
         dose_u=float(res.get("dose_u") or 0.0),

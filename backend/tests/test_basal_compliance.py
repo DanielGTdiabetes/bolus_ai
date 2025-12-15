@@ -28,7 +28,12 @@ async def test_latest_endpoint_empty(override_auth):
         response = client.get("/api/basal/latest")
         assert response.status_code == 200
         data = response.json()
-        assert data["dose_u"] is None
+        assert isinstance(data, dict)
+        assert data == {
+            "dose_u": None,
+            "effective_from": None,
+            "created_at": None
+        }
 
 @pytest.mark.asyncio
 async def test_latest_endpoint_with_data(override_auth):
