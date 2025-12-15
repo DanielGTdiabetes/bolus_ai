@@ -808,11 +808,24 @@ async function updateMetrics() {
 
   // 2. Last Bolus
   try {
-    const treatments = await fetchTreatments({ ...config, count: 5 }); // fetch few recent
-    const lastBolus = treatments.find(t => t.insulin > 0 && t.eventType !== 'Temp Basal');
+    const treatments = await fetchTreatments({ ...config, count: 10 }); // fetch a few more to be safe
+    // Filter for valid insulin events (Meal Bolus, Correction Bolus, or just insulin > 0)
+    // EXCLUDE Temp Basal explicitly
+    const lastBolus = treatments.find(t => {
+      const val = parseFloat(t.insulin);
+      return (!isNaN(val) && val > 0 && t.eventType !== 'Temp Basal');
+    });
+
     const lbl = document.getElementById('metric-last');
-    if (lbl && lastBolus) {
-      lbl.innerHTML = `${lastBolus.insulin} <span class="metric-unit">U</span>`;
+    if (lbl) {
+      if (lastBolus) {
+        lbl.innerHTML = `${lastBolus.insulin} <span class="metric-unit">U</span>`;
+        // Optional: Add Time ago?
+        // const mins = Math.round((Date.now() - new Date(lastBolus.created_at).getTime())/60000);
+        // lbl.title = `${mins} min ago`;
+      } else {
+        lbl.innerHTML = `-- <span class="metric-unit">U</span>`;
+      }
     }
 
   } catch (e) { console.error("Metrics Loop Error", e); }
