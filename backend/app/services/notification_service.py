@@ -104,8 +104,8 @@ async def get_notification_summary_service(user_id: str, db: AsyncSession):
     
     last_seen_eval = state_map.get("evaluation_ready")
     
-    q_eval = select(SuggestionEvaluation).where(
-        SuggestionEvaluation.user_id == user_id
+    q_eval = select(SuggestionEvaluation).join(ParameterSuggestion).where(
+        ParameterSuggestion.user_id == user_id
     )
     if last_seen_eval:
         q_eval = q_eval.where(SuggestionEvaluation.created_at > last_seen_eval)

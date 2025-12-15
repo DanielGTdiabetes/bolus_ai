@@ -552,3 +552,20 @@ export async function evaluateBasalChange(days = 7) {
   if (!response.ok) throw new Error(data.detail || "Error al evaluar cambio basal");
   return data;
 }
+
+export async function getNotificationsSummary() {
+  const response = await apiFetch("/api/notifications/summary");
+  const data = await toJson(response);
+  if (!response.ok) throw new Error(data.detail || "Error al obtener notificaciones");
+  return data;
+}
+
+export async function markNotificationsSeen(types: string[]) {
+  const response = await apiFetch("/api/notifications/mark-seen", {
+    method: "POST",
+    body: JSON.stringify({ types })
+  });
+  const data = await toJson(response);
+  if (!response.ok) throw new Error(data.detail || "Error al marcar como vistas");
+  return data;
+}

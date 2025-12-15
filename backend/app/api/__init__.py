@@ -11,6 +11,7 @@ from .basal import router as basal_router
 from .db import router as db_router
 from .analysis import router as analysis_router
 from .suggestions import router as suggestions_router
+from .notifications import router as notifications_router
 
 api_router = APIRouter()
 api_router.include_router(health_router, prefix="/health", tags=["health"])
@@ -24,6 +25,7 @@ api_router.include_router(basal_router, prefix="/basal", tags=["basal"])
 api_router.include_router(db_router, prefix="/db", tags=["db"])
 api_router.include_router(analysis_router, prefix="/analysis", tags=["analysis"])
 api_router.include_router(suggestions_router)
+api_router.include_router(notifications_router, prefix="/notifications", tags=["notifications"])
 api_router.include_router(vision_router, prefix="/photo", tags=["vision"], include_in_schema=False)
 
 __all__ = ["api_router"]

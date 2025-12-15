@@ -38,7 +38,9 @@ import {
   evaluateSuggestion,
   getEvaluations,
   getBasalTimeline,
-  evaluateBasalChange
+  evaluateBasalChange,
+  getNotificationsSummary,
+  markNotificationsSeen
 } from "./lib/api";
 
 import {
@@ -1533,7 +1535,7 @@ function initCalcPanel() {
 
 // --- ROUTER & VIEWS ---
 
-function render() {
+async function render() {
   const route = window.location.hash || "#/";
   if (!state.user && route !== "#/login") {
     renderLogin();
@@ -1545,13 +1547,13 @@ function render() {
   } else if (route === "#/change-password") {
     renderChangePassword();
   } else if (route === "#/settings") {
-    renderSettings(); // Already exists
+    renderSettings();
   } else if (route === "#/scan") {
     renderScan();
   } else if (route === "#/bolus") {
     renderBolus();
   } else if (route === "#/basal") {
-    renderBasal();
+    await renderBasal();
   } else if (route === "#/history") {
     renderHistory();
   } else if (route === "#/patterns") {
@@ -1559,9 +1561,14 @@ function render() {
   } else if (route === "#/suggestions") {
     renderSuggestions();
   } else {
-    renderHome(); // Default to Home
+    await renderHome();
+  }
+
+  if (state.user && window.checkNotifications && route !== "#/login") {
+    window.checkNotifications();
   }
 }
+
 
 // --- VIEW: HOME (Inicio) ---
 async function renderHome() {
