@@ -1,17 +1,16 @@
-
-from typing import List
 from pydantic import BaseModel
+from typing import Optional
 
-class NotificationItem(BaseModel):
-    type: str # suggestion_pending | evaluation_ready | basal_review_today
-    count: int
-    title: str
-    message: str
-    route: str
+class PushSubscription(BaseModel):
+    endpoint: str
+    keys: dict[str, str] # p256dh, auth
 
 class NotificationSummary(BaseModel):
-    has_unread: bool
-    items: List[NotificationItem]
+    has_suggestions: bool = False
+    pending_suggestions_count: int = 0
+    has_basal_advice: bool = False
+    advice_msg: Optional[str] = None
+    has_basal_change: bool = False
 
 class MarkSeenRequest(BaseModel):
-    types: List[str]
+    types: list[str]

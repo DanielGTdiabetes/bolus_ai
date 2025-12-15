@@ -146,6 +146,12 @@ export function renderSettings() {
                 <p style="margin-bottom: 1rem; color: #64748b;">Descarga una copia de seguridad de todos tus datos (basales, ajustes, sugerencias) en formato JSON.</p>
                 <button id="export-btn" class="secondary" style="width: 100%;">📥 Descargar Todo (JSON)</button>
             </div>
+            
+            <div style="margin-top: 1rem; padding: 1rem; background: #f8fafc; border-radius: 8px;">
+                 <h3 style="font-size: 1.1rem; margin-bottom: 0.5rem;">Notificaciones</h3>
+                 <p style="margin-bottom: 1rem; color: #64748b;">Recibe alertas sobre análisis de noches y sugerencias de cambios basales.</p>
+                 <button id="push-btn" class="ghost" style="width: 100%;">🔔 Activar Notificaciones</button>
+            </div>
         </section>
     </div>
   </main>
@@ -211,6 +217,27 @@ export function renderSettings() {
         btn.disabled = false;
       }, 3000);
     }
+  };
+
+  document.querySelector("#push-btn").onclick = async () => {
+    const btn = document.querySelector("#push-btn");
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+      alert("Este navegador no soporta notificaciones Push.");
+      return;
+    }
+
+    const perm = await Notification.requestPermission();
+    if (perm !== "granted") {
+      alert("Permiso denegado.");
+      return;
+    }
+
+    // Note: In real app, we need VAPID public key from backend
+    // const vapidKey = await getVapidKey(); 
+    // For this scaffolding, we just show success to UX
+    alert("Permisos concedidos. (Falta integración VAPID backend)");
+    btn.textContent = "✅ Activadas";
+    btn.disabled = true;
   };
 
   const logoutBtn = document.querySelector("#logout-btn");
