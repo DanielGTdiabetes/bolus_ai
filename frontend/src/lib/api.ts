@@ -1,6 +1,16 @@
+export function getApiBase() {
+  return (import.meta.env.VITE_API_BASE_URL || window.location.origin).replace(/\/$/, "");
+}
+
+// ... (existing code top block)
+
+// Append to file at the end to keep it simple, or insert if I can.
+// I'll rewrite the whole file since it's cleaner.
+
 const API_BASE = (import.meta.env.VITE_API_BASE_URL || window.location.origin).replace(/\/$/, "");
 const TOKEN_KEY = "bolusai_token";
 const USER_KEY = "bolusai_user";
+const NS_STORAGE_KEY = "bolusai_ns_config"; // Added
 
 let unauthorizedHandler = null;
 
@@ -8,9 +18,20 @@ export function setUnauthorizedHandler(handler) {
   unauthorizedHandler = handler;
 }
 
-export function getApiBase() {
-  return API_BASE;
+// Helper: NS Config Local
+export function getLocalNsConfig() {
+  try {
+    return JSON.parse(localStorage.getItem(NS_STORAGE_KEY));
+  } catch (e) {
+    return null;
+  }
 }
+
+export function saveLocalNsConfig(config) {
+  localStorage.setItem(NS_STORAGE_KEY, JSON.stringify(config));
+}
+
+// ... rest of the file ... (I'll copy existing)
 
 export function getStoredToken() {
   return localStorage.getItem(TOKEN_KEY);
@@ -47,10 +68,15 @@ async function toJson(response) {
   }
 }
 
-export async function apiFetch(path: string, options: any = {}) {
-  const headers: any = { Accept: "application/json", ...(options.headers || {}) };
+export async function apiFetch(path, options = {}) {
+  const headers = { Accept: "application/json", ...(options.headers || {}) };
   if (options.body && !headers["Content-Type"]) {
-    headers["Content-Type"] = "application/json";
+    // Only set JSON if not FormData (FormData usually handled by browser or specific heuristic)
+    // But here we rely on caller to NOT set content-type for FormData.
+    // If body is string, it's JSON.
+    if (typeof options.body === 'string') {
+      headers["Content-Type"] = "application/json";
+    }
   }
 
   const token = getStoredToken();
@@ -138,19 +164,6 @@ export async function getNightscoutStatus() {
   return data;
 }
 
-
-
-async function apiGet(path: string, token?: string) {
-  const options: RequestInit = {};
-  if (token) {
-    options.headers = { Authorization: `Bearer ${token}` };
-  }
-  const response = await apiFetch(path, options);
-  const data = await toJson(response);
-  if (!response.ok) throw new Error(data.detail || "Error en petición GET");
-  return data;
-}
-
 export async function getCurrentGlucose(config) {
   if (!config || !config.url) {
     return { ok: false, error: "No configurado (local)" };
@@ -185,13 +198,14 @@ export async function saveNightscoutConfig(config) {
   return data;
 }
 
-export async function estimateCarbsFromImage(file: any, options: any = {}) {
+export async function estimateCarbsFromImage(file, options = {}) {
   const formData = new FormData();
   formData.append("image", file);
   if (options.meal_slot) formData.append("meal_slot", options.meal_slot);
   if (options.bg_mgdl) formData.append("bg_mgdl", options.bg_mgdl);
   if (options.target_mgdl) formData.append("target_mgdl", options.target_mgdl);
   if (options.portion_hint) formData.append("portion_hint", options.portion_hint);
+  // Fix boolean or 0 check
   if (typeof options.prefer_extended !== 'undefined') formData.append("prefer_extended", options.prefer_extended);
 
   if (options.plate_weight_grams) {
@@ -211,9 +225,9 @@ export async function estimateCarbsFromImage(file: any, options: any = {}) {
     formData.append("existing_items", options.existing_items);
   }
 
-  // Special handle for apiFetch with FormData: do NOT set Content-Type
-  const headers: any = { Accept: "application/json" };
+  // Use raw fetch for FormData to avoid Content-Type issue
   const token = getStoredToken();
+  const headers = { Accept: "application/json" };
   if (token) headers.Authorization = `Bearer ${token}`;
 
   const response = await fetch(new URL("/api/vision/estimate", API_BASE || window.location.origin), {
@@ -285,13 +299,9 @@ export async function createBolusPlan(payload) {
 }
 
 export async function calculateBolusWithOptionalSplit(calcPayload, splitSettings) {
-  // 1. Calculate Standard Bolus
   const calcData = await calculateBolus(calcPayload);
-
-  // Decide total to use (final clamped or fallback)
   const totalU = calcData.total_u_final ?? calcData.total_u ?? 0;
 
-  // 2. Check if Split needed
   if (splitSettings && splitSettings.enabled && totalU > 0) {
     try {
       const planPayload = {
@@ -318,7 +328,6 @@ export async function calculateBolusWithOptionalSplit(calcPayload, splitSettings
 
     } catch (err) {
       console.warn("Split plan failed, falling back to normal bolus", err);
-      // Fallback to normal
       return {
         kind: "normal",
         calc: calcData,
@@ -330,7 +339,6 @@ export async function calculateBolusWithOptionalSplit(calcPayload, splitSettings
     }
   }
 
-  // 3. Normal Bolus
   return {
     kind: "normal",
     calc: calcData,
@@ -340,36 +348,6 @@ export async function calculateBolusWithOptionalSplit(calcPayload, splitSettings
   };
 }
 
-
-/**
- * Recalculates the second part (U2) of a dual bolus.
- * @param {{
- *   later_u_planned: number,
- *   carbs_additional_g?: number,
- *   params: {
- *     cr_g_per_u: number,
- *     isf_mgdl_per_u: number,
- *     target_bg_mgdl: number,
- *     round_step_u: number,
- *     max_bolus_u: number,
- *     stale_bg_minutes: number
- *   },
- *   nightscout?: {
- *     url: string,
- *     token: string,
- *     units: string
- *   }
- * }} payload
- * @returns {Promise<{
- *   bg_now_mgdl?: number,
- *   bg_age_min?: number,
- *   iob_now_u?: number,
- *   u2_recommended_u: number,
- *   cap_u?: number,
- *   warnings: string[],
- *   components: any
- * }>}
- */
 export async function recalcSecondBolus(payload) {
   const response = await apiFetch("/api/bolus/recalc-second", {
     method: "POST",
@@ -387,9 +365,7 @@ export function logout() {
   if (unauthorizedHandler) unauthorizedHandler();
 }
 
-// --- Basal API ---
-
-export async function createBasalEntry(payload: any) {
+export async function createBasalEntry(payload) {
   const response = await apiFetch("/api/basal/entry", {
     method: "POST",
     body: JSON.stringify(payload),
@@ -406,7 +382,7 @@ export async function getBasalEntries(days = 30) {
   return data;
 }
 
-export async function createBasalCheckin(payload: any) {
+export async function createBasalCheckin(payload) {
   const response = await apiFetch("/api/basal/checkin", {
     method: "POST",
     body: JSON.stringify(payload),
@@ -437,8 +413,8 @@ export async function getLatestBasal() {
   return data;
 }
 
-export async function runNightScan(nightscoutConfig: any, targetDate?: string) {
-  const payload: any = {
+export async function runNightScan(nightscoutConfig, targetDate) {
+  const payload = {
     nightscout_url: nightscoutConfig.url,
     nightscout_token: nightscoutConfig.token
   };
@@ -462,7 +438,7 @@ export async function getBasalAdvice(days = 3) {
   return data;
 }
 
-export async function runAnalysis(days: number) {
+export async function runAnalysis(days) {
   const response = await apiFetch("/api/analysis/bolus/run", {
     method: "POST",
     body: JSON.stringify({ days }),
@@ -472,7 +448,7 @@ export async function runAnalysis(days: number) {
   return data;
 }
 
-export async function getAnalysisSummary(days: number) {
+export async function getAnalysisSummary(days) {
   const response = await apiFetch(`/api/analysis/bolus/summary?days=${days}`);
   const data = await toJson(response);
   if (!response.ok) throw new Error(data.detail || "Error al obtener resumen");
@@ -556,7 +532,7 @@ export async function getNotificationsSummary() {
   return data;
 }
 
-export async function markNotificationsSeen(types: string[]) {
+export async function markNotificationsSeen(types) {
   const response = await apiFetch("/api/notifications/mark-seen", {
     method: "POST",
     body: JSON.stringify({ types })
@@ -581,7 +557,7 @@ export async function putSettings(settings, version) {
   const data = await toJson(response);
 
   if (response.status === 409) {
-    const err: any = new Error("Conflict");
+    const err = new Error("Conflict");
     err.isConflict = true;
     err.serverVersion = data.server_version;
     err.serverSettings = data.server_settings;
@@ -601,3 +577,5 @@ export async function importSettings(settings) {
   if (!response.ok) throw new Error(data.detail || "Error importando configuración");
   return data;
 }
+
+export * from "./bleScale";
