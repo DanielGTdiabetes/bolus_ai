@@ -34,7 +34,9 @@ import {
   generateSuggestions,
   getSuggestions,
   acceptSuggestion,
-  rejectSuggestion
+  rejectSuggestion,
+  evaluateSuggestion,
+  getEvaluations
 } from "./lib/api";
 
 import {
@@ -2867,13 +2869,26 @@ async function renderSuggestions() {
   app.innerHTML = `
         ${renderHeader("Sugerencias", true)}
         <main class="page">
-            <div style="display:flex; justify-content:flex-end; margin-bottom:1rem;">
-                <button id="btn-gen-sug" class="btn-primary" style="font-size:0.9rem; padding:0.5rem 1rem;">✨ Generar Nuevas</button>
+            <div style="display:flex; margin-bottom:1.5rem; background:white; padding:4px; border-radius:12px; border:1px solid #e2e8f0;">
+                <button id="tab-pending" class="ws-tab active" style="flex:1; border:none; background:transparent; padding:0.6rem; border-radius:8px; font-weight:600; color:var(--text-muted); cursor:pointer;">Pendientes</button>
+                <button id="tab-accepted" class="ws-tab" style="flex:1; border:none; background:transparent; padding:0.6rem; border-radius:8px; font-weight:600; color:var(--text-muted); cursor:pointer;">Aceptadas</button>
             </div>
             
-            <div id="sug-list" style="display:flex; flex-direction:column; gap:1rem;">
-                <div class="spinner">Cargando sugerencias...</div>
+            <div id="view-pending">
+                <div style="display:flex; justify-content:flex-end; margin-bottom:1rem;">
+                    <button id="btn-gen-sug" class="btn-primary" style="font-size:0.9rem; padding:0.5rem 1rem;">✨ Generar Nuevas</button>
+                </div>
+                <div id="sug-list" style="display:flex; flex-direction:column; gap:1rem;">
+                    <div class="spinner">Cargando sugerencias...</div>
+                </div>
             </div>
+            
+            <div id="view-accepted" class="hidden">
+                 <div id="sug-history" style="display:flex; flex-direction:column; gap:1rem;">
+                    <div class="spinner">Cargando historial...</div>
+                 </div>
+            </div>
+
         </main>
         ${renderBottomNav('suggestions')}
         
@@ -2901,13 +2916,37 @@ async function renderSuggestions() {
         </dialog>
     `;
 
-  // Handlers
+  // Tab Switching Logic
+  const tabPending = document.getElementById('tab-pending');
+  const tabAccepted = document.getElementById('tab-accepted');
+  const viewPending = document.getElementById('view-pending');
+  const viewAccepted = document.getElementById('view-accepted');
+
+  function switchTab(target) {
+    if (target === 'pending') {
+      tabPending.classList.add('active'); tabPending.style.background = 'var(--primary-soft)'; tabPending.style.color = 'var(--primary)';
+      tabAccepted.classList.remove('active'); tabAccepted.style.background = 'transparent'; tabAccepted.style.color = 'var(--text-muted)';
+      viewPending.classList.remove('hidden');
+      viewAccepted.classList.add('hidden');
+      loadList();
+    } else {
+      tabAccepted.classList.add('active'); tabAccepted.style.background = 'var(--primary-soft)'; tabAccepted.style.color = 'var(--primary)';
+      tabPending.classList.remove('active'); tabPending.style.background = 'transparent'; tabPending.style.color = 'var(--text-muted)';
+      viewAccepted.classList.remove('hidden');
+      viewPending.classList.add('hidden');
+      loadHistory();
+    }
+  }
+
+  tabPending.onclick = () => switchTab('pending');
+  tabAccepted.onclick = () => switchTab('accepted');
+
+  // Init Style
+  switchTab('pending');
+
+  // --- PENDING LOGIC ---
   const btnGen = document.getElementById('btn-gen-sug');
   const list = document.getElementById('sug-list');
-  const modal = document.getElementById('accept-modal');
-
-  // Load
-  loadList();
 
   async function loadList() {
     try {
@@ -2959,6 +2998,121 @@ async function renderSuggestions() {
       btnGen.textContent = "✨ Generar Nuevas";
     }
   };
+
+  // --- ACCEPTED / HISTORY LOGIC ---
+  const histList = document.getElementById('sug-history');
+
+  async function loadHistory() {
+    try {
+      // We want LIST of accepted suggestions, AND their evaluation status.
+      // Currently getting accepted suggestions works via getSuggestions("accepted").
+      // But we also want the evaluation.
+      // Option A: getSuggestions returns stored evaluation in JSON? No, models separate.
+      // Option B: getEvaluations returns evaluations, we join manually?
+      // Better: getEvaluations should return what we need. 
+      // The backend endpoint /api/suggestions/evaluations returns SuggestionEvaluation list.
+      // But that only returns evaluated ones. What about accepted but NOT evaluated?
+      // We need a unified list or logic.
+      // Since User requested: "SI han pasado menos de days... Botón Evaluar".
+
+      // Let's fetch ACCEPTED suggestions, and also fetch EVALUATIONS.
+      const [accepted, evaluations] = await Promise.all([
+        getSuggestions("accepted"),
+        getEvaluations()
+      ]);
+
+      // Create map of Eval by SuggestionID
+      const evalMap = {};
+      evaluations.forEach(e => evalMap[e.suggestion_id] = e);
+
+      if (accepted.length === 0) {
+        histList.innerHTML = `<div style="text-align:center; padding:3rem; color:#94a3b8; font-style:italic;">No hay historial de cambios aceptados.</div>`;
+        return;
+      }
+
+      histList.innerHTML = accepted.map(s => {
+        const ev = evalMap[s.id];
+        const resolvedDate = new Date(s.resolved_at); // when it was accepted
+
+        // Diff in days to now
+        const now = new Date();
+        const diffTime = Math.abs(now - resolvedDate);
+        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+        let impactHtml = "";
+
+        if (ev) {
+          // Status: Evaluated
+          let color = "#64748b";
+          let icon = "➖";
+          if (ev.result === "improved") { color = "var(--success)"; icon = "✅"; }
+          if (ev.result === "worse") { color = "var(--danger)"; icon = "⚠️"; }
+          if (ev.result === "insufficient") { icon = "❓"; }
+
+          const scoreInfo = ev.evidence?.before?.score ?
+            `(${Math.round(ev.evidence.before.score * 100)}% ➜ ${Math.round(ev.evidence.after.score * 100)}%)` : "";
+
+          impactHtml = `
+                     <div style="margin-top:1rem; background:#f8fafc; padding:0.8rem; border-radius:8px; border-left:4px solid ${color};">
+                        <div style="font-weight:700; color:${color}; font-size:0.9rem;">${icon} Impacto: ${ev.result.toUpperCase()} ${scoreInfo}</div>
+                        <p style="font-size:0.85rem; margin:0.5rem 0 0; color:#475569;">${ev.summary}</p>
+                        <div style="margin-top:0.5rem; font-size:0.75rem; color:#94a3b8">Evaluado el: ${new Date(ev.evaluated_at || ev.created_at).toLocaleDateString()}</div>
+                     </div>
+                   `;
+        } else {
+          // Not evaluated
+          if (diffDays < 7) {
+            impactHtml = `
+                         <div style="margin-top:1rem; background:#fff7ed; padding:0.8rem; border-radius:8px; border:1px dashed #fdba74;">
+                            <div style="font-size:0.85rem; color:#c2410c;">📉 Faltan datos para evaluar.</div>
+                            <small style="color:#9a3412">Han pasado ${diffDays} días (mínimo 7).</small>
+                         </div>
+                       `;
+          } else {
+            impactHtml = `
+                         <div style="margin-top:1rem;">
+                            <button onclick="handleEvaluate('${s.id}')" class="btn-secondary" style="font-size:0.85rem; border-color:var(--primary); color:var(--primary);">
+                               📊 Evaluar Impacto (7 días)
+                            </button>
+                         </div>
+                       `;
+          }
+        }
+
+        return `
+                <div class="card" style="border-left:4px solid #cbd5e1;">
+                    <div style="display:flex; justify-content:space-between;">
+                         <div>
+                           <span class="chip" style="background:#f1f5f9; color:#475569; text-transform:capitalize;">${s.meal_slot}</span>
+                           <span class="chip" style="background:#f1f5f9; color:#475569; text-transform:uppercase;">${s.parameter}</span>
+                         </div>
+                         <small style="color:#94a3b8">${resolvedDate.toLocaleDateString()}</small>
+                    </div>
+                    <p style="font-size:0.9rem; color:#334155; margin:0.5rem 0;">${s.resolution_note || "Sin nota"}</p>
+                    ${impactHtml}
+                </div>
+                `;
+      }).join('');
+
+    } catch (e) {
+      histList.innerHTML = `<div class="error">Error: ${e.message}</div>`;
+    }
+  }
+
+  window.handleEvaluate = async (id) => {
+    try {
+      // visual feedback?
+      const btn = document.activeElement;
+      if (btn) btn.textContent = "Evaluando...";
+
+      const res = await evaluateSuggestion(id, 7);
+      alert(`Evaluación completada: ${res.summary}`);
+      loadHistory();
+    } catch (e) {
+      alert(e.message);
+    }
+  };
+
 
   // Global handlers for buttons in HTML maps
   window.handleReject = async (id) => {

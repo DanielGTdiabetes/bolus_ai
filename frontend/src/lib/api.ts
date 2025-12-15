@@ -519,3 +519,20 @@ export async function rejectSuggestion(id, note) {
   if (!response.ok) throw new Error(data.detail || "Error al rechazar sugerencia");
   return data;
 }
+
+export async function evaluateSuggestion(id, days = 7) {
+  const response = await apiFetch(`/api/suggestions/${id}/evaluate?days=${days}`, {
+    method: "POST"
+  });
+  const data = await toJson(response);
+  if (!response.ok) throw new Error(data.detail || "Error al evaluar");
+  return data;
+}
+
+export async function getEvaluations() {
+  const response = await apiFetch("/api/suggestions/evaluations");
+  const data = await toJson(response);
+  if (!response.ok) throw new Error(data.detail || "Error al obtener evaluaciones");
+  return data;
+}
+

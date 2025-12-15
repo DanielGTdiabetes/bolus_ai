@@ -78,3 +78,27 @@ async def reject_suggestion(
     if not res:
         raise HTTPException(status_code=404, detail="Suggestion not found")
     return {"status": "rejected", "id": res.id}
+
+# --- Evaluation Endpoints ---
+
+from app.services.evaluation_engine import evaluate_suggestion_service, list_evaluations_service
+
+@router.post("/{id}/evaluate")
+async def evaluate_suggestion(
+    id: uuid.UUID,
+    days: int = 7,
+    user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session)
+):
+    res = await evaluate_suggestion_service(id, user.id, days, db)
+    if isinstance(res, dict) and "error" in res:
+         raise HTTPException(status_code=400, detail=res["error"])
+    return res
+
+@router.get("/evaluations")
+async def list_evaluations(
+    user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session)
+):
+    """Returns list of evaluations"""
+    return await list_evaluations_service(user.id, db)
