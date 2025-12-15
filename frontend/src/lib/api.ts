@@ -536,3 +536,19 @@ export async function getEvaluations() {
   return data;
 }
 
+export async function getBasalTimeline(days = 14) {
+  const response = await apiFetch(`/api/basal/timeline?days=${days}`);
+  const data = await toJson(response);
+  if (!response.ok) throw new Error(data.detail || "Error al obtener timeline basal");
+  return data;
+}
+
+export async function evaluateBasalChange(days = 7) {
+  const response = await apiFetch("/api/basal/evaluate-change", {
+    method: "POST",
+    body: JSON.stringify({ days })
+  });
+  const data = await toJson(response);
+  if (!response.ok) throw new Error(data.detail || "Error al evaluar cambio basal");
+  return data;
+}
