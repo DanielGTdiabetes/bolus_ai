@@ -39,7 +39,40 @@ class BasalDoseResponse(BaseModel):
     effective_from: date
     created_at: datetime
 
-# ... (Previous code)
+class HistoryItem(BaseModel):
+    effective_from: date
+    dose_u: float
+
+class HistoryResponse(BaseModel):
+    days: int
+    items: List[HistoryItem]
+
+class CheckinRequest(BaseModel):
+    nightscout_url: str
+    nightscout_token: Optional[str] = None
+    units: str = "mgdl"
+
+class HistoricCheckin(BaseModel):
+    date: date
+    bg: float
+    trend: Optional[str]
+
+class CheckinResponse(BaseModel):
+    bg_now_mgdl: float
+    bg_age_min: Optional[int]
+    trend: Optional[str]
+    last3: List[HistoricCheckin] = []
+    signal: Optional[str] = None
+
+class ActiveResponse(BaseModel):
+    dose_u: float
+    started_at: datetime
+    elapsed_h: float
+    remaining_h: float
+    remaining_u: float
+    note: str
+
+# --- Endpoints ---
 
 @router.post("/dose", response_model=BasalDoseResponse)
 async def log_dose(
