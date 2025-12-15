@@ -131,7 +131,9 @@ class NightscoutClient:
                     
                     content = response.content.strip()
                     if not content:
-                        raise NightscoutError("Empty body from Nightscout")
+                        # Some NS versions/configurations might return empty body for no results
+                        logger.warning("Received empty body from Nightscout, returning empty list.")
+                        return []
                     
                     try:
                         data = response.json()
