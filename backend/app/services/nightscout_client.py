@@ -2,6 +2,8 @@ import hashlib
 import logging
 from datetime import datetime, timedelta
 from typing import Any, Optional
+import uuid
+import json
 
 import httpx
 
@@ -136,6 +138,7 @@ class NightscoutClient:
 
             for attempt in range(retries + 1):
                 try:
+                    req_id = uuid.uuid4().hex[:8]
                     # Explicit timeout per attempt (8s)
                     response = await self.client.get("/api/v1/treatments.json", params=params, timeout=8.0)
                     
@@ -145,16 +148,23 @@ class NightscoutClient:
                     
                     response.raise_for_status()
                     
-                    content = response.content.strip()
-                    if not content:
-                        # Some NS versions/configurations might return empty body for no results
-                        logger.warning("Received empty body from Nightscout, returning empty list.")
-                        return []
+                    # New Empty Body Check Logic
+                    raw_bytes = response.content
+                    cl_header = response.headers.get("content-length")
+                    ct_header = response.headers.get("content-type")
+                    n_bytes = len(raw_bytes)
+                    
+                    if n_bytes == 0:
+                        preview = raw_bytes[:80].decode("utf-8", "replace").replace("\n", " ")
+                        logger.warning(
+                            f"WARNING Nightscout empty body (req={req_id} attempt={attempt + 1} status={response.status_code} cl={cl_header} ct={ct_header} bytes={n_bytes} preview=\"{preview}\")"
+                        )
+                        raise NightscoutError("Empty body from Nightscout")
                     
                     try:
-                        data = response.json()
+                        data = json.loads(raw_bytes)
                     except ValueError:
-                         preview = response.text[:200]
+                         preview = raw_bytes[:80].decode("utf-8", "replace").replace("\n", " ")
                          logger.error(f"Invalid JSON in treatments. Body start: {preview!r}")
                          raise NightscoutError("Invalid JSON received")
 
