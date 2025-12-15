@@ -157,6 +157,38 @@ class NightscoutClient:
         logger.info(f"Fetched {len(data)} treatments, {len(valid_treatments)} valid after filtering ({hours}h).")
         return valid_treatments
 
+    async def get_sgv_range(self, start_dt: datetime, end_dt: datetime, count: int = 288) -> list[NightscoutSGV]:
+        """
+        Fetches SGV entries within a date range (server query or client filter).
+        Nightscout API supports find[dateString][$gte] etc, but date formats vary.
+        Using direct epoch milliseconds is safer: find[date][$gte]=...
+        """
+        # Convert to epoch ms
+        start_ms = int(start_dt.timestamp() * 1000)
+        end_ms = int(end_dt.timestamp() * 1000)
+        
+        params = {
+            "find[date][$gte]": start_ms,
+            "find[date][$lte]": end_ms,
+            "count": count
+        }
+        
+        response = await self.client.get("/api/v1/entries/sgv.json", params=params)
+        data = await self._handle_response(response)
+        
+        if not isinstance(data, list):
+             # Should be list of entries
+             return []
+             
+        # Convert
+        results = []
+        for d in data:
+            try:
+                results.append(NightscoutSGV.model_validate(d))
+            except Exception:
+                continue
+        return results
+
     async def upload_treatments(self, treatments: list[dict]) -> Any:
         response = await self.client.post("/api/v1/treatments.json", json=treatments)
         return await self._handle_response(response)
