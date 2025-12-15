@@ -406,11 +406,7 @@ export async function getBasalEntries(days = 30) {
   return data;
 }
 
-export async function createBasalCheckin(nightscoutConfig: any) {
-  const payload = {
-    nightscout_url: nightscoutConfig.url,
-    nightscout_token: nightscoutConfig.token
-  };
+export async function createBasalCheckin(payload: any) {
   const response = await apiFetch("/api/basal/checkin", {
     method: "POST",
     body: JSON.stringify(payload),

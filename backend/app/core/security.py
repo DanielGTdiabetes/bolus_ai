@@ -13,6 +13,7 @@ from pathlib import Path
 import bcrypt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
+from pydantic import BaseModel
 
 from app.core.settings import Settings, get_settings
 
@@ -130,23 +131,35 @@ def admin_required(username: str = Depends(auth_required), user_loader: Callable
     return username
 
 
+
+class CurrentUser(BaseModel):
+    username: str
+    role: str
+    needs_password_change: bool = False
+    
+    @property
+    def id(self) -> str:
+        return self.username
+
 def get_current_user(
     token: str = Depends(oauth2_scheme),
     token_manager: TokenManager = Depends(get_token_manager),
     settings: Settings = Depends(get_settings),
-):
+) -> CurrentUser:
     from app.core.datastore import UserStore
 
     payload = token_manager.decode_token(token, expected_type="access")
     username = str(payload.get("sub"))
     store = UserStore(Path(settings.data.data_dir) / "users.json")
-    user = store.find(username)
-    if not user:
+    user_dict = store.find(username)
+    if not user_dict:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
-    return user
+    
+    return CurrentUser(**user_dict)
 
 
-def require_admin(current_user: dict[str, Any] = Depends(get_current_user)) -> dict[str, Any]:
-    if current_user.get("role") != "admin":
+
+def require_admin(current_user: CurrentUser = Depends(get_current_user)) -> CurrentUser:
+    if current_user.role != "admin":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin only")
     return current_user

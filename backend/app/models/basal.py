@@ -31,6 +31,9 @@ class BasalCheckin(Base):
     bg_mgdl: Mapped[float] = mapped_column(Float, nullable=False)
     trend: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     
+    age_min: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    source: Mapped[Optional[str]] = mapped_column(String, default="nightscout")
+    
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 
     __table_args__ = (

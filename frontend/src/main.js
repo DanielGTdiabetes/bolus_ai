@@ -3073,6 +3073,38 @@ async function renderBasal() {
   app.innerHTML = `
     ${renderHeader("Basal Advisor", true)}
     <main class="page">
+        <!-- 0. Manual Entry Block -->
+        <section class="card" style="margin-bottom:1.5rem">
+            <h3 style="margin:0 0 1rem 0">Registrar / Check-in</h3>
+            
+            <div style="display:grid; grid-template-columns: 1fr 1fr; gap:0.5rem; margin-bottom:1rem">
+                <div>
+                   <label style="font-size:0.75rem; font-weight:700; color:#64748b; margin-bottom:0.25rem; display:block">DOSIS (U)</label>
+                   <input type="number" id="basal-u-input" step="0.5" placeholder="0.0" style="width:100%; padding:0.5rem; font-size:1.1rem; border:1px solid #cbd5e1; border-radius:6px">
+                </div>
+                <div>
+                   <label style="font-size:0.75rem; font-weight:700; color:#64748b; margin-bottom:0.25rem; display:block">FECHA/HORA</label>
+                   <input type="datetime-local" id="basal-dt-input" style="width:100%; padding:0.5rem; font-size:0.9rem; border:1px solid #cbd5e1; border-radius:6px">
+                </div>
+            </div>
+
+            <div id="manual-bg-row" class="hidden" style="margin-bottom:1rem; padding:0.8rem; background:#f8fafc; border-radius:8px">
+                 <label style="font-size:0.75rem; font-weight:700; color:#64748b; margin-bottom:0.25rem; display:block">GLUCOSA MANUAL (mg/dL)</label>
+                 <div style="display:flex; gap:0.5rem">
+                    <input type="number" id="manual-bg-input" placeholder="Check-in BG" style="flex:1; padding:0.5rem; border:1px solid #cbd5e1; border-radius:6px">
+                     <button id="btn-save-manual" class="btn-primary" style="padding:0.5rem 1rem">Guardar</button>
+                 </div>
+            </div>
+
+            <div style="display:flex; gap:0.5rem">
+                <button id="btn-save-simple" class="btn-ghost" style="flex:1; border:1px solid #cbd5e1">Solo Guardar</button>
+                <button id="btn-checkin-wake" class="btn-primary" style="flex:1.5">☀️ Al Levantarme</button>
+            </div>
+            <button id="btn-scan-last-night" class="btn-ghost" style="margin-top:0.8rem; width:100%; font-size:0.8rem; border:1px dashed #cbd5e1">🌙 Analizar Noche (00h-06h)</button>
+            
+            <div id="basal-action-msg" style="margin-top:0.5rem; font-size:0.85rem; color:#64748b; min-height:1.2em"></div>
+        </section>
+
         <!-- 1. Advice Block -->
         <section class="card" style="margin-bottom:1.5rem; border-left:4px solid transparent" id="basal-advice-card">
             <h3 style="margin:0 0 0.5rem 0">Estado Basal</h3>
@@ -3122,6 +3154,127 @@ async function renderBasal() {
   `;
 
   // --- LOGIC ---
+
+  // 0. Bind Manual Controls
+  const uInput = document.getElementById('basal-u-input');
+  const dtInput = document.getElementById('basal-dt-input');
+  // Set default datetime to now (local)
+  const pad = (n) => n < 10 ? '0' + n : n;
+  const nowFn = new Date();
+  dtInput.value = `${nowFn.getFullYear()}-${pad(nowFn.getMonth() + 1)}-${pad(nowFn.getDate())}T${pad(nowFn.getHours())}:${pad(nowFn.getMinutes())}`;
+
+  // Helper to save dose
+  async function saveDoseOnly() {
+    const uVal = parseFloat(uInput.value);
+    const dtVal = dtInput.value;
+    const msgEl = document.getElementById('basal-action-msg');
+
+    if (isNaN(uVal) || uVal <= 0) {
+      msgEl.textContent = "⚠️ Dosis requerida."; msgEl.style.color = "var(--danger)"; return false;
+    }
+    msgEl.textContent = "Guardando dosis...";
+    const dateObj = new Date(dtVal);
+    try {
+      await createBasalEntry({
+        dose_u: uVal,
+        created_at: dateObj.toISOString(),
+        effective_from: dateObj.toISOString().split('T')[0]
+      });
+      return true;
+    } catch (e) {
+      msgEl.textContent = "Error: " + e.message; msgEl.style.color = "var(--danger)"; return false;
+    }
+  }
+
+  document.getElementById('btn-save-simple').onclick = async () => {
+    const ok = await saveDoseOnly();
+    if (ok) {
+      document.getElementById('basal-action-msg').textContent = "✅ Dosis guardada.";
+      document.getElementById('basal-action-msg').style.color = "var(--success)";
+      setTimeout(() => renderBasal(), 1000); // Reload
+    }
+  };
+
+  document.getElementById('btn-checkin-wake').onclick = async () => {
+    // 1. Save dose
+    const ok = await saveDoseOnly();
+    if (!ok) return;
+
+    const msgEl = document.getElementById('basal-action-msg');
+
+    // 2. Check Nightscout
+    const nsConfig = getLocalNsConfig();
+    const dtVal = dtInput.value;
+    const dateObj = new Date(dtVal);
+
+    if (nsConfig && nsConfig.url) {
+      msgEl.textContent = "Obteniendo glucosa...";
+      try {
+        await createBasalCheckin({
+          nightscout_url: nsConfig.url,
+          nightscout_token: nsConfig.token,
+          created_at: dateObj.toISOString()
+        });
+        msgEl.textContent = "✅ Guardado y analizado.";
+        setTimeout(() => renderBasal(), 1000);
+      } catch (e) {
+        msgEl.textContent = "Error fetch NS: " + e.message;
+        // Fallback manual?
+      }
+    } else {
+      // Show manual
+      document.getElementById('manual-bg-row').classList.remove('hidden');
+      msgEl.textContent = "⚠️ Indica glucosa manual (Nightscout no config).";
+      msgEl.style.color = "var(--warning)";
+    }
+  };
+
+  document.getElementById('btn-save-manual').onclick = async () => {
+    const bgVal = parseFloat(document.getElementById('manual-bg-input').value);
+    const msgEl = document.getElementById('basal-action-msg');
+    if (isNaN(bgVal)) { alert("Indica BG válida"); return; }
+
+    const dtVal = dtInput.value;
+    const dateObj = new Date(dtVal);
+
+    try {
+      msgEl.textContent = "Guardando check-in...";
+      await createBasalCheckin({
+        manual_bg: bgVal,
+        manual_trend: "Manual",
+        created_at: dateObj.toISOString()
+      });
+      msgEl.textContent = "✅ Check-in guardado.";
+      setTimeout(() => renderBasal(), 1000);
+    } catch (e) {
+      msgEl.textContent = "Error: " + e.message;
+    }
+  };
+
+  document.getElementById('btn-scan-last-night').onclick = async () => {
+    // Analyze for previous night of the selected date? Or just 'last night' relative to now?
+    // Usually "Anoche".
+    // Let's use the date from input - 1 day? Or just today?
+    // Basal view usually implies 'Today'.
+    const config = getLocalNsConfig();
+    if (!config || !config.url) { alert("Configura Nightscout para analizar."); return; }
+
+    const btn = document.getElementById('btn-scan-last-night');
+    const original = btn.textContent;
+    btn.textContent = "Analizando...";
+    btn.disabled = true;
+
+    try {
+      // Default to today (which scans previous night 00-06)
+      await runNightScan(config);
+      renderBasal();
+    } catch (e) {
+      alert(e.message);
+    } finally {
+      btn.textContent = original;
+      btn.disabled = false;
+    }
+  };
 
   // 1. Load Advice (3 days default)
   try {

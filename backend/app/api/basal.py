@@ -49,8 +49,11 @@ class HistoryResponse(BaseModel):
     items: List[HistoryItem]
 
 class CheckinRequest(BaseModel):
-    nightscout_url: str
+    nightscout_url: Optional[str] = None
     nightscout_token: Optional[str] = None
+    manual_bg: Optional[float] = None
+    manual_trend: Optional[str] = None
+    created_at: Optional[datetime] = None
     units: str = "mgdl"
 
 class HistoricCheckin(BaseModel):
@@ -194,39 +197,56 @@ async def create_checkin(
     """
     Obtiene BG de Nightscout, guarda check-in diario y analiza tendencia.
     """
-    # 1. Fetch from Nightscout using robust Client
-    from app.services.nightscout_client import NightscoutClient, NightscoutError, NightscoutSGV
-    
+    # 1. Determine Source
     bg_val = 0.0
     age_min = 0
     direction = ""
     timestamp = None
-    
-    # Initialize client (it handles token/secret headers internally)
-    # The client expects base_url and token.
-    ns_client = NightscoutClient(
-        base_url=payload.nightscout_url,
-        token=payload.nightscout_token
-    )
-    
-    try:
-        # Re-use known working method: get_latest_sgv() calls /api/v1/entries/sgv.json?count=1
-        sgv_data: NightscoutSGV = await ns_client.get_latest_sgv()
+    source = "nightscout"
+
+    if payload.manual_bg is not None:
+        # Manual Entry
+        bg_val = payload.manual_bg
+        direction = payload.manual_trend or ""
+        # Use provided time or now. logic below uses timestamp (ms) for age calc.
+        dt = payload.created_at or datetime.utcnow()
+        timestamp = dt.timestamp() * 1000
+        source = "manual"
+    elif payload.nightscout_url:
+        # Fetch from Nightscout
+        from app.services.nightscout_client import NightscoutClient, NightscoutError, NightscoutSGV
         
-        # sgv_data is a Pydantic model: { sgv: int, direction: str, dateString: str, date: int, ... }
-        bg_val = float(sgv_data.sgv)
-        direction = sgv_data.direction or ""
-        timestamp = sgv_data.date # milliseconds
+        # Init client (it handles token/secret headers internally)
+        ns_client = NightscoutClient(
+            base_url=payload.nightscout_url,
+            token=payload.nightscout_token
+        )
         
-        now_ms = datetime.utcnow().timestamp() * 1000
-        age_min = int((now_ms - timestamp) / 60000) if timestamp else 0
-        
-    except NightscoutError as ne:
-        raise HTTPException(status_code=400, detail=f"Nightscout Error: {str(ne)}")
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Unexpected Error fetching BG: {str(e)}")
-    finally:
-        await ns_client.aclose()
+        try:
+            # Re-use known working method: get_latest_sgv() calls /api/v1/entries/sgv.json?count=1
+            sgv_data: NightscoutSGV = await ns_client.get_latest_sgv()
+            
+            # sgv_data is a Pydantic model
+            bg_val = float(sgv_data.sgv)
+            direction = sgv_data.direction or ""
+            timestamp = sgv_data.date # milliseconds
+            
+            now_ms = datetime.utcnow().timestamp() * 1000
+            age_min = int((now_ms - timestamp) / 60000) if timestamp else 0
+            
+        except NightscoutError as ne:
+            raise HTTPException(status_code=400, detail=f"Nightscout Error: {str(ne)}")
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Unexpected Error fetching BG: {str(e)}")
+        finally:
+            await ns_client.aclose()
+    else:
+        # No source provided
+        # If user just wants to log basal without checkin, they should use /dose or /entry.
+        # But if calling /checkin, we expect some data. 
+        # However, to be safe, if nothing provided, maybe we just return empty or error?
+        # Let's error for now as /checkin implies checkin data.
+        raise HTTPException(status_code=400, detail="Must provide Nightscout URL or Manual BG")
 
     # 2. Save Checkin
     checkin_date = date.today()
@@ -240,7 +260,7 @@ async def create_checkin(
         bg_val,
         direction,
         age_min,
-        "nightscout"
+        source
     )
 
     # 3. Analyze Trend (Last 7 checkins)
@@ -258,9 +278,9 @@ async def create_checkin(
             consecutive_high += 1
         
         last3_formatted.append(HistoricCheckin(
-            date=c["day"],
+            date=c.get("checkin_date") or c.get("day"),
             bg=val,
-            trend=c["trend"]
+            trend=c.get("trend")
         ))
         
     signal = None

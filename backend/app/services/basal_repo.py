@@ -141,11 +141,11 @@ async def upsert_daily_checkin(user_id: str, day: date, bg_mgdl: float, trend: s
     now = datetime.utcnow()
     
     if _async_engine:
-        # Uses ON CONFLICT on (user_id, day) assuming unique constraint exists per user request
+        # Uses ON CONFLICT on (user_id, checkin_date) assuming unique constraint exists per user request
         query = text("""
-            INSERT INTO basal_checkin (id, user_id, day, bg_mgdl, trend, age_min, source, created_at)
+            INSERT INTO basal_checkin (id, user_id, checkin_date, bg_mgdl, trend, age_min, source, created_at)
             VALUES (:id, :user_id, :day, :bg, :trend, :age, :src, :now)
-            ON CONFLICT (user_id, day) DO UPDATE
+            ON CONFLICT (user_id, checkin_date) DO UPDATE
             SET bg_mgdl = EXCLUDED.bg_mgdl,
                 trend = EXCLUDED.trend,
                 age_min = EXCLUDED.age_min,
@@ -172,7 +172,7 @@ async def upsert_daily_checkin(user_id: str, day: date, bg_mgdl: float, trend: s
         entry = {
             "id": entry_id,
             "user_id": user_id,
-            "day": day,
+            "checkin_date": day,
             "bg_mgdl": bg_mgdl,
             "trend": trend,
             "age_min": age_min,
@@ -187,7 +187,7 @@ async def list_checkins(user_id: str, days: int = 14) -> List[Dict[str, Any]]:
         query = text("""
             SELECT * FROM basal_checkin
             WHERE user_id = :user_id
-            ORDER BY day DESC
+            ORDER BY checkin_date DESC
             LIMIT :limit
         """)
         async with _async_engine.connect() as conn:
@@ -196,7 +196,7 @@ async def list_checkins(user_id: str, days: int = 14) -> List[Dict[str, Any]]:
             return [dict(r._mapping) for r in rows]
     else:
         user_checks = [v for k,v in _mem_checkins.items() if k[0] == user_id]
-        sorted_checks = sorted(user_checks, key=lambda x: x["day"], reverse=True)
+        sorted_checks = sorted(user_checks, key=lambda x: x["checkin_date"], reverse=True)
         return sorted_checks[:days]
 
 async def get_dose_history(user_id: str, days: int = 30) -> List[Dict[str, Any]]:

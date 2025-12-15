@@ -61,9 +61,13 @@ async def startup_event() -> None:
     # Ensure models are loaded before creating tables
     import app.models 
 
-    from app.core.db import init_db, create_tables
+    from app.core.db import init_db, create_tables, get_engine
     init_db()
     await create_tables()
+    
+    # Hotfix: Ensure schema for Basal Checkin
+    from app.core.migration import ensure_basal_schema
+    await ensure_basal_schema(get_engine())
 
     from app.core.datastore import UserStore
 

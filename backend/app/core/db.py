@@ -63,6 +63,9 @@ def init_db():
     else:
         logger.warning("DATABASE_URL not set. Using in-memory (dict) storage. Data will be lost on restart.")
 
+def get_engine():
+    return _async_engine
+
 async def check_db_health():
     """Simple health check: SELECT now()"""
     if not _async_engine:
