@@ -26,7 +26,9 @@ import {
   createBasalCheckin,
   getBasalCheckins,
   getBasalActive,
-  getLatestBasal
+  getLatestBasal,
+  runNightScan,
+  getBasalAdvice
 } from "./lib/api";
 
 import {
@@ -539,6 +541,9 @@ function renderBasal() {
     ${renderHeader("Basal", true)}
     <main class="page">
        
+       <!-- Advisor Card -->
+       <div id="basal-advice-card"></div>
+
        <!-- Section 1: Basal Actual -->
        <section class="card" id="basal-latest-section">
           <h3>Basal Actual</h3>
@@ -546,6 +551,13 @@ function renderBasal() {
              <div class="spinner">Cargando...</div>
           </div>
        </section>
+       
+       <!-- Actions Row -->
+       <div style="display:grid; grid-template-columns: 1fr 1fr; gap:0.5rem; margin:0 1rem;">
+         <button id="btn-checkin-wake" class="btn-secondary" style="font-size:0.9rem; padding:0.8rem;">☀️ Check-in</button>
+         <button id="btn-night-scan" class="btn-secondary" style="font-size:0.9rem; padding:0.8rem;">🌙 Analizar Noche</button>
+       </div>
+       <div id="action-feedback" style="margin:0.5rem 1rem; font-size:0.85rem; text-align:center;" hidden></div>
 
        <!-- Section 2: Histórico -->
        <section class="card">
@@ -578,8 +590,7 @@ function renderBasal() {
   // --- Logic ---
 
   const initBasalPage = async () => {
-    await loadLatest();
-    await loadHistory();
+    await Promise.all([loadLatest(), loadHistory(), loadAdvice()]);
   };
 
   const loadLatest = async () => {
@@ -601,6 +612,30 @@ function renderBasal() {
       }
     } catch (e) {
       el.innerHTML = `<div style="color:var(--error);">Error al cargar</div>`;
+    }
+  };
+
+  const loadAdvice = async () => {
+    const el = document.getElementById('basal-advice-card');
+    if (!el) return;
+    try {
+      const res = await getBasalAdvice(3);
+      // Logic for color/style
+      let styleClass = "card"; // neutral
+      // Simple heuristic for color: if message contains "Revisa" or "hipoglucemias" -> warning
+      if (res.message.includes("hipoglucemias") || res.message.includes("elevada")) {
+        styleClass = "card warning-border";
+      }
+
+      el.innerHTML = `
+        <section class="${styleClass}">
+           <h3>🤖 Estado Basal</h3>
+           <p style="font-size:1rem; line-height:1.4;">${res.message}</p>
+        </section>
+      `;
+    } catch (e) {
+      console.warn("Error loading basal advice:", e);
+      el.innerHTML = ""; // Hide if fails
     }
   };
 
@@ -639,6 +674,49 @@ function renderBasal() {
     }
   };
 
+  // Actions
+  const fb = document.getElementById('action-feedback');
+
+  document.getElementById('btn-checkin-wake').onclick = async () => {
+    fb.hidden = true;
+    fb.innerHTML = `<div class="spinner inline"></div> Conectando con Nightscout...`;
+    fb.hidden = false;
+    fb.style.color = "var(--text-main)";
+
+    try {
+      const ns = getLocalNsConfig();
+      if (!ns || !ns.url) throw new Error("Nightscout no configurado");
+
+      const res = await createBasalCheckin(ns);
+      fb.innerHTML = `✅ <strong>${Math.round(res.bg_now_mgdl)}</strong> mg/dL (${res.trend || '-'})`;
+      fb.style.color = "var(--success)";
+      loadAdvice(); // refresh advice
+    } catch (e) {
+      fb.innerHTML = `❌ ${e.message}`;
+      fb.style.color = "var(--error)";
+    }
+  };
+
+  document.getElementById('btn-night-scan').onclick = async () => {
+    fb.hidden = true;
+    fb.innerHTML = `<div class="spinner inline"></div> Analizando noche...`;
+    fb.hidden = false;
+    fb.style.color = "var(--text-main)";
+
+    try {
+      const ns = getLocalNsConfig();
+      if (!ns || !ns.url) throw new Error("Nightscout no configurado");
+
+      const res = await runNightScan(ns);
+      fb.innerHTML = `✅ ${res.message}`;
+      fb.style.color = "var(--success)";
+      loadAdvice(); // refresh advice
+    } catch (e) {
+      fb.innerHTML = `❌ ${e.message}`;
+      fb.style.color = "var(--error)";
+    }
+  };
+
   // Form Handler
   const form = document.getElementById('basal-simple-form');
   const msg = document.getElementById('basal-msg');
@@ -669,7 +747,7 @@ function renderBasal() {
       input.value = "";
 
       // Refresh
-      await initBasalPage();
+      await initBasalPage(); // Refresh all
 
     } catch (err) {
       msg.textContent = err.message || "Error al guardar";

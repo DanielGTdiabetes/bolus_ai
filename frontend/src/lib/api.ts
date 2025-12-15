@@ -439,3 +439,28 @@ export async function getLatestBasal() {
   if (!response.ok) throw new Error(data.detail || "Error al obtener última basal");
   return data;
 }
+
+export async function runNightScan(nightscoutConfig: any, targetDate?: string) {
+  const payload: any = {
+    nightscout_url: nightscoutConfig.url,
+    nightscout_token: nightscoutConfig.token
+  };
+  if (targetDate) {
+    payload.target_date = targetDate;
+  }
+
+  const response = await apiFetch("/api/basal/night-scan", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+  const data = await toJson(response);
+  if (!response.ok) throw new Error(data.detail || "Error al analizar noche");
+  return data;
+}
+
+export async function getBasalAdvice(days = 3) {
+  const response = await apiFetch(`/api/basal/advice?days=${days}`);
+  const data = await toJson(response);
+  if (!response.ok) throw new Error(data.detail || "Error al obtener consejo basal");
+  return data;
+}

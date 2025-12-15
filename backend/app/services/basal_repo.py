@@ -9,8 +9,74 @@ logger = logging.getLogger(__name__)
 
 # Fallback in-memory storage if DB is not active
 _mem_doses = []
+# ... (existing imports)
+
+# Fallback in-memory storage if DB is not active
+_mem_doses = []
 _mem_checkins = {} # (user_id, day) -> dict
+_mem_night_summaries = {} # (user_id, night_date) -> dict
 _mem_notes = []
+
+# ... (existing functions: upsert_basal_dose, get_latest_basal_dose, upsert_daily_checkin, list_checkins, get_dose_history)
+
+async def upsert_night_summary(user_id: str, night_date: date, had_hypo: bool, min_bg: int, events_hypo: int) -> Dict[str, Any]:
+    entry_id = str(uuid.uuid4())
+    now = datetime.utcnow()
+    
+    if _async_engine:
+        query = text("""
+            INSERT INTO basal_night_summary (id, user_id, night_date, had_hypo, min_bg_mgdl, events_below_70, created_at)
+            VALUES (:id, :user_id, :nd, :hypo, :min_bg, :ev_hypo, :now)
+            ON CONFLICT (user_id, night_date) DO UPDATE
+            SET had_hypo = EXCLUDED.had_hypo,
+                min_bg_mgdl = EXCLUDED.min_bg_mgdl,
+                events_below_70 = EXCLUDED.events_below_70,
+                created_at = EXCLUDED.created_at
+            RETURNING *
+        """)
+        params = {
+            "id": entry_id,
+            "user_id": user_id,
+            "nd": night_date,
+            "hypo": had_hypo,
+            "min_bg": min_bg,
+            "ev_hypo": events_hypo,
+            "now": now
+        }
+        async with _async_engine.begin() as conn:
+            result = await conn.execute(query, params)
+            row = result.fetchone()
+            return dict(row._mapping) if row else None
+    else:
+        key = (user_id, night_date)
+        entry = {
+            "id": entry_id,
+            "user_id": user_id,
+            "night_date": night_date,
+            "had_hypo": had_hypo,
+            "min_bg_mgdl": min_bg,
+            "events_below_70": events_hypo,
+            "created_at": now
+        }
+        _mem_night_summaries[key] = entry
+        return entry
+
+async def list_night_summaries(user_id: str, days: int = 7) -> List[Dict[str, Any]]:
+    if _async_engine:
+        query = text("""
+            SELECT * FROM basal_night_summary
+            WHERE user_id = :user_id
+            ORDER BY night_date DESC
+            LIMIT :limit
+        """)
+        async with _async_engine.connect() as conn:
+            result = await conn.execute(query, {"user_id": user_id, "limit": days})
+            rows = result.fetchall()
+            return [dict(r._mapping) for r in rows]
+    else:
+        user_sums = [v for k,v in _mem_night_summaries.items() if k[0] == user_id]
+        sorted_sums = sorted(user_sums, key=lambda x: x["night_date"], reverse=True)
+        return sorted_sums[:days]
 
 async def upsert_basal_dose(user_id: str, dose_u: float, effective_from: date = None, created_at: datetime = None) -> Dict[str, Any]:
     if effective_from is None:
