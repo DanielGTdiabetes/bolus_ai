@@ -1944,7 +1944,10 @@ function renderBolusResult(res) {
         <div class="card result-card" style="margin-top:1rem; border:2px solid var(--primary);">
             <div style="text-align:center">
                 <div class="text-muted">Bolo Recomendado</div>
-                <div class="big-number" style="color:var(--primary)">${res.upfront_u} U</div>
+                <div style="display:flex; justify-content:center; align-items:baseline; gap:5px;">
+                   <input type="number" id="final-bolus-input" value="${res.upfront_u}" step="0.5" class="big-number-input" style="width:140px; text-align:right; font-size:3rem; color:var(--primary); font-weight:800; border:none; border-bottom:2px dashed var(--primary); outline:none; background:transparent;">
+                   <span style="font-size:1.5rem; font-weight:700; color:var(--primary)">U</span>
+                </div>
                 ${res.kind === 'dual' ? `
                     <div class="text-muted" id="dual-breakdown">
                         + <span id="val-later-u">${res.later_u}</span> U extendido (${res.duration_min} min)
@@ -2109,11 +2112,20 @@ function renderBolusResult(res) {
       const carbs = parseFloat(document.getElementById('carbs').value || 0);
       const bg = parseFloat(document.getElementById('bg').value || 0);
 
+      // Read Manual Override
+      const finalInsulin = parseFloat(div.querySelector('#final-bolus-input').value);
+      if (isNaN(finalInsulin) || finalInsulin < 0) throw new Error("Valor de insulina no válido");
+
+      // Update plan if dual
+      if (res.kind === 'dual' && state.lastBolusPlan) {
+        state.lastBolusPlan.now_u = finalInsulin;
+      }
+
       const treatment = {
         eventType: "Meal Bolus",
         created_at: new Date().toISOString(),
         carbs: carbs,
-        insulin: res.upfront_u,
+        insulin: finalInsulin,
         enteredBy: state.user?.username || "BolusAI",
         notes: `BolusAI: ${res.kind === 'dual' ? 'Dual' : 'Normal'}. Gr: ${carbs}g. BG: ${bg}`
       };
