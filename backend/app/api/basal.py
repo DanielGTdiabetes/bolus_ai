@@ -42,6 +42,7 @@ class BasalDoseResponse(BaseModel):
 class HistoryItem(BaseModel):
     effective_from: date
     dose_u: float
+    created_at: Optional[datetime] = None
 
 class HistoryResponse(BaseModel):
     days: int
@@ -147,7 +148,11 @@ async def get_basal_history(
     """
     items = await basal_repo.get_dose_history(username, days=days)
     formatted_items = [
-        HistoryItem(effective_from=item['effective_from'], dose_u=float(item.get('dose_u') or 0.0))
+        HistoryItem(
+            effective_from=item['effective_from'],
+            dose_u=float(item.get('dose_u') or 0.0),
+            created_at=item.get('created_at')
+        )
         for item in items
     ]
     return HistoryResponse(days=days, items=formatted_items)

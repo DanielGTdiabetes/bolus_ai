@@ -700,13 +700,17 @@ async function refreshBasalHistory() {
   const ul = document.getElementById("basal-history");
   if (!ul) return;
   try {
-    const entries = await getBasalEntries(7); // mixed? No, just entries.
+    const entriesData = await getBasalEntries(7);
+    // entries is { days: N, items: [...] }
+    const entries = entriesData.items || [];
+
+    // Checkins is a direct list of dicts from backend
     const checkins = await getBasalCheckins(7);
 
     // Merge and sort
     const all = [
-      ...entries.map(e => ({ ...e, type: 'entry' })),
-      ...checkins.map(c => ({ ...c, type: 'checkin' }))
+      ...entries.map(e => ({ ...e, units: e.dose_u, type: 'entry', created_at: e.created_at || e.effective_from })),
+      ...checkins.map(c => ({ ...c, type: 'checkin', created_at: c.created_at || c.day }))
     ].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
 
     ul.innerHTML = "";
