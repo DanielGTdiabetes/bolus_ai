@@ -2389,20 +2389,25 @@ function renderBolus() {
           throw new Error(`Faltan datos para el horario '${slot}'. Configúralos en ajustes.`);
         }
 
+        // Fix: Use "lunch" as fallback for "snack" to satisfy backend enum,
+        // but pass explicit ratios so the calculation uses the 'snack' values.
+        const effectiveSlot = ["breakfast", "lunch", "dinner"].includes(slot) ? slot : "lunch";
+
+        // Use params from storage (Hybrid Mode)
+        // We lift them to root because backend expects BolusRequestV2 in flat mode (Hybrid)
         const payload = {
           carbs_g: isCorrection ? 0 : carbs,
           bg_mgdl: bg,
-          params: {
-            target_bg_mgdl: slotParams.target,
-            icr_g_per_u: slotParams.icr,
-            isf_mgdl_per_u: slotParams.isf,
-            round_step_u: mealParams.round_step_u || 0.5,
-            max_bolus_u: mealParams.max_bolus_u || 15,
-            kp_minutes: 0 // Optional
-          },
-          // Pass extra info like IOB if available on backend, 
-          // but usually backend fetches IOB from Nightscout if configured. 
-          // Assuming backend handles IOB from stored NS credentials.
+          meal_slot: effectiveSlot,
+
+          // Flattened params for Stateless/Hybrid mode
+          target_mgdl: slotParams.target,
+          cr_g_per_u: slotParams.icr,
+          isf_mgdl_per_u: slotParams.isf,
+          
+          dia_hours: mealParams.dia_hours || 4.0,
+          round_step_u: mealParams.round_step_u || 0.5,
+          max_bolus_u: mealParams.max_bolus_u || 15,
         };
 
         console.log("Sending Bolus Calc Payload:", payload);
