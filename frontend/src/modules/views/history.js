@@ -57,8 +57,8 @@ export async function renderHistory() {
             const date = new Date(t.created_at || t.timestamp || t.date);
             const timeStr = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
-            const u = parseFloat(t.insulin);
-            const c = parseFloat(t.carbs);
+            const u = parseFloat(t.insulin) || 0;
+            const c = parseFloat(t.carbs) || 0;
 
             if (date.toDateString() === today) {
                 if (u > 0) todayInsulin += u;
