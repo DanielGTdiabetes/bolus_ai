@@ -38,6 +38,9 @@ registerView('#/change-password', renderChangePassword);
 initRouter();
 
 // Trigger Initial Render
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
+  // Check backend health (DB mode)
+  import('./modules/core/store.js').then(({ checkBackendHealth }) => checkBackendHealth());
+
   router();
 });

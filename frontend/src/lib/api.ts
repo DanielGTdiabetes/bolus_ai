@@ -68,8 +68,12 @@ async function toJson(response) {
   }
 }
 
-export async function apiFetch(path, options = {}) {
-  const headers = { Accept: "application/json", ...(options.headers || {}) };
+interface ApiOptions extends RequestInit {
+  headers?: Record<string, string>;
+}
+
+export async function apiFetch(path: string, options: ApiOptions = {}) {
+  const headers: Record<string, string> = { Accept: "application/json", ...(options.headers || {}) };
   if (options.body && !headers["Content-Type"]) {
     // Only set JSON if not FormData (FormData usually handled by browser or specific heuristic)
     // But here we rely on caller to NOT set content-type for FormData.
@@ -149,7 +153,7 @@ export async function calculateBolus(payload) {
 }
 
 export async function fetchHealth() {
-  const response = await apiFetch("/api/health");
+  const response = await apiFetch("/api/health/full");
   const data = await toJson(response);
   if (!response.ok) {
     throw new Error(data.detail || "No se pudo verificar la salud del backend");
@@ -198,15 +202,27 @@ export async function saveNightscoutConfig(config) {
   return data;
 }
 
-export async function estimateCarbsFromImage(file, options = {}) {
+interface VisionOptions {
+  meal_slot?: string;
+  bg_mgdl?: number;
+  target_mgdl?: number;
+  portion_hint?: string;
+  prefer_extended?: boolean;
+  plate_weight_grams?: number;
+  nightscout?: { url?: string; token?: string };
+  round_step_u?: number;
+  existing_items?: string;
+}
+
+export async function estimateCarbsFromImage(file: File, options: VisionOptions = {}) {
   const formData = new FormData();
   formData.append("image", file);
   if (options.meal_slot) formData.append("meal_slot", options.meal_slot);
-  if (options.bg_mgdl) formData.append("bg_mgdl", options.bg_mgdl);
-  if (options.target_mgdl) formData.append("target_mgdl", options.target_mgdl);
+  if (options.bg_mgdl) formData.append("bg_mgdl", String(options.bg_mgdl));
+  if (options.target_mgdl) formData.append("target_mgdl", String(options.target_mgdl));
   if (options.portion_hint) formData.append("portion_hint", options.portion_hint);
-  // Fix boolean or 0 check
-  if (typeof options.prefer_extended !== 'undefined') formData.append("prefer_extended", options.prefer_extended);
+
+  if (typeof options.prefer_extended !== 'undefined') formData.append("prefer_extended", String(options.prefer_extended));
 
   if (options.plate_weight_grams) {
     formData.append("plate_weight_grams", String(options.plate_weight_grams));
@@ -227,7 +243,7 @@ export async function estimateCarbsFromImage(file, options = {}) {
 
   // Use raw fetch for FormData to avoid Content-Type issue
   const token = getStoredToken();
-  const headers = { Accept: "application/json" };
+  const headers: Record<string, string> = { Accept: "application/json" };
   if (token) headers.Authorization = `Bearer ${token}`;
 
   const response = await fetch(new URL("/api/vision/estimate", API_BASE || window.location.origin), {
@@ -414,7 +430,7 @@ export async function getLatestBasal() {
 }
 
 export async function runNightScan(nightscoutConfig, targetDate) {
-  const payload = {
+  const payload: any = {
     nightscout_url: nightscoutConfig.url,
     nightscout_token: nightscoutConfig.token
   };
@@ -557,7 +573,7 @@ export async function putSettings(settings, version) {
   const data = await toJson(response);
 
   if (response.status === 409) {
-    const err = new Error("Conflict");
+    const err: any = new Error("Conflict");
     err.isConflict = true;
     err.serverVersion = data.server_version;
     err.serverSettings = data.server_settings;
@@ -575,6 +591,13 @@ export async function importSettings(settings) {
   });
   const data = await toJson(response);
   if (!response.ok) throw new Error(data.detail || "Error importando configuración");
+  return data;
+}
+
+export async function exportUserData() {
+  const response = await apiFetch("/api/data/export");
+  const data = await toJson(response);
+  if (!response.ok) throw new Error(data.detail || "Error al exportar datos");
   return data;
 }
 

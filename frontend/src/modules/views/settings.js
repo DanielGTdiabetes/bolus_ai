@@ -1,7 +1,7 @@
 import { state, saveCalcParams, getCalcParams, getSplitSettings, saveSplitSettings } from '../core/store.js';
 import { navigate, ensureAuthenticated } from '../core/router.js';
 import { renderHeader, renderBottomNav } from '../components/layout.js';
-import { getLocalNsConfig, saveLocalNsConfig, testNightscout, fetchHealth, logout } from '../../lib/api.js';
+import { getLocalNsConfig, saveLocalNsConfig, testNightscout, fetchHealth, logout, exportUserData } from '../../lib/api.js';
 
 export function renderSettings() {
   if (!ensureAuthenticated()) return;
@@ -14,6 +14,7 @@ export function renderSettings() {
       <div class="tabs">
         <button id="tab-ns" class="tab active">Conexión Nightscout</button>
         <button id="tab-calc" class="tab">Parámetros Cálculo</button>
+        <button id="tab-data" class="tab">Datos</button>
       </div>
 
       <div id="panel-ns">
@@ -136,13 +137,26 @@ export function renderSettings() {
       </div>
       <pre id="health-output">${state.healthStatus}</pre>
     </section>
+
+    <div id="panel-data" hidden>
+        <section class="card">
+            <h2>Datos y Privacidad</h2>
+            <div style="margin-top: 1rem; padding: 1rem; background: #f8fafc; border-radius: 8px;">
+                <h3 style="font-size: 1.1rem; margin-bottom: 0.5rem;">Exportar Historial</h3>
+                <p style="margin-bottom: 1rem; color: #64748b;">Descarga una copia de seguridad de todos tus datos (basales, ajustes, sugerencias) en formato JSON.</p>
+                <button id="export-btn" class="secondary" style="width: 100%;">📥 Descargar Todo (JSON)</button>
+            </div>
+        </section>
+    </div>
   </main>
   `;
 
   const tabNs = document.querySelector("#tab-ns");
   const tabCalc = document.querySelector("#tab-calc");
+  const tabData = document.querySelector("#tab-data");
   const panelNs = document.querySelector("#panel-ns");
   const panelCalc = document.querySelector("#panel-calc");
+  const panelData = document.querySelector("#panel-data");
 
   document.querySelector("#health-btn").addEventListener("click", async () => {
     const output = document.querySelector("#health-output");
@@ -158,12 +172,45 @@ export function renderSettings() {
   });
 
   tabNs.onclick = () => {
-    tabNs.classList.add("active"); tabCalc.classList.remove("active");
-    panelNs.hidden = false; panelCalc.hidden = true;
+    tabNs.classList.add("active"); tabCalc.classList.remove("active"); tabData.classList.remove("active");
+    panelNs.hidden = false; panelCalc.hidden = true; panelData.hidden = true;
   };
   tabCalc.onclick = () => {
-    tabCalc.classList.add("active"); tabNs.classList.remove("active");
-    panelCalc.hidden = false; panelNs.hidden = true;
+    tabCalc.classList.add("active"); tabNs.classList.remove("active"); tabData.classList.remove("active");
+    panelCalc.hidden = false; panelNs.hidden = true; panelData.hidden = true;
+  };
+  tabData.onclick = () => {
+    tabData.classList.add("active"); tabNs.classList.remove("active"); tabCalc.classList.remove("active");
+    panelData.hidden = false; panelNs.hidden = true; panelCalc.hidden = true;
+  };
+
+  document.querySelector("#export-btn").onclick = async () => {
+    const btn = document.querySelector("#export-btn");
+    const originalText = btn.textContent;
+    btn.textContent = "Generando... ⏳";
+    btn.disabled = true;
+
+    try {
+      const data = await exportUserData();
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `bolus_ai_export_${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      btn.textContent = "¡Descarga lista! ✅";
+    } catch (e) {
+      alert("Error al exportar: " + e.message);
+      btn.textContent = "Error ❌";
+    } finally {
+      setTimeout(() => {
+        btn.textContent = originalText;
+        btn.disabled = false;
+      }, 3000);
+    }
   };
 
   const logoutBtn = document.querySelector("#logout-btn");

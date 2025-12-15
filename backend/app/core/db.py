@@ -69,7 +69,7 @@ def get_engine():
 async def check_db_health():
     """Simple health check: SELECT now()"""
     if not _async_engine:
-        return {"ok": False, "error": "No database engine initialized (using memory?)"}
+        return {"ok": True, "mode": "memory", "message": "Running in in-memory mode. Data is volatile."}
     
     try:
         async with _async_engine.connect() as conn:

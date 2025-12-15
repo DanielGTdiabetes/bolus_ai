@@ -19,6 +19,7 @@ export const state = {
     bolusError: "",
 
     // Health & Hardware
+    dbMode: "sql",
     healthStatus: "Pulsa el botón para comprobar.",
     scale: {
         connected: false,
@@ -160,6 +161,23 @@ export async function syncSettings() {
         }
     } catch (e) {
         console.error("Sync failed:", e);
+    }
+}
+
+export async function checkBackendHealth() {
+    // Dynamic import to avoid circular dependency if api depends on store (not the case here, but good practice if needed)
+    // Actually api.js is already imported.
+    const { fetchHealth } = await import('../../lib/api.js');
+    try {
+        const health = await fetchHealth();
+        if (health && health.database && health.database.mode === "memory") {
+            state.dbMode = "memory";
+            console.warn("⚠️ Backend running in IN-MEMORY mode. Data is volatile.");
+        } else {
+            state.dbMode = "sql";
+        }
+    } catch (e) {
+        console.error("Health check failed:", e);
     }
 }
 

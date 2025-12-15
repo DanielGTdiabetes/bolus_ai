@@ -38,8 +38,8 @@ El objetivo es dividir `frontend/src/main.js` (+3200 líneas) en módulos ES6 ma
 ---
 
 ## Fase 2: Seguridad y Datos (Backup)
-- [ ] **Exportar Datos:** Crear endpoint y botón en UI para descargar todo el historial del usuario en JSON.
-- [ ] **DB Resilience:** Desactivar fallback silencioso a "in-memory" en producción o añadir avisos visuales claros.
+- [x] **Exportar Datos:** Crear endpoint y botón en UI para descargar todo el historial del usuario en JSON.
+- [x] **DB Resilience:** Desactivar fallback silencioso a "in-memory" en producción o añadir avisos visuales claros.
 
 ---
 

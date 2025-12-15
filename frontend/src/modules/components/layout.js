@@ -22,7 +22,17 @@ window.addEventListener('click', (e) => {
 
 export function renderHeader(title = "Bolus AI", showBack = false) {
   if (!state.user) return "";
+  let warningHtml = "";
+  if (state.dbMode === "memory") {
+    warningHtml = `
+            <div style="background:#fff7ed; color:#c2410c; font-size:0.8rem; padding:0.4rem; text-align:center; border-bottom:1px solid #ffedd5; font-weight:600; display:flex; align-items:center; justify-content:center; gap:0.5rem;">
+               <span>⚠️ MODO MEMORIA: Datos volátiles</span>
+            </div>
+            `;
+  }
+
   return `
+      ${warningHtml}
       <header class="topbar">
         ${showBack
       ? `<div class="header-action" onclick="window.history.back()">‹</div>`

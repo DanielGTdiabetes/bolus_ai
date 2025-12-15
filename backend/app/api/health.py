@@ -56,5 +56,8 @@ async def full_health(
     else:
         status["nightscout"] = {"reachable": False, "reason": "Not configured (system)"}
 
+    from app.core.db import check_db_health
+    status["database"] = await check_db_health()
+
     status["server"] = {"host": settings.server.host, "port": settings.server.port}
     return status
