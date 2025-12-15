@@ -41,6 +41,7 @@ bolus-ai/
 2. Configura las variables de entorno del backend:
    - `JWT_SECRET`: márcala como *Sync: false* y usa **Generate** en Render.
    - `NIGHTSCOUT_URL`: opcional, deja `""` si no se usa.
+   - `APP_SECRET_KEY`: cadena Fernet base64 para cifrar secretos. Generarla con: `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`
    - `DATA_DIR=/var/data`: ya viene definido en el blueprint.
 3. El backend necesita persistencia: `render.yaml` monta el disco `bolus-data` en `/var/data` (1 GB). Déjalo habilitado para conservar `settings.json`, `users.json`, etc.
 4. El frontend obtiene `VITE_API_BASE_URL` automáticamente desde el servicio backend gracias a `fromService: property: url`; no necesitas configurarlo a mano salvo que anules la URL.
