@@ -78,8 +78,11 @@ async def startup_event() -> None:
         logger.warning(f"Could not init user store: {e}")
 
     # Setup Background Jobs
-    from app.jobs import setup_periodic_tasks
-    setup_periodic_tasks()
+    try:
+        from app.jobs import setup_periodic_tasks
+        setup_periodic_tasks()
+    except Exception as e:
+        logger.error(f"Failed to setup background jobs: {e}")
 
 @app.on_event("shutdown")
 async def shutdown_event() -> None:
