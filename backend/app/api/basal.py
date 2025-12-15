@@ -73,6 +73,14 @@ class ActiveResponse(BaseModel):
     remaining_u: float
     note: str
 
+class NightScanRequest(BaseModel):
+    nightscout_url: str
+    nightscout_token: Optional[str] = None
+    target_date: Optional[date] = None
+
+class EvaluateChangeRequest(BaseModel):
+    days: int = 7
+
 # --- Endpoints ---
 
 @router.post("/dose", response_model=BasalDoseResponse)
@@ -392,10 +400,10 @@ async def get_basal_advice(
 
 @router.post("/evaluate-change", response_model=BasalEvaluationResponse)
 async def evaluate_change(
-    days: int = 7,
+    payload: EvaluateChangeRequest,
     username: str = Depends(auth_required),
     db: AsyncSession = Depends(get_db_session)
 ):
-    res = await basal_engine.evaluate_change_service(username, days, db)
+    res = await basal_engine.evaluate_change_service(username, payload.days, db)
     return res
 
