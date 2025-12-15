@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from typing import List, Optional, Dict, Any
 from sqlalchemy import text
 from app.core.db import _async_engine
@@ -131,3 +131,24 @@ async def list_checkins(user_id: str, days: int = 14) -> List[Dict[str, Any]]:
         user_checks = [v for k,v in _mem_checkins.items() if k[0] == user_id]
         sorted_checks = sorted(user_checks, key=lambda x: x["day"], reverse=True)
         return sorted_checks[:days]
+
+async def get_dose_history(user_id: str, days: int = 30) -> List[Dict[str, Any]]:
+    if _async_engine:
+        query = text("""
+            SELECT * FROM basal_dose
+            WHERE user_id = :user_id
+            AND effective_from >= :start_date
+            ORDER BY effective_from ASC
+        """)
+        # Calculate start date
+        start_date = date.today() - timedelta(days=days)
+        
+        async with _async_engine.connect() as conn:
+            result = await conn.execute(query, {"user_id": user_id, "start_date": start_date})
+            rows = result.fetchall()
+            return [dict(r._mapping) for r in rows]
+    else:
+        # In-Memory
+        cutoff = date.today() - timedelta(days=days)
+        user_doses = [d for d in _mem_doses if d["user_id"] == user_id and d["effective_from"] >= cutoff]
+        return sorted(user_doses, key=lambda x: x["effective_from"])

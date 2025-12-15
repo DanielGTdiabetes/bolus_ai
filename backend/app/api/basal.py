@@ -1,10 +1,10 @@
 from datetime import datetime, date, timedelta
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 import uuid
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, Depends, Query, HTTPException, status
+from pydantic import BaseModel, Field, root_validator, validator
 
 from app.core.security import auth_required
 from app.services import basal_repo
@@ -14,13 +14,37 @@ router = APIRouter()
 # --- Schemas ---
 
 class BasalDoseCreate(BaseModel):
-    dose_u: float = Field(..., gt=0)
+    dose_u: Optional[float] = None
+    dose_units: Optional[float] = None
     effective_from: Optional[date] = None
 
+    @root_validator(pre=True)
+    def check_dose_alias(cls, values):
+        # Allow dose_units as alias for dose_u
+        if values.get('dose_units') is not None and values.get('dose_u') is None:
+            values['dose_u'] = values['dose_units']
+        return values
+
+    @validator('dose_u')
+    def validate_dose_u(cls, v):
+        if v is None:
+            raise ValueError('dose_u is required')
+        if v <= 0:
+            raise ValueError('dose_u must be greater than 0')
+        return v
+    
 class BasalDoseResponse(BaseModel):
     dose_u: float
     effective_from: date
     created_at: datetime
+
+class HistoryItem(BaseModel):
+    effective_from: date
+    dose_u: float
+
+class HistoryResponse(BaseModel):
+    days: int
+    items: List[HistoryItem]
 
 class CheckinRequest(BaseModel):
     nightscout_url: str
@@ -58,6 +82,7 @@ async def log_dose(
     Registra una nueva dosis basal.
     """
     eff = payload.effective_from or date.today()
+    # payload.dose_u is guaranteed not None by validator
     res = await basal_repo.upsert_basal_dose(username, payload.dose_u, eff)
     return BasalDoseResponse(
         dose_u=float(res["dose_u"]),
@@ -65,11 +90,10 @@ async def log_dose(
         created_at=res["created_at"]
     )
 
-
-@router.get("/dose/latest", response_model=Optional[BasalDoseResponse])
-async def get_latest_dose(username: str = Depends(auth_required)):
+@router.get("/latest", response_model=Optional[BasalDoseResponse])
+async def get_latest_basal_root(username: str = Depends(auth_required)):
     """
-    Devuelve la configuración de basal más reciente.
+    Devuelve la última dosis registrada.
     """
     res = await basal_repo.get_latest_basal_dose(username)
     if not res:
@@ -79,6 +103,29 @@ async def get_latest_dose(username: str = Depends(auth_required)):
         effective_from=res["effective_from"],
         created_at=res["created_at"]
     )
+
+@router.get("/history", response_model=HistoryResponse)
+async def get_basal_history(
+    days: int = Query(30, ge=1, le=365),
+    username: str = Depends(auth_required)
+):
+    """
+    Devuelve historial de dosis basal.
+    """
+    items = await basal_repo.get_dose_history(username, days=days)
+    formatted_items = [
+        HistoryItem(effective_from=item['effective_from'], dose_u=float(item['dose_u']))
+        for item in items
+    ]
+    return HistoryResponse(days=days, items=formatted_items)
+
+
+@router.get("/dose/latest", response_model=Optional[BasalDoseResponse])
+async def get_latest_dose(username: str = Depends(auth_required)):
+    """
+    Devuelve la configuración de basal más reciente (Legacy/Alias).
+    """
+    return await get_latest_basal_root(username)
 
 
 @router.post("/checkin", response_model=CheckinResponse)
