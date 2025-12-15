@@ -7,7 +7,7 @@ from datetime import datetime
 import uuid
 
 from app.core.db import get_db_session
-from app.services.auth import get_current_user
+from app.core.security import get_current_user
 from app.services.suggestion_engine import generate_suggestions_service, get_suggestions_service, resolve_suggestion_service
 
 router = APIRouter(prefix="/suggestions", tags=["suggestions"])
