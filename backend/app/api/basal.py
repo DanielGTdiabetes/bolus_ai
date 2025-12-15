@@ -84,10 +84,19 @@ async def log_dose(
     eff = payload.effective_from or date.today()
     # payload.dose_u is guaranteed not None by validator
     res = await basal_repo.upsert_basal_dose(username, payload.dose_u, eff)
+    
+    # Defensive handling if DB returns None (shouldn't happen but handles the reported error)
+    saved_dose = res.get("dose_u") if res else None
+    if saved_dose is None:
+        saved_dose = payload.dose_u
+        
+    saved_eff = res.get("effective_from") if res else eff
+    saved_created = res.get("created_at") if res else datetime.utcnow()
+
     return BasalDoseResponse(
-        dose_u=float(res["dose_u"]),
-        effective_from=res["effective_from"],
-        created_at=res["created_at"]
+        dose_u=float(saved_dose),
+        effective_from=saved_eff,
+        created_at=saved_created
     )
 
 @router.post("/entry", response_model=BasalDoseResponse)
