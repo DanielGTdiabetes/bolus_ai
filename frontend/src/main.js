@@ -577,6 +577,20 @@ function renderBasal() {
                 <input type="number" id="basal-u-input" step="0.5" placeholder="0.0" 
                        style="font-size:1.5rem; padding:0.8rem; text-align:center; font-weight:700; color:var(--primary); border:1px solid #cbd5e1; border-radius:12px; width:100%;" required />
              </div>
+             
+             <!-- Custom Date/Time Toggle -->
+             <div style="display:flex; flex-direction:column; gap:0.5rem;">
+                <button type="button" id="btn-toggle-date" style="background:none; border:none; color:var(--primary); cursor:pointer; font-size:0.9rem; display:flex; align-items:center; justify-content:center; gap:0.5rem; padding:0.5rem; border-radius:8px; transition:background 0.2s;">
+                   <!-- Calendar Icon -->
+                   <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
+                   <span>Cambiar fecha/hora</span>
+                </button>
+                <div id="basal-date-container" hidden style="background:var(--bg-input); padding:0.8rem; border-radius:8px; border:1px solid var(--border-input);">
+                   <label style="font-size:0.85rem; color:#64748b; display:block; margin-bottom:0.3rem;">Fecha y Hora (Opcional)</label>
+                   <input type="datetime-local" id="basal-created-at" style="width:100%; padding:0.5rem; border:1px solid #cbd5e1; border-radius:6px; color:var(--text-main); font-family:inherit; background:#fff;" />
+                </div>
+             </div>
+
              <button type="submit" class="btn-primary" style="padding:1rem; font-size:1.1rem;">Guardar</button>
              <p id="basal-msg" style="text-align:center; margin-top:0.5rem; font-size:0.9rem;" hidden></p>
           </form>
@@ -724,6 +738,7 @@ function renderBasal() {
   form.onsubmit = async (e) => {
     e.preventDefault();
     const input = document.getElementById('basal-u-input');
+    const dateInput = document.getElementById('basal-created-at'); // Get date
     const val = parseFloat(input.value);
 
     // Validation
@@ -734,17 +749,23 @@ function renderBasal() {
       return;
     }
 
-    const btn = form.querySelector('button');
+    const btn = form.querySelector('button[type="submit"]');
     btn.disabled = true;
     btn.textContent = "Guardando...";
     msg.hidden = true;
 
     try {
-      await createBasalEntry({ dose_u: val });
+      const payload = {
+        dose_u: val,
+        created_at: dateInput && dateInput.value ? new Date(dateInput.value).toISOString() : null
+      };
+      await createBasalEntry(payload);
       msg.textContent = "Guardado correctamente";
       msg.style.color = "var(--success)";
       msg.hidden = false;
       input.value = "";
+      if (dateInput) dateInput.value = ""; // Reset date
+      document.getElementById('basal-date-container').hidden = true; // Hide container
 
       // Refresh
       await initBasalPage(); // Refresh all
@@ -758,6 +779,15 @@ function renderBasal() {
       btn.textContent = "Guardar";
     }
   };
+
+  // Toggle Date Handler
+  const btnToggle = document.getElementById('btn-toggle-date');
+  if (btnToggle) {
+    btnToggle.onclick = () => {
+      const container = document.getElementById('basal-date-container');
+      if (container) container.hidden = !container.hidden;
+    };
+  }
 
   // Init
   initBasalPage();
