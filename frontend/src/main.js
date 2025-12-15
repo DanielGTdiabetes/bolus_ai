@@ -40,7 +40,10 @@ import {
   getBasalTimeline,
   evaluateBasalChange,
   getNotificationsSummary,
-  markNotificationsSeen
+  markNotificationsSeen,
+  getSettings,
+  putSettings,
+  importSettings
 } from "./lib/api";
 
 import {
@@ -104,13 +107,126 @@ function getCalcParams() {
   }
 }
 
-function saveCalcParams(params) {
+const SETTINGS_VERSION_KEY = "bolusai_settings_version";
+
+function getSettingsVersion() {
+  return parseInt(localStorage.getItem(SETTINGS_VERSION_KEY) || "0", 10);
+}
+
+function saveSettingsVersion(v) {
+  localStorage.setItem(SETTINGS_VERSION_KEY, String(v));
+}
+
+// Sync Logic
+async function syncSettings() {
+  if (!state.user) return;
+
+  // 1. Load Local
+  const local = getCalcParams();
+
+  try {
+    // 2. Fetch Server
+    const serverRes = await getSettings();
+    const serverSettings = serverRes.settings;
+    const serverVersion = serverRes.version;
+
+    if (serverSettings) {
+      // Server has data. Trust server? 
+      // Prompt says: "Server hat settings -> save to localStorage (cache), use settings".
+      saveCalcParams(serverSettings, true); // true = skip sync
+      saveSettingsVersion(serverVersion);
+      console.log("Settings synced from server (v" + serverVersion + ")");
+    } else if (local) {
+      // Server empty, Local exists -> Import
+      console.log("Importing local settings to server...");
+      const importRes = await importSettings(local);
+      saveSettingsVersion(importRes.version);
+      if (importRes.imported) console.log("Settings imported.");
+    } else {
+      // Both empty. Create Defaults?
+      // "Server vacio y local vacio -> Crear defaults"
+      // We usually let UI handle defaults or create via PUT.
+      // But let's leave it until user saves settings.
+    }
+
+  } catch (e) {
+    console.error("Sync failed:", e);
+  }
+}
+
+function saveCalcParams(params, skipSync = false) {
   localStorage.setItem(CALC_PARAMS_KEY, JSON.stringify(params));
+
+  if (!skipSync && state.user) {
+    triggerBackendSave(params);
+  }
+}
+
+async function triggerBackendSave(params) {
+  const version = getSettingsVersion();
+  try {
+    const res = await putSettings(params, version);
+    saveSettingsVersion(res.version);
+    console.log("Settings saved to backend (v" + res.version + ")");
+  } catch (e) {
+    if (e.isConflict) {
+      handleSettingsConflict(e, params);
+    } else {
+      console.error("Save settings error:", e);
+    }
+  }
+}
+
+function handleSettingsConflict(errorData, localParams) {
+  // Show Modal
+  const modal = document.createElement('dialog');
+  modal.style = "border:none; border-radius:12px; padding:2rem; box-shadow:0 25px 50px -12px rgba(0,0,0,0.25); max-width:400px";
+  modal.innerHTML = `
+      <h3 style="margin-top:0">Conflicto de sincronización</h3>
+      <p>Se han detectado cambios en otro dispositivo (v${errorData.serverVersion}).</p>
+      <div style="display:flex; flex-direction:column; gap:0.5rem; margin-top:1rem;">
+        <button id="btn-use-server" style="background:var(--primary); color:white; border:none; padding:10px; border-radius:8px; cursor:pointer;">Usar servidor (recomendado)</button>
+        <button id="btn-overwrite" style="background:#e2e8f0; color:#334155; border:none; padding:10px; border-radius:8px; cursor:pointer;">Sobrescribir servidor</button>
+      </div>
+    `;
+  document.body.appendChild(modal);
+  modal.showModal();
+
+  document.getElementById('btn-use-server').onclick = () => {
+    // Adopt server settings
+    saveCalcParams(errorData.serverSettings, true);
+    saveSettingsVersion(errorData.serverVersion);
+    modal.close();
+    document.body.removeChild(modal);
+    alert("Configuración actualizada desde el servidor.");
+    // Reload if generic (e.g. reload page) or just update state?
+    // Updating localStorage is handled. If current view depends on it, it might need refresh.
+    // For simplicity, we can reload or notify. 
+    if (window.location.hash.includes("settings")) {
+      renderSettings(); // Re-render settings view
+    }
+  };
+
+  document.getElementById('btn-overwrite').onclick = async () => {
+    // Force update using server version as base + local params
+    try {
+      const res = await putSettings(localParams, errorData.serverVersion);
+      saveSettingsVersion(res.version);
+      modal.close();
+      document.body.removeChild(modal);
+      alert("Servidor sobrescrito.");
+    } catch (e) {
+      modal.close();
+      document.body.removeChild(modal);
+      alert("Error al sobrescribir: " + e.message);
+    }
+  };
 }
 
 const state = {
   token: getStoredToken(),
   user: getStoredUser(),
+  settingsSynced: false,
   loadingUser: false,
   bolusResult: null,
   bolusError: "",
@@ -1572,6 +1688,10 @@ async function render() {
 
 // --- VIEW: HOME (Inicio) ---
 async function renderHome() {
+  if (state.user && !state.settingsSynced) {
+    state.settingsSynced = true;
+    syncSettings();
+  }
   // Ensure we have user config
   const config = getLocalNsConfig();
 

@@ -569,3 +569,39 @@ export async function markNotificationsSeen(types: string[]) {
   if (!response.ok) throw new Error(data.detail || "Error al marcar como vistas");
   return data;
 }
+
+export async function getSettings() {
+  const response = await apiFetch("/api/settings/");
+  const data = await toJson(response);
+  if (!response.ok) throw new Error(data.detail || "Error obteniendo configuración");
+  return data;
+}
+
+export async function putSettings(settings, version) {
+  const response = await apiFetch("/api/settings/", {
+    method: "PUT",
+    body: JSON.stringify({ settings, version })
+  });
+  const data = await toJson(response);
+
+  if (response.status === 409) {
+    const err: any = new Error("Conflict");
+    err.isConflict = true;
+    err.serverVersion = data.server_version;
+    err.serverSettings = data.server_settings;
+    throw err;
+  }
+
+  if (!response.ok) throw new Error(data.detail || "Error guardando configuración");
+  return data;
+}
+
+export async function importSettings(settings) {
+  const response = await apiFetch("/api/settings/import", {
+    method: "POST",
+    body: JSON.stringify({ settings })
+  });
+  const data = await toJson(response);
+  if (!response.ok) throw new Error(data.detail || "Error importando configuración");
+  return data;
+}

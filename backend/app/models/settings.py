@@ -83,6 +83,7 @@ class NightscoutConfig(BaseModel):
 
 
 class UserSettings(BaseModel):
+    schema_version: int = 1
     units: Literal["mg/dL"] = "mg/dL"
     targets: TargetRange = Field(default_factory=TargetRange)
     cf: MealFactors = Field(default_factory=lambda: MealFactors(breakfast=30, lunch=30, dinner=30)) # Default CF 30
@@ -128,3 +129,26 @@ class UserSettings(BaseModel):
     @classmethod
     def default(cls) -> "UserSettings":
         return cls()
+
+
+# --- SQL Model ---
+from datetime import datetime
+from sqlalchemy import String, Integer, DateTime, JSON, UniqueConstraint
+from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.dialects.postgresql import JSONB
+
+from app.core.db import Base
+
+class UserSettingsDB(Base):
+    __tablename__ = "user_settings"
+    __table_args__ = {'extend_existing': True}
+
+    user_id: Mapped[str] = mapped_column(String, primary_key=True)
+    
+    # Stores the JSON blob validated by UserSettings Pydantic model
+    settings: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)

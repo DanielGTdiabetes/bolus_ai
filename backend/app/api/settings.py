@@ -1,57 +1,86 @@
-from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException
+from datetime import datetime
+from typing import Optional, Any
 
-from app.core.datastore import ChangeStore, UserStore
-from app.core.security import get_current_user, require_admin
-from app.core.settings import Settings, get_settings
+from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.security import auth_required
+from app.core.db import get_db_session
 from app.models.settings import UserSettings
-from app.services.store import DataStore
+from app.services import settings_service
 
 router = APIRouter()
 
+# --- Schemas ---
 
-def _data_store(settings: Settings = Depends(get_settings)) -> DataStore:
-    return DataStore(Path(settings.data.data_dir))
+class SettingsResponse(BaseModel):
+    settings: Optional[dict]
+    version: int
+    updated_at: Optional[datetime]
 
+class UpdateRequest(BaseModel):
+    settings: dict
+    version: int
 
-def _changes_store(settings: Settings = Depends(get_settings)) -> ChangeStore:
-    return ChangeStore(Path(settings.data.data_dir) / "changes.json")
+class ConflictResponse(BaseModel):
+    detail: str
+    server_version: int
+    server_settings: Optional[dict]
 
+class ImportRequest(BaseModel):
+    settings: dict
 
-def _user_store(settings: Settings = Depends(get_settings)) -> UserStore:
-    store = UserStore(Path(settings.data.data_dir) / "users.json")
-    store.ensure_seed_admin()
-    return store
+class ImportResponse(SettingsResponse):
+    imported: bool
 
+# --- Endpoints ---
 
-@router.get("/", response_model=UserSettings, summary="Get settings")
-async def get_settings_endpoint(
-    _: dict = Depends(get_current_user),
-    store: DataStore = Depends(_data_store),
+@router.get("/", response_model=SettingsResponse)
+async def get_settings(
+    username: str = Depends(auth_required),
+    db: AsyncSession = Depends(get_db_session)
 ):
-    data = store.load_settings()
+    return await settings_service.get_user_settings_service(username, db)
+
+@router.put("/", response_model=SettingsResponse, responses={409: {"model": ConflictResponse}})
+async def update_settings(
+    payload: UpdateRequest,
+    username: str = Depends(auth_required),
+    db: AsyncSession = Depends(get_db_session)
+):
     try:
-        return data
-    except Exception:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Invalid settings file")
+        # Pydantic dump for storage
+        settings_dict = payload.settings
+        return await settings_service.update_user_settings_service(
+            username, 
+            settings_dict, 
+            payload.version, 
+            db
+        )
+    except settings_service.VersionConflictError as e:
+        return  JSONResponse(
+            status_code=409,
+            content=ConflictResponse(
+                detail="Version conflict",
+                server_version=e.server_version,
+                server_settings=e.server_settings
+            ).model_dump(mode='json')
+        )
 
-
-@router.put("/", response_model=UserSettings, summary="Update settings")
-async def update_settings_endpoint(
-    payload: UserSettings,
-    current_user: dict = Depends(require_admin),
-    store: DataStore = Depends(_data_store),
-    changes: ChangeStore = Depends(_changes_store),
+@router.post("/import", response_model=ImportResponse)
+async def import_settings(
+    payload: ImportRequest,
+    username: str = Depends(auth_required),
+    db: AsyncSession = Depends(get_db_session)
 ):
-    store.save_settings(payload)
-    history = changes.load()
-    history.append(
-        {
-            "by": current_user.get("username"),
-            "timestamp": __import__("datetime").datetime.utcnow().isoformat(),
-            "summary": "Settings updated",
-        }
+    settings_dict = payload.settings
+    return await settings_service.import_user_settings_service(
+        username,
+        settings_dict,
+        db
     )
-    changes.save(history)
-    return payload
+
+# Legacy imports for JSONResponse
+from fastapi.responses import JSONResponse
