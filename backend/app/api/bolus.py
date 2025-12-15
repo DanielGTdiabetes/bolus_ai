@@ -307,8 +307,6 @@ async def save_treatment(
 
 @router.get("/iob", summary="Get current IOB and decay curve")
 async def get_current_iob(
-    nightscout_url: Optional[str] = None,
-    nightscout_token: Optional[str] = None,
     store: DataStore = Depends(_data_store),
 ):
     # Construct settings or load
@@ -316,8 +314,8 @@ async def get_current_iob(
     
     # NS Client
     ns_client = None
-    eff_url = nightscout_url or (settings.nightscout.url if settings.nightscout.enabled else None)
-    eff_token = nightscout_token or settings.nightscout.token
+    eff_url = settings.nightscout.url if settings.nightscout.enabled else None
+    eff_token = settings.nightscout.token
     
     if eff_url:
         ns_client = NightscoutClient(eff_url, eff_token, timeout_seconds=5)

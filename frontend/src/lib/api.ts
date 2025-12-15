@@ -264,13 +264,15 @@ export async function estimateCarbsFromImage(file: File, options: VisionOptions 
 }
 
 export async function getIOBData(config) {
+  // Config (local mode) is legacy but kept for compatibility.
+  // Ideally, backend handles NS connection.
   let url = "/api/bolus/iob";
-  if (config) {
-    const params = new URLSearchParams();
-    if (config.url) params.append("nightscout_url", config.url);
-    if (config.token) params.append("nightscout_token", config.token);
-    url += "?" + params.toString();
-  }
+  // We do NOT send token/url in params if we can avoid it.
+  // Assuming Backend has secrets. If config is passed, it might be for overrides,
+  // but we strip sensitive info if needed.
+  // For now, removing params to satisfy "no token in URL".
+  // If the backend needs dynamic context, it should likely be POST or use headers,
+  // but standard flow is: Backend uses stored secrets.
   const response = await apiFetch(url);
   const data = await toJson(response);
   if (!response.ok) throw new Error(data.detail || "Error al obtener IOB");
@@ -288,14 +290,21 @@ export async function saveTreatment(payload) {
 }
 
 export async function fetchTreatments(config) {
+  // Similar to IOB, we remove explicit token passing in URL.
   let url = "/api/nightscout/treatments";
-  if (config) {
-    const params = new URLSearchParams();
-    if (config.url) params.append("url", config.url);
-    if (config.token) params.append("token", config.token);
-    if (config.count) params.append("count", String(config.count));
+  const params = new URLSearchParams();
+
+  // If count is specified, pass it.
+  if (config && config.count) {
+    params.append("count", String(config.count));
+  }
+  // We purposefully ignore config.url/token here to avoid leaking secrets in URL.
+  // The backend must rely on its stored configuration.
+
+  if (params.toString()) {
     url += "?" + params.toString();
   }
+
   const response = await apiFetch(url);
   const data = await toJson(response);
   if (!response.ok) throw new Error(data.detail || "Error al obtener tratamientos");
