@@ -838,31 +838,51 @@ async function updateActivity() {
 
   try {
     const fullTreatments = await fetchTreatments(config);
-    const treatments = fullTreatments.slice(0, 3); // Top 3
+    // Filter before slicing to avoid showing 3 empty/invalid items
+    const validTreatments = fullTreatments.filter(t => {
+      const u = parseFloat(t.insulin);
+      const c = parseFloat(t.carbs);
+      return (u > 0 || c > 0);
+    });
+
+    const treatments = validTreatments.slice(0, 3); // Top 3
 
     list.innerHTML = "";
     treatments.forEach(t => {
-      if (!t.insulin && !t.carbs) return;
+      const u = parseFloat(t.insulin);
+      const c = parseFloat(t.carbs);
+      const isBolus = u > 0;
+      const isCarb = c > 0;
+
       const el = document.createElement('div');
       el.className = 'activity-item';
-      const icon = t.insulin ? "💉" : "🍪";
-      const time = new Date(t.created_at || t.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      const icon = isBolus ? "💉" : "🍪";
+      const date = new Date(t.created_at || t.timestamp || t.date);
+      const time = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+      let valStr = "";
+      if (isBolus) valStr += `${u} U `;
+      if (isCarb) valStr += `${c} g`;
 
       el.innerHTML = `
-                <div class="act-icon" style="${t.insulin ? '' : 'background:#fff7ed; color:#f97316'}">${icon}</div>
+                <div class="act-icon" style="${isBolus ? '' : 'background:#fff7ed; color:#f97316'}">${icon}</div>
                 <div class="act-details">
-                    <div class="act-val">${t.insulin ? t.insulin + ' U' : t.carbs + ' g'}</div>
+                    <div class="act-val">${valStr}</div>
                     <div class="act-sub">${t.notes || 'Entrada'}</div>
                 </div>
                 <div class="act-time">${time}</div>
             `;
       list.appendChild(el);
     });
-    if (treatments.length === 0) list.innerHTML = "<div class='hint'>Sin actividad reciente</div>";
+
+    if (treatments.length === 0) {
+      list.innerHTML = "<div class='hint' style='text-align:center; padding:1rem;'>Sin actividad reciente</div>";
+    }
 
   } catch (e) {
     // Silent fail for widget
     console.warn(e);
+    if (list) list.innerHTML = "<div class='hint' style='text-align:center; color:var(--error)'>Error cargando</div>";
   }
 }
 
@@ -2577,22 +2597,33 @@ async function renderHistory() {
     const today = new Date().toDateString();
 
     // Filter useful items
-    const validItems = treatments.filter(t => t.insulin || t.carbs || t.eventType === 'Meal Bolus' || t.eventType === 'Correction Bolus');
+    const validItems = treatments.filter(t => {
+      const u = parseFloat(t.insulin);
+      const c = parseFloat(t.carbs);
+      // Keep if explicit bolus/carb > 0, or if eventType marks it relevant (even if 0, might be useful?)
+      // Focusing on values > 0 as per user expectation
+      return (u > 0 || c > 0);
+    });
+
+    if (validItems.length === 0) {
+      listContainer.innerHTML = "<div class='hint' style='text-align:center; padding:2rem;'>No hay historial disponible</div>";
+    }
 
     validItems.forEach(t => {
       const date = new Date(t.created_at || t.timestamp || t.date);
       const timeStr = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
+      const u = parseFloat(t.insulin);
+      const c = parseFloat(t.carbs);
+
       // Stats Accumulation
       if (date.toDateString() === today) {
-        if (t.insulin) todayInsulin += parseFloat(t.insulin);
-        if (t.carbs) todayCarbs += parseFloat(t.carbs);
+        if (u > 0) todayInsulin += u;
+        if (c > 0) todayCarbs += c;
       }
 
-      const isBolus = parseFloat(t.insulin) > 0;
-      const isCarb = parseFloat(t.carbs) > 0;
-
-      if (!isBolus && !isCarb) return;
+      const isBolus = u > 0;
+      const isCarb = c > 0;
 
       const el = document.createElement('div');
       el.className = "activity-item";
@@ -2600,8 +2631,8 @@ async function renderHistory() {
       const typeLbl = t.enteredBy ? t.enteredBy : "Entrada";
 
       let mainVal = "";
-      if (isBolus) mainVal += `${t.insulin} U `;
-      if (isCarb) mainVal += `${t.carbs} g`;
+      if (isBolus) mainVal += `${u} U `;
+      if (isCarb) mainVal += `${c} g`;
 
       el.innerHTML = `
             <div class="act-icon" style="${isBolus ? '' : 'background:#fff7ed; color:#f97316'}">${icon}</div>
