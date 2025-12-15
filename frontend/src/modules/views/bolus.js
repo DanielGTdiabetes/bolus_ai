@@ -495,9 +495,9 @@ export function renderBolus() {
         chkDual.onchange = updateInfo;
 
         const defs = getSplitSettings();
-        if (defs && defs.enabled_default) {
-            chkDual.checked = true;
-        }
+        // if (defs && defs.enabled_default) {
+        //    chkDual.checked = true;
+        // }
         updateInfo();
     }
 
