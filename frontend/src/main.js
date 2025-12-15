@@ -464,26 +464,40 @@ async function updateIOB() {
     const nsConfig = getLocalNsConfig();
     const data = await getIOBData(nsConfig && nsConfig.url ? nsConfig : null);
 
-    // Update Text
-    iobValEl.textContent = data.iob_total.toFixed(2);
+    // Get info if present (Robust Update)
+    const info = data.iob_info || { status: 'ok', iob_u: data.iob_total };
+    const val = typeof info.iob_u === 'number' ? info.iob_u : (data.iob_total || 0.0);
 
-    // Update Circle Graph
-    // Concept: 0 IOB = Empty Ring. Max IOB (e.g. 5U or 10U) = Full Ring.
-    // User asked: "indicate how much is left".
-    // 0..10 Scale for visualization.
-    const maxScale = 8.0;
-    const val = Math.max(0, parseFloat(data.iob_total));
-    const percent = Math.min(100, (val / maxScale) * 100);
+    // Logic Display
+    if (info.status === 'unavailable') {
+      iobValEl.textContent = "N/A";
+      iobValEl.title = info.reason || "No disponible";
+      iobValEl.style.color = "var(--text-muted)";
+      if (iobCircle) {
+        iobCircle.style.stroke = "var(--border-input)"; // Gray
+        iobCircle.style.strokeDashoffset = 100; // Empty
+      }
+    } else {
+      iobValEl.textContent = val.toFixed(2);
+      iobValEl.style.color = ""; // reset
 
-    if (iobCircle) {
-      // stroke-dasharray is pathLength=100.
-      // offset 100 = empty. offset 0 = full.
-      const offset = 100 - percent;
-      iobCircle.style.strokeDashoffset = offset;
+      if (info.status === 'partial') {
+        iobValEl.textContent += "⚠️";
+        iobValEl.title = "Parcial: " + (info.reason || "Datos incompletos");
+      } else {
+        iobValEl.title = "";
+      }
 
-      // Color dynamic?
-      if (val > 5) iobCircle.style.stroke = "var(--warning)";
-      else iobCircle.style.stroke = "var(--primary)";
+      // Graph Circle
+      if (iobCircle) {
+        const maxScale = 8.0;
+        const percent = Math.min(100, (Math.max(0, val) / maxScale) * 100);
+        iobCircle.style.strokeDashoffset = 100 - percent;
+
+        if (info.status === 'partial') iobCircle.style.stroke = "var(--warning)"; // Orange
+        else if (val > 5) iobCircle.style.stroke = "var(--warning)";
+        else iobCircle.style.stroke = "var(--primary)";
+      }
     }
 
     return data;
@@ -2062,6 +2076,13 @@ function renderBolusResult(res) {
                 </ul>
             ` : ''}
 
+            ${res.warnings && res.warnings.length ? `
+                <div style="background:#fff7ed; color:#c2410c; padding:0.8rem; margin:1rem 0; border-radius:8px; font-size:0.85rem; text-align:left; border:1px solid #fed7aa;">
+                    <strong>⚠️ Atención:</strong><br>
+                    ${res.warnings.map(w => `• ${w}`).join('<br>')}
+                </div>
+            ` : ''}
+
             <!-- EXTRA CARBS SECTION (Dual Only) -->
             ${res.kind === 'dual' ? `
                 <div id="extra-carbs-block" style="margin-top:1rem; padding-top:1rem; border-top:1px dashed #eee;">
@@ -2168,7 +2189,7 @@ function renderBolusResult(res) {
                     <div style="color:#666">
                        (Componentes: +${u2Res.components?.meal_u || 0}U comida, -${u2Res.components?.iob_applied_u || 0}U IOB)
                     </div>
-                    ${u2Res.warnings && u2Res.warnings.length ? `<div style="color:orange">⚠️ ${u2Res.warnings.join(', ')}</div>` : ''}
+                    ${u2Res.warnings && u2Res.warnings.length ? `<div style="color:orange; margin-top:0.5rem; font-size:0.8rem">⚠️ ${u2Res.warnings.join('<br>')}</div>` : ''}
                     
                     <button id="btn-use-u2" class="btn-primary" style="margin-top:0.5rem; padding:0.3rem; font-size:0.8rem; width:100%">Usar esta 2ª parte</button>
                     <button id="btn-clear-u2" class="btn-ghost" style="margin-top:0.2rem; padding:0.2rem; font-size:0.7rem; width:100%">Limpiar</button>
@@ -2447,12 +2468,35 @@ function renderBolus() {
 
   // Sync IOB
   const iobEl = document.getElementById('iob-display-value');
+  const iobBanner = iobEl ? iobEl.parentElement : null;
+
   if (iobEl) {
     const nsConfig = getLocalNsConfig();
     if (nsConfig && nsConfig.url) {
       getIOBData(nsConfig).then(d => {
-        const val = typeof d.iob === 'number' ? d.iob.toFixed(2) : 0;
-        iobEl.innerHTML = `${val} <span style="font-size:1rem">U</span>`;
+        // Robust Handling
+        const info = d.iob_info || {};
+        const val = typeof info.iob_u === 'number' ? info.iob_u : (d.iob_total || 0.0);
+
+        if (info.status === 'unavailable') {
+          iobEl.innerHTML = `⚠️ N/A`;
+          if (iobBanner) {
+            iobBanner.style.background = "#fff1f2"; // Light Red
+            iobBanner.querySelector('div').style.color = "#881337"; // Dark Red
+            iobBanner.querySelector('div:last-child').style.color = "#be123c"; // Red
+            // Add reason subtitle
+            const sub = document.createElement('div');
+            sub.style.fontSize = "0.7rem";
+            sub.style.color = "#be123c";
+            sub.textContent = info.reason;
+            iobBanner.children[0].appendChild(sub);
+          }
+        } else if (info.status === 'partial') {
+          iobEl.innerHTML = `${val.toFixed(2)}⚠️ <span style="font-size:1rem">U</span>`;
+          if (iobBanner) iobBanner.style.background = "#fff7ed"; // Orange light
+        } else {
+          iobEl.innerHTML = `${val.toFixed(2)} <span style="font-size:1rem">U</span>`;
+        }
       }).catch(err => {
         console.error("IOB Fetch Error", err);
         iobEl.innerHTML = `? <span style="font-size:1rem">U</span>`;
