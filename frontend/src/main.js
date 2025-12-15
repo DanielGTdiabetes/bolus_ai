@@ -1037,34 +1037,32 @@ function renderHeader(title = "Bolus AI", showBack = false) {
 }
 
 function renderBottomNav(activeTab = 'home') {
-  return `
-      <nav class="bottom-nav">
-        <button class="nav-btn ${activeTab === 'home' ? 'active' : ''}" onclick="navigate('#/')">
-          <span class="nav-icon">🏠</span>
-          <span class="nav-lbl">Inicio</span>
-        </button>
-        <button class="nav-btn ${activeTab === 'scan' ? 'active' : ''}" onclick="navigate('#/scan')">
-          <span class="nav-icon">📷</span>
-          <span class="nav-lbl">Escanear</span>
-        </button>
-        <button class="nav-btn ${activeTab === 'bolus' ? 'active' : ''}" onclick="navigate('#/bolus')">
-          <span class="nav-icon">🧮</span>
-          <span class="nav-lbl">Bolo</span>
-        </button>
-        <button class="nav-btn ${activeTab === 'basal' ? 'active' : ''}" onclick="navigate('#/basal')">
-          <span class="nav-icon">📉</span>
-          <span class="nav-lbl">Basal</span>
-        </button>
-        <button class="nav-btn ${activeTab === 'history' ? 'active' : ''}" onclick="navigate('#/history')">
-          <span class="nav-icon">⏱️</span>
-          <span class="nav-lbl">Historial</span>
-        </button>
-        <button class="nav-btn ${activeTab === 'settings' ? 'active' : ''}" onclick="navigate('#/settings')">
-          <span class="nav-icon">⚙️</span>
-          <span class="nav-lbl">Ajustes</span>
-        </button>
-      </nav>
+  const items = [
+    { id: 'home', icon: '🏠', label: 'Inicio', hash: '#/' },
+    { id: 'scan', icon: '📷', label: 'Escanear', hash: '#/scan' },
+    { id: 'bolus', icon: '💉', label: 'Bolo', hash: '#/bolus' },
+    { id: 'basal', icon: '📉', label: 'Basal', hash: '#/basal' },
+    { id: 'history', icon: '⏱️', label: 'Hist.', hash: '#/history' },
+    { id: 'patterns', icon: '📊', label: 'Patrones', hash: '#/patterns' },
+    { id: 'suggestions', icon: '💡', label: 'Suger.', hash: '#/suggestions' },
+    { id: 'settings', icon: '⚙️', label: 'Ajustes', hash: '#/settings' }
+  ];
+
+  const html = items.map(item => {
+    const isActive = activeTab === item.id;
+    return `
+      <button class="nav-btn ${isActive ? 'active' : ''}" onclick="navigate('${item.hash}')" style="min-width: 60px; width:auto; padding: 0.5rem 0.2rem;">
+         <span class="nav-icon">${item.icon}</span>
+         <span class="nav-lbl">${item.label}</span>
+      </button>
     `;
+  }).join('');
+
+  return `
+    <nav class="bottom-nav" style="overflow-x: auto; justify-content: flex-start; gap: 0.5rem; padding-left:0.5rem; padding-right:0.5rem;">
+       ${html}
+    </nav>
+  `;
 }
 function renderLogin() {
   app.innerHTML = `
@@ -3042,35 +3040,6 @@ async function renderSuggestions() {
   };
 }
 
-
-function renderBottomNav(active) {
-  const items = [
-    { id: 'home', icon: '🏠', label: 'Inicio', hash: '#/' },
-    { id: 'bolus', icon: '💉', label: 'Bolo', hash: '#/bolus' },
-    { id: 'basal', icon: '📉', label: 'Basal', hash: '#/basal' },
-    { id: 'history', icon: '🕒', label: 'Hist.', hash: '#/history' },
-    { id: 'patterns', icon: '📊', label: 'Patrones', hash: '#/patterns' },
-    { id: 'suggestions', icon: '💡', label: 'Suger.', hash: '#/suggestions' },
-    { id: 'scan', icon: '📷', label: 'Escanear', hash: '#/scan' }
-  ];
-
-  const html = items.map(item => {
-    const isActive = active === item.id;
-    return `
-      <div onclick="navigate('${item.hash}')" class="nav-item ${isActive ? 'active' : 'inactive'}" style="cursor:pointer; display:flex; flex-direction:column; align-items:center; color:${isActive ? 'var(--primary)' : 'var(--text-muted)'}">
-         <div style="font-size:1.5rem; margin-bottom:2px;">${item.icon}</div>
-         <span style="font-size:0.7rem; font-weight:${isActive ? '700' : '400'}">${item.label}</span>
-      </div>
-    `;
-  }).join('');
-
-  return `
-    <nav style="position:fixed; bottom:0; left:0; right:0; background:white; border-top:1px solid #e2e8f0; padding:0.5rem 1rem; display:flex; justify-content:space-between; align-items:flex-end; padding-bottom:max(0.5rem, env(safe-area-inset-bottom)); z-index:1000;">
-       ${html}
-    </nav>
-    <div style="height:80px;"></div>
-  `;
-}
 
 // Router invoke
 render();
