@@ -90,6 +90,16 @@ async def log_dose(
         created_at=res["created_at"]
     )
 
+@router.post("/entry", response_model=BasalDoseResponse)
+async def create_entry(
+    payload: BasalDoseCreate,
+    username: str = Depends(auth_required)
+):
+    """
+    Alias para /dose (para compatibilidad con frontend).
+    """
+    return await log_dose(payload, username)
+
 @router.get("/latest", response_model=Optional[BasalDoseResponse])
 async def get_latest_basal_root(username: str = Depends(auth_required)):
     """
