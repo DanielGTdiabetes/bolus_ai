@@ -44,8 +44,8 @@ El objetivo es dividir `frontend/src/main.js` (+3200 líneas) en módulos ES6 ma
 ---
 
 ## Fase 3: Automatización y UX
-- [ ] **Background Tasks:** Investigar integración de APScheduler en backend.
-- [ ] **Auto-Análisis:** Tarea programada (07:00) para `scan_night_service`.
+- [x] **Background Tasks:** Investigar integración de APScheduler en backend.
+- [x] **Auto-Análisis:** Tarea programada (07:00) para `scan_night_service` (Skeleton implementado).
 - [ ] **Notificaciones Push:** (Futuro) Investigar Web Push.
 
 ---

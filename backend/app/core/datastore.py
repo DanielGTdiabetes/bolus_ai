@@ -73,6 +73,10 @@ class UserStore(JsonStore):
         self.save(users)
         return user
 
+    def get_all_users(self) -> list[dict[str, Any]]:
+        return self.load()
+
+
 
 class SessionStore(JsonStore):
     def __init__(self, path: Path):
