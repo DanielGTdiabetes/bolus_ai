@@ -432,3 +432,10 @@ export async function getBasalActive() {
   if (!response.ok) throw new Error(data.detail || "Error al obtener basal activa");
   return data;
 }
+
+export async function getLatestBasal() {
+  const response = await apiFetch("/api/basal/latest");
+  const data = await toJson(response);
+  if (!response.ok) throw new Error(data.detail || "Error al obtener última basal");
+  return data;
+}
