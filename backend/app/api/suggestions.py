@@ -13,6 +13,8 @@ from app.services.suggestion_engine import generate_suggestions_service, get_sug
 router = APIRouter(prefix="/suggestions", tags=["suggestions"])
 
 # --- Models ---
+
+# --- Models ---
 class GenerateRequest(BaseModel):
     days: int = 30
 
@@ -29,8 +31,23 @@ class SuggestionResponse(BaseModel):
     evidence: dict
     status: str
     created_at: datetime
-    # ... other fields
+    resolved_at: Optional[datetime] = None
+    resolution_note: Optional[str] = None
+    
+    class Config:
+        from_attributes = True
 
+class EvaluationResponse(BaseModel):
+    id: uuid.UUID
+    suggestion_id: uuid.UUID
+    analysis_days: int
+    status: str
+    result: Optional[str] = None
+    summary: Optional[str] = None
+    evidence: Optional[dict] = None
+    evaluated_at: Optional[datetime] = None
+    created_at: datetime
+    
     class Config:
         from_attributes = True
 
@@ -83,7 +100,7 @@ async def reject_suggestion(
 
 from app.services.evaluation_engine import evaluate_suggestion_service, list_evaluations_service
 
-@router.post("/{id}/evaluate")
+@router.post("/{id}/evaluate", response_model=EvaluationResponse)
 async def evaluate_suggestion(
     id: uuid.UUID,
     days: int = 7,
@@ -95,10 +112,11 @@ async def evaluate_suggestion(
          raise HTTPException(status_code=400, detail=res["error"])
     return res
 
-@router.get("/evaluations")
+@router.get("/evaluations", response_model=List[EvaluationResponse])
 async def list_evaluations(
     user=Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session)
 ):
     """Returns list of evaluations"""
     return await list_evaluations_service(user.id, db)
+
