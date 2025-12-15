@@ -29,10 +29,25 @@ class NightscoutClient:
         self.timeout_seconds = timeout_seconds
         
         headers = self._auth_headers()
+        headers["Accept"] = "application/json"
+        
+        # Prepare valid query parameters for authentication
+        # Many NS implementations (and forks) require 'token' as a query param 
+        # for Access/Subject tokens, while API-SECRET header is for the master password.
+        # We'll attach it to the client default params for maximum compatibility.
+        params = {}
+        if self.token and "Authorization" not in headers:
+            # If we didn't use Bearer auth (JWT), we assume it's either an API Secret or an Access Token.
+            # Passing it as ?token=... covers the Access Token case.
+            # We ALSO send the API-SECRET header (hashed) to cover the API Secret case.
+            # While redundant, this ensures we hit one of the valid auth methods.
+            params["token"] = self.token
+
         self.client = client or httpx.AsyncClient(
             base_url=self.base_url,
             timeout=self.timeout_seconds,
             headers=headers,
+            params=params, 
         )
 
     def _auth_headers(self) -> dict[str, str]:
@@ -50,6 +65,7 @@ class NightscoutClient:
                 headers["Authorization"] = f"Bearer {effective_token}"
             else:
                 # Assume it's an API Secret -> SHA1 hash
+                # We send this header to support users entering their Master Password
                 hashed = hashlib.sha1(effective_token.encode("utf-8")).hexdigest()
                 headers["API-SECRET"] = hashed
 
