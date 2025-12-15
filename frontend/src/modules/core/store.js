@@ -179,6 +179,22 @@ export async function checkBackendHealth() {
     } catch (e) {
         console.error("Health check failed:", e);
     }
+
+    // Auto-Run Night Scan if missed (Lazy Execution for Free Tier)
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const lastScan = localStorage.getItem("bolusai_last_autoscan");
+
+    if (lastScan !== todayStr && state.user && state.user.role === 'admin') {
+        console.log("Checking scheduled tasks (lazy run)...");
+        try {
+            const { runAutoScan } = await import('../../lib/api.js');
+            await runAutoScan();
+            localStorage.setItem("bolusai_last_autoscan", todayStr);
+            console.log("Lazy autoscan triggered successfully.");
+        } catch (e) {
+            console.warn("Lazy autoscan failed:", e);
+        }
+    }
 }
 
 async function triggerBackendSave(params) {

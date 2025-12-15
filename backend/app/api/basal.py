@@ -11,6 +11,23 @@ from app.services import basal_repo
 
 router = APIRouter()
 
+# Hotfix for imports inside function to avoid circles or ensure readiness
+from app.core.security import CurrentUser, get_current_user, require_admin
+
+@router.post("/trigger-autoscan")
+async def trigger_autoscan_manual(
+    current_user: CurrentUser = Depends(require_admin),
+):
+    """
+    Manually triggers the daily night scan (for all users).
+    Useful if the scheduled task was missed due to server sleep.
+    """
+    # Import here to avoid circulars
+    from app.jobs import run_auto_night_scan
+    await run_auto_night_scan()
+    return {"ok": True, "message": "Autoscan triggered"}
+
+
 # --- Schemas ---
 
 class BasalDoseCreate(BaseModel):

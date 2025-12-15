@@ -601,4 +601,13 @@ export async function exportUserData() {
   return data;
 }
 
+export async function runAutoScan() {
+  const response = await apiFetch("/api/basal/trigger-autoscan", {
+    method: "POST"
+  });
+  const data = await toJson(response);
+  if (!response.ok) console.warn("Auto-scan trigger failed", data);
+  return data;
+}
+
 export * from "./bleScale";
