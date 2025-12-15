@@ -260,10 +260,15 @@ async function updateMetrics() {
 
     // 2. Last Bolus
     try {
-        const treatments = await fetchTreatments({ ...config, count: 100 });
+        const treatments = await fetchTreatments({ ...config, count: 50 });
+        // Sort explicitly by date desc just in case
+        treatments.sort((a, b) => new Date(b.created_at || b.date) - new Date(a.created_at || a.date));
+
         const lastBolus = treatments.find(t => {
             const val = parseFloat(t.insulin);
-            return (!isNaN(val) && val > 0 && t.eventType !== 'Temp Basal');
+            // Must be > 0 and NOT a temp basal (usually eventType 'Temp Basal')
+            // Some NS entries might have insulin=null
+            return (val && val > 0 && t.eventType !== 'Temp Basal');
         });
 
         const lbl = document.getElementById('metric-last');
@@ -284,46 +289,53 @@ async function updateActivity() {
     if (!list || !config) return;
 
     try {
-        const fullTreatments = await fetchTreatments({ ...config, count: 100 });
-        const validTreatments = fullTreatments.filter(t => {
+        const full = await fetchTreatments({ ...config, count: 20 });
+        // Filter: has insulin OR has carbs
+        const valid = full.filter(t => {
             const u = parseFloat(t.insulin);
             const c = parseFloat(t.carbs);
             return (u > 0 || c > 0);
         });
 
-        const treatments = validTreatments.slice(0, 3); // Top 3
+        const top3 = valid.slice(0, 3);
 
         list.innerHTML = "";
-        treatments.forEach(t => {
-            const u = parseFloat(t.insulin);
-            const c = parseFloat(t.carbs);
+        top3.forEach(t => {
+            const u = parseFloat(t.insulin) || 0;
+            const c = parseFloat(t.carbs) || 0;
+
+            // Heuristic for icon
             const isBolus = u > 0;
-            const isCarb = c > 0;
+            const isCarb = c > 0 && u === 0; // Pure carb entry? or mix? 
+            // If both, prioritize Bolus icon usually, or fork icon
+
+            // Logic: if insulin > 0 -> Syringe. Else if carbs > 0 -> Cookie.
+            const icon = (u > 0) ? "💉" : "🍪";
+
+            const date = new Date(t.created_at || t.timestamp || t.date);
+            const timeStr = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+            let valStr = "";
+            if (u > 0) valStr += `${u} U `;
+            if (c > 0) valStr += `${c} g`;
 
             const el = document.createElement('div');
             el.className = 'activity-item';
-            const icon = isBolus ? "💉" : "🍪";
-            const date = new Date(t.created_at || t.timestamp || t.date);
-            const time = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-
-            let valStr = "";
-            if (isBolus) valStr += `${u} U `;
-            if (isCarb) valStr += `${c} g`;
-
             el.innerHTML = `
-                <div class="act-icon" style="${isBolus ? '' : 'background:#fff7ed; color:#f97316'}">${icon}</div>
+                <div class="act-icon" style="${u > 0 ? '' : 'background:#fff7ed; color:#f97316'}">${icon}</div>
                 <div class="act-details">
                     <div class="act-val">${valStr}</div>
-                    <div class="act-sub">${t.notes || 'Entrada'}</div>
+                    <div class="act-sub">${t.notes || t.eventType || 'Entrada'}</div>
                 </div>
-                <div class="act-time">${time}</div>
+                <div class="act-time">${timeStr}</div>
             `;
             list.appendChild(el);
         });
 
-        if (treatments.length === 0) {
+        if (top3.length === 0) {
             list.innerHTML = "<div class='hint' style='text-align:center; padding:1rem;'>Sin actividad reciente</div>";
         }
+
 
     } catch (e) {
         console.warn(e);
