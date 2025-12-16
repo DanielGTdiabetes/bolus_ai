@@ -28,12 +28,28 @@ async def run_analysis_endpoint(
     days = payload.get("days", 30)
     
     settings = store.load_settings()
-    ns_config = settings.nightscout
+    # Resolve Nightscout Credentials (DB Priority)
+    from app.services.nightscout_secrets_service import get_ns_config
     
-    # Relaxed NS check: If not configured, we just don't pass a client
+    db_ns_config = await get_ns_config(db, current_user.username)
+    
+    final_url = None
+    final_token = None
+    
+    if db_ns_config and db_ns_config.enabled and db_ns_config.url:
+        final_url = db_ns_config.url
+        final_token = db_ns_config.api_secret
+    elif ns_config.enabled and ns_config.url:
+        # Fallback to local settings
+        final_url = ns_config.url
+        final_token = ns_config.token
+        
     client = None
-    if ns_config.enabled and ns_config.url:
-        client = NightscoutClient(base_url=ns_config.url, token=ns_config.token)
+    if final_url:
+        client = NightscoutClient(base_url=final_url, token=final_token)
+    elif not final_url:
+         # If truly no config found anywhere, warn but proceed with DB-only analysis
+         pass
     
     try:
         user_id = current_user.username
