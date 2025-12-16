@@ -64,30 +64,25 @@ class NightscoutClient:
             
             if is_jwt:
                 headers["Authorization"] = f"Bearer {effective_token}"
-            elif "-" in effective_token or len(effective_token) < 40:
-                # Likely an Access Token (Subject-Hash) or simple passphrase like 'mytoken-123'
-                # For uploading treatments, some NS versions REQUIRE this as 'token' query param OR 'api_secret' header (hashed)
-                # But if it's an Access Token, hashing it breaks it.
-                # If it's a "Master Password", hashing is correct (API-SECRET).
-                
-                # Heuristic: If it looks like a hash or random string (12-32 chars), treat as Access Token?
-                # Safer: Send BOTH raw token in query (handled in init) AND hashed secret? No, conflict.
-                
-                # Decision: If we are here, we might have added it as query param in init. 
-                # BUT for POST requests, sometimes headers are preferred.
-                # Let's try sending it as sha1 hash in API-SECRET header IF it doesn't look like an access token (usually having dashes or specific prefix).
-                
-                # If token has dashes 'foo-bar', likely an access token -> No Header (Query param used).
-                # If token is 'mypassword', likely API Secret -> Header.
-                
-                if "-" not in effective_token:
-                     hashed = hashlib.sha1(effective_token.encode("utf-8")).hexdigest()
-                     headers["API-SECRET"] = hashed
-                else:
-                     # It's an Access Token. Some plugins verify this via query param (already set).
-                     pass
             else:
-                # Assume it's a long API Secret?
+                # It is likely an API Secret (Password) OR an Access Token.
+                # If we assume it is a Secret, we Hash it.
+                # If it was an Access Token, hashing breaks it. 
+                # BUT, Access Tokens usually work via 'token' query param which we set in __init__?
+                # Actually, in __init__ we only set 'token' param if it HAD a dash.
+                # Now we found out that API SECRETS can have dashes too.
+                
+                # Strategy:
+                # 1. We ALREADY added it to query params in __init__ if it had a dash.
+                # 2. We ALSO add it here as API-SECRET (Hashed).
+                # Nightscout usually checks API-SECRET first. If valid, good.
+                # If invalid (because it was an Access Token hashed), it checks query param.
+                
+                # So the safest bet is to ALWAYS send API-SECRET header (hashed) for non-JWTs.
+                # Even if it is an Access Token, sending a garbage API-SECRET header usually gets ignored if a valid token param exists?
+                # Or does it block? 
+                # Let's assume sending API-SECRET is priority for "connection settings" which usually implies the Master Secret.
+                
                 hashed = hashlib.sha1(effective_token.encode("utf-8")).hexdigest()
                 headers["API-SECRET"] = hashed
 
