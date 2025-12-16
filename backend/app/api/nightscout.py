@@ -253,115 +253,158 @@ async def get_treatments_server(
     store: DataStore = Depends(_data_store)
 ):
     """
-    Fetches recent treatments, merging local 'events' (backup) with Nightscout data.
+    Fetches recent treatments, merging local 'events' (backup), DB, and Nightscout data.
     Provides resilience if Nightscout is down or unconfigured.
+    Deduplicates entries to avoid showing the same bolus multiple times.
     """
     import logging
     logger = logging.getLogger(__name__)
 
-    # 1. Fetch Local Events
+    # --- 1. Load from all sources ---
+
+    # A. Local File (Backup)
     local_treatments = []
     try:
         events = store.load_events()
-        # Filter mostly bolus/meal events
-        # We need to adapt local event format to match NS treatment format somewhat
+        # Filter/Format
         for e in events:
-            # Local format: { "eventType": "Meal Bolus", "created_at": iso, "insulin": x, "carbs": y, ... }
-            # Match NS format keys if needed by frontend
-            # Frontend uses: created_at/timestamp/date, insulin, carbs, notes/enteredBy
             t = e.copy()
+            # Harmonize keys
             if "created_at" in t:
-                t["date"] = t["created_at"] # Ensure compatibility
-                # Also NS uses milliseconds for date usually, but our frontend handles ISO strings in date parser
-            
+                # Local created_at usually string. Keep it.
+                t["date"] = t["created_at"] 
             local_treatments.append(t)
     except Exception as ex:
         logger.warning(f"Error loading local events: {ex}")
 
-    # 2. Fetch Nightscout Events
+    # B. Nightscout (Priority Source)
     ns_treatments = []
-    ns_error = None
-    
     ns = await get_ns_config(session, user.username)
     if ns and ns.enabled and ns.url:
         try:
             client = NightscoutClient(base_url=ns.url, token=ns.api_secret, timeout_seconds=5)
             try:
-                ns_treatments = await client.get_recent_treatments(hours=48, limit=count)
+                # get_recent_treatments returns Pydantic models
+                models = await client.get_recent_treatments(hours=48, limit=count)
+                for m in models:
+                    d = m.model_dump()
+                    # Ensure created_at is strictly ISO with Z if it is UTC
+                    if m.created_at: 
+                        # m.created_at is timezone-aware in the model
+                        d["created_at"] = m.created_at.isoformat().replace("+00:00", "Z")
+                        d["date"] = m.created_at.timestamp() * 1000
+                    ns_treatments.append(d)
             finally:
                 await client.aclose()
         except Exception as nse:
             logger.error(f"Nightscout fetch failed: {nse}")
-            ns_error = str(nse)
-    
-    # 3. Fetch from Database (Primary/Neon)
+
+    # C. Database (Reliable Persistence)
     db_treatments = []
     if session:
         try:
-            from app.models.treatment import Treatment
+            from app.models.treatment import Treatment as DBTreatment
             from sqlalchemy import select
             
             # Simple query: last N treatments for this user
             stmt = (
-                select(Treatment)
-                .where(Treatment.user_id == user.username)
-                .order_by(Treatment.created_at.desc())
+                select(DBTreatment)
+                .where(DBTreatment.user_id == user.username)
+                .order_by(DBTreatment.created_at.desc())
                 .limit(count)
             )
             result = await session.execute(stmt)
             rows = result.scalars().all()
             
             for row in rows:
+                # DB stores naive UTC. 
+                # We MUST tell frontend this is UTC by appending Z.
+                # If we don't, frontend perceives it as Local time, causing the 1-hour ghost duplicate.
+                created_iso = row.created_at.isoformat()
+                if not created_iso.endswith("Z") and "+" not in created_iso:
+                     created_iso += "Z"
+                
                 db_treatments.append({
                     "eventType": row.event_type,
-                    "created_at": row.created_at.isoformat(),
-                    "date": row.created_at.timestamp() * 1000, # NS-like
+                    "created_at": created_iso,
+                    "date": row.created_at.replace(tzinfo=timezone.utc).timestamp() * 1000,
                     "insulin": row.insulin,
                     "carbs": row.carbs,
                     "notes": row.notes,
                     "enteredBy": row.entered_by,
-                    "is_uploaded": row.is_uploaded
+                    "is_uploaded": row.is_uploaded,
+                    "source": "db"
                 })
         except Exception as db_ex:
             logger.error(f"Error reading treatments from DB: {db_ex}")
-            # Non-fatal, fallback to others
             
-    # 4. Merge and Deduplicate (DB + NS + Local)
-    # Priority: DB > NS > Local
+    # --- 2. Merge and Deduplicate ---
     
-    all_treatments = db_treatments + ns_treatments + local_treatments
+    # helper to get timestamp (ms)
+    def get_ts(x):
+        d = x.get("date")
+        if isinstance(d, (int, float)): return d
+        c = x.get("created_at")
+        if isinstance(c, str):
+            try:
+                # Handle varying ISO formats
+                c = c.replace('Z', '+00:00')
+                dt = datetime.fromisoformat(c)
+                if dt.tzinfo is None:
+                    # Assume local if no tz? Or assume UTC? 
+                    # Best effort.
+                    pass
+                return dt.timestamp() * 1000
+            except: 
+                pass
+        return 0
     
-    # helper to get time safely
-    def get_time(x):
-        try:
-            d = x.get("created_at") or x.get("date")
-            if not d: return 0
-            
-            if isinstance(d, str):
-                # Robust ISO parsing
-                if d.endswith('Z'): 
-                    d = d.replace('Z', '+00:00')
-                try:
-                    return datetime.fromisoformat(d).timestamp()
-                except ValueError:
-                    # Try basic replacement if fromisoformat fails (e.g. older python)
-                    # or just return 0 if unparseable
-                    return 0
-                    
-            if isinstance(d, (int, float)):
-                 # check if ms or sec
-                 return d if d < 10000000000 else d / 1000.0
-            return 0
-        except Exception:
-            return 0
+    # Combine all (NS preferred first in sort order if times identical?) 
+    # Actually deduplication logic will keep the first one encountered.
+    # So if we want NS to "win", we should process NS first?
+    # But later we sort by time. 
+    # Let's verify we just filter duplicates effectively.
     
+    all_raw = ns_treatments + db_treatments + local_treatments
+    
+    # Sort by time descending (Newest first)
     try:
-        all_treatments.sort(key=get_time, reverse=True)
-    except Exception as sort_err:
-        logger.error(f"Error sorting treatments: {sort_err}")
-        # Return unsorted/partial if sort fails, better than crashing
+        all_raw.sort(key=get_ts, reverse=True)
+    except Exception as e:
+        logger.error(f"Sort failed: {e}")
+
+    unique_treatments = []
     
-    # Slice
-    return all_treatments[:count] 
+    for item in all_raw:
+        item_ts = get_ts(item)
+        item_ins = item.get("insulin") or 0
+        item_carbs = item.get("carbs") or 0
+        
+        is_duplicate = False
+        
+        # Check against already added (which are newer/same-time)
+        # We only check the last few added to valid list 
+        # (Actually since we traverse New -> Old, and valid list is New->Old, 
+        # we check the *end* of the valid list? No, valid list grows.
+        # We want to check all recently added items.)
+        
+        for existing in unique_treatments[-10:]: 
+            ex_ts = get_ts(existing)
+            
+            # Tolerance: 2 minutes (120000 ms)
+            # This handles small clock drifts or execution delays between sources
+            if abs(ex_ts - item_ts) < 120000:
+                ex_ins = existing.get("insulin") or 0
+                ex_carbs = existing.get("carbs") or 0
+                
+                # Check content equality
+                if abs(ex_ins - item_ins) < 0.001 and abs(ex_carbs - item_carbs) < 0.1:
+                    is_duplicate = True
+                    break
+        
+        if not is_duplicate:
+            unique_treatments.append(item)
+            
+    return unique_treatments[:count] 
 
 
