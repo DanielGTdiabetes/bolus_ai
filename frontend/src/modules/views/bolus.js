@@ -539,6 +539,24 @@ export function renderBolus() {
         }
     }
 
+    // Auto-fetch latest Nightscout BG to populate input
+    const nsConfig = getLocalNsConfig();
+    if (nsConfig && nsConfig.url && bgInput) {
+        // Use getCurrentGlucose from API instead of relying on stale state
+        import('../../lib/api.js').then(({ getCurrentGlucose }) => {
+            getCurrentGlucose(nsConfig).then(data => {
+                if (data && data.bg_mgdl) {
+                    const val = Math.round(data.bg_mgdl);
+                    bgInput.value = val;
+                    if (bgSlider) bgSlider.value = val;
+                    // Optional: Visual indicator that it was fetched
+                    bgInput.style.borderColor = "var(--success)";
+                    setTimeout(() => bgInput.style.borderColor = "#cbd5e1", 2000);
+                }
+            }).catch(eff => console.log("Bg auto-fetch failed", eff));
+        });
+    }
+
     if (calcBtn) {
         calcBtn.onclick = async () => {
             // ... (Calc Logic) ...
@@ -547,12 +565,18 @@ export function renderBolus() {
             calcBtn.disabled = true;
 
             try {
-                const bg = parseFloat(bgInput.value);
+                const bgVal = document.getElementById('bg').value;
+                // Handle empty string as NaN
+                const bg = bgVal === "" ? NaN : parseFloat(bgVal);
                 const carbs = parseFloat(carbsInput.value) || 0;
                 const slot = document.getElementById('meal-slot').value;
                 const isCorrection = document.getElementById('chk-correction-only').checked;
 
-                if (isNaN(bg)) throw new Error("Introduce tu glucosa actual.");
+                if (isNaN(bg)) {
+                    // Allow calculation without BG (Carbs only)
+                    // But if correction-only checked AND no BG, that is invalid.
+                    if (isCorrection) throw new Error("Para corrección se requiere glucosa.");
+                }
 
                 const mealParams = getCalcParams();
                 if (!mealParams) throw new Error("No hay configuración de ratios.");
@@ -565,7 +589,7 @@ export function renderBolus() {
 
                 const payload = {
                     carbs_g: isCorrection ? 0 : carbs,
-                    bg_mgdl: bg,
+                    bg_mgdl: isNaN(bg) ? null : bg,
                     meal_slot: effectiveSlot,
                     target_mgdl: slotParams.target,
                     cr_g_per_u: slotParams.icr,
