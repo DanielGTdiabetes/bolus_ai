@@ -37,10 +37,12 @@ class NightscoutClient:
         # We generally avoid sending credentials in query params for security (logs, browser history).
         # We rely on 'API-SECRET' header (hashed) or 'Authorization: Bearer' (JWT).
         params = {}
-        # if self.token and "Authorization" not in headers:
-            # We skip adding token to params to comply with security requirements.
-            # Most modern Nightscout versions support headers.
-            # params["token"] = self.token
+        params = {}
+        # Support for Access Tokens (Subject-Hash) which some NS versions require as query param 'token'
+        # Heuristic: Access tokens often start with 'app-' or contain hyphens, and are NOT JWTs
+        is_jwt_token = self.token and len(self.token) > 20 and self.token.count(".") >= 2
+        if self.token and not is_jwt_token and "-" in self.token:
+            params["token"] = self.token
 
         self.client = client or httpx.AsyncClient(
             base_url=self.base_url,
@@ -62,6 +64,10 @@ class NightscoutClient:
             
             if is_jwt:
                 headers["Authorization"] = f"Bearer {effective_token}"
+            elif "-" in effective_token:
+                # Likely an Access Token (Subject-Hash), handled via query params in __init__
+                # Do NOT hash and do NOT add as API-SECRET header.
+                pass
             else:
                 # Assume it's an API Secret -> SHA1 hash
                 # We send this header to support users entering their Master Password
@@ -95,7 +101,7 @@ class NightscoutClient:
 
     async def get_status(self) -> NightscoutStatus:
         # Added /api/v1/status (no json) as some deployments might prefer it
-        endpoint_candidates = ["/api/v1/status.json", "/status.json", "/api/v1/status"]
+        endpoint_candidates = ["/api/v1/status", "/api/v1/status.json", "/status.json"]
         last_error: Optional[Exception] = None
         for endpoint in endpoint_candidates:
             try:
@@ -112,7 +118,7 @@ class NightscoutClient:
 
     async def get_latest_sgv(self) -> NightscoutSGV:
         # 'count=1' gets the single most recent entry
-        response = await self.client.get("/api/v1/entries/sgv.json", params={"count": 1})
+        response = await self.client.get("/api/v1/entries/sgv", params={"count": 1})
         data = await self._handle_response(response)
         if not data:
             raise NightscoutError("No SGV data available")
@@ -124,7 +130,6 @@ class NightscoutClient:
              # Prepare Params - Fallback to basic count to ensure compatibility
             params = {
                 "count": limit, 
-                "sort[created_at]": -1,
             }
             
             # Use a slightly longer timeout for fetching large lists, but capped
@@ -137,7 +142,7 @@ class NightscoutClient:
                 try:
                     req_id = uuid.uuid4().hex[:8]
                     # Explicit timeout per attempt (8s)
-                    response = await self.client.get("/api/v1/treatments.json", params=params, timeout=8.0)
+                    response = await self.client.get("/api/v1/treatments", params=params, timeout=8.0)
                     
                     # Manual Handling
                     if response.status_code in (401, 403):
@@ -220,6 +225,7 @@ class NightscoutClient:
                         valid_treatments.append(Treatment.model_validate(item))
                 except Exception as e:
                     # Skip malformed items
+                    logger.error(f"Skipping treatment due to error: {e}. Item: {item}")
                     continue
                     
             logger.info(f"Fetched {len(data)} treatments, {len(valid_treatments)} valid after filtering ({hours}h).")
@@ -247,7 +253,7 @@ class NightscoutClient:
             "count": count
         }
         
-        response = await self.client.get("/api/v1/entries/sgv.json", params=params)
+        response = await self.client.get("/api/v1/entries/sgv", params=params)
         data = await self._handle_response(response)
         
         if not isinstance(data, list):
@@ -264,7 +270,7 @@ class NightscoutClient:
         return results
 
     async def upload_treatments(self, treatments: list[dict]) -> Any:
-        response = await self.client.post("/api/v1/treatments.json", json=treatments)
+        response = await self.client.post("/api/v1/treatments", json=treatments)
         return await self._handle_response(response)
 
     async def aclose(self) -> None:
