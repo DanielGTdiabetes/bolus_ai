@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { getSecretStatus, putSecret, deleteSecret } from '../lib/api';
-import { useStore } from '../lib/store';
+
 
 export default function NightscoutSettingsPage() {
     const [url, setUrl] = useState('');
@@ -8,7 +8,6 @@ export default function NightscoutSettingsPage() {
     const [enabled, setEnabled] = useState(false);
     const [hasSecret, setHasSecret] = useState(false);
     const [message, setMessage] = useState('');
-    const store = useStore();
 
     useEffect(() => {
         async function fetchStatus() {
