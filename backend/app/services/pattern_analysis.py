@@ -31,7 +31,6 @@ def get_meal_slot(dt: datetime) -> str:
 async def run_analysis_service(
     user_id: str,
     days: int,
-    days: int,
     settings: UserSettings,
     ns_client: Optional[NightscoutClient],
     db: AsyncSession
