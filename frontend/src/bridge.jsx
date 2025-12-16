@@ -3,7 +3,6 @@ import ReactDOM from 'react-dom/client';
 import FavoritesPage from './pages/FavoritesPage';
 
 // Registry of React Pages
-import FavoritesPage from './pages/FavoritesPage';
 import HistoryPage from './pages/HistoryPage';
 
 const PAGES = {
