@@ -52,7 +52,7 @@ export function renderHeader(title = "Bolus AI", showBack = false) {
           <div class="header-title">${title}</div>
           ${!showBack ? `<div class="header-subtitle">Tu asistente de diabetes</div>` : ''}
         </div>
-        <div class="header-action has-dot">
+        <div class="header-action">
           <button id="notifications-btn" class="ghost">🔔</button>
         </div>
       </header>

@@ -62,6 +62,12 @@ export const state = {
         battery: null,
         lastUpdateTs: 0,
         window: [] // [{ts, grams}]
+    },
+
+    // Notifications
+    notifications: {
+        hasUnread: false,
+        items: []
     }
 };
 
