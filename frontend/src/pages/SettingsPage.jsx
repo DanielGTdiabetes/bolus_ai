@@ -181,7 +181,8 @@ function CalcParamsPanel() {
         snack: { icr: 10, isf: 50, target: 110 },
         dia_hours: 4,
         round_step_u: 0.5,
-        max_bolus_u: 10
+        max_bolus_u: 10,
+        techne: { enabled: false, max_step_change: 0.5, safety_iob_threshold: 1.5 }
     };
 
     const [params, setParams] = useState(defaults);
@@ -191,7 +192,15 @@ function CalcParamsPanel() {
 
     useEffect(() => {
         const p = getCalcParams();
-        if (p) setParams(p);
+        if (p) {
+            // Deep merge for techne to ensure it exists
+            const merged = {
+                ...defaults,
+                ...p,
+                techne: { ...defaults.techne, ...(p.techne || {}) }
+            };
+            setParams(merged);
+        }
         else saveCalcParams(defaults); // Init if empty
     }, []);
 
@@ -272,6 +281,38 @@ function CalcParamsPanel() {
                     <option value="0.1">0.1 U</option>
                     <option value="0.05">0.05 U</option>
                 </select>
+
+                <div style={{ marginTop: '1rem', padding: '1rem', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '0.8rem', fontWeight: 600, marginBottom: params.techne?.enabled ? '1rem' : 0, cursor: 'pointer' }}>
+                        <input
+                            type="checkbox"
+                            checked={params.techne?.enabled}
+                            onChange={e => setParams(prev => ({ ...prev, techne: { ...prev.techne, enabled: e.target.checked } }))}
+                            style={{ width: '1.2rem', height: '1.2rem' }}
+                        />
+                        Redondeo Inteligente (Techne)
+                    </label>
+
+                    {params.techne?.enabled && (
+                        <div className="stack" style={{ gap: '0.8rem', marginTop: '0.5rem' }}>
+                            <p className="text-sm text-muted" style={{ margin: 0 }}>
+                                Usa la flecha de tendencia para decidir si redondear hacia arriba (↗) o abajo (↘).
+                            </p>
+                            <Input
+                                label="Límite cambio máx (Seguridad - U)"
+                                type="number"
+                                value={params.techne.max_step_change}
+                                onChange={e => setParams(prev => ({ ...prev, techne: { ...prev.techne, max_step_change: parseFloat(e.target.value) } }))}
+                            />
+                            <Input
+                                label="Desactivar si IOB mayor que (U)"
+                                type="number"
+                                value={params.techne.safety_iob_threshold}
+                                onChange={e => setParams(prev => ({ ...prev, techne: { ...prev.techne, safety_iob_threshold: parseFloat(e.target.value) } }))}
+                            />
+                        </div>
+                    )}
+                </div>
             </div>
 
             <Button onClick={handleSave} style={{ marginTop: '1rem' }}>Guardar Parámetros</Button>

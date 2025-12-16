@@ -53,6 +53,53 @@ def calculate_exercise_reduction(minutes: int, intensity: str) -> float:
         return val120
 
 
+
+def _smart_round(
+    value: float,
+    step: float,
+    trend: str,
+    max_change: float,
+    explain: list[str]
+) -> float:
+    """
+    Techne Rounding:
+    - Rising (DoubleUp, SingleUp, FortyFiveUp) -> Ceil to step
+    - Falling (DoubleDown, SingleDown, FortyFiveDown) -> Floor to step
+    - Flat/None -> Nearest (Standard)
+    
+    Subject to max_change safety limit.
+    """
+    standard = round(value / step) * step
+    
+    # Map Trend
+    t = trend.lower()
+    mode = "neutral"
+    if t in ["doubleup", "singleup", "fortyfiveup"]:
+        mode = "up"
+    elif t in ["doubledown", "singledown", "fortyfivedown"]:
+        mode = "down"
+        
+    if mode == "neutral":
+        return standard
+        
+    proposed = standard
+    if mode == "up":
+        proposed = math.ceil(value / step) * step
+    else:
+        proposed = math.floor(value / step) * step
+        
+    # Safety Check
+    if abs(proposed - value) > max_change + 0.001:
+        explain.append(f"   (Techne) Flecha {trend}: Propuesto {proposed:.2f} desvía > {max_change}U. Usando estándar.")
+        return standard
+
+    if abs(proposed - standard) > 0.001:
+         explain.append(f"   (Techne) Flecha {trend} ({mode.upper()}): {value:.2f} -> {proposed:.2f} U")
+         return proposed
+         
+    return standard
+
+
 def calculate_bolus_v2(
     request: BolusRequestV2,
     settings: UserSettings,
@@ -152,24 +199,49 @@ def calculate_bolus_v2(
         explain.append(f"   Reducido: {total_after_iob:.2f} -> {total_after_exercise:.2f} U")
 
     # 6. Bolo Extendido (Slow Meal)
+    # Techne Validation
+    techne_trend = glucose_info.trend
+    techne_ok = False
+    if settings.techne.enabled and techne_trend:
+        # Conditions: Glucosa >= Target, IOB low, No exercise
+        cond_bg = (glucose_info.mgdl is not None and glucose_info.mgdl >= target)
+        cond_iob = (iob_u <= settings.techne.safety_iob_threshold)
+        cond_ex = (request.exercise.minutes == 0)
+        
+        if cond_bg and cond_iob and cond_ex:
+            techne_ok = True
+        elif settings.techne.enabled:
+            # Optional debug logs for why it was skipped?
+            pass
+
+    # 6. Bolo Extendido (Slow Meal)
     kind = "normal"
     upfront = total_after_exercise
     later = 0.0
     duration = 0
-    
+    step = settings.round_step_u
+
     if request.slow_meal.enabled:
         pct = request.slow_meal.upfront_pct
         upfront_raw = total_after_exercise * pct
         later_raw = total_after_exercise - upfront_raw
         
-        step = settings.round_step_u
-        upfront = _round_step(upfront_raw, step)
+        # Apply Techne to Upfront Only
+        if techne_ok:
+            upfront = _smart_round(upfront_raw, step, techne_trend, settings.techne.max_step_change, explain)
+        else:
+            upfront = _round_step(upfront_raw, step)
+            
         later = _round_step(later_raw, step)
         
         if later < step:
              explain.append("E) Bolo extendido: la parte extendida es despreciable (< step). Cambiando a Normal.")
              kind = "normal"
-             upfront = _round_step(total_after_exercise, step)
+             # Re-calc upfront based on total (with Techne if applicable)
+             if techne_ok:
+                 upfront = _smart_round(total_after_exercise, step, techne_trend, settings.techne.max_step_change, explain)
+             else:
+                 upfront = _round_step(total_after_exercise, step)
              later = 0.0
         else:
              kind = "extended"
@@ -178,8 +250,10 @@ def calculate_bolus_v2(
              explain.append(f"   Ahora: {upfront:.2f} U, Luego: {later:.2f} U en {duration} min")
 
     else:
-         step = settings.round_step_u
-         upfront = _round_step(total_after_exercise, step)
+         if techne_ok:
+             upfront = _smart_round(total_after_exercise, step, techne_trend, settings.techne.max_step_change, explain)
+         else:
+             upfront = _round_step(total_after_exercise, step)
 
     # 7. Límites finales
     total_final = upfront + later

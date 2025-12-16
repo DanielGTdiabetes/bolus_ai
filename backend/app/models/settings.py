@@ -82,6 +82,13 @@ class NightscoutConfig(BaseModel):
     units: Literal["mg/dl", "mmol/l"] = "mg/dl"
 
 
+class TechneRoundingConfig(BaseModel):
+    enabled: bool = False
+    max_step_change: float = 0.5  # Safety limit: never deviate > 0.5U from raw
+    safety_iob_threshold: float = 1.5  # If IOB > this, disable Techne rounding (avoid stacking)
+
+
+
 class UserSettings(BaseModel):
     schema_version: int = 1
     units: Literal["mg/dL"] = "mg/dL"
@@ -96,6 +103,7 @@ class UserSettings(BaseModel):
     learning: LearningConfig = Field(default_factory=LearningConfig)
     adaptive: AdaptiveConfig = Field(default_factory=AdaptiveConfig)
     nightscout: NightscoutConfig = Field(default_factory=NightscoutConfig)
+    techne: TechneRoundingConfig = Field(default_factory=TechneRoundingConfig)
 
     @classmethod
     def migrate(cls, data: dict) -> "UserSettings":
