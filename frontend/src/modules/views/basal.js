@@ -110,14 +110,24 @@ export async function renderBasal() {
     dtInput.value = `${nowFn.getFullYear()}-${pad(nowFn.getMonth() + 1)}-${pad(nowFn.getDate())}T${pad(nowFn.getHours())}:${pad(nowFn.getMinutes())}`;
 
     // Helper to save dose
-    async function saveDoseOnly() {
+    async function saveDoseOnly(requireDose = true) {
         const uVal = parseFloat(uInput.value);
         const dtVal = dtInput.value;
         const msgEl = document.getElementById('basal-action-msg');
 
+        // Check validity
         if (isNaN(uVal) || uVal <= 0) {
-            msgEl.textContent = "⚠️ Dosis requerida."; msgEl.style.color = "var(--danger)"; return false;
+            if (requireDose) {
+                msgEl.textContent = "⚠️ Dosis requerida.";
+                msgEl.style.color = "var(--danger)";
+                return false;
+            } else {
+                // Not required, just skip saving dose
+                return true;
+            }
         }
+
+        // Has valid dose -> Save it
         msgEl.textContent = "Guardando dosis...";
         const dateObj = new Date(dtVal);
         try {
@@ -128,7 +138,9 @@ export async function renderBasal() {
             });
             return true;
         } catch (e) {
-            msgEl.textContent = "Error: " + e.message; msgEl.style.color = "var(--danger)"; return false;
+            msgEl.textContent = "Error: " + e.message;
+            msgEl.style.color = "var(--danger)";
+            return false;
         }
     }
 
@@ -143,7 +155,7 @@ export async function renderBasal() {
 
     document.getElementById('btn-checkin-wake').onclick = async () => {
         // 1. Save dose
-        const ok = await saveDoseOnly();
+        const ok = await saveDoseOnly(false);
         if (!ok) return;
 
         const msgEl = document.getElementById('basal-action-msg');
