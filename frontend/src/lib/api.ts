@@ -169,16 +169,24 @@ export async function getNightscoutStatus() {
 }
 
 export async function getCurrentGlucose(config) {
-  if (!config || !config.url) {
-    return { ok: false, error: "No configurado (local)" };
+  // If config is present, use stateless POST
+  if (config && config.url) {
+    const response = await apiFetch("/api/nightscout/current", {
+      method: "POST",
+      body: JSON.stringify(config)
+    });
+    const data = await toJson(response);
+    if (!response.ok) throw new Error(data.detail || "Error al obtener glucosa");
+    return data;
+  } else {
+    // Fallback to server-stored GET
+    const response = await apiFetch("/api/nightscout/current", {
+      method: "GET"
+    });
+    const data = await toJson(response);
+    if (!response.ok) throw new Error(data.detail || "Error al obtener glucosa (Backend)");
+    return data;
   }
-  const response = await apiFetch("/api/nightscout/current", {
-    method: "POST",
-    body: JSON.stringify(config)
-  });
-  const data = await toJson(response);
-  if (!response.ok) throw new Error(data.detail || "Error al obtener glucosa");
-  return data;
 }
 
 export async function testNightscout(config) {

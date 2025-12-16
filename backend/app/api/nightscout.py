@@ -147,6 +147,52 @@ async def get_current_glucose_stateless(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/current", response_model=CurrentGlucoseResponse, summary="Get current glucose (Server-Stored)")
+async def get_current_glucose_server(
+    user: CurrentUser = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db_session),
+):
+    ns = await get_ns_config(session, user.username)
+    if not ns or not ns.enabled or not ns.url:
+         raise HTTPException(status_code=400, detail="Nightscout is not configured")
+    
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    try:
+        client = NightscoutClient(base_url=ns.url, token=ns.api_secret, timeout_seconds=10)
+        try:
+            sgv: NightscoutSGV = await client.get_latest_sgv()
+            now_ms = datetime.now(timezone.utc).timestamp() * 1000
+            diff_ms = now_ms - sgv.date
+            diff_min = diff_ms / 60000.0
+
+            arrows = {
+                "DoubleUp": "↑↑", "SingleUp": "↑", "FortyFiveUp": "↗",
+                "Flat": "→", "FortyFiveDown": "↘", "SingleDown": "↓", "DoubleDown": "↓↓"
+            }
+            arrow = arrows.get(sgv.direction, sgv.direction)
+
+            return CurrentGlucoseResponse(
+                ok=True,
+                configured=True,
+                bg_mgdl=float(sgv.sgv),
+                trend=sgv.direction,
+                trendArrow=arrow,
+                age_minutes=diff_min,
+                date=int(sgv.date),
+                stale=diff_min > 10,
+                source="nightscout"
+            )
+        finally:
+            await client.aclose()
+    except NightscoutError as nse:
+        raise HTTPException(status_code=502, detail=str(nse))
+    except Exception as e:
+        logger.exception("Error fetching current glucose (server)")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 class TestResponse(BaseModel):
     ok: bool
     reachable: bool
