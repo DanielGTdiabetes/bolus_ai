@@ -6,32 +6,32 @@ Objetivo: Migrar progresivamente a **React** manteniendo la funcionalidad actual
 ---
 
 ## 📅 Fase 1: Preparación del Entorno (Inmediato)
-- [ ] **Instalación de Dependencias**:
+- [x] **Instalación de Dependencias**:
     - `npm install react react-dom wouter` (Wouter es un router ultra-ligero ideal para esto).
     - `npm install -D @types/react @types/react-dom @vitejs/plugin-react`.
-- [ ] **Configuración de Vite**:
+- [x] **Configuración de Vite**:
     - Modificar `vite.config.js` para incluir el plugin de React.
-    - Renombrar `main.js` a `main.jsx` (o `.tsx` si nos animamos a TS estricto).
+    - Renombrar `main.js` a `main.jsx` (o `.tsx` si nos animamos a TS estricto) -> *Nota: Mantenemos main.js pero importamos bridge.jsx*.
 
 ## 🏗️ Fase 2: Arquitectura Híbrida (Coexistencia)
 *Objetivo: Que React funcione dentro de la app actual sin romper nada.*
-- [ ] Crear carpeta `src/components/` y `src/pages/`.
-- [ ] Crear un componente "Contenedor" en React que se monte en el `div#app`.
-- [ ] **Router Híbrido**:
+- [x] Crear carpeta `src/components/` y `src/pages/`.
+- [x] Crear un componente "Contenedor" en React que se monte en el `div#app`.
+- [x] **Router Híbrido**:
     - Mantener el router actual (`hashchange`) por ahora.
-    - Crear un componente React `<BridgeView />` que detecte en qué ruta estamos y decida si renderizar un componente React o dejar que el sistema legacy pinte el HTML.
+    - Crear un componente React `<BridgeView />` (`bridge.jsx`) que detecte en qué ruta estamos y decida si renderizar un componente React o dejar que el sistema legacy pinte el HTML.
 
 ## 🧱 Fase 3: Migración de Componentes "Átomos"
 Refactorizar primero las piezas pequeñas que se usan en todas partes.
-- [ ] **Botones e Inputs**: `Button`, `Input`, `Card`.
-- [ ] **Layout**: `Header`, `BottomNav` (ahora son strings, pasarlos a componentes JSX).
-- [ ] **Global Store**: Conectar el estado global (`store.js`) a React.
-    - Crear un hook `useStore()` que se suscriba a los cambios de `store.js` para que los componentes reaccionen solos.
+- [x] **Botones e Inputs**: `Button`, `Input`, `Card` (Creados en `Atoms.jsx`).
+- [x] **Layout**: `Header`, `BottomNav` (ahora son componentes JSX).
+- [x] **Global Store**: Conectar el estado global (`store.js`) a React.
+    - [x] Crear un hook `useStore()` que se suscriba a los cambios de `store.js` para que los componentes reaccionen solos.
 
 ## 🚀 Fase 4: Migración de Pantallas (Por Prioridad)
-1.  **Configuración (`Settings`)**: Es la más aislada y formulario-intensiva. Perfecta para empezar.
-2.  **Home (`Dashboard`)**: Requiere conexión en tiempo real. Buen test para hooks.
-3.  **Historial (`History`)**: Listado simple, fácil de migrar.
+1.  **Historial (`History`)**: [x] COMPLETADA. Migrado a React (`HistoryPage.jsx`).
+2.  **Configuración (`Settings`)**: Es la más aislada y formulario-intensiva. Perfecta para seguir.
+3.  **Home (`Dashboard`)**: Requiere conexión en tiempo real. Buen test para hooks.
 4.  **Calculadora (`Bolus`)**: **La más crítica**. Se deja para el final cuando tengamos dominada la arquitectura.
 
 ## 🧹 Fase 5: Limpieza

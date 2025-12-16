@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Card, Button, Input } from '../components/ui/Atoms';
+import { Header } from '../components/layout/Header';
+import { BottomNav } from '../components/layout/BottomNav';
 
 // Mock Favorites Store (We'll move this to store.js later or use localStorage directly here)
 const FAV_KEY = "bolusai_favorites";
@@ -65,66 +67,70 @@ export default function FavoritesPage({ navigate }) {
     };
 
     return (
-        <div className="page fade-in">
-            <h2 style={{ marginBottom: '1rem' }}>⭐ Comidas Favoritas</h2>
+        <>
+            <Header title="Favoritos" showBack={true} />
+            <div className="page fade-in" style={{ paddingBottom: '80px' }}>
+                <h2 style={{ marginBottom: '1rem', marginTop: 0 }}>⭐ Comidas Favoritas</h2>
 
-            <div style={{ marginBottom: '1.5rem' }}>
-                {favorites.length === 0 ? (
-                    <div className="text-muted text-center" style={{ padding: '2rem' }}>
-                        No tienes favoritos guardados.
-                    </div>
-                ) : (
-                    <div className="stack">
-                        {favorites.map(fav => (
-                            <Card key={fav.id} className="summary-row" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '1rem' }}>
-                                <div>
-                                    <div style={{ fontWeight: 700, fontSize: '1.1rem' }}>{fav.name}</div>
-                                    <div className="text-teal">{fav.carbs}g Carbs</div>
-                                </div>
-                                <div style={{ display: 'flex', gap: '0.5rem' }}>
-                                    <Button variant="secondary" onClick={() => handleLoad(fav)} style={{ padding: '0.5rem 1rem' }}>
-                                        Cargar
-                                    </Button>
-                                    <button onClick={() => handleDelete(fav.id)} style={{ border: 'none', background: 'none', color: '#ef4444', fontSize: '1.2rem' }}>
-                                        🗑️
-                                    </button>
-                                </div>
-                            </Card>
-                        ))}
-                    </div>
-                )}
-            </div>
-
-            {isAdding ? (
-                <Card title="Nueva Comida">
-                    <div className="stack">
-                        <Input
-                            label="Nombre"
-                            placeholder="Ej: Tostada desayuno"
-                            value={newFav.name}
-                            onChange={e => setNewFav({ ...newFav, name: e.target.value })}
-                        />
-                        <Input
-                            label="Carbohidratos (g)"
-                            type="number"
-                            placeholder="0"
-                            value={newFav.carbs}
-                            onChange={e => setNewFav({ ...newFav, carbs: e.target.value })}
-                        />
-                        <div style={{ display: 'flex', gap: '0.5rem' }}>
-                            <Button onClick={handleAdd}>Guardar</Button>
-                            <Button variant="ghost" onClick={() => setIsAdding(false)}>Cancelar</Button>
+                <div style={{ marginBottom: '1.5rem' }}>
+                    {favorites.length === 0 ? (
+                        <div className="text-muted text-center" style={{ padding: '2rem' }}>
+                            No tienes favoritos guardados.
                         </div>
-                    </div>
-                </Card>
-            ) : (
-                <Button onClick={() => setIsAdding(true)}>+ Añadir Favorito</Button>
-            )}
+                    ) : (
+                        <div className="stack">
+                            {favorites.map(fav => (
+                                <Card key={fav.id} className="summary-row" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '1rem' }}>
+                                    <div>
+                                        <div style={{ fontWeight: 700, fontSize: '1.1rem' }}>{fav.name}</div>
+                                        <div className="text-teal">{fav.carbs}g Carbs</div>
+                                    </div>
+                                    <div style={{ display: 'flex', gap: '0.5rem' }}>
+                                        <Button variant="secondary" onClick={() => handleLoad(fav)} style={{ padding: '0.5rem 1rem' }}>
+                                            Cargar
+                                        </Button>
+                                        <button onClick={() => handleDelete(fav.id)} style={{ border: 'none', background: 'none', color: '#ef4444', fontSize: '1.2rem' }}>
+                                            🗑️
+                                        </button>
+                                    </div>
+                                </Card>
+                            ))}
+                        </div>
+                    )}
+                </div>
 
-            <div style={{ marginTop: '2rem', textAlign: 'center' }}>
-                <a onClick={() => window.history.back()} style={{ color: 'var(--text-muted)', cursor: 'pointer' }}>Volver</a>
+                {isAdding ? (
+                    <Card title="Nueva Comida">
+                        <div className="stack">
+                            <Input
+                                label="Nombre"
+                                placeholder="Ej: Tostada desayuno"
+                                value={newFav.name}
+                                onChange={e => setNewFav({ ...newFav, name: e.target.value })}
+                            />
+                            <Input
+                                label="Carbohidratos (g)"
+                                type="number"
+                                placeholder="0"
+                                value={newFav.carbs}
+                                onChange={e => setNewFav({ ...newFav, carbs: e.target.value })}
+                            />
+                            <div style={{ display: 'flex', gap: '0.5rem' }}>
+                                <Button onClick={handleAdd}>Guardar</Button>
+                                <Button variant="ghost" onClick={() => setIsAdding(false)}>Cancelar</Button>
+                            </div>
+                        </div>
+                    </Card>
+                ) : (
+                    <Button onClick={() => setIsAdding(true)}>+ Añadir Favorito</Button>
+                )}
+
+                <div style={{ marginTop: '2rem', textAlign: 'center' }}>
+                    {/* Back Link redundant if Header has back */}
+                </div>
             </div>
-        </div>
+            <BottomNav />
+        </>
     );
 }
 

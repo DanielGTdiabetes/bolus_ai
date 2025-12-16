@@ -25,7 +25,11 @@ registerView('#/bolus', renderBolus);
 registerView('#/basal', renderBasal);
 
 // Analysis & History
-registerView('#/history', renderHistory);
+registerView('#/history', () => {
+  import('./bridge.jsx').then(({ mountReactPage }) => {
+    mountReactPage('history');
+  });
+});
 registerView('#/patterns', renderPatterns);
 registerView('#/suggestions', renderSuggestions);
 

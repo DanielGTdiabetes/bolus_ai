@@ -8,7 +8,7 @@ const SETTINGS_VERSION_KEY = "bolusai_settings_version";
 const DUAL_PLAN_KEY = "bolusai_active_dual_plan";
 
 // Main Global State
-export const state = {
+const internalState = {
     token: getStoredToken(),
     user: getStoredUser(),
     settingsSynced: false,
@@ -70,6 +70,34 @@ export const state = {
         items: []
     }
 };
+
+// React Subscription Mechanism
+const listeners = new Set();
+let version = 0;
+
+export const subscribe = (listener) => {
+    listeners.add(listener);
+    return () => listeners.delete(listener);
+};
+
+const notify = () => {
+    version++;
+    listeners.forEach(l => l());
+};
+
+// Proxy to intercept writes and notify listeners
+export const state = new Proxy(internalState, {
+    set(target, prop, value) {
+        if (target[prop] !== value) {
+            target[prop] = value;
+            notify();
+        }
+        return true;
+    }
+});
+
+// For external store hook
+export const getSnapshot = () => version;
 
 // --- Settings Logic ---
 
