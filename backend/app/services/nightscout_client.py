@@ -287,8 +287,33 @@ class NightscoutClient:
         return results
 
     async def upload_treatments(self, treatments: list[dict]) -> Any:
+        # Warning: Some Nightscout versions are strict about the 'enteredBy' field.
+        # Ensure it is present in all treatments.
+        for t in treatments:
+            if "enteredBy" not in t or not t["enteredBy"]:
+                t["enteredBy"] = "BolusAI"
+        
+        # We explicitly ensure we are posting JSON
+        # The client is already configured with headers, but let's double check content-type
+        
         response = await self.client.post("/api/v1/treatments", json=treatments)
-        return await self._handle_response(response)
+        
+        # Special handling for uploads:
+        # Some Nightscout versions return 200 OK via empty body on success?
+        # Or just the created objects?
+        
+        try:
+            response.raise_for_status()
+        except httpx.HTTPStatusError as e:
+            # If 401, trying to upload without write permissions?
+            logger.error(f"Nightscout Upload Failed: {e.response.status_code} - {e.response.text}")
+            raise NightscoutError(f"Upload failed: {e.response.status_code}")
+            
+        if not response.content.strip():
+            # If successful but empty, assume success
+            return {"status": "success", "uploaded_count": len(treatments)}
+            
+        return response.json()
 
     async def aclose(self) -> None:
         await self.client.aclose()
