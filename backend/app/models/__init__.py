@@ -5,3 +5,4 @@ from .settings import UserSettings, UserSettingsDB
 from .evaluation import SuggestionEvaluation
 from .notifications import UserNotificationState
 from .nightscout_secrets import NightscoutSecrets
+from .treatment import Treatment

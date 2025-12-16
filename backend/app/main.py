@@ -63,6 +63,7 @@ async def startup_event() -> None:
 
     from app.core.db import init_db, create_tables, get_engine
     init_db()
+    # Ensure tables are created (includes new Treatment model)
     await create_tables()
     
     # Hotfix: Ensure schema for Basal Checkin
