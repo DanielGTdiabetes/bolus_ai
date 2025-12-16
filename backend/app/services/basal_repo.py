@@ -219,3 +219,84 @@ async def get_dose_history(user_id: str, days: int = 30) -> List[Dict[str, Any]]
         cutoff = date.today() - timedelta(days=days)
         user_doses = [d for d in _mem_doses if d["user_id"] == user_id and d["effective_from"] >= cutoff]
         return sorted(user_doses, key=lambda x: x["effective_from"])
+
+async def delete_old_data(retention_days: int = 90) -> dict:
+    """
+    Deletes data older than retention_days from all basal-related tables.
+    """
+    cutoff_date = date.today() - timedelta(days=retention_days)
+    # For timestamp fields we can use datetime
+    cutoff_datetime = datetime.utcnow() - timedelta(days=retention_days)
+    
+    deleted_counts = {}
+    
+    if _async_engine:
+        async with _async_engine.begin() as conn:
+            # 1. Basal Entries (Doses)
+            # using effective_from or created_at. effective_from is safer for history.
+            q1 = text("DELETE FROM basal_dose WHERE effective_from < :cutoff")
+            r1 = await conn.execute(q1, {"cutoff": cutoff_date})
+            deleted_counts["basal_dose"] = r1.rowcount
+            
+            # 2. Checkins
+            q2 = text("DELETE FROM basal_checkin WHERE checkin_date < :cutoff")
+            r2 = await conn.execute(q2, {"cutoff": cutoff_date})
+            deleted_counts["basal_checkin"] = r2.rowcount
+            
+            # 3. Night Summaries
+            q3 = text("DELETE FROM basal_night_summary WHERE night_date < :cutoff")
+            r3 = await conn.execute(q3, {"cutoff": cutoff_date})
+            deleted_counts["basal_night_summary"] = r3.rowcount
+            
+            # 4. Advice Daily (if exists)
+            # Check if table exists first or just try? 
+            # We know it exists from models, but maybe not migration. assuming yes.
+            try:
+                q4 = text("DELETE FROM basal_advice_daily WHERE advice_date < :cutoff")
+                r4 = await conn.execute(q4, {"cutoff": cutoff_date})
+                deleted_counts["basal_advice_daily"] = r4.rowcount
+            except Exception as e:
+                logger.warning(f"Cleanup advice failed (maybe table missing): {e}")
+                deleted_counts["basal_advice_daily"] = 0
+
+            # 5. Evaluations (if exists)
+            try:
+                q5 = text("DELETE FROM basal_change_evaluation WHERE change_at < :cutoff_dt")
+                r5 = await conn.execute(q5, {"cutoff_dt": cutoff_datetime})
+                deleted_counts["basal_change_evaluation"] = r5.rowcount
+            except Exception as e:
+                logger.warning(f"Cleanup evaluations failed: {e}")
+                deleted_counts["basal_change_evaluation"] = 0
+                
+        logger.info(f"Data Cleanup Completed. Deleted: {deleted_counts}")
+        return deleted_counts
+    else:
+        # In-Memory Cleanup
+        # Note: In-memory is volatile anyway, but for correctness:
+        initial_doses = len(_mem_doses)
+        # Modify list in place or slice
+        # Global _mem_doses need to be updated.
+        # This is tricky with global variable imports. 
+        # But we modify the content of lists/dicts.
+        
+        # Doses
+        new_doses = [d for d in _mem_doses if d["effective_from"] >= cutoff_date]
+        del_doses = len(_mem_doses) - len(new_doses)
+        _mem_doses[:] = new_doses # Update in place
+        
+        # Checkins (dict keys)
+        keys_to_del = [k for k, v in _mem_checkins.items() if v["checkin_date"] < cutoff_date]
+        for k in keys_to_del:
+            del _mem_checkins[k]
+            
+        # Night Summaries
+        keys_night = [k for k, v in _mem_night_summaries.items() if v["night_date"] < cutoff_date]
+        for k in keys_night:
+            del _mem_night_summaries[k]
+
+        return {
+            "basal_dose": del_doses,
+            "basal_checkin": len(keys_to_del),
+            "basal_night_summary": len(keys_night),
+            "mode": "memory"
+        }

@@ -61,3 +61,11 @@ async def full_health(
 
     status["server"] = {"host": settings.server.host, "port": settings.server.port}
     return status
+
+@router.get("/wake", summary="Keep-alive Endpoint")
+async def wake_endpoint():
+    """
+    Lightweight endpoint to wake up the server or keep it alive.
+    External monitors (UptimeRobot, etc.) should ping this.
+    """
+    return {"status": "awake", "time": datetime.utcnow()}

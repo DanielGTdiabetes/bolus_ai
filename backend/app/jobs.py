@@ -60,3 +60,19 @@ def setup_periodic_tasks():
     # Run at 07:00 AM every day
     trigger = CronTrigger(hour=7, minute=0)
     schedule_task(run_auto_night_scan, trigger, "auto_night_scan")
+
+    # Run cleanup at 04:00 AM every day
+    cleanup_trigger = CronTrigger(hour=4, minute=0)
+    schedule_task(run_data_cleanup, cleanup_trigger, "data_cleanup")
+
+async def run_data_cleanup():
+    """
+    Background Task: Cleans up old data retention > 90 days.
+    """
+    from app.services.basal_repo import delete_old_data
+    logger.info("Running Data Cleanup Job...")
+    try:
+        res = await delete_old_data(retention_days=90)
+        logger.info(f"Cleanup finished. Stats: {res}")
+    except Exception as e:
+        logger.error(f"Cleanup failed: {e}")
