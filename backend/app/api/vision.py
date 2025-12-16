@@ -81,6 +81,7 @@ def get_vision_status():
 
 
 @router.post("/estimate", response_model=VisionEstimateResponse, summary="Estimate carbs from image")
+@router.post("/estimate", response_model=VisionEstimateResponse, summary="Estimate carbs from image")
 async def estimate_from_image(
     image: UploadFile = File(...),
     # Optional fields form-encoded
@@ -114,228 +115,231 @@ async def estimate_from_image(
     settings: Settings = Depends(get_settings),
     store: DataStore = Depends(_data_store),
 ):
-    start_ts = time.time()
-    username = current_user.username
-    _check_rate_limit(username)
+    try:
+        start_ts = time.time()
+        logger.info(f"Vision Request Received: user={current_user.username}")
+        username = current_user.username
+        _check_rate_limit(username)
 
-    # Normalize weight
-    effective_weight = plate_weight_grams or plateWeightGrams or plateWeight
+        # Normalize weight
+        effective_weight = plate_weight_grams or plateWeightGrams or plateWeight
 
-    provider = get_vision_provider()
-    
-    # 1. Validation using new config helpers
-    if provider == "gemini":
-        if not get_google_api_key():
-             logger.warning(f"Vision request failed: missing Google API Key (provider={provider})")
-             raise HTTPException(status_code=501, detail="missing_google_api_key: Gemini API Key not configured")
-    elif provider == "openai":
-         if not settings.vision.openai_api_key:
-             logger.warning(f"Vision request failed: missing OpenAI API Key (provider={provider})")
-             raise HTTPException(status_code=501, detail="OpenAI API Key not configured")
-    else:
-         logger.warning(f"Vision request failed: unknown/disabled provider ({provider})")
-         raise HTTPException(status_code=501, detail=f"Vision provider not configured (current: {provider})")
+        provider = get_vision_provider()
+        
+        # 1. Validation using new config helpers
+        if provider == "gemini":
+            if not get_google_api_key():
+                 logger.warning(f"Vision request failed: missing Google API Key (provider={provider})")
+                 raise HTTPException(status_code=501, detail="missing_google_api_key: Gemini API Key not configured")
+        elif provider == "openai":
+             if not settings.vision.openai_api_key:
+                 logger.warning(f"Vision request failed: missing OpenAI API Key (provider={provider})")
+                 raise HTTPException(status_code=501, detail="OpenAI API Key not configured")
+        else:
+             logger.warning(f"Vision request failed: unknown/disabled provider ({provider})")
+             raise HTTPException(status_code=501, detail=f"Vision provider not configured (current: {provider})")
 
-    # Image Size Check
-    max_bytes = settings.vision.max_image_mb * 1024 * 1024
-    if image.size and image.size > max_bytes:
-        raise HTTPException(status_code=413, detail=f"Image too large (> {settings.vision.max_image_mb}MB)")
-    
-    if image.content_type not in ["image/jpeg", "image/png", "image/webp"]:
-         raise HTTPException(status_code=415, detail="Unsupported image type")
+        # Image Size Check
+        max_bytes = settings.vision.max_image_mb * 1024 * 1024
+        if image.size and image.size > max_bytes:
+            raise HTTPException(status_code=413, detail=f"Image too large (> {settings.vision.max_image_mb}MB)")
+        
+        if image.content_type not in ["image/jpeg", "image/png", "image/webp"]:
+             raise HTTPException(status_code=415, detail="Unsupported image type")
+
 
     # Read bytes
-    content = await image.read()
-    size_mb = len(content) / (1024 * 1024)
-    if len(content) > max_bytes:
-         raise HTTPException(status_code=413, detail=f"Image too large (> {settings.vision.max_image_mb}MB)")
+        content = await image.read()
+        size_mb = len(content) / (1024 * 1024)
+        if len(content) > max_bytes:
+             raise HTTPException(status_code=413, detail=f"Image too large (> {settings.vision.max_image_mb}MB)")
 
-    logger.info(
-        "Vision Analysis Start: provider=%s, user=%s, size=%.2fMB, slot=%s, plate_weight_grams=%s",
-        provider, username, size_mb, meal_slot, effective_weight
-    )
+        logger.info(
+            "Vision Analysis Start: provider=%s, user=%s, size=%.2fMB, slot=%s, plate_weight_grams=%s",
+            provider, username, size_mb, meal_slot, effective_weight
+        )
 
-    # 2. Vision Estimation
-    hints = {
-        "meal_slot": meal_slot,
-        "portion_hint": portion_hint,
-        "plate_weight_grams": effective_weight,
-        "existing_items": existing_items,
-    }
-    
-    # Update settings with our resolved env vars to ensure service uses them
-    # (Since service logic often reads from settings object)
-    if provider == "gemini":
-        # Hack/Patch: inject the key so generic calling code works
-        settings.vision.provider = "gemini" 
-        settings.vision.google_api_key = get_google_api_key()
-    
-    try:
-        estimate = await estimate_meal_from_image(content, image.content_type, hints, settings)
-        duration = (time.time() - start_ts) * 1000
-        logger.info(f"Vision Analysis Success: user={username}, carbs={estimate.carbs_estimate_g}g, time={duration:.0f}ms")
-    except RuntimeError as e:
-        logger.error(f"Vision Analysis Error: {e}")
-        raise HTTPException(status_code=503, detail=str(e))
-    except Exception as e:
-        logger.exception("Unexpected error in vision analysis")
-        raise HTTPException(status_code=500, detail="Internal server error during analysis")
+        # 2. Vision Estimation
+        hints = {
+            "meal_slot": meal_slot,
+            "portion_hint": portion_hint,
+            "plate_weight_grams": effective_weight,
+            "existing_items": existing_items,
+        }
+        
+        # Update settings with our resolved env vars to ensure service uses them
+        # (Since service logic often reads from settings object)
+        if provider == "gemini":
+            # Hack/Patch: inject the key so generic calling code works
+            settings.vision.provider = "gemini" 
+            settings.vision.google_api_key = get_google_api_key()
+        
+        try:
+            estimate = await estimate_meal_from_image(content, image.content_type, hints, settings)
+            duration = (time.time() - start_ts) * 1000
+            logger.info(f"Vision Analysis Success: user={username}, carbs={estimate.carbs_estimate_g}g, time={duration:.0f}ms")
+        except RuntimeError as e:
+            logger.error(f"Vision Analysis Error: {e}")
+            raise HTTPException(status_code=503, detail=str(e))
+        except Exception as e:
+            logger.exception("Unexpected error in vision analysis")
+            raise HTTPException(status_code=500, detail="Internal server error during analysis")
 
-    # 3. Bolus Calculation Context
-    user_settings: UserSettings = store.load_settings()
-    
-    # Apply Overrides
-    if round_step_u is not None:
-        user_settings.round_step_u = round_step_u
+        # 3. Bolus Calculation Context
+        user_settings: UserSettings = store.load_settings()
+        
+        # Apply Overrides
+        if round_step_u is not None:
+            user_settings.round_step_u = round_step_u
 
-    # 3a. Resolve BG
-    resolved_bg = bg_mgdl
-    ns_source = None
-    
-    if resolved_bg is None:
+        # 3a. Resolve BG
+        resolved_bg = bg_mgdl
+        ns_source = None
+        
+        if resolved_bg is None:
+            ns_config = user_settings.nightscout
+            
+            # Effective NS config: Request Params > Stored Config
+            eff_ns_url = nightscout_url if nightscout_url else (ns_config.url if ns_config.enabled else None)
+            eff_ns_token = nightscout_token if nightscout_token else ns_config.token
+            
+            if eff_ns_url:
+                logger.info(f"Vision trying to fetch BG from NS: {eff_ns_url}")
+                try:
+                    ns_client_iob = NightscoutClient(
+                        base_url=eff_ns_url,
+                        token=eff_ns_token,
+                        timeout_seconds=5
+                    )
+                    sgv = await ns_client_iob.get_latest_sgv()
+                    resolved_bg = float(sgv.sgv)
+                    ns_source = "nightscout"
+                    logger.info(f"Vision NS Success: {resolved_bg} mg/dL")
+                except Exception as e:
+                    logger.error(f"Vision NS Fetch Failed: {e}")
+                    pass
+                finally:
+                    if 'ns_client_iob' in locals():
+                        await ns_client_iob.aclose()
+
+        # 4. Create response
+        # Note: We need to reconstruct the response object slightly differently because we don't have 'i' variable here in same scope?
+        # Actually estimate object is mutable.
+        
+        estimate.glucose_used = GlucoseUsed(
+            mgdl=resolved_bg, 
+            source=ns_source if ns_source else ("manual" if bg_mgdl else None)
+        )
+
+        # 3b. Compute IOB
+        ns_client_iob = None
         ns_config = user_settings.nightscout
         
-        # Effective NS config: Request Params > Stored Config
         eff_ns_url = nightscout_url if nightscout_url else (ns_config.url if ns_config.enabled else None)
         eff_ns_token = nightscout_token if nightscout_token else ns_config.token
-        
+
         if eff_ns_url:
-            logger.info(f"Vision trying to fetch BG from NS: {eff_ns_url}")
-            try:
-                ns_client_iob = NightscoutClient(
+             ns_client_iob = NightscoutClient(
                     base_url=eff_ns_url,
                     token=eff_ns_token,
                     timeout_seconds=5
-                )
-                sgv = await ns_client_iob.get_latest_sgv()
-                resolved_bg = float(sgv.sgv)
-                ns_source = "nightscout"
-                logger.info(f"Vision NS Success: {resolved_bg} mg/dL")
-            except Exception as e:
-                logger.error(f"Vision NS Fetch Failed: {e}")
-                pass
-            finally:
-                if 'ns_client_iob' in locals():
-                    await ns_client_iob.aclose()
-
-    estimate.glucose_used = GlucoseUsed(
-        mgdl=resolved_bg, 
-        source=ns_source if ns_source else ("manual" if bg_mgdl else None)
-    )
-
-    # 3b. Compute IOB
-    ns_client_iob = None
-    ns_config = user_settings.nightscout
-    
-    eff_ns_url = nightscout_url if nightscout_url else (ns_config.url if ns_config.enabled else None)
-    eff_ns_token = nightscout_token if nightscout_token else ns_config.token
-
-    if eff_ns_url:
-         ns_client_iob = NightscoutClient(
-                base_url=eff_ns_url,
-                token=eff_ns_token,
-                timeout_seconds=5
-        )
-    
-    try:
-        # Note: compute_iob_from_sources also checks Settings if ns_client_iob is not provided
-        # But here we provide a constructed client, effectively overriding
-        now = datetime.now(timezone.utc)
-        # We pass our explicit client
-        iob_u, breakdown = await compute_iob_from_sources(now, user_settings, ns_client_iob, store)
-    finally:
-         if ns_client_iob:
-             await ns_client_iob.aclose()
-    
-    # 3c. Calculate Bolus
-    effective_bg = resolved_bg if resolved_bg is not None else user_settings.targets.mid
-    
-    bolus_req = BolusRequestData(
-        carbs_g=estimate.carbs_estimate_g,
-        bg_mgdl=effective_bg,
-        meal_slot=meal_slot if meal_slot in ["breakfast", "lunch", "dinner"] else "lunch",
-        target_mgdl=target_mgdl
-    )
-    
-    bolus_res: BolusResponse = recommend_bolus(bolus_req, user_settings, iob_u)
-    
-    # 4. Extended logic
-    final_upfront = bolus_res.upfront_u
-    final_later = 0.0
-    delay_min = None
-    kind = "normal"
-    explain = bolus_res.explain[:]
-    
-    # Heuristic for extended
-    should_extend = prefer_extended and (estimate.fat_score >= 0.6 or estimate.slow_absorption_score >= 0.6)
-    
-    # If standard bolus recommends a correction only (carbs=0?), we shouldn't extend correction usually.
-    # But estimate comes from carbs. If carbs > 0.
-    
-    if should_extend and estimate.carbs_estimate_g > 0 and final_upfront > 0:
-        # We start from the 'later' recommendation of the standard calc? 
-        # Actually recommend_bolus returns 'upfront_u' as the total recommended immediate bolus.
-        # But wait, recommend_bolus logic might already split? 
-        # Looking at bolus.py: recommend_bolus returns upfront_u and later_u=0 usually unless configured otherwise.
-        # The prompt says: "Reutiliza services/bolus.py para calcular el TOTAL... Luego, si kind='extended': split del total"
+            )
         
-        total_u = bolus_res.upfront_u + bolus_res.later_u # Assuming standard calc might return later_u=0
+        iob_u = 0.0
+        try:
+            # Note: compute_iob_from_sources also checks Settings if ns_client_iob is not provided
+            # But here we provide a constructed client, effectively overriding
+            now = datetime.now(timezone.utc)
+            # We pass our explicit client
+            iob_u, breakdown = await compute_iob_from_sources(now, user_settings, ns_client_iob, store)
+        finally:
+             if ns_client_iob:
+                 await ns_client_iob.aclose()
         
-        # Calculate split
-        items_names = [i.name for i in estimate.items]
-        raw_upfront, raw_later, delay = calculate_extended_split(
-            total_u, 
-            estimate.fat_score, 
-            estimate.slow_absorption_score,
-            items_names
+        # 3c. Calculate Bolus
+        effective_bg = resolved_bg if resolved_bg is not None else user_settings.targets.mid
+        
+        bolus_req = BolusRequestData(
+            carbs_g=estimate.carbs_estimate_g,
+            bg_mgdl=effective_bg,
+            meal_slot=meal_slot if meal_slot in ["breakfast", "lunch", "dinner"] else "lunch",
+            target_mgdl=target_mgdl
         )
         
-        # Rounding (step 0.05)
-        step = user_settings.round_step_u
-        def round_step(val):
-            return round(round(val / step) * step, 2)
-
-        final_upfront = round_step(raw_upfront)
-        final_later = round_step(total_u - final_upfront)
+        bolus_res: BolusResponse = recommend_bolus(bolus_req, user_settings, iob_u)
         
-        # Safety checks
-        if effective_bg < 70 or total_u <= 0:
-             # Hypo risk: do not extend, give all upfront (or usually 0 if hypo)
-             kind = "normal"
-             final_upfront = total_u
-             final_later = 0
-             delay_min = None
-             explain.append("Riesgo hipoglucemia o bolo nulo: cancelado bolo extendido.")
+        # 4. Extended logic
+        final_upfront = bolus_res.upfront_u
+        final_later = 0.0
+        delay_min = None
+        kind = "normal"
+        explain = bolus_res.explain[:]
+        
+        # Heuristic for extended
+        should_extend = prefer_extended and (estimate.fat_score >= 0.6 or estimate.slow_absorption_score >= 0.6)
+        
+        if should_extend and estimate.carbs_estimate_g > 0 and final_upfront > 0:
+            total_u = bolus_res.upfront_u + bolus_res.later_u 
+            
+            # Calculate split
+            items_names = [i.name for i in estimate.items]
+            raw_upfront, raw_later, delay = calculate_extended_split(
+                total_u, 
+                estimate.fat_score, 
+                estimate.slow_absorption_score,
+                items_names
+            )
+            
+            # Rounding (step 0.05)
+            step = user_settings.round_step_u
+            def round_step(val):
+                return round(round(val / step) * step, 2)
+
+            final_upfront = round_step(raw_upfront)
+            final_later = round_step(total_u - final_upfront)
+            
+            # Safety checks
+            if effective_bg < 70 or total_u <= 0:
+                 # Hypo risk: do not extend
+                 kind = "normal"
+                 final_upfront = total_u
+                 final_later = 0
+                 delay_min = None
+                 explain.append("Riesgo hipoglucemia o bolo nulo: cancelado bolo extendido.")
+            else:
+                 kind = "extended"
+                 delay_min = delay
+                 explain.append(f"Detectado alto contenido graso/lento (Fat: {estimate.fat_score:.1f}). Estrategia extendida.")
+                 explain.append("IMPORTANTE: 'later_u' es una recomendación para pinchar más tarde (MDI).")
         else:
-             kind = "extended"
-             delay_min = delay
-             explain.append(f"Detectado alto contenido graso/lento (Fat: {estimate.fat_score:.1f}). Estrategia extendida.")
-             explain.append("IMPORTANTE: 'later_u' es una recomendación para pinchar más tarde (MDI).")
-    else:
-         # Normal
-         final_later = bolus_res.later_u # usually 0
-         delay_min = bolus_res.delay_min
+             # Normal
+             final_later = bolus_res.later_u # usually 0
+             delay_min = bolus_res.delay_min
+        
+        # 5. Missing BG warning
+        if resolved_bg is None:
+            estimate.bolus = None
+            explain.append("Falta valor de glucosa para cálculo preciso.")
+            from app.models.vision import UserInputQuestion
+            estimate.needs_user_input.append(UserInputQuestion(
+                id="bg_input",
+                question="No se ha detectado glucosa. Introduce tu glucosa actual.",
+                options=[]
+            ))
+        else:
+            estimate.bolus = VisionBolusRecommendation(
+                upfront_u=final_upfront,
+                later_u=final_later,
+                delay_min=delay_min,
+                iob_u=iob_u,
+                explain=explain,
+                kind=kind
+            )
     
-    # 5. Missing BG warning
-    if resolved_bg is None:
-        estimate.bolus = None
-        # We force user input for BG? Prompt says: 
-        # "Si no hay Nightscout y bg_mgdl es null: devuelve bolus=null y needs_user_input pidiendo BG"
-        explain.append("Falta valor de glucosa para cálculo preciso.")
-        from app.models.vision import UserInputQuestion
-        estimate.needs_user_input.append(UserInputQuestion(
-            id="bg_input",
-            question="No se ha detectado glucosa. Introduce tu glucosa actual.",
-            options=[]
-        ))
-    else:
-        estimate.bolus = VisionBolusRecommendation(
-            upfront_u=final_upfront,
-            later_u=final_later,
-            delay_min=delay_min,
-            iob_u=iob_u,
-            explain=explain,
-            kind=kind
-        )
+        return estimate
 
-    return estimate
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Global Vision Error")
+        raise HTTPException(status_code=500, detail=f"Unexpected error: {str(e)}")
