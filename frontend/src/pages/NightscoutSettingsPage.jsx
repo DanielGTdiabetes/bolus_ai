@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { getSecretStatus, putSecret, deleteSecret } from '../lib/api';
+import { getNightscoutSecretStatus, saveNightscoutSecret, deleteNightscoutSecret } from '../lib/api';
 
 
 export default function NightscoutSettingsPage() {
@@ -12,7 +12,7 @@ export default function NightscoutSettingsPage() {
     useEffect(() => {
         async function fetchStatus() {
             try {
-                const data = await getSecretStatus();
+                const data = await getNightscoutSecretStatus();
                 setUrl(data.url || '');
                 setEnabled(data.enabled);
                 setHasSecret(data.has_secret);
@@ -26,7 +26,7 @@ export default function NightscoutSettingsPage() {
     const handleSave = async (e) => {
         e.preventDefault();
         try {
-            await putSecret({ url, api_secret: token, enabled });
+            await saveNightscoutSecret({ url, api_secret: token, enabled });
             setMessage('Nightscout credentials saved');
             setHasSecret(true);
         } catch (err) {
@@ -36,7 +36,7 @@ export default function NightscoutSettingsPage() {
 
     const handleDelete = async () => {
         try {
-            await deleteSecret();
+            await deleteNightscoutSecret();
             setUrl('');
             setToken('');
             setEnabled(false);
