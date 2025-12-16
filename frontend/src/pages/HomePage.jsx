@@ -37,7 +37,7 @@ function GlucoseHero({ onRefresh }) {
     const displayVal = data ? Math.round(data.bg_mgdl) : '--';
     const displayArrow = data ? (data.trendArrow || formatTrend(data.trend, false)) : '--';
     const displayTime = data ? `${Math.round(data.age_minutes)} min` : '--';
-    const arrowColor = data ? (data.bg_mgdl > 180 ? '#f59e0b' : (data.bg_mgdl < 70 ? '#ef4444' : '#10b981')) : '#64748b';
+    const arrowColor = data ? (data.bg_mgdl > 180 ? '#ef4444' : (data.bg_mgdl <= 70 ? '#ef4444' : '#10b981')) : '#64748b';
 
     return (
         <section className="card glucose-hero" style={{ marginBottom: '1rem', padding: '1.5rem', borderRadius: '16px', background: '#fff', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)' }}>
