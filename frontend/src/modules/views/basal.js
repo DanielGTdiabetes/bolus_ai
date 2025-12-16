@@ -46,7 +46,9 @@ export async function renderBasal() {
                 <button id="btn-save-simple" class="btn-ghost" style="flex:1; border:1px solid #cbd5e1">Solo Guardar</button>
                 <button id="btn-checkin-wake" class="btn-primary" style="flex:1.5">☀️ Al Levantarme</button>
             </div>
-            <button id="btn-scan-last-night" class="btn-ghost" style="margin-top:0.8rem; width:100%; font-size:0.8rem; border:1px dashed #cbd5e1">🌙 Analizar Noche (00h-06h)</button>
+            <button id="btn-scan-last-night" class="btn-secondary" style="margin-top:0.8rem; width:100%; font-size:0.9rem; border:1px solid #cbd5e1; display:flex; align-items:center; justify-content:center; gap:0.5rem">
+                <span>🌙</span> Analizar Noche (00h-06h)
+            </button>
             
             <div id="basal-action-msg" style="margin-top:0.5rem; font-size:0.85rem; color:#64748b; min-height:1.2em"></div>
         </section>
@@ -210,8 +212,8 @@ export async function renderBasal() {
     };
 
     document.getElementById('btn-scan-last-night').onclick = async () => {
-        const config = getLocalNsConfig();
-        if (!config || !config.url) { alert("Configura Nightscout para analizar."); return; }
+        const config = getLocalNsConfig() || {};
+        // Relaxed check: we pass empty object if no local config, relying on backend.
 
         const btn = document.getElementById('btn-scan-last-night');
         const original = btn.textContent;

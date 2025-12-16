@@ -404,17 +404,37 @@ async def scan_night_endpoint(
     """
     target_date = payload.target_date or date.today()
     
-    # Init client
-    ns_client = NightscoutClient(
-        base_url=payload.nightscout_url,
-        token=payload.nightscout_token
-    )
+    # Secure Store Lookup
+    from app.services.nightscout_secrets_service import get_ns_config
+    ns_config = await get_ns_config(db, username)
     
+    ns_url = None
+    ns_token = None
+    
+    # Priority: DB Config > Payload Config
+    if ns_config and ns_config.enabled and ns_config.url:
+        ns_url = ns_config.url
+        ns_token = ns_config.api_secret
+    else:
+        # Fallback
+        ns_url = payload.nightscout_url
+        ns_token = payload.nightscout_token
+
+    if not ns_url:
+        raise HTTPException(status_code=400, detail="Nightscout not configured (neither in DB nor payload)")
+
     try:
-        result = await basal_engine.scan_night_service(username, target_date, ns_client, db)
-        return result
-    finally:
-        await ns_client.aclose()
+        ns_client = NightscoutClient(
+            base_url=ns_url,
+            token=ns_token
+        )
+        try:
+             result = await basal_engine.scan_night_service(username, target_date, ns_client, db)
+             return result
+        finally:
+             await ns_client.aclose()
+    except Exception as e:
+         raise HTTPException(status_code=400, detail=str(e))
 
 @router.get("/timeline", response_model=TimelineResponse)
 async def get_timeline(
