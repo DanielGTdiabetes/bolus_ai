@@ -1,5 +1,6 @@
 
 import logging
+from datetime import datetime, timezone
 from typing import Optional
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -63,13 +64,15 @@ async def upsert_ns_config(session: Optional[AsyncSession], user_id: str, url: s
             record.ns_url = url
             record.api_secret_enc = enc_secret
             record.enabled = enabled
-            # updated_at auto updates
+            record.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
         else:
             record = NightscoutSecrets(
                 user_id=user_id,
                 ns_url=url,
                 api_secret_enc=enc_secret,
-                enabled=enabled
+                enabled=enabled,
+                created_at=datetime.now(timezone.utc).replace(tzinfo=None),
+                updated_at=datetime.now(timezone.utc).replace(tzinfo=None)
             )
             session.add(record)
         
