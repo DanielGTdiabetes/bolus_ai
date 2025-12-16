@@ -164,24 +164,36 @@ async def compute_iob_from_sources(
     # but we need NS for older history if local is empty (e.g. new device).
     # Dedupe Key: (timestamp_iso, units)
     
-    unique_map = {}
+    # Merge and Deduplicate with Fuzzy Matching
+    # We prioritize Local for recent events as they are the source of truth for "just now".
+    # We add NS events only if they don't match an existing local event.
     
-    # Add NS first
+    unique_boluses = []
+    unique_boluses.extend(local_boluses)
+    
+    def _is_duplicate(candidate: dict, existing_list: list[dict]) -> bool:
+        c_ts = _parse_timestamp(str(candidate["ts"]))
+        c_units = float(candidate["units"])
+        
+        for ex in existing_list:
+            ex_ts = _parse_timestamp(str(ex["ts"]))
+            ex_units = float(ex["units"])
+            
+            # Check units (exact or very close)
+            if abs(c_units - ex_units) > 0.01:
+                continue
+                
+            # Check time (within 2 minutes tolerance for clock skew/format diffs)
+            diff_seconds = abs((c_ts - ex_ts).total_seconds())
+            if diff_seconds < 120: 
+                return True
+        return False
+
     for b in ns_boluses:
-        key = (b["ts"], float(b["units"]))
-        unique_map[key] = b
-        
-    # Add Local (overwriting if exact match, or adding if new)
-    # Note: Timestamps must match exactly. If NS modifies timestamp slightly, we might double count.
-    # To be safe, we can check for "close" timestamps (within 60s) with same units? 
-    # For now, strict match is safer against deleting distinct boluses.
-    for b in local_boluses:
-        key = (b["ts"], float(b["units"]))
-        # If we want to prefer local (e.g. it has more metadata?), we overwrite.
-        # But for IOB, unit/time is all that matters.
-        unique_map[key] = b
-        
-    boluses = list(unique_map.values())
+        if not _is_duplicate(b, unique_boluses):
+            unique_boluses.append(b)
+            
+    boluses = unique_boluses
     
     if not boluses and ns_error:
         iob_status = "unavailable"
