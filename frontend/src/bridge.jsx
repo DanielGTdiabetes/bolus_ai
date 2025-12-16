@@ -5,11 +5,13 @@ import FavoritesPage from './pages/FavoritesPage';
 // Registry of React Pages
 import HistoryPage from './pages/HistoryPage';
 import SettingsPage from './pages/SettingsPage';
+import HomePage from './pages/HomePage';
 
 const PAGES = {
     'favorites': FavoritesPage,
     'history': HistoryPage,
-    'settings': SettingsPage
+    'settings': SettingsPage,
+    'home': HomePage
 };
 
 let reactRoot = null;

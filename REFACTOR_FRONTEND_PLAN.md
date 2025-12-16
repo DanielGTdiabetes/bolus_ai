@@ -31,7 +31,7 @@ Refactorizar primero las piezas pequeñas que se usan en todas partes.
 ## 🚀 Fase 4: Migración de Pantallas (Por Prioridad)
 1.  **Historial (`History`)**: [x] COMPLETADA. Migrado a React (`HistoryPage.jsx`).
 2.  **Configuración (`Settings`)**: [x] COMPLETADA (`SettingsPage.jsx`).
-3.  **Home (`Dashboard`)**: Requiere conexión en tiempo real. Buen test para hooks.
+3.  **Home (`Dashboard`)**: [x] COMPLETADA. Migrada a React (`HomePage.jsx`) con auto-refresh cada 60s.
 4.  **Calculadora (`Bolus`)**: **La más crítica**. Se deja para el final cuando tengamos dominada la arquitectura.
 
 ## 🧹 Fase 5: Limpieza

@@ -16,8 +16,12 @@ import { renderLogin, renderChangePassword } from './modules/views/auth.js';
 registerDefaultView(renderHome);
 
 // Home
-registerView('#/', renderHome);
-registerView('#/home', renderHome);
+registerView('#/', () => {
+  import('./bridge.jsx').then(({ mountReactPage }) => mountReactPage('home'));
+});
+registerView('#/home', () => {
+  import('./bridge.jsx').then(({ mountReactPage }) => mountReactPage('home'));
+});
 
 // Core Features
 registerView('#/scan', renderScan);
