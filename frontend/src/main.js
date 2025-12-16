@@ -43,4 +43,14 @@ document.addEventListener('DOMContentLoaded', async () => {
   import('./modules/core/store.js').then(({ checkBackendHealth }) => checkBackendHealth());
 
   router();
+
+  // Register Service Worker for PWA
+  if ('serviceWorker' in navigator) {
+    try {
+      const reg = await navigator.serviceWorker.register('./sw.js');
+      console.log('SW Registered:', reg.scope);
+    } catch (err) {
+      console.log('SW Registration failed:', err);
+    }
+  }
 });
