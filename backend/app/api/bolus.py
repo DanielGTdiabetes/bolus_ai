@@ -275,7 +275,9 @@ async def save_treatment(
         from app.models.treatment import Treatment
         try:
             # Parse date
-            dt = datetime.fromisoformat(payload.created_at.replace('Z', '+00:00'))
+            # Parse date and ensure it is naive UTC (for timestamp without time zone)
+            dt_aware = datetime.fromisoformat(payload.created_at.replace('Z', '+00:00'))
+            dt = dt_aware.astimezone(timezone.utc).replace(tzinfo=None)
             
             db_treatment = Treatment(
                 id=str(uuid.uuid4()),
