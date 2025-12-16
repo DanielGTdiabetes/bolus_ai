@@ -327,21 +327,21 @@ async def save_treatment(
             await client.upload_treatments([ns_payload])
             await client.aclose()
             ns_uploaded = True
-            
-            # If DB save was successful, we could update is_uploaded=True, 
-            # but that requires keeping reference to db_treatment and another commit.
-            # For now, let's keep it simple.
+            # Mark DB record as uploaded if we have it
+            try:
+                db_treatment.is_uploaded = True
+                await session.commit()
+            except Exception as e2:
+                logger.error(f"Failed to update upload flag in DB: {e2}")
             
         except Exception as e:
             logger.error(f"Failed to upload treatment to NS: {e}")
             error = str(e)
             
     return {
-        "success": True, 
-        "local_saved": True, 
-        "db_saved": bool(session),
-        "nightscout_uploaded": ns_uploaded,
-        "nightscout_error": error
+        "success": True,
+        "ns_uploaded": ns_uploaded,
+        "ns_error": error
     }
 
 

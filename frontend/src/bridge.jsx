@@ -1,6 +1,6 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import FavoritesPage from './pages/FavoritesPage';
+import NightscoutSettingsPage from './pages/NightscoutSettingsPage';
 
 // Registry of React Pages
 import HistoryPage from './pages/HistoryPage';
@@ -23,9 +23,8 @@ const PAGES = {
     'scan': ScanPage,
     'basal': BasalPage,
     'patterns': PatternsPage,
-    'suggestions': SuggestionsPage,
-    'login': LoginPage,
-    'change-password': ChangePasswordPage
+    'nightscout-settings': NightscoutSettingsPage,
+
 };
 
 let reactRoot = null;
