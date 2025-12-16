@@ -90,7 +90,7 @@ function NightscoutPanel() {
             // Test existing if secret is empty but configured, or test new input
             let res;
             if (!secret && hasSecret) {
-                const { getNightscoutStatus } = await import('../lib/api.js');
+                const { getNightscoutStatus } = await import('../lib/api');
                 res = await getNightscoutStatus();
                 res = { ok: res.ok, message: res.error || "Conectado (Server)" };
             } else {

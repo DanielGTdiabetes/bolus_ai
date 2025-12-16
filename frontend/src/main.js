@@ -44,6 +44,9 @@ registerView('#/suggestions', () => {
 registerView('#/settings', () => {
   import('./bridge.jsx').then(({ mountReactPage }) => mountReactPage('settings'));
 });
+registerView('#/nightscout-settings', () => {
+  import('./bridge.jsx').then(({ mountReactPage }) => mountReactPage('nightscout-settings'));
+});
 registerView('#/login', () => {
   import('./bridge.jsx').then(({ mountReactPage }) => mountReactPage('login'));
 });
