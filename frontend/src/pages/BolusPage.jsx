@@ -44,6 +44,14 @@ export default function BolusPage() {
             state.tempCarbs = null; // Clear it
         }
 
+        // Auto-enable Dual if fat/protein high
+        if (state.tempFat > 15 || state.tempProtein > 20) {
+            setDualEnabled(true);
+            // We could also show a toast, but the toggle changing state is visible enough
+        }
+        state.tempFat = null;
+        state.tempProtein = null;
+
         // Auto-fetch Glucose and IOB
         loadData();
     }, []);

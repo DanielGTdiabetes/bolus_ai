@@ -275,8 +275,18 @@ async def estimate_from_image(
         kind = "normal"
         explain = bolus_res.explain[:]
         
+        # Calculate totals for logic
+        total_fat_g = sum(getattr(i, 'fat_g', 0) or 0 for i in estimate.items)
+        total_protein_g = sum(getattr(i, 'protein_g', 0) or 0 for i in estimate.items)
+
         # Heuristic for extended
-        should_extend = prefer_extended and (estimate.fat_score >= 0.6 or estimate.slow_absorption_score >= 0.6)
+        # Enable if high score OR high absolute grams (e.g. > 15g fat or > 20g protein)
+        should_extend = prefer_extended and (
+            estimate.fat_score >= 0.6 or 
+            estimate.slow_absorption_score >= 0.6 or
+            total_fat_g > 15 or
+            total_protein_g > 20
+        )
         
         if should_extend and estimate.carbs_estimate_g > 0 and final_upfront > 0:
             total_u = bolus_res.upfront_u + bolus_res.later_u 
@@ -287,7 +297,9 @@ async def estimate_from_image(
                 total_u, 
                 estimate.fat_score, 
                 estimate.slow_absorption_score,
-                items_names
+                items_names,
+                total_fat_g=total_fat_g,
+                total_protein_g=total_protein_g
             )
             
             # Rounding (step 0.05)
@@ -309,7 +321,7 @@ async def estimate_from_image(
             else:
                  kind = "extended"
                  delay_min = delay
-                 explain.append(f"Detectado alto contenido graso/lento (Fat: {estimate.fat_score:.1f}). Estrategia extendida.")
+                 explain.append(f"Detectado alto contenido graso/lento (Grasa: {total_fat_g}g, Prot: {total_protein_g}g). Estrategia extendida.")
                  explain.append("IMPORTANTE: 'later_u' es una recomendación para pinchar más tarde (MDI).")
         else:
              # Normal

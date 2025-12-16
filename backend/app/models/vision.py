@@ -8,6 +8,8 @@ from app.models.schemas import NightscoutSGV
 class FoodItemEstimate(BaseModel):
     name: str
     carbs_g: float
+    fat_g: Optional[float] = 0.0
+    protein_g: Optional[float] = 0.0
     notes: Optional[str] = None
 
 

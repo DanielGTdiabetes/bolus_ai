@@ -112,15 +112,30 @@ function CameraSection({ scaleGrams, plateEntries, onAddEntry }) {
 
             const result = await estimateCarbsFromImage(file, options);
 
+            // Calculate total fat/protein from items if available
+            const totalFat = (result.items || []).reduce((sum, i) => sum + (i.fat_g || 0), 0);
+            const totalProt = (result.items || []).reduce((sum, i) => sum + (i.protein_g || 0), 0);
+
             const entry = {
                 carbs: result.carbs_estimate_g,
                 weight: netWeight,
+                fat: totalFat,
+                protein: totalProt,
                 img: state.currentImageBase64,
                 name: result.food_name || "Alimento IA"
             };
 
             onAddEntry(entry);
-            setMsg(`✅ Añadido: ${result.carbs_estimate_g}g (${result.food_name || 'Detectado'})`);
+
+            let msgText = `✅ Añadido: ${result.carbs_estimate_g}g`;
+            if (totalFat > 5 || totalProt > 5) {
+                msgText += ` (G:${Math.round(totalFat)}, P:${Math.round(totalProt)})`;
+            }
+            if (result.bolus && result.bolus.kind === 'extended') {
+                msgText += " 💡 Sugiere Dual";
+            }
+
+            setMsg(msgText);
             setTimeout(() => setMsg(null), 3000);
 
         } catch (err) {
@@ -240,6 +255,8 @@ function PlateBuilder({ entries, onUpdate, scaleGrams }) {
 
     const goToBolus = () => {
         state.tempCarbs = total;
+        state.tempFat = entries.reduce((acc, e) => acc + (e.fat || 0), 0);
+        state.tempProtein = entries.reduce((acc, e) => acc + (e.protein || 0), 0);
         state.tempReason = "plate_builder";
         navigate('#/bolus');
     };

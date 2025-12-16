@@ -16,7 +16,9 @@ logger = logging.getLogger(__name__)
 PROMPT_SYSTEM = """
 You are an expert nutritionist and diabetes educator. 
 Analyze the image of food provided. 
-Estimate carbohydrates precisely.
+Estimate carbohydrates, fats, and proteins precisely.
+If the image is a RESTAURANT MENU, list the distinct dishes visible.
+
 Output STRICT JSON (RFC 8259 compliant).
 - NO comments // or /* */
 - NO trailing commas
@@ -24,7 +26,7 @@ Output STRICT JSON (RFC 8259 compliant).
 - Concise notes (max 10 words)
 Structure:
 {
-  "items": [{"name": "...", "carbs_g": number, "notes": "..."}],
+  "items": [{"name": "...", "carbs_g": number, "fat_g": number, "protein_g": number, "notes": "..."}],
   "confidence": "low"|"medium"|"high",
   "fat_score": 0.0 to 1.0 (1.0 = very high fat/protein content like pizza, burger, creamy pasta),
   "slow_absorption_score": 0.0 to 1.0 (1.0 = very slow absorption expected),
@@ -102,6 +104,10 @@ def _parse_estimation_data(data: dict) -> VisionEstimateResponse:
     items = [FoodItemEstimate(**item) for item in data.get("items", [])]
     total_g = sum(i.carbs_g for i in items)
     
+    # Calculate total fat and protein for logic
+    total_fat = sum(getattr(i, 'fat_g', 0) or 0 for i in items)
+    total_prot = sum(getattr(i, 'protein_g', 0) or 0 for i in items)
+
     conf = data.get("confidence", "low")
     margin = 0.3 if conf == "low" else (0.2 if conf == "medium" else 0.1)
     
@@ -118,7 +124,9 @@ def _parse_estimation_data(data: dict) -> VisionEstimateResponse:
         assumptions=data.get("assumptions", []),
         needs_user_input=data.get("needs_user_input", []),
         glucose_used=GlucoseUsed(mgdl=None, source=None),
-        bolus=None
+        bolus=None,
+        # We can attach raw totals in comments or logging if needed, 
+        # but for now we rely on items having them.
     )
 
 
@@ -233,7 +241,9 @@ def calculate_extended_split(
     total_u: float, 
     fat_score: float, 
     slow_score: float,
-    items_hints: list[str]
+    items_hints: list[str],
+    total_fat_g: float = 0.0,
+    total_protein_g: float = 0.0
 ) -> tuple[float, float, int]:
     """
     Returns (upfront_u, later_u, delay_min) based on scores and logic.
@@ -259,6 +269,10 @@ def calculate_extended_split(
     elif any(x in combined_text for x in ["ice cream", "helado", "cake", "tarta", "chocolate"]):
         is_dessert = True
 
+    # High Fat/Protein Logic
+    # 20g fat or 25g protein is substantial
+    high_fpu = (total_fat_g > 20 or total_protein_g > 25)
+
     if is_pizza_burger:
         upfront_pct = 0.60
         delay = 150 # 120-180 -> 150 avg
@@ -268,7 +282,8 @@ def calculate_extended_split(
     elif is_dessert:
         upfront_pct = 0.62
         delay = 105 
-    elif fat_score > 0.8 or slow_score > 0.8:
+    elif (fat_score > 0.8 or slow_score > 0.8) or high_fpu:
+        # Trigger extended if explicitly high scores or high grams
         upfront_pct = 0.60
         delay = 150
     
