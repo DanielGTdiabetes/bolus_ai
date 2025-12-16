@@ -34,7 +34,11 @@ registerView('#/patterns', renderPatterns);
 registerView('#/suggestions', renderSuggestions);
 
 // Configuration & Auth
-registerView('#/settings', renderSettings);
+registerView('#/settings', () => {
+  import('./bridge.jsx').then(({ mountReactPage }) => {
+    mountReactPage('settings');
+  });
+});
 registerView('#/login', renderLogin);
 registerView('#/change-password', renderChangePassword);
 
