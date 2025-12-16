@@ -35,8 +35,11 @@ Refactorizar primero las piezas pequeñas que se usan en todas partes.
 4.  **Calculadora (`Bolus`)**: [x] COMPLETADA. Migrado a `BolusPage.jsx` con lógica completa.
 
 ## 🧹 Fase 5: Limpieza
-- [ ] Eliminar archivos `.js` antiguos de la carpeta `modules/views`.
-- [ ] Eliminar lógica manual de eventos (`document.getElementById...`).
+- [x] Eliminar archivos `.js` antiguos de la carpeta `modules/views` (`home.js`, `history.js`, `settings.js`).
+- [ ] Mover `bolus.js` (Scan) a `scan.js` cuando se migre Escáner.
+- [x] Eliminar referencias en `main.js`.
+- [x] Verificar que no queda código muerto crítico.
+- [x] Eliminar lógica manual de eventos (`document.getElementById...`).
 - [ ] Unificar estilos CSS en módulos o Styled Components (opcional, por ahora `style.css` global vale).
 
 ---
