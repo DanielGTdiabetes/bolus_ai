@@ -131,64 +131,64 @@ async def compute_iob_from_sources(
     ns_error = None
     fetched_count = 0
 
-    # 1. Try Nightscout
+    # 1. Fetch from Nightscout
+    ns_boluses = []
     if nightscout_client:
         try:
-            iob_source = "nightscout"
+            iob_source = "nightscout+local"
             hours = max(1, math.ceil(settings.iob.dia_hours))
             treatments = await nightscout_client.get_recent_treatments(hours=hours, limit=1000)
-            
-            # If successful (list returned, even empty)
-            fetched_count = len(treatments)
-            boluses.extend(_boluses_from_treatments(treatments))
-            iob_status = "ok" # optimistically
-            
+            ns_boluses = _boluses_from_treatments(treatments)
+            iob_status = "ok"
         except Exception as exc:
             ns_error = str(exc)
-            # Differentiate known errors for cleaner reason
             if "Unauthorized" in ns_error:
                 iob_reason = "Nightscout no autorizado"
             elif "Timeout" in ns_error:
                 iob_reason = "Nightscout timeout"
-            elif "Empty body" in ns_error:
-                iob_reason = "Respuesta vacía de Nightscout"
             else:
                  iob_reason = f"Error Nightscout: {ns_error}"
-                 
-            logger.warning("Nightscout treatments unavailable", extra={"error": ns_error})
-            # Fallback will attempt local
-    else:
-        # Not configured or offline
-        if settings.nightscout.enabled:
-             iob_reason = "Cliente Nightscout no inicializado"
-        else:
-             iob_source = "local_only"
-             iob_status = "ok" # Local only is valid if intended
-    
-    # 2. Fallback to Local Store if NS failed or returned nothing (and we want robustness)
-    # If NS failed (ns_error), we MUST fallback. 
-    # If NS returned 0 treatments, maybe it's correct? Yes.
-    
-    used_fallback = False
-    if ns_error or (not nightscout_client and not boluses):
-        local_events = data_store.load_events()
-        if local_events:
-            boluses.extend(_boluses_from_events(local_events))
-            used_fallback = True
-            iob_source = "local_db_fallback" if ns_error else "local_db"
             
-            if ns_error:
-                # We have local data, so partial? Or just unavailable warning?
-                # Let's say partial if we have SOME local data but tailored to prompt: 
-                # "Unavailable" if we really can't trust it. 
-                # But here we have local history. 
-                iob_status = "partial"
-                warning_msg = f"IOB parcial (Nightscout falló: {iob_reason}). Usando datos locales."
-        else:
-            # NS failed AND no local data
-            if ns_error:
-                iob_status = "unavailable"
-                warning_msg = f"IOB no disponible: {iob_reason}. Se asume 0 U."
+            logger.warning("Nightscout treatments unavailable", extra={"error": ns_error})
+            # Fallback to local only for source label if NS failed completely
+            iob_source = "local_db_fallback"
+            
+    # 2. Fetch from Local Store (Always, to catch recent pending uploads)
+    local_boluses = []
+    local_events = data_store.load_events()
+    if local_events:
+        local_boluses = _boluses_from_events(local_events)
+    
+    # 3. Merge and Deduplicate
+    # We prioritize Local for recent events (as they are "truth" for the device)
+    # but we need NS for older history if local is empty (e.g. new device).
+    # Dedupe Key: (timestamp_iso, units)
+    
+    unique_map = {}
+    
+    # Add NS first
+    for b in ns_boluses:
+        key = (b["ts"], float(b["units"]))
+        unique_map[key] = b
+        
+    # Add Local (overwriting if exact match, or adding if new)
+    # Note: Timestamps must match exactly. If NS modifies timestamp slightly, we might double count.
+    # To be safe, we can check for "close" timestamps (within 60s) with same units? 
+    # For now, strict match is safer against deleting distinct boluses.
+    for b in local_boluses:
+        key = (b["ts"], float(b["units"]))
+        # If we want to prefer local (e.g. it has more metadata?), we overwrite.
+        # But for IOB, unit/time is all that matters.
+        unique_map[key] = b
+        
+    boluses = list(unique_map.values())
+    
+    if not boluses and ns_error:
+        iob_status = "unavailable"
+        warning_msg = f"IOB no disponible: {iob_reason}."
+    elif ns_error and boluses:
+        iob_status = "partial"
+        warning_msg = f"IOB parcial (Nightscout falló). Usando datos locales."
     
     # 3. Compute
     total = 0.0
