@@ -239,6 +239,7 @@ class BolusAcceptRequest(BaseModel):
     notes: Optional[str] = ""
     enteredBy: str = "BolusAI"
     nightscout: Optional[dict] = None  # {url, token}
+    meal_meta: Optional[dict] = None # {items: [], fat: 0, protein: 0, strategy: {}}
 
 
 @router.post("/treatments", summary="Save a treatment (bolus) to NS/Local/DB")
@@ -249,7 +250,29 @@ async def save_treatment(
     session: AsyncSession = Depends(get_db_session)
 ):
     import uuid
+    from app.services.learning_service import LearningService
     
+    # Optional: Save Meal Learning Data
+    if payload.meal_meta and session:
+        try:
+            ls = LearningService(session)
+            # Context (bg/trend) could be parsed from payload if we added it, 
+            # or we rely on what we have. 
+            # For now passing basic context from payload if available implicitly or none.
+            # Assuming payload.notes might contain BG info or we add it to meal_meta later.
+            
+            await ls.save_meal_entry(
+                user_id=user.username,
+                items=payload.meal_meta.get("items", []),
+                carbs=payload.carbs,
+                fat=payload.meal_meta.get("fat", 0),
+                protein=payload.meal_meta.get("protein", 0),
+                bolus_data=payload.meal_meta.get("strategy", {}),
+                context={} # Todo: Pass BG/Trend explicitly if needed
+            )
+        except Exception as e:
+            logger.error(f"Failed to save meal learning entry: {e}")
+
     # 1. Save locally (Always, as backup)
     treatment_data = {
         "eventType": "Correction Bolus" if payload.carbs == 0 else "Meal Bolus",

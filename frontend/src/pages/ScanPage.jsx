@@ -317,6 +317,7 @@ function PlateBuilder({ entries, onUpdate, scaleGrams }) {
         state.tempCarbs = total;
         state.tempFat = entries.reduce((acc, e) => acc + (e.fat || 0), 0);
         state.tempProtein = entries.reduce((acc, e) => acc + (e.protein || 0), 0);
+        state.tempItems = entries.map(e => e.name);
         state.tempReason = "plate_builder";
         navigate('#/bolus');
     };

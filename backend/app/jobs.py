@@ -54,6 +54,54 @@ async def run_auto_night_scan():
 
     logger.info(f"Auto Night Scan Job Completed. Processed {count} users (dry-run).")
 
+
+async def run_learning_evaluation():
+    """
+    Background Task: Evaluates outcomes of past meals (Effect Memory).
+    """
+    from app.core.db import get_engine
+    from sqlalchemy.ext.asyncio import AsyncSession
+    from app.services.learning_service import LearningService
+    from app.services.nightscout_secrets_service import get_ns_config
+    from app.services.nightscout_client import NightscoutClient, NightscoutError
+
+    logger.info("Running Learning Evaluation Job...")
+    engine = get_engine()
+    if not engine:
+        logger.warning("No DB engine for learning evaluation.")
+        return
+
+    settings = get_settings()
+    user_store = UserStore(Path(settings.data.data_dir) / "users.json")
+    users = user_store.get_all_users()
+    
+    async with AsyncSession(engine) as session:
+        ls = LearningService(session)
+        
+        for user in users:
+            username = user.get("username")
+            if not username: continue
+            
+            try:
+                ns_cfg = await get_ns_config(session, username)
+                if not ns_cfg or not ns_cfg.url:
+                    continue
+                    
+                # Create Client
+                token = ns_cfg.api_secret
+                client = NightscoutClient(ns_cfg.url, token, timeout_seconds=10)
+                
+                try:
+                    await ls.evaluate_pending_outcomes(client)
+                finally:
+                    await client.aclose()
+                    
+            except Exception as e:
+                logger.error(f"Evaluating user {username} failed: {e}")
+    
+    logger.info("Learning Evaluation Job Completed.")
+
+
 def setup_periodic_tasks():
     init_scheduler()
     
@@ -64,6 +112,11 @@ def setup_periodic_tasks():
     # Run cleanup at 04:00 AM every day
     cleanup_trigger = CronTrigger(hour=4, minute=0)
     schedule_task(run_data_cleanup, cleanup_trigger, "data_cleanup")
+
+    # Run learning evaluation every 30 mins
+    learning_trigger = CronTrigger(minute='*/30')
+    schedule_task(run_learning_evaluation, learning_trigger, "learning_eval")
+
 
 async def run_data_cleanup():
     """

@@ -35,6 +35,9 @@ export default function BolusPage() {
     const [iob, setIob] = useState(null);
     const [nsConfig] = useState(getLocalNsConfig() || {});
 
+    // Memory Ref for Learning (Fat, Protein, Items)
+    const mealMetaRef = React.useRef(null);
+
     // Effect: Load temp carbs (e.g. from favorites / scale)
     useEffect(() => {
         // We use a small timeout to ensure ensure legacy state is ready or passed via props
@@ -44,6 +47,15 @@ export default function BolusPage() {
             state.tempCarbs = null; // Clear it
         }
 
+        // Capture Meal Meta for Learning
+        if (state.tempItems || state.tempFat || state.tempProtein) {
+            mealMetaRef.current = {
+                items: state.tempItems || [],
+                fat: state.tempFat || 0,
+                protein: state.tempProtein || 0
+            };
+        }
+
         // Auto-enable Dual if fat/protein high
         if (state.tempFat > 15 || state.tempProtein > 20) {
             setDualEnabled(true);
@@ -51,6 +63,7 @@ export default function BolusPage() {
         }
         state.tempFat = null;
         state.tempProtein = null;
+        state.tempItems = null;
 
         // Auto-fetch Glucose and IOB
         loadData();
@@ -138,9 +151,25 @@ export default function BolusPage() {
                 notes: `BolusAI: ${result.kind === 'dual' ? 'Dual' : 'Normal'}. Gr: ${carbs}. BG: ${glucose}`,
                 nightscout: {
                     url: nsConfig.url || null,
-                    token: nsConfig.token || null
                 }
             };
+
+            // Add Meal Meta for Learning
+            if (mealMetaRef.current) {
+                // If dual, we capture strategy
+                const strategy = result.kind === 'dual' ? {
+                    kind: 'dual',
+                    total: result.total_u_final,
+                    upfront: result.upfront_u,
+                    later: result.later_u,
+                    delay: result.duration_min
+                } : { kind: 'normal', total: result.total_u_final };
+
+                treatment.meal_meta = {
+                    ...mealMetaRef.current,
+                    strategy
+                };
+            }
 
             if (result.kind === 'dual') {
                 treatment.notes += ` (Split: ${result.upfront_u} now + ${result.later_u} over ${result.duration_min}m)`;
