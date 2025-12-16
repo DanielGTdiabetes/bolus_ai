@@ -109,6 +109,7 @@ async def compute_iob_from_sources(
     settings: UserSettings,
     nightscout_client,
     data_store: DataStore,
+    extra_boluses: list[dict[str, float]] | None = None,
 ) -> tuple[float, list[dict[str, float]], IOBInfo, Optional[str]]:
     """
     Computes IOB with detailed status reporting.
@@ -129,7 +130,6 @@ async def compute_iob_from_sources(
     warning_msg: Optional[str] = None
     
     ns_error = None
-    fetched_count = 0
 
     # 1. Fetch from Nightscout
     ns_boluses = []
@@ -155,28 +155,36 @@ async def compute_iob_from_sources(
             
     # 2. Fetch from Local Store (Always, to catch recent pending uploads)
     local_boluses = []
-    local_events = data_store.load_events()
-    if local_events:
-        local_boluses = _boluses_from_events(local_events)
+    try:
+        local_events = data_store.load_events()
+        if local_events:
+            local_boluses = _boluses_from_events(local_events)
+    except Exception as e:
+        logger.error(f"Failed to load local events: {e}")
     
-    # 3. Merge and Deduplicate
-    # We prioritize Local for recent events (as they are "truth" for the device)
-    # but we need NS for older history if local is empty (e.g. new device).
-    # Dedupe Key: (timestamp_iso, units)
-    
-    # Merge and Deduplicate with Fuzzy Matching
-    # We prioritize Local for recent events as they are the source of truth for "just now".
-    # We add NS events only if they don't match an existing local event.
-    
+    # 3. Merge Local + Extra (DB) + Nightscout
     unique_boluses = []
+    
+    # Start with Local as base (most trusted for recent)
     unique_boluses.extend(local_boluses)
     
+    def _safe_parse(ts_val):
+        try:
+            return _parse_timestamp(str(ts_val))
+        except Exception:
+            logger.warning(f"Failed to parse timestamp: {ts_val}", exc_info=True)
+            return None
+
     def _is_duplicate(candidate: dict, existing_list: list[dict]) -> bool:
-        c_ts = _parse_timestamp(str(candidate["ts"]))
+        c_ts = _safe_parse(candidate["ts"])
+        if not c_ts: return True # Skip invalid candidate
+        
         c_units = float(candidate["units"])
         
         for ex in existing_list:
-            ex_ts = _parse_timestamp(str(ex["ts"]))
+            ex_ts = _safe_parse(ex["ts"])
+            if not ex_ts: continue 
+            
             ex_units = float(ex["units"])
             
             # Check units (exact or very close)
@@ -188,7 +196,14 @@ async def compute_iob_from_sources(
             if diff_seconds < 120: 
                 return True
         return False
+        
+    # Merge DB into Unique
+    if extra_boluses:
+        for b in extra_boluses:
+            if not _is_duplicate(b, unique_boluses):
+                unique_boluses.append(b)
 
+    # Merge NS into Unique
     for b in ns_boluses:
         if not _is_duplicate(b, unique_boluses):
             unique_boluses.append(b)
@@ -196,25 +211,32 @@ async def compute_iob_from_sources(
     boluses = unique_boluses
     
     if not boluses and ns_error:
+        # If we have NO boluses and NS failed, we flag unavailable.
+        # If we have local/db boluses, we use partial.
         iob_status = "unavailable"
         warning_msg = f"IOB no disponible: {iob_reason}."
     elif ns_error and boluses:
         iob_status = "partial"
-        warning_msg = f"IOB parcial (Nightscout falló). Usando datos locales."
+        warning_msg = f"IOB parcial (Nightscout falló). Usando datos locales/DB."
+    elif not ns_error and not boluses:
+        # Success fetching, but nothing found. Value is 0.
+        iob_status = "ok"
     
     # 3. Compute
     total = 0.0
     for bolus in boluses:
         ts_raw = bolus.get("ts")
         units = float(bolus.get("units", 0))
-        if not ts_raw:
+        ts = _safe_parse(ts_raw)
+        if not ts or units <= 0:
             continue
-        ts = _parse_timestamp(str(ts_raw))
+        
         elapsed = (now - ts).total_seconds() / 60
         fraction = insulin_activity_fraction(elapsed, profile)
         contribution = max(units * fraction, 0.0)
         total += contribution
-        breakdown.append({"ts": ts.isoformat(), "units": units, "iob": contribution})
+        if contribution > 0.01: # Only include significant in breakdown
+            breakdown.append({"ts": ts.isoformat(), "units": units, "iob": contribution})
 
     breakdown.sort(key=lambda item: item["ts"], reverse=True)
     final_iob = max(total, 0.0)

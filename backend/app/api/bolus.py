@@ -47,6 +47,8 @@ async def api_recalc_second(payload: RecalcSecondRequest):
 async def calculate_bolus_stateless(
     payload: BolusRequestV2,
     store: DataStore = Depends(_data_store),
+    user: CurrentUser = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db_session),
 ):
     # 1. Resolve Settings
     # If payload has settings, construct a temporary UserSettings object to satisfy the engine interface
@@ -187,6 +189,33 @@ async def calculate_bolus_stateless(
             bg_source = "none"
             pass 
 
+    # Load DB treatments for IOB
+    db_events = []
+    if session:
+         try:
+            from app.models.treatment import Treatment as DBTreatment
+            from sqlalchemy import select
+            
+            # Fetch last ~30 treatments (usually enough for DIA 4-6 hours)
+            # Actually DIA 8 hours max implies we need recent checks.
+            stmt = (
+                select(DBTreatment)
+                .where(DBTreatment.user_id == user.username) 
+                .order_by(DBTreatment.created_at.desc())
+                .limit(50)
+            )
+            result = await session.execute(stmt)
+            rows = result.scalars().all()
+            for row in rows:
+                if row.insulin and row.insulin > 0:
+                    created_iso = row.created_at.isoformat()
+                    # Ensure UTC signaling if naive
+                    if not created_iso.endswith("Z") and "+" not in created_iso:
+                        created_iso += "Z"
+                    db_events.append({"ts": created_iso, "units": float(row.insulin)})
+         except Exception as db_err:
+             logger.error(f"Failed to fetch DB events for IOB: {db_err}")
+
     # 4. Calculate IOB
     # Ensure client exists if needed for IOB even if BG was manual
     if ns_client is None and ns_config.enabled and ns_config.url:
@@ -198,7 +227,9 @@ async def calculate_bolus_stateless(
 
     try:
         now = datetime.now(timezone.utc)
-        iob_u, breakdown, iob_info, iob_warning = await compute_iob_from_sources(now, user_settings, ns_client, store)
+        iob_u, breakdown, iob_info, iob_warning = await compute_iob_from_sources(
+            now, user_settings, ns_client, store, extra_boluses=db_events
+        )
         
         # 5. Call Engine
         glucose_info = GlucoseUsed(
@@ -218,6 +249,7 @@ async def calculate_bolus_stateless(
 
         # Inject IOB Info
         response.iob = iob_info
+        response.iob_u = round(iob_u, 2) # ensure correct assignment
 
         if iob_warning:
             response.warnings.append(iob_warning)
@@ -389,9 +421,35 @@ async def get_current_iob(
     if eff_url:
         ns_client = NightscoutClient(eff_url, eff_token, timeout_seconds=5)
         
+        # Fetch DB treatments for IOB
+    db_events = []
+    if session:
+         try:
+            from app.models.treatment import Treatment as DBTreatment
+            from sqlalchemy import select
+            
+            stmt = (
+                select(DBTreatment)
+                .where(DBTreatment.user_id == user.username) 
+                .order_by(DBTreatment.created_at.desc())
+                .limit(50)
+            )
+            result = await session.execute(stmt)
+            rows = result.scalars().all()
+            for row in rows:
+                if row.insulin and row.insulin > 0:
+                    created_iso = row.created_at.isoformat()
+                    if not created_iso.endswith("Z") and "+" not in created_iso:
+                        created_iso += "Z"
+                    db_events.append({"ts": created_iso, "units": float(row.insulin)})
+         except Exception as db_err:
+             logger.error(f"Failed to fetch DB events for IOB: {db_err}")
+
     try:
         now = datetime.now(timezone.utc)
-        total_iob, breakdown, iob_info, iob_warning = await compute_iob_from_sources(now, settings, ns_client, store)
+        total_iob, breakdown, iob_info, iob_warning = await compute_iob_from_sources(
+            now, settings, ns_client, store, extra_boluses=db_events
+        )
         
         # Calculate Curve for next 4 hours (every 10 min)
         # We reused "insulin_activity_fraction" from iob.py? No it's internal.
