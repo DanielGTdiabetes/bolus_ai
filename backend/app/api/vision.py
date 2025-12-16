@@ -6,7 +6,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from pydantic import BaseModel
-from app.core.security import get_current_user
+from app.core.security import get_current_user, CurrentUser
 from app.core.settings import get_settings, Settings
 from app.core.config import get_vision_provider, get_google_api_key, get_gemini_model
 from app.models.settings import UserSettings
@@ -110,12 +110,12 @@ async def estimate_from_image(
     
     round_step_u: Optional[float] = Form(None),
 
-    current_user: dict = Depends(get_current_user),
+    current_user: CurrentUser = Depends(get_current_user),
     settings: Settings = Depends(get_settings),
     store: DataStore = Depends(_data_store),
 ):
     start_ts = time.time()
-    username = current_user["username"]
+    username = current_user.username
     _check_rate_limit(username)
 
     # Normalize weight
