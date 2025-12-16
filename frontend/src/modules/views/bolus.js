@@ -540,8 +540,10 @@ export function renderBolus() {
     }
 
     // Auto-fetch latest Nightscout BG to populate input
+    // Auto-fetch latest Nightscout BG to populate input
     const nsConfig = getLocalNsConfig();
-    if (nsConfig && nsConfig.url && bgInput) {
+    // Removed strict check (nsConfig && nsConfig.url) to allow server-side fallback
+    if (bgInput) {
         // Use getCurrentGlucose from API instead of relying on stale state
         import('../../lib/api.js').then(({ getCurrentGlucose }) => {
             getCurrentGlucose(nsConfig).then(data => {

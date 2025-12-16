@@ -30,11 +30,12 @@ export async function renderHistory() {
 
     // Fetch Logic
     try {
-        const config = getLocalNsConfig();
-        if (!config || !config.url) throw new Error("Configura Nightscout para ver el historial.");
+        const config = getLocalNsConfig(); // Might be null
+        // Removed explicit check for config.url to allow server-side fallback
+        // we pass config (which might be null) and fetchTreatments handles it.
 
         // We fetch last 50 treatments
-        const treatments = await fetchTreatments({ ...config, count: 50 });
+        const treatments = await fetchTreatments({ ...(config || {}), count: 50 });
 
         const listContainer = document.getElementById('full-history-list');
         listContainer.innerHTML = "";

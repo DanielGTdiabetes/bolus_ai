@@ -248,7 +248,7 @@ async function updateIOB() {
 
 async function updateMetrics() {
     const config = getLocalNsConfig();
-    if (!config) return;
+    // Removed !config return to allow server fallback
 
     // 1. IOB (returns full status data including COB)
     const statusData = await updateIOB();
@@ -286,7 +286,7 @@ async function updateMetrics() {
 async function updateActivity() {
     const config = getLocalNsConfig();
     const list = document.getElementById('home-activity-list');
-    if (!list || !config) return;
+    if (!list) return;
 
     try {
         const full = await fetchTreatments({ ...config, count: 20 });
@@ -345,7 +345,7 @@ async function updateActivity() {
 
 async function updateGlucoseUI() {
     const config = getLocalNsConfig();
-    if (!config || !config.url) return;
+    // Removed config check
     try {
         const res = await getCurrentGlucose(config);
         state.currentGlucose.data = res;
