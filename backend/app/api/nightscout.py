@@ -295,25 +295,37 @@ async def get_treatments_server(
             ns_error = str(nse)
     
     # 3. Merge and Deduplicate
-    # Heuristic: If we have an event in Local and NS with same timestamp (approx) and value, it's the same.
-    # For simplicity, we'll combine and sort, and maybe naive dedup based on exact created_at if possible.
-    # But usually NS creates a new 'created_at' or we sent it.
-    
     all_treatments = ns_treatments + local_treatments
     
-    # Sort desc by date
-    # helper to get time
+    # helper to get time safely
     def get_time(x):
-        d = x.get("created_at") or x.get("date")
-        if isinstance(d, str):
-            if d.endswith('Z'): d = d[:-1]
-            return datetime.fromisoformat(d).timestamp()
-        if isinstance(d, int) or isinstance(d, float):
-             # check if ms or sec
-             return d if d < 10000000000 else d / 1000.0
-        return 0
+        try:
+            d = x.get("created_at") or x.get("date")
+            if not d: return 0
+            
+            if isinstance(d, str):
+                # Robust ISO parsing
+                if d.endswith('Z'): 
+                    d = d.replace('Z', '+00:00')
+                try:
+                    return datetime.fromisoformat(d).timestamp()
+                except ValueError:
+                    # Try basic replacement if fromisoformat fails (e.g. older python)
+                    # or just return 0 if unparseable
+                    return 0
+                    
+            if isinstance(d, (int, float)):
+                 # check if ms or sec
+                 return d if d < 10000000000 else d / 1000.0
+            return 0
+        except Exception:
+            return 0
     
-    all_treatments.sort(key=get_time, reverse=True)
+    try:
+        all_treatments.sort(key=get_time, reverse=True)
+    except Exception as sort_err:
+        logger.error(f"Error sorting treatments: {sort_err}")
+        # Return unsorted/partial if sort fails, better than crashing
     
     # Slice
     return all_treatments[:count] 
