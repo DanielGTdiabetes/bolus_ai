@@ -48,7 +48,7 @@ function GlucoseHero({ onRefresh }) {
                 </button>
             </div>
             <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: '0.5rem' }}>
-                <span style={{ fontSize: '3.5rem', fontWeight: 800, color: '#334155', lineHeight: 1 }}>{displayVal}</span>
+                <span style={{ fontSize: '3.5rem', fontWeight: 800, color: arrowColor, lineHeight: 1 }}>{displayVal}</span>
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
                     <span style={{ fontSize: '1.5rem', color: arrowColor, fontWeight: 800 }}>{displayArrow}</span>
                     <span style={{ fontSize: '0.8rem', color: '#94a3b8', fontWeight: 600 }}>mg/dL</span>
