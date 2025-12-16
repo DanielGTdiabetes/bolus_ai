@@ -17,7 +17,7 @@ export default function SettingsPage() {
 
     return (
         <>
-            <Header title="Ajustes" showBack={false} />
+            <Header title="Ajustes" showBack={true} />
             <main className="page" style={{ paddingBottom: '80px' }}>
                 <Card>
                     <div className="tabs" style={{ display: 'flex', borderBottom: '1px solid #e2e8f0', marginBottom: '1rem' }}>

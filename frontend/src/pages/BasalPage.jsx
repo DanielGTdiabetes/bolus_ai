@@ -9,14 +9,17 @@ import {
 } from '../lib/api';
 
 export default function BasalPage() {
+    const [refreshTick, setRefreshTick] = useState(0);
+    const handleRefresh = () => setRefreshTick(t => t + 1);
+
     return (
         <>
             <Header title="Basal Advisor" showBack={false} />
             <main className="page" style={{ paddingBottom: '90px' }}>
-                <BasalEntrySection />
-                <BasalAdviceSection />
+                <BasalEntrySection onRefresh={handleRefresh} />
+                <BasalAdviceSection key={`advice-${refreshTick}`} />
                 <BasalImpactSection />
-                <BasalTimelineSection />
+                <BasalTimelineSection key={`timeline-${refreshTick}`} />
             </main>
             <BottomNav activeTab="basal" />
         </>

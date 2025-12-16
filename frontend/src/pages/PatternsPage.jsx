@@ -108,7 +108,10 @@ function PatternResults({ data }) {
                     ))}
                 </ul>
             ) : (
-                <div style={{ padding: '1rem', color: '#64748b', fontStyle: 'italic', textAlign: 'center' }}>No se detectaron patrones claros o faltan datos (min 5).</div>
+                <div style={{ padding: '1rem', color: '#64748b', textAlign: 'center' }}>
+                    <div style={{ fontStyle: 'italic', marginBottom: '0.5rem' }}>No se detectaron patrones claros o faltan datos.</div>
+                    <small>Se requieren al menos 5 eventos para cada comida. Sigue registrando tus bolos para obtener análisis.</small>
+                </div>
             )}
 
             {/* Table */}

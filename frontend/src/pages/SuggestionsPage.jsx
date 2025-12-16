@@ -70,7 +70,11 @@ function PendingView() {
         setGenerating(true);
         try {
             const res = await generateSuggestions(30);
-            alert(`Sugerencias generadas: ${res.created} nuevas.`);
+            if (res.created > 0) {
+                alert(`¡Éxito! Se han generado ${res.created} nuevas sugerencias.`);
+            } else {
+                alert("No se encontraron nuevas sugerencias.\nMotivos posibles:\n- Pocos datos recientes.\n- Sin patrones consistentes de error.\n- Tu configuración ya está optimizada.");
+            }
             load();
         } catch (e) {
             alert(e.message);
