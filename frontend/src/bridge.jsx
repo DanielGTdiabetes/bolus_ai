@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client';
 import NightscoutSettingsPage from './pages/NightscoutSettingsPage';
 
 // Registry of React Pages
+import FavoritesPage from './pages/FavoritesPage';
 import HistoryPage from './pages/HistoryPage';
 import SettingsPage from './pages/SettingsPage';
 import HomePage from './pages/HomePage';
