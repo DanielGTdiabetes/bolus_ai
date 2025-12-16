@@ -37,6 +37,7 @@ export default function BolusPage() {
 
     // Memory Ref for Learning (Fat, Protein, Items)
     const mealMetaRef = React.useRef(null);
+    const [learningHint, setLearningHint] = useState(null);
 
     // Effect: Load temp carbs (e.g. from favorites / scale)
     useEffect(() => {
@@ -45,6 +46,15 @@ export default function BolusPage() {
         if (state.tempCarbs) {
             setCarbs(String(state.tempCarbs));
             state.tempCarbs = null; // Clear it
+        }
+
+        // Capture Learning Hint
+        if (state.tempLearningHint) {
+            setLearningHint(state.tempLearningHint);
+            if (state.tempLearningHint.suggest_extended) {
+                setDualEnabled(true);
+            }
+            state.tempLearningHint = null;
         }
 
         // Capture Meal Meta for Learning
@@ -56,11 +66,12 @@ export default function BolusPage() {
             };
         }
 
-        // Auto-enable Dual if fat/protein high
+        // Auto-enable Dual if fat/protein high (UI Heuristic)
+        // If Learning Hint already enabled it, this is redundant but safe.
         if (state.tempFat > 15 || state.tempProtein > 20) {
             setDualEnabled(true);
-            // We could also show a toast, but the toggle changing state is visible enough
         }
+
         state.tempFat = null;
         state.tempProtein = null;
         state.tempItems = null;
@@ -282,6 +293,26 @@ export default function BolusPage() {
                                 ))}
                             </div>
                         </div>
+
+                        {/* Learning Hint Banner */}
+                        {learningHint && (
+                            <div className="fade-in" style={{
+                                background: learningHint.suggest_extended ? '#f0fdf4' : '#fff7ed',
+                                border: `1px solid ${learningHint.suggest_extended ? '#86efac' : '#fdba74'}`,
+                                borderRadius: '12px', padding: '0.8rem', marginBottom: '0.5rem',
+                                fontSize: '0.85rem', color: '#334155'
+                            }}>
+                                <div style={{ fontWeight: 600, color: learningHint.suggest_extended ? '#15803d' : '#c2410c', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                                    🧠 Memoria de Efectos
+                                </div>
+                                <div style={{ marginTop: '4px' }}>{learningHint.reason}</div>
+                                {learningHint.evidence && (
+                                    <div style={{ fontSize: '0.75rem', marginTop: '4px', opacity: 0.8 }}>
+                                        Basado en {learningHint.evidence.n} comidas similares.
+                                    </div>
+                                )}
+                            </div>
+                        )}
 
                         {/* Dual Bolus Toggle */}
                         <div className="card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1rem', border: '1px solid #e2e8f0' }}>

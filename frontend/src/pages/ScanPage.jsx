@@ -136,6 +136,10 @@ function CameraSection({ scaleGrams, plateEntries, onAddEntry }) {
 
                 onAddEntry(entry);
 
+                if (result.learning_hint) {
+                    state.tempLearningHint = result.learning_hint; // Persist hint for BolusPage
+                }
+
                 let msgText = `✅ Añadido: ${result.carbs_estimate_g}g`;
                 if (totalFat > 5 || totalProt > 5) {
                     msgText += ` (G:${Math.round(totalFat)}, P:${Math.round(totalProt)})`;
@@ -143,6 +147,10 @@ function CameraSection({ scaleGrams, plateEntries, onAddEntry }) {
                 if (result.bolus && result.bolus.kind === 'extended') {
                     msgText += " 💡 Sugiere Dual";
                 }
+                else if (result.learning_hint && result.learning_hint.suggest_extended) {
+                    msgText += " 🧠 Memoria Sugiere Dual";
+                }
+
                 setMsg(msgText);
                 setTimeout(() => setMsg(null), 3000);
 

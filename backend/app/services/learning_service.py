@@ -184,3 +184,97 @@ class LearningService:
         await self.session.commit()
         logger.info(f"Memory: Scored Entry {entry.id} -> Score {score}/10")
 
+    async def compute_learning_hint(
+        self,
+        tags: List[str],
+        fat_g: float,
+        protein_g: float,
+        current_strategy: str = "normal"
+    ) -> Optional[dict]:
+        """
+        Input: tags + macros
+        Output: Suggestion to extend bolus or not based on past experiences.
+        """
+        # 1. Find similar past meals
+        # Filter slightly: if user has high fat now, look for high fat past?
+        # For now, simplistic tag matching.
+        matches = await self.find_similar_meals(tags, limit=10)
+        
+        if not matches or len(matches) < 3:
+            return None
+            
+        # 2. Analyze outcomes
+        # "Short" = High BG (Insulin was short/insufficient or too fast absorption vs meal)
+        # "Over" = Low BG (Insulin was too much or too slow absorption)
+        
+        count = 0
+        short_count = 0 # Hyper
+        over_count = 0  # Hypo
+        
+        for m in matches:
+            if not m.outcome: continue
+            count += 1
+            
+            # Outcome logic
+            # hyper_occurred usually means we didn't cover the spike (Short)
+            if m.outcome.hyper_occurred or m.outcome.max_bg > 180:
+                short_count += 1
+            
+            # hypo_occurred means we gave too much or timing wrong (Over)
+            if m.outcome.hypo_occurred or m.outcome.min_bg < 70:
+                over_count += 1
+                
+        if count < 3:
+            return None
+            
+        short_rate = short_count / count
+        over_rate = over_count / count
+        
+        # 3. Decision Logic
+        suggest_extended = False
+        reason = ""
+        
+        # If we have consistent hypers (short) and it is high fat/protein or "pizza/pasta" context
+        high_macros = (fat_g > 15 or protein_g > 20)
+        
+        if short_rate >= 0.6:
+            # Consistent spikes
+            if high_macros:
+                suggest_extended = True
+                reason = f"En {count} comidas similares recientes, tuviste picos altos ({int(short_rate*100)}%). Al ser grasa/proteína, un bolo extendido puede ayudar."
+            else:
+                reason = f"Tendencia a picos altos en comidas similares ({int(short_rate*100)}%). Revisa ratios."
+        
+        elif over_rate >= 0.5:
+            # Consistent hypos
+            reason = f"Cuidado: Tendencia a bajadas en comidas similares ({int(over_rate*100)}%)."
+            if current_strategy == "extended":
+                # If we were planning extended but history says hypos, maybe warn against over-bolusing?
+                # Complex to say "don't extend", usually extending is safer for hypos than upfront.
+                # So we just warn.
+                pass
+
+        if suggest_extended:
+            return {
+                "suggest_extended": True,
+                "reason": reason,
+                "evidence": {
+                    "n": count,
+                    "short_rate": round(short_rate, 2),
+                    "over_rate": round(over_rate, 2)
+                }
+            }
+        elif reason:
+            # Info only
+             return {
+                "suggest_extended": False,
+                "reason": reason,
+                "evidence": {
+                    "n": count,
+                    "short_rate": round(short_rate, 2),
+                    "over_rate": round(over_rate, 2)
+                }
+            }
+            
+        return None
+

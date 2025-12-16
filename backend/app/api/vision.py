@@ -347,6 +347,33 @@ async def estimate_from_image(
                 explain=explain,
                 kind=kind
             )
+            
+        # 6. Learning Hint (Effect Memory)
+        try:
+            from app.core.db import get_engine
+            from sqlalchemy.ext.asyncio import AsyncSession
+            from app.services.learning_service import LearningService
+            
+            # We use an ad-hoc session here to avoid changing the huge dependency signature of this EP right now
+            engine = get_engine()
+            if engine:
+                async with AsyncSession(engine) as session:
+                    ls = LearningService(session)
+                    items_tags = [i.name for i in estimate.items]
+                    
+                    hint = await ls.compute_learning_hint(
+                        tags=items_tags,
+                        fat_g=total_fat_g,
+                        protein_g=total_protein_g,
+                        current_strategy=kind
+                    )
+                    
+                    if hint:
+                        estimate.learning_hint = hint
+                        logger.info(f"Learning Hint attached: {hint['reason']}")
+        except Exception as e:
+            logger.error(f"Failed to compute learning hint: {e}")
+            
     
         return estimate
 

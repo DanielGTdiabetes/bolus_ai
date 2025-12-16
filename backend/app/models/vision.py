@@ -45,6 +45,7 @@ class VisionEstimateResponse(BaseModel):
     needs_user_input: list[UserInputQuestion]
     glucose_used: GlucoseUsed
     bolus: Optional[VisionBolusRecommendation] = None
+    learning_hint: Optional[dict] = None  # {suggest_extended: bool, reason: str, evidence: dict}
     
     # Internal usage or debugging
     raw_analysis: Optional[str] = None
