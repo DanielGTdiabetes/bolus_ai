@@ -39,13 +39,17 @@ async def run_analysis_endpoint(
     if db_ns_config and db_ns_config.enabled and db_ns_config.url:
         final_url = db_ns_config.url
         final_token = db_ns_config.api_secret
-    elif ns_config.enabled and ns_config.url:
-        # Fallback to local settings
-        final_url = ns_config.url
-        final_token = ns_config.token
+    else:
+        # Fallback to local settings in store? Actually no, local file store is being deprecated in favor of DB.
+        # But let's check store['nightscout'] just in case for legacy transition
+        legacy_ns = settings.get("nightscout")
+        if legacy_ns and legacy_ns.get("url"):
+             final_url = legacy_ns.get("url")
+             final_token = legacy_ns.get("token")
         
     client = None
     if final_url:
+        client = NightscoutClient(base_url=final_url, token=final_token)
         client = NightscoutClient(base_url=final_url, token=final_token)
     elif not final_url:
          # If truly no config found anywhere, warn but proceed with DB-only analysis
@@ -65,7 +69,8 @@ async def run_analysis_endpoint(
              raise HTTPException(status_code=502, detail=result["error"])
         return result
     finally:
-        await client.aclose()
+        if client:
+            await client.aclose()
 
 @router.get("/bolus/summary", summary="Get post-bolus analysis summary")
 async def get_summary_endpoint(
