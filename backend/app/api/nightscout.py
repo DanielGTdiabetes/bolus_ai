@@ -245,36 +245,77 @@ async def update_config_legacy(
     return {"message": "Config updated via legacy endpoint"}
 
 
-@router.get("/treatments", summary="Get recent treatments (Server-Stored)")
+@router.get("/treatments", summary="Get recent treatments (Hybrid: Local + Nightscout)")
 async def get_treatments_server(
     count: int = 20,
     user: CurrentUser = Depends(get_current_user),
-    session: AsyncSession = Depends(get_db_session)
+    session: AsyncSession = Depends(get_db_session),
+    store: DataStore = Depends(_data_store)
 ):
     """
-    Fetches recent treatments using the server-stored Nightscout configuration (Secrets DB).
+    Fetches recent treatments, merging local 'events' (backup) with Nightscout data.
+    Provides resilience if Nightscout is down or unconfigured.
     """
-    ns = await get_ns_config(session, user.username)
-    
-    if not ns or not ns.enabled or not ns.url:
-         raise HTTPException(status_code=400, detail="Nightscout is not configured or enabled on the server.")
+    import logging
+    logger = logging.getLogger(__name__)
 
+    # 1. Fetch Local Events
+    local_treatments = []
     try:
-        # Note: ns.api_secret is the decrypted secret from DB
-        client = NightscoutClient(base_url=ns.url, token=ns.api_secret, timeout_seconds=10)
-        try:
-            # We fetch roughly last 48h to be safe, limited by count
-            treatments = await client.get_recent_treatments(hours=48, limit=count)
-            return treatments
-        finally:
-            await client.aclose()
+        events = store.load_events()
+        # Filter mostly bolus/meal events
+        # We need to adapt local event format to match NS treatment format somewhat
+        for e in events:
+            # Local format: { "eventType": "Meal Bolus", "created_at": iso, "insulin": x, "carbs": y, ... }
+            # Match NS format keys if needed by frontend
+            # Frontend uses: created_at/timestamp/date, insulin, carbs, notes/enteredBy
+            t = e.copy()
+            if "created_at" in t:
+                t["date"] = t["created_at"] # Ensure compatibility
+                # Also NS uses milliseconds for date usually, but our frontend handles ISO strings in date parser
             
-    except NightscoutError as nse:
-        # Pass through the Nightscout error as 502
-         raise HTTPException(status_code=502, detail=str(nse))
-    except Exception as e:
-        import logging
-        logging.getLogger(__name__).exception("Error fetching treatments")
-        raise HTTPException(status_code=500, detail=str(e)) 
+            local_treatments.append(t)
+    except Exception as ex:
+        logger.warning(f"Error loading local events: {ex}")
+
+    # 2. Fetch Nightscout Events
+    ns_treatments = []
+    ns_error = None
+    
+    ns = await get_ns_config(session, user.username)
+    if ns and ns.enabled and ns.url:
+        try:
+            client = NightscoutClient(base_url=ns.url, token=ns.api_secret, timeout_seconds=5)
+            try:
+                ns_treatments = await client.get_recent_treatments(hours=48, limit=count)
+            finally:
+                await client.aclose()
+        except Exception as nse:
+            logger.error(f"Nightscout fetch failed: {nse}")
+            ns_error = str(nse)
+    
+    # 3. Merge and Deduplicate
+    # Heuristic: If we have an event in Local and NS with same timestamp (approx) and value, it's the same.
+    # For simplicity, we'll combine and sort, and maybe naive dedup based on exact created_at if possible.
+    # But usually NS creates a new 'created_at' or we sent it.
+    
+    all_treatments = ns_treatments + local_treatments
+    
+    # Sort desc by date
+    # helper to get time
+    def get_time(x):
+        d = x.get("created_at") or x.get("date")
+        if isinstance(d, str):
+            if d.endswith('Z'): d = d[:-1]
+            return datetime.fromisoformat(d).timestamp()
+        if isinstance(d, int) or isinstance(d, float):
+             # check if ms or sec
+             return d if d < 10000000000 else d / 1000.0
+        return 0
+    
+    all_treatments.sort(key=get_time, reverse=True)
+    
+    # Slice
+    return all_treatments[:count] 
 
 
