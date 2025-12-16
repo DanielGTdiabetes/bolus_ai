@@ -319,14 +319,60 @@ function BasalTimelineSection() {
         try {
             const config = getLocalNsConfig();
             if (!config) throw new Error("Configurar Nightscout");
-            await runNightScan(config, dateStr);
+            const res = await runNightScan(config, dateStr);
+            console.log(res);
+
+            let msg = "✅ Análisis Completado.";
+            if (res.had_hypo) msg += " Se detectó hipoglucemia.";
+            else msg += " Noche estable (OK).";
+
+            alert(msg);
             load(); // Reload
         } catch (e) { alert(e.message); }
     };
 
+    const handleAnalyzeAll = async () => {
+        const pending = items.filter(i => i.night_had_hypo === null);
+        if (pending.length === 0) return alert("No hay noches pendientes de analizar.");
+
+        if (!confirm(`Se analizarán ${pending.length} noches pendientes. Esto puede tardar unos segundos. ¿Continuar?`)) return;
+
+        setLoading(true);
+        try {
+            const config = getLocalNsConfig();
+            if (!config) throw new Error("Configurar Nightscout");
+
+            let processed = 0;
+            // Process sequentially to be gentle on API
+            for (const item of pending) {
+                try {
+                    await runNightScan(config, item.date);
+                    processed++;
+                } catch (err) {
+                    console.error(`Error analizando ${item.date}:`, err);
+                }
+            }
+            alert(`Proceso finalizado. ${processed}/${pending.length} noches analizadas.`);
+            load();
+        } catch (e) {
+            alert(e.message);
+            setLoading(false); // only if error caught here, otherwise load() clears it
+        }
+    };
+
     return (
         <section>
-            <h3 style={{ marginBottom: '1rem', color: '#64748b', fontSize: '1rem' }}>Timeline (14 días)</h3>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                <h3 style={{ margin: 0, color: '#64748b', fontSize: '1rem' }}>Timeline (14 días)</h3>
+                {items.some(i => i.night_had_hypo === null) && (
+                    <button
+                        onClick={handleAnalyzeAll}
+                        style={{ fontSize: '0.8rem', padding: '0.4rem 0.8rem', background: '#e0f2fe', color: '#0369a1', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 600 }}
+                    >
+                        ⚡ Analizar Pendientes
+                    </button>
+                )}
+            </div>
             <div className="card" style={{ padding: 0, overflow: 'hidden', border: '1px solid #e2e8f0', borderRadius: '12px' }}>
                 <div style={{ overflowX: 'auto' }}>
                     <table style={{ width: '100%', textAlign: 'left', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
