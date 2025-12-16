@@ -221,6 +221,10 @@ async def compute_iob_from_sources(
     elif not ns_error and not boluses:
         # Success fetching, but nothing found. Value is 0.
         iob_status = "ok"
+    elif iob_status == "unavailable" and not ns_error and boluses:
+        # Nightscout disconnected/disabled but we have local data. IOB is valid based on local data.
+        iob_status = "ok"
+        iob_source = "local_only"
     
     # 3. Compute
     total = 0.0
