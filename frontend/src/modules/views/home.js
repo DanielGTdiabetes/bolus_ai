@@ -422,9 +422,9 @@ export async function renderHome() {
       <!-- Quick Actions -->
       <h3 class="section-title" style="margin-bottom:1rem">Acciones Rápidas</h3>
       <div class="qa-grid">
-        <button class="qa-btn qa-photo" onclick="navigate('#/scan')">
-            <div class="qa-icon-box">📷</div>
-            <span class="qa-label">Foto Plato</span>
+        <button class="qa-btn qa-photo" onclick="window.location.hash='#/favorites'">
+            <div class="qa-icon-box">⭐</div>
+            <span class="qa-label">Favoritos</span>
         </button>
         <button class="qa-btn qa-calc" onclick="navigate('#/bolus')">
             <div class="qa-icon-box">🧮</div>

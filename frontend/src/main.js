@@ -34,6 +34,13 @@ registerView('#/settings', renderSettings);
 registerView('#/login', renderLogin);
 registerView('#/change-password', renderChangePassword);
 
+// Hybrid React Pages
+registerView('#/favorites', () => {
+  import('./bridge.jsx').then(({ mountReactPage }) => {
+    mountReactPage('favorites');
+  });
+});
+
 // Initialize Router
 initRouter();
 
