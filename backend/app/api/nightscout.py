@@ -294,8 +294,42 @@ async def get_treatments_server(
             logger.error(f"Nightscout fetch failed: {nse}")
             ns_error = str(nse)
     
-    # 3. Merge and Deduplicate
-    all_treatments = ns_treatments + local_treatments
+    # 3. Fetch from Database (Primary/Neon)
+    db_treatments = []
+    if session:
+        try:
+            from app.models.treatment import Treatment
+            from sqlalchemy import select
+            
+            # Simple query: last N treatments for this user
+            stmt = (
+                select(Treatment)
+                .where(Treatment.user_id == user.username)
+                .order_by(Treatment.created_at.desc())
+                .limit(count)
+            )
+            result = await session.execute(stmt)
+            rows = result.scalars().all()
+            
+            for row in rows:
+                db_treatments.append({
+                    "eventType": row.event_type,
+                    "created_at": row.created_at.isoformat(),
+                    "date": row.created_at.timestamp() * 1000, # NS-like
+                    "insulin": row.insulin,
+                    "carbs": row.carbs,
+                    "notes": row.notes,
+                    "enteredBy": row.entered_by,
+                    "is_uploaded": row.is_uploaded
+                })
+        except Exception as db_ex:
+            logger.error(f"Error reading treatments from DB: {db_ex}")
+            # Non-fatal, fallback to others
+            
+    # 4. Merge and Deduplicate (DB + NS + Local)
+    # Priority: DB > NS > Local
+    
+    all_treatments = db_treatments + ns_treatments + local_treatments
     
     # helper to get time safely
     def get_time(x):

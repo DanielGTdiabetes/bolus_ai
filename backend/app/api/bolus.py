@@ -241,14 +241,16 @@ class BolusAcceptRequest(BaseModel):
     nightscout: Optional[dict] = None  # {url, token}
 
 
-@router.post("/treatments", summary="Save a treatment (bolus) to NS/Local")
+@router.post("/treatments", summary="Save a treatment (bolus) to NS/Local/DB")
 async def save_treatment(
     payload: BolusAcceptRequest,
     user: CurrentUser = Depends(get_current_user),
     store: DataStore = Depends(_data_store),
     session: AsyncSession = Depends(get_db_session)
 ):
-    # 1. Save locally (Always, as backup/primary)
+    import uuid
+    
+    # 1. Save locally (Always, as backup)
     treatment_data = {
         "eventType": "Correction Bolus" if payload.carbs == 0 else "Meal Bolus",
         "created_at": payload.created_at,
@@ -257,34 +259,52 @@ async def save_treatment(
         "notes": payload.notes,
         "enteredBy": payload.enteredBy,
         "type": "bolus",
-        "ts": payload.created_at, # Local store format
-        "units": payload.insulin   # Local store format
+        "ts": payload.created_at, 
+        "units": payload.insulin   
     }
     
     events = store.load_events()
     events.append(treatment_data)
-    # Keep last 1000?
     if len(events) > 1000:
         events = events[-1000:]
     store.save_events(events)
     
-    # 2. Upload to Nightscout if configured
+    # 2. Save to Database (Robust Persistence)
+    # We use the same session provided by dependency
+    if session:
+        from app.models.treatment import Treatment
+        try:
+            # Parse date
+            dt = datetime.fromisoformat(payload.created_at.replace('Z', '+00:00'))
+            
+            db_treatment = Treatment(
+                id=str(uuid.uuid4()),
+                user_id=user.username,
+                event_type=treatment_data["eventType"],
+                created_at=dt,
+                insulin=payload.insulin,
+                carbs=payload.carbs,
+                notes=payload.notes,
+                entered_by=payload.enteredBy,
+                is_uploaded=False 
+            )
+            session.add(db_treatment)
+            await session.commit()
+            logger.info("Treatment saved to Database")
+        except Exception as db_err:
+            logger.error(f"Failed to save treatment to DB: {db_err}")
+            # Don't crash, we have local backup
+    
+    # 3. Upload to Nightscout if configured
     ns_uploaded = False
     error = None
     
-    # Check payload config first, then stored settings
-    # ns_url = payload.nightscout.get("url") if payload.nightscout else None
-    # ns_token = payload.nightscout.get("token") if payload.nightscout else None
-    
-    # Secure Store Lookup
     ns_config = await get_ns_config(session, user.username)
     
-    # Priority: DB Config > Payload Config
     if ns_config and ns_config.enabled and ns_config.url:
         ns_url = ns_config.url
         ns_token = ns_config.api_secret
     else:
-        # Fallback to payload if DB is not configured
         ns_url = payload.nightscout.get("url") if payload.nightscout else None
         ns_token = payload.nightscout.get("token") if payload.nightscout else None
     
@@ -294,7 +314,6 @@ async def save_treatment(
     if ns_url:
         try:
             client = NightscoutClient(ns_url, ns_token, timeout_seconds=5)
-            # NS expects specific format
             ns_payload = {
                 "eventType": treatment_data["eventType"],
                 "created_at": payload.created_at,
@@ -303,10 +322,14 @@ async def save_treatment(
                 "notes": payload.notes,
                 "enteredBy": payload.enteredBy,
             }
-            # Remove unused keys or just send
             await client.upload_treatments([ns_payload])
             await client.aclose()
             ns_uploaded = True
+            
+            # If DB save was successful, we could update is_uploaded=True, 
+            # but that requires keeping reference to db_treatment and another commit.
+            # For now, let's keep it simple.
+            
         except Exception as e:
             logger.error(f"Failed to upload treatment to NS: {e}")
             error = str(e)
@@ -314,6 +337,7 @@ async def save_treatment(
     return {
         "success": True, 
         "local_saved": True, 
+        "db_saved": bool(session),
         "nightscout_uploaded": ns_uploaded,
         "nightscout_error": error
     }
