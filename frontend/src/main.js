@@ -1,10 +1,7 @@
 // Main Entry Point
 import { initRouter, registerView, registerDefaultView, router } from './modules/core/router.js';
 
-// Views
-import { renderPatterns } from './modules/views/patterns.js';
-import { renderSuggestions } from './modules/views/suggestions.js';
-import { renderLogin, renderChangePassword } from './modules/views/auth.js';
+// Views - None imported directly, all lazy via bridge!
 
 // Register Routes
 // The Router in this project uses the full hash string as the key.
@@ -34,27 +31,29 @@ registerView('#/basal', () => {
 
 // Analysis & History
 registerView('#/history', () => {
-  import('./bridge.jsx').then(({ mountReactPage }) => {
-    mountReactPage('history');
-  });
+  import('./bridge.jsx').then(({ mountReactPage }) => mountReactPage('history'));
 });
-registerView('#/patterns', renderPatterns);
-registerView('#/suggestions', renderSuggestions);
+registerView('#/patterns', () => {
+  import('./bridge.jsx').then(({ mountReactPage }) => mountReactPage('patterns'));
+});
+registerView('#/suggestions', () => {
+  import('./bridge.jsx').then(({ mountReactPage }) => mountReactPage('suggestions'));
+});
 
 // Configuration & Auth
 registerView('#/settings', () => {
-  import('./bridge.jsx').then(({ mountReactPage }) => {
-    mountReactPage('settings');
-  });
+  import('./bridge.jsx').then(({ mountReactPage }) => mountReactPage('settings'));
 });
-registerView('#/login', renderLogin);
-registerView('#/change-password', renderChangePassword);
+registerView('#/login', () => {
+  import('./bridge.jsx').then(({ mountReactPage }) => mountReactPage('login'));
+});
+registerView('#/change-password', () => {
+  import('./bridge.jsx').then(({ mountReactPage }) => mountReactPage('change-password'));
+});
 
 // Hybrid React Pages
 registerView('#/favorites', () => {
-  import('./bridge.jsx').then(({ mountReactPage }) => {
-    mountReactPage('favorites');
-  });
+  import('./bridge.jsx').then(({ mountReactPage }) => mountReactPage('favorites'));
 });
 
 // Initialize Router

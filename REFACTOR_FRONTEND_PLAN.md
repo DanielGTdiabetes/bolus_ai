@@ -35,14 +35,17 @@ Refactorizar primero las piezas pequeñas que se usan en todas partes.
 4.  **Calculadora (`Bolus`)**: [x] COMPLETADA. Migrado a `BolusPage.jsx` con lógica completa.
 
 ## 🧹 Fase 5: Limpieza
-- [x] Eliminar archivos `.js` antiguos de la carpeta `modules/views` (`home.js`, `history.js`, `settings.js`).
-- [ ] Mover `bolus.js` (Scan) a `scan.js` cuando se migre Escáner.
+- [x] Eliminar archivos `.js` antiguos de la carpeta `modules/views` (TODOS ELIMINADOS).
 - [x] Eliminar referencias en `main.js`.
 - [x] Verificar que no queda código muerto crítico.
 - [x] Eliminar lógica manual de eventos (`document.getElementById...`).
 - [ ] Unificar estilos CSS en módulos o Styled Components (opcional, por ahora `style.css` global vale).
 
----
+## ✅ ESTADO FINAL
+- Migración 100% completada a React.
+- Backend robusto (Neon DB + Local Backup + Nightscout).
+- Frontend rápido y modular.
+- Código limpio y sin dependencias circulares vanilla.
 
 ## 📝 Notas Técnicas
 *   **Estado Global**: Mantendremos `store.js` como fuente de la verdad por ahora, pero lo envolveremos en `useSyncExternalStore` (hook de React) para que sea reactivo.

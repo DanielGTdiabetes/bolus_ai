@@ -9,6 +9,10 @@ import HomePage from './pages/HomePage';
 import BolusPage from './pages/BolusPage';
 import ScanPage from './pages/ScanPage';
 import BasalPage from './pages/BasalPage';
+import PatternsPage from './pages/PatternsPage';
+import SuggestionsPage from './pages/SuggestionsPage';
+import LoginPage from './pages/LoginPage';
+import ChangePasswordPage from './pages/ChangePasswordPage';
 
 const PAGES = {
     'favorites': FavoritesPage,
@@ -17,7 +21,11 @@ const PAGES = {
     'home': HomePage,
     'bolus': BolusPage,
     'scan': ScanPage,
-    'basal': BasalPage
+    'basal': BasalPage,
+    'patterns': PatternsPage,
+    'suggestions': SuggestionsPage,
+    'login': LoginPage,
+    'change-password': ChangePasswordPage
 };
 
 let reactRoot = null;
