@@ -297,15 +297,29 @@ export default function BolusPage() {
                         {/* Learning Hint Banner */}
                         {learningHint && (
                             <div className="fade-in" style={{
-                                background: learningHint.suggest_extended ? '#f0fdf4' : '#fff7ed',
-                                border: `1px solid ${learningHint.suggest_extended ? '#86efac' : '#fdba74'}`,
+                                background: (learningHint.suggest_extended && !dualEnabled) ? '#fff7ed' : (learningHint.suggest_extended ? '#f0fdf4' : '#fff7ed'),
+                                border: `1px solid ${(learningHint.suggest_extended && !dualEnabled) ? '#fdba74' : (learningHint.suggest_extended ? '#86efac' : '#fdba74')}`,
                                 borderRadius: '12px', padding: '0.8rem', marginBottom: '0.5rem',
-                                fontSize: '0.85rem', color: '#334155'
+                                fontSize: '0.85rem', color: '#334155',
+                                transition: 'all 0.3s ease'
                             }}>
-                                <div style={{ fontWeight: 600, color: learningHint.suggest_extended ? '#15803d' : '#c2410c', display: 'flex', alignItems: 'center', gap: '5px' }}>
-                                    🧠 Memoria de Efectos
+                                <div style={{
+                                    fontWeight: 600,
+                                    color: (learningHint.suggest_extended && !dualEnabled) ? '#c2410c' : (learningHint.suggest_extended ? '#15803d' : '#c2410c'),
+                                    display: 'flex', alignItems: 'center', gap: '5px', justifyContent: 'space-between'
+                                }}>
+                                    <span style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                                        🧠 Memoria de Efectos
+                                    </span>
+                                    {learningHint.suggest_extended && (
+                                        <span style={{ fontSize: '0.75rem', padding: '2px 8px', borderRadius: '12px', background: 'rgba(0,0,0,0.05)' }}>
+                                            {dualEnabled ? 'Aplicada' : 'Ignorada'}
+                                        </span>
+                                    )}
                                 </div>
+
                                 <div style={{ marginTop: '4px' }}>{learningHint.reason}</div>
+
                                 {learningHint.evidence && (
                                     <div style={{ fontSize: '0.75rem', marginTop: '4px', opacity: 0.8 }}>
                                         Basado en {learningHint.evidence.n} comidas similares.
