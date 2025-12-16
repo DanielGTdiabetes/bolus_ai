@@ -78,6 +78,9 @@ function CameraSection({ scaleGrams, plateEntries, onAddEntry }) {
     const cameraInputRef = useRef(null);
     const galleryInputRef = useRef(null);
 
+    const [scanMode, setScanMode] = useState('plate'); // 'plate' | 'menu'
+    const [detectedItems, setDetectedItems] = useState([]); // For menu mode
+
     const handleFile = async (e) => {
         const file = e.target.files?.[0];
         if (!file) return;
@@ -92,15 +95,14 @@ function CameraSection({ scaleGrams, plateEntries, onAddEntry }) {
 
         setAnalyzing(true);
         setMsg(null);
+        setDetectedItems([]); // Clear previous menu items
 
         try {
             const options = {};
             let netWeight = 0;
 
-            // Smart Net Weight: Current Scale Weight - Weight of items already on plate?
-            // Simplified: If scale has weight, we assume it's the NEW item if we differ from previous total?
-            // Actually original logic: subtract sum of known weights.
-            if (scaleGrams > 0) {
+            // Only consider weight logic in 'plate' mode
+            if (scanMode === 'plate' && scaleGrams > 0) {
                 const previousWeight = plateEntries.reduce((sum, e) => sum + (e.weight || 0), 0);
                 netWeight = Math.max(0, scaleGrams - previousWeight);
                 options.plate_weight_grams = netWeight;
@@ -110,33 +112,49 @@ function CameraSection({ scaleGrams, plateEntries, onAddEntry }) {
                 options.existing_items = plateEntries.map(e => e.name).join(", ");
             }
 
+            // Prompt hint if menu mode
+            if (scanMode === 'menu') {
+                options.portion_hint = "restaurant menu, list individual dishes";
+            }
+
             const result = await estimateCarbsFromImage(file, options);
 
             // Calculate total fat/protein from items if available
             const totalFat = (result.items || []).reduce((sum, i) => sum + (i.fat_g || 0), 0);
             const totalProt = (result.items || []).reduce((sum, i) => sum + (i.protein_g || 0), 0);
 
-            const entry = {
-                carbs: result.carbs_estimate_g,
-                weight: netWeight,
-                fat: totalFat,
-                protein: totalProt,
-                img: state.currentImageBase64,
-                name: result.food_name || "Alimento IA"
-            };
+            if (scanMode === 'plate') {
+                // AUTO ADD (Classic Behavior)
+                const entry = {
+                    carbs: result.carbs_estimate_g,
+                    weight: netWeight,
+                    fat: totalFat,
+                    protein: totalProt,
+                    img: state.currentImageBase64,
+                    name: result.food_name || "Alimento IA"
+                };
 
-            onAddEntry(entry);
+                onAddEntry(entry);
 
-            let msgText = `✅ Añadido: ${result.carbs_estimate_g}g`;
-            if (totalFat > 5 || totalProt > 5) {
-                msgText += ` (G:${Math.round(totalFat)}, P:${Math.round(totalProt)})`;
+                let msgText = `✅ Añadido: ${result.carbs_estimate_g}g`;
+                if (totalFat > 5 || totalProt > 5) {
+                    msgText += ` (G:${Math.round(totalFat)}, P:${Math.round(totalProt)})`;
+                }
+                if (result.bolus && result.bolus.kind === 'extended') {
+                    msgText += " 💡 Sugiere Dual";
+                }
+                setMsg(msgText);
+                setTimeout(() => setMsg(null), 3000);
+
+            } else {
+                // MENU MODE: Show items to select
+                if (result.items && result.items.length > 0) {
+                    setDetectedItems(result.items);
+                    setMsg('👇 Selecciona los platos que vas a pedir');
+                } else {
+                    setMsg('⚠️ No se detectaron platos claros en la carta');
+                }
             }
-            if (result.bolus && result.bolus.kind === 'extended') {
-                msgText += " 💡 Sugiere Dual";
-            }
-
-            setMsg(msgText);
-            setTimeout(() => setMsg(null), 3000);
 
         } catch (err) {
             setMsg(`❌ Error: ${err.message}`);
@@ -145,8 +163,34 @@ function CameraSection({ scaleGrams, plateEntries, onAddEntry }) {
         }
     };
 
+    const addToPlateFromMenu = (item) => {
+        onAddEntry({
+            carbs: item.carbs_g,
+            fat: item.fat_g || 0,
+            protein: item.protein_g || 0,
+            name: item.name,
+            img: null // No specific img for sub-item crop yet
+        });
+        setMsg(`✅ Añadido: ${item.name}`);
+        setTimeout(() => setMsg(null), 2000);
+    };
+
     return (
         <div className="stack">
+            {/* Mode Switcher */}
+            <div style={{ display: 'flex', background: '#e2e8f0', padding: '4px', borderRadius: '12px', marginBottom: '1rem' }}>
+                <button
+                    onClick={() => setScanMode('plate')}
+                    style={{ flex: 1, padding: '8px', borderRadius: '10px', border: 'none', background: scanMode === 'plate' ? '#fff' : 'transparent', fontWeight: scanMode === 'plate' ? 600 : 400, boxShadow: scanMode === 'plate' ? '0 2px 5px rgba(0,0,0,0.1)' : 'none' }}>
+                    🍽️ Un Plato
+                </button>
+                <button
+                    onClick={() => setScanMode('menu')}
+                    style={{ flex: 1, padding: '8px', borderRadius: '10px', border: 'none', background: scanMode === 'menu' ? '#fff' : 'transparent', fontWeight: scanMode === 'menu' ? 600 : 400, boxShadow: scanMode === 'menu' ? '0 2px 5px rgba(0,0,0,0.1)' : 'none' }}>
+                    📜 Carta
+                </button>
+            </div>
+
             {/* Camera Placeholder / Preview */}
             <div
                 className="camera-placeholder"
@@ -176,9 +220,25 @@ function CameraSection({ scaleGrams, plateEntries, onAddEntry }) {
                 )}
             </div>
 
-            {msg && <div style={{ textAlign: 'center', padding: '0.5rem', background: msg.startsWith('❌') ? '#fee2e2' : '#dcfce7', color: msg.startsWith('❌') ? '#991b1b' : '#166534', borderRadius: '8px' }}>{msg}</div>}
+            {msg && <div style={{ textAlign: 'center', padding: '0.5rem', marginTop: '0.5rem', background: msg.startsWith('❌') ? '#fee2e2' : '#dcfce7', color: msg.startsWith('❌') ? '#991b1b' : '#166534', borderRadius: '8px' }}>{msg}</div>}
 
-            <div className="vision-actions" style={{ display: 'flex', gap: '0.5rem' }}>
+            {/* Menu Detected Items List */}
+            {scanMode === 'menu' && detectedItems.length > 0 && (
+                <div className="menu-results" style={{ marginTop: '1rem', border: '1px solid #e2e8f0', borderRadius: '12px', overflow: 'hidden' }}>
+                    <div style={{ background: '#f8fafc', padding: '0.5rem 1rem', borderBottom: '1px solid #e2e8f0', fontWeight: 600, color: '#475569' }}>Platos Detectados</div>
+                    {detectedItems.map((item, idx) => (
+                        <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem 1rem', borderBottom: '1px solid #f1f5f9' }}>
+                            <div style={{ flex: 1 }}>
+                                <div style={{ fontWeight: 600 }}>{item.name}</div>
+                                <div style={{ fontSize: '0.8rem', color: '#64748b' }}>~{item.carbs_g}g carbs</div>
+                            </div>
+                            <Button size="sm" onClick={() => addToPlateFromMenu(item)} style={{ padding: '0.4rem 0.8rem' }}>+ Añadir</Button>
+                        </div>
+                    ))}
+                </div>
+            )}
+
+            <div className="vision-actions" style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem' }}>
                 <Button onClick={() => cameraInputRef.current.click()} style={{ flex: 1 }}>📷 Cámara</Button>
                 <Button variant="secondary" onClick={() => galleryInputRef.current.click()} style={{ flex: 1 }}>🖼️ Galería</Button>
             </div>
