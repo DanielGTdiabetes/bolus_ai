@@ -151,6 +151,18 @@ async def calculate_bolus_stateless(
         ns_config.enabled = True
         ns_config.url = payload.nightscout.url
         ns_config.token = payload.nightscout.token
+    elif session:
+        # Check DB secrets if not overridden and available
+        try:
+            db_ns_config = await get_ns_config(session, user.username)
+            if db_ns_config and db_ns_config.enabled and db_ns_config.url:
+                ns_config.enabled = True
+                ns_config.url = db_ns_config.url
+                # Map api_secret to token for internal client usage
+                ns_config.token = db_ns_config.api_secret 
+                logger.debug("Injected Nightscout config from DB for calculation.")
+        except Exception as e:
+            logger.warning(f"Failed to fetch NS config from DB: {e}")
 
     # 3. Resolve Glucose (Manual vs Nightscout)
     resolved_bg: Optional[float] = payload.bg_mgdl
