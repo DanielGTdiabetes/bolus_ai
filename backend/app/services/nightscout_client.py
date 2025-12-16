@@ -59,18 +59,35 @@ class NightscoutClient:
         effective_token = self.token
         
         if effective_token:
-            # Simple heuristic: JWTs are usually long and contain dots (header.payload.signature)
+            # Simple heuristic: JWTs are usually long and contains dots
             is_jwt = len(effective_token) > 20 and effective_token.count(".") >= 2
             
             if is_jwt:
                 headers["Authorization"] = f"Bearer {effective_token}"
-            elif "-" in effective_token:
-                # Likely an Access Token (Subject-Hash), handled via query params in __init__
-                # Do NOT hash and do NOT add as API-SECRET header.
-                pass
+            elif "-" in effective_token or len(effective_token) < 40:
+                # Likely an Access Token (Subject-Hash) or simple passphrase like 'mytoken-123'
+                # For uploading treatments, some NS versions REQUIRE this as 'token' query param OR 'api_secret' header (hashed)
+                # But if it's an Access Token, hashing it breaks it.
+                # If it's a "Master Password", hashing is correct (API-SECRET).
+                
+                # Heuristic: If it looks like a hash or random string (12-32 chars), treat as Access Token?
+                # Safer: Send BOTH raw token in query (handled in init) AND hashed secret? No, conflict.
+                
+                # Decision: If we are here, we might have added it as query param in init. 
+                # BUT for POST requests, sometimes headers are preferred.
+                # Let's try sending it as sha1 hash in API-SECRET header IF it doesn't look like an access token (usually having dashes or specific prefix).
+                
+                # If token has dashes 'foo-bar', likely an access token -> No Header (Query param used).
+                # If token is 'mypassword', likely API Secret -> Header.
+                
+                if "-" not in effective_token:
+                     hashed = hashlib.sha1(effective_token.encode("utf-8")).hexdigest()
+                     headers["API-SECRET"] = hashed
+                else:
+                     # It's an Access Token. Some plugins verify this via query param (already set).
+                     pass
             else:
-                # Assume it's an API Secret -> SHA1 hash
-                # We send this header to support users entering their Master Password
+                # Assume it's a long API Secret?
                 hashed = hashlib.sha1(effective_token.encode("utf-8")).hexdigest()
                 headers["API-SECRET"] = hashed
 
