@@ -30,10 +30,11 @@ async def run_analysis_endpoint(
     settings = store.load_settings()
     ns_config = settings.nightscout
     
-    if not ns_config.enabled or not ns_config.url:
-        raise HTTPException(status_code=400, detail="Nightscout not configured")
-        
-    client = NightscoutClient(base_url=ns_config.url, token=ns_config.token)
+    # Relaxed NS check: If not configured, we just don't pass a client
+    client = None
+    if ns_config.enabled and ns_config.url:
+        client = NightscoutClient(base_url=ns_config.url, token=ns_config.token)
+    
     try:
         user_id = current_user.username
         

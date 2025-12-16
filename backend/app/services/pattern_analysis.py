@@ -31,35 +31,49 @@ def get_meal_slot(dt: datetime) -> str:
 async def run_analysis_service(
     user_id: str,
     days: int,
+    days: int,
     settings: UserSettings,
-    ns_client: NightscoutClient,
+    ns_client: Optional[NightscoutClient],
     db: AsyncSession
 ) -> dict[str, Any]:
     
     # 1. Fetch treatments
-    # Calculate hours to fetch
+    # We fetch from DB first (primary source of truth for boluses)
+    # Then NS (for older history if needed, though DB should mirror it eventually)
+    
     hours = (days * 24) + 24 # +24h buffer
-    
-    logger.info(f"Analysis: Fetching {hours} hours of treatments for user {user_id}")
-    
-    try:
-        treatments = await ns_client.get_recent_treatments(hours=hours, limit=2000)
-    except Exception as e:
-        logger.error(f"Analysis failed to fetch treatments: {e}")
-        return {"error": str(e)}
-        
     start_cutoff = datetime.now(timezone.utc) - timedelta(days=days)
     
-    boluses = []
-    for t in treatments:
-        # Check integrity
-        if not t.created_at: continue
-        if t.created_at < start_cutoff: continue
-        
-        # Is it a bolus?
-        if t.insulin is not None and t.insulin > 0.1: # Threshold to ignore tiny micro-boluses? 
-             # Or keep all? Prompt says "tratamiento".
-             boluses.append(t)
+    logger.info(f"Analysis: Fetching treatments for user {user_id} (last {days} days)")
+    
+    from app.models.treatment import Treatment
+    
+    # DB Query
+    stmt = (
+        select(Treatment)
+        .where(
+            Treatment.user_id == user_id,
+            Treatment.created_at >= start_cutoff,
+            Treatment.insulin > 0.1 # significant bolus
+        )
+        .order_by(Treatment.created_at.desc())
+    )
+    res = await db.execute(stmt)
+    db_boluses = res.scalars().all()
+    
+    boluses = list(db_boluses)
+    
+    # Try NS to supplement (only if DB is empty or we want to be super robust)
+    # If DB has data, we trust it. If DB is empty, maybe new install? Try NS.
+    if not boluses and ns_client:
+        try:
+             # We adapt NS treatments to look like Treatment objects (duck typing)
+             ns_treatments = await ns_client.get_recent_treatments(hours=hours, limit=2000)
+             for t in ns_treatments:
+                 if t.created_at and t.created_at >= start_cutoff and t.insulin and t.insulin > 0.1:
+                     boluses.append(t)
+        except Exception as e:
+             logger.warning(f"Analysis: NS fetch failed ({e}), continuing with local DB data only.")
              
     logger.info(f"Analysis: Found {len(boluses)} boluses to analyze.")
     
@@ -90,7 +104,12 @@ async def run_analysis_service(
             bg_at_val = None
             
             try:
-                sgvs = await ns_client.get_sgv_range(s_win, e_win, count=20)
+                if ns_client:
+                    sgvs = await ns_client.get_sgv_range(s_win, e_win, count=20)
+                else:
+                    sgvs = [] # Need DB lookup for SGV? Or assume unavailable without NS?
+                    # TODO: If we store glucose in DB eventually, fetch here.
+                    # For now, without NS, result is "missing" which is correct behavior.
                 if sgvs:
                     # Parse dates if needed, NightscoutSGV schema has date as int (epoch ms)
                     # Helper to get datetime
