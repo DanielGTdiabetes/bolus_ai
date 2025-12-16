@@ -8,6 +8,7 @@ import SettingsPage from './pages/SettingsPage';
 import HomePage from './pages/HomePage';
 import BolusPage from './pages/BolusPage';
 import ScanPage from './pages/ScanPage';
+import BasalPage from './pages/BasalPage';
 
 const PAGES = {
     'favorites': FavoritesPage,
@@ -15,7 +16,8 @@ const PAGES = {
     'settings': SettingsPage,
     'home': HomePage,
     'bolus': BolusPage,
-    'scan': ScanPage
+    'scan': ScanPage,
+    'basal': BasalPage
 };
 
 let reactRoot = null;

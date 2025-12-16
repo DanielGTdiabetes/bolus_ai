@@ -2,7 +2,6 @@
 import { initRouter, registerView, registerDefaultView, router } from './modules/core/router.js';
 
 // Views
-import { renderBasal } from './modules/views/basal.js';
 import { renderPatterns } from './modules/views/patterns.js';
 import { renderSuggestions } from './modules/views/suggestions.js';
 import { renderLogin, renderChangePassword } from './modules/views/auth.js';
@@ -29,7 +28,9 @@ registerView('#/scan', () => {
 registerView('#/bolus', () => {
   import('./bridge.jsx').then(({ mountReactPage }) => mountReactPage('bolus'));
 });
-registerView('#/basal', renderBasal);
+registerView('#/basal', () => {
+  import('./bridge.jsx').then(({ mountReactPage }) => mountReactPage('basal'));
+});
 
 // Analysis & History
 registerView('#/history', () => {

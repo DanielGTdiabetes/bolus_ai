@@ -1,0 +1,378 @@
+import React, { useState, useEffect } from 'react';
+import { Header } from '../components/layout/Header';
+import { BottomNav } from '../components/layout/BottomNav';
+import { Card, Button, Input } from '../components/ui/Atoms';
+import {
+    createBasalEntry, createBasalCheckin, runNightScan,
+    getBasalAdvice, getBasalTimeline, evaluateBasalChange,
+    getLocalNsConfig
+} from '../lib/api';
+
+export default function BasalPage() {
+    return (
+        <>
+            <Header title="Basal Advisor" showBack={false} />
+            <main className="page" style={{ paddingBottom: '90px' }}>
+                <BasalEntrySection />
+                <BasalAdviceSection />
+                <BasalImpactSection />
+                <BasalTimelineSection />
+            </main>
+            <BottomNav activeTab="basal" />
+        </>
+    );
+}
+
+function BasalEntrySection({ onRefresh }) {
+    const [dose, setDose] = useState('');
+    const [date, setDate] = useState(() => {
+        const now = new Date();
+        const pad = (n) => n < 10 ? '0' + n : n;
+        return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`;
+    });
+    const [manualBg, setManualBg] = useState('');
+    const [showManualBg, setShowManualBg] = useState(false);
+    const [msg, setMsg] = useState(null);
+    const [loading, setLoading] = useState(false);
+
+    const saveDose = async (requireDose = true) => {
+        const uVal = parseFloat(dose);
+
+        if (requireDose && (isNaN(uVal) || uVal <= 0)) {
+            setMsg({ text: "⚠️ Dosis requerida.", type: 'error' });
+            return false;
+        }
+
+        if (!isNaN(uVal) && uVal > 0) {
+            try {
+                const dateObj = new Date(date);
+                await createBasalEntry({
+                    dose_u: uVal,
+                    created_at: dateObj.toISOString(),
+                    effective_from: dateObj.toISOString().split('T')[0]
+                });
+                return true;
+            } catch (e) {
+                setMsg({ text: "Error guardando dosis: " + e.message, type: 'error' });
+                return false;
+            }
+        }
+        return true; // Proceed if not required and empty
+    };
+
+    const handleSaveSimple = async () => {
+        setLoading(true);
+        const ok = await saveDose(true);
+        if (ok) {
+            setMsg({ text: "✅ Dosis guardada.", type: 'success' });
+            setDose(''); // Reset? Or keep?
+            if (onRefresh) onRefresh();
+        }
+        setLoading(false);
+    };
+
+    const handleCheckinWake = async () => {
+        setLoading(true);
+        const ok = await saveDose(false); // Dose optional for checkin
+        if (!ok) { setLoading(false); return; }
+
+        setMsg({ text: "Consultando Nightscout...", type: 'info' });
+
+        const nsConfig = getLocalNsConfig();
+        const dateObj = new Date(date);
+
+        if (nsConfig && nsConfig.url) {
+            try {
+                await createBasalCheckin({
+                    nightscout_url: nsConfig.url,
+                    nightscout_token: nsConfig.token,
+                    created_at: dateObj.toISOString()
+                });
+                setMsg({ text: "✅ Guardado y analizado.", type: 'success' });
+                if (onRefresh) onRefresh();
+            } catch (e) {
+                setMsg({ text: "Error NS: " + e.message, type: 'error' });
+            }
+        } else {
+            setShowManualBg(true);
+            setMsg({ text: "⚠️ Nightscout no config. Indica glucosa manual.", type: 'warning' });
+        }
+        setLoading(false);
+    };
+
+    const handleManualCheckin = async () => {
+        const bgVal = parseFloat(manualBg);
+        if (isNaN(bgVal)) {
+            setMsg({ text: "BG inválida", type: 'error' });
+            return;
+        }
+        setLoading(true);
+        try {
+            await createBasalCheckin({
+                manual_bg: bgVal,
+                manual_trend: "Manual",
+                created_at: new Date(date).toISOString()
+            });
+            setMsg({ text: "✅ Check-in manual guardado.", type: 'success' });
+            setShowManualBg(false);
+            setManualBg('');
+            if (onRefresh) onRefresh();
+        } catch (e) {
+            setMsg({ text: "Error: " + e.message, type: 'error' });
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleScanNight = async () => {
+        setLoading(true);
+        setMsg({ text: "Analizando noche (00h-06h)...", type: 'info' });
+        try {
+            const config = getLocalNsConfig() || {};
+            await runNightScan(config); // defaults to today (scans last night)
+            setMsg({ text: "✅ Análisis nocturno completado.", type: 'success' });
+            if (onRefresh) onRefresh();
+        } catch (e) {
+            setMsg({ text: "Error: " + e.message, type: 'error' });
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    return (
+        <Card className="stack" style={{ marginBottom: '1rem' }}>
+            <h3 style={{ margin: '0 0 1rem 0', fontSize: '1.1rem' }}>Registrar / Check-in</h3>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
+                <div>
+                    <label style={{ fontSize: '0.75rem', fontWeight: 700, color: '#64748b', display: 'block', marginBottom: '0.25rem' }}>DOSIS (U)</label>
+                    <input
+                        type="number" step="0.5" placeholder="0.0"
+                        value={dose} onChange={e => setDose(e.target.value)}
+                        style={{ width: '100%', padding: '0.6rem', fontSize: '1.1rem', border: '1px solid #cbd5e1', borderRadius: '8px' }}
+                    />
+                </div>
+                <div>
+                    <label style={{ fontSize: '0.75rem', fontWeight: 700, color: '#64748b', display: 'block', marginBottom: '0.25rem' }}>FECHA/HORA</label>
+                    <input
+                        type="datetime-local"
+                        value={date} onChange={e => setDate(e.target.value)}
+                        style={{ width: '100%', padding: '0.7rem', fontSize: '0.9rem', border: '1px solid #cbd5e1', borderRadius: '8px' }}
+                    />
+                </div>
+            </div>
+
+            {showManualBg && (
+                <div className="fade-in" style={{ background: '#f8fafc', padding: '0.8rem', borderRadius: '8px', marginTop: '0.5rem' }}>
+                    <label style={{ fontSize: '0.75rem', fontWeight: 700, color: '#64748b' }}>GLUCOSA MANUAL (mg/dL)</label>
+                    <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.25rem' }}>
+                        <input
+                            type="number" placeholder="BG"
+                            value={manualBg} onChange={e => setManualBg(e.target.value)}
+                            style={{ flex: 1, padding: '0.5rem', border: '1px solid #cbd5e1', borderRadius: '6px' }}
+                        />
+                        <Button onClick={handleManualCheckin} disabled={loading}>Guardar</Button>
+                    </div>
+                </div>
+            )}
+
+            <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
+                <Button variant="ghost" onClick={handleSaveSimple} disabled={loading} style={{ border: '1px solid #e2e8f0', flex: 1 }}>
+                    {loading ? '...' : 'Solo Guardar'}
+                </Button>
+                <Button onClick={handleCheckinWake} disabled={loading} style={{ flex: 1.5 }}>
+                    {loading ? '...' : '☀️ Al Levantarme'}
+                </Button>
+            </div>
+
+            <Button variant="secondary" onClick={handleScanNight} disabled={loading} style={{ width: '100%' }}>
+                🌙 Analizar Noche (00h-06h)
+            </Button>
+
+            {msg && (
+                <div style={{
+                    marginTop: '0.5rem', padding: '0.5rem', borderRadius: '6px', fontSize: '0.85rem', textAlign: 'center',
+                    background: msg.type === 'error' ? '#fee2e2' : (msg.type === 'warning' ? '#fef3c7' : '#dcfce7'),
+                    color: msg.type === 'error' ? '#991b1b' : (msg.type === 'warning' ? '#92400e' : '#166534')
+                }}>
+                    {msg.text}
+                </div>
+            )}
+        </Card>
+    );
+}
+
+function BasalAdviceSection() {
+    const [advice, setAdvice] = useState(null);
+    const [loading, setLoading] = useState(true);
+
+    const load = async () => {
+        try {
+            const res = await getBasalAdvice(3);
+            setAdvice(res);
+        } catch (e) {
+            setAdvice({ error: e.message });
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    useEffect(() => { load(); }, []);
+
+    if (loading) return <Card style={{ marginBottom: '1rem', textAlign: 'center', color: '#64748b' }}>Analizando...</Card>;
+    if (!advice) return null;
+
+    let color = "#64748b";
+    let icon = "ℹ️";
+    const msg = advice.message || (advice.error ? "Error" : "");
+
+    if (msg.includes("OK")) {
+        color = "var(--success)"; icon = "✅";
+    } else if (msg.includes("hipoglucemias")) {
+        color = "var(--danger)"; icon = "🚨";
+    } else if (msg.includes("alza") || msg.includes("baja")) {
+        color = "var(--warning)"; icon = "⚠️";
+    }
+
+    return (
+        <Card style={{ marginBottom: '1rem', borderLeft: `4px solid ${color}` }}>
+            <h3 style={{ margin: '0 0 0.5rem 0', fontSize: '1rem' }}>Estado Basal</h3>
+            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-start' }}>
+                <div style={{ fontSize: '1.2rem' }}>{icon}</div>
+                <div>
+                    <div style={{ fontWeight: 600, color: '#334155', marginBottom: '0.2rem' }}>
+                        {advice.error || advice.message}
+                    </div>
+                    {!advice.error && (
+                        <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
+                            Confianza: <span style={{ textTransform: 'uppercase', fontWeight: 700 }}>{advice.confidence === 'high' ? 'Alta' : (advice.confidence === 'medium' ? 'Media' : 'Baja')}</span>
+                        </div>
+                    )}
+                </div>
+            </div>
+        </Card>
+    );
+}
+
+function BasalImpactSection() {
+    const [result, setResult] = useState(null);
+    const [loading, setLoading] = useState(false);
+
+    const evalImpact = async (days) => {
+        setLoading(true);
+        try {
+            const res = await evaluateBasalChange(days);
+            setResult(res);
+        } catch (e) {
+            alert(e.message);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    return (
+        <Card style={{ marginBottom: '1rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                <h3 style={{ margin: 0, fontSize: '1rem' }}>Impacto Cambios</h3>
+                <span style={{ fontSize: '0.7rem', background: '#f1f5f9', padding: '2px 6px', borderRadius: '4px', color: '#64748b' }}>Memoria de efecto</span>
+            </div>
+
+            {result && (
+                <div style={{ marginBottom: '1rem', background: '#f8fafc', padding: '1rem', borderRadius: '8px', borderLeft: `4px solid ${result.result === 'improved' ? 'var(--success)' : (result.result === 'worse' ? 'var(--danger)' : '#f59e0b')}` }}>
+                    <div style={{ fontWeight: 700, color: result.result === 'improved' ? 'var(--success)' : (result.result === 'worse' ? 'var(--danger)' : '#f59e0b') }}>
+                        {result.result === 'improved' ? '✅ MEJORÍA' : (result.result === 'worse' ? '📉 EMPEORAMIENTO' : '❓ INSUFICIENTE')}
+                    </div>
+                    <div style={{ marginTop: '0.4rem', fontSize: '0.9rem', color: '#334155' }}>{result.summary}</div>
+                </div>
+            )}
+
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
+                <Button variant="secondary" onClick={() => evalImpact(7)} disabled={loading} style={{ flex: 1, fontSize: '0.85rem' }}>📊 Evaluar (7 días)</Button>
+                <Button variant="ghost" onClick={() => evalImpact(14)} disabled={loading} style={{ flex: 1, fontSize: '0.85rem' }}>14 días</Button>
+            </div>
+        </Card>
+    );
+}
+
+function BasalTimelineSection() {
+    const [items, setItems] = useState([]);
+    const [loading, setLoading] = useState(true);
+
+    const load = async () => {
+        try {
+            const res = await getBasalTimeline(14);
+            setItems(res.items || []);
+        } catch (e) {
+            console.error(e);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    useEffect(() => { load(); }, []);
+
+    const handleAnalyzItem = async (dateStr) => {
+        if (!confirm(`¿Analizar noche del ${dateStr}?`)) return;
+        try {
+            const config = getLocalNsConfig();
+            if (!config) throw new Error("Configurar Nightscout");
+            await runNightScan(config, dateStr);
+            load(); // Reload
+        } catch (e) { alert(e.message); }
+    };
+
+    return (
+        <section>
+            <h3 style={{ marginBottom: '1rem', color: '#64748b', fontSize: '1rem' }}>Timeline (14 días)</h3>
+            <div className="card" style={{ padding: 0, overflow: 'hidden', border: '1px solid #e2e8f0', borderRadius: '12px' }}>
+                <div style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', textAlign: 'left', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+                        <thead style={{ background: '#f8fafc', color: '#64748b', fontSize: '0.75rem' }}>
+                            <tr>
+                                <th style={{ padding: '0.75rem' }}>Fecha</th>
+                                <th style={{ padding: '0.75rem' }}>Despertar</th>
+                                <th style={{ padding: '0.75rem' }}>Noche</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {loading && <tr><td colSpan="3" style={{ textAlign: 'center', padding: '1rem' }}>Cargando...</td></tr>}
+                            {!loading && items.length === 0 && <tr><td colSpan="3" style={{ textAlign: 'center', padding: '1rem' }}>No hay datos</td></tr>}
+                            {!loading && items.map((item, idx) => {
+                                const d = new Date(item.date);
+                                const dateStr = d.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric' });
+
+                                return (
+                                    <tr key={idx} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                                        <td style={{ padding: '0.75rem', color: '#334155' }}>{dateStr}</td>
+                                        <td style={{ padding: '0.75rem', color: '#334155' }}>
+                                            {item.wake_bg ? (
+                                                <>
+                                                    <strong>{Math.round(item.wake_bg)}</strong>
+                                                    {item.wake_trend && <small style={{ color: '#94a3b8', marginLeft: '4px' }}>{item.wake_trend}</small>}
+                                                </>
+                                            ) : '--'}
+                                        </td>
+                                        <td style={{ padding: '0.75rem' }}>
+                                            {item.night_had_hypo === true ? (
+                                                <span style={{ color: 'var(--danger)', fontWeight: 700 }}>🌙 &lt; 70 {item.night_events_below_70 > 1 ? `(${item.night_events_below_70})` : ''}</span>
+                                            ) : (item.night_had_hypo === false ? (
+                                                <span style={{ color: 'var(--success)' }}>OK</span>
+                                            ) : (
+                                                <button
+                                                    onClick={() => handleAnalyzItem(item.date)}
+                                                    style={{ fontSize: '0.7rem', padding: '2px 6px', border: '1px solid #cbd5e1', background: 'transparent', borderRadius: '4px', cursor: 'pointer' }}
+                                                >
+                                                    🔍 Analizar
+                                                </button>
+                                            ))}
+                                        </td>
+                                    </tr>
+                                );
+                            })}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+    );
+}
