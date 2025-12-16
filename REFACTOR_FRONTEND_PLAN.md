@@ -32,7 +32,7 @@ Refactorizar primero las piezas pequeñas que se usan en todas partes.
 1.  **Historial (`History`)**: [x] COMPLETADA. Migrado a React (`HistoryPage.jsx`).
 2.  **Configuración (`Settings`)**: [x] COMPLETADA (`SettingsPage.jsx`).
 3.  **Home (`Dashboard`)**: [x] COMPLETADA. Migrada a React (`HomePage.jsx`) con auto-refresh cada 60s.
-4.  **Calculadora (`Bolus`)**: **La más crítica**. Se deja para el final cuando tengamos dominada la arquitectura.
+4.  **Calculadora (`Bolus`)**: [x] COMPLETADA. Migrado a `BolusPage.jsx` con lógica completa.
 
 ## 🧹 Fase 5: Limpieza
 - [ ] Eliminar archivos `.js` antiguos de la carpeta `modules/views`.

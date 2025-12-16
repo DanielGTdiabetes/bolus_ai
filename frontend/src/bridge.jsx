@@ -6,12 +6,14 @@ import FavoritesPage from './pages/FavoritesPage';
 import HistoryPage from './pages/HistoryPage';
 import SettingsPage from './pages/SettingsPage';
 import HomePage from './pages/HomePage';
+import BolusPage from './pages/BolusPage';
 
 const PAGES = {
     'favorites': FavoritesPage,
     'history': HistoryPage,
     'settings': SettingsPage,
-    'home': HomePage
+    'home': HomePage,
+    'bolus': BolusPage
 };
 
 let reactRoot = null;

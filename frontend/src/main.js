@@ -25,7 +25,9 @@ registerView('#/home', () => {
 
 // Core Features
 registerView('#/scan', renderScan);
-registerView('#/bolus', renderBolus);
+registerView('#/bolus', () => {
+  import('./bridge.jsx').then(({ mountReactPage }) => mountReactPage('bolus'));
+});
 registerView('#/basal', renderBasal);
 
 // Analysis & History
