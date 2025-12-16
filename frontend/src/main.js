@@ -3,7 +3,6 @@ import { initRouter, registerView, registerDefaultView, router } from './modules
 
 // Views
 import { renderBasal } from './modules/views/basal.js';
-import { renderScan } from './modules/views/bolus.js';
 import { renderPatterns } from './modules/views/patterns.js';
 import { renderSuggestions } from './modules/views/suggestions.js';
 import { renderLogin, renderChangePassword } from './modules/views/auth.js';
@@ -24,7 +23,9 @@ registerView('#/home', () => {
 });
 
 // Core Features
-registerView('#/scan', renderScan);
+registerView('#/scan', () => {
+  import('./bridge.jsx').then(({ mountReactPage }) => mountReactPage('scan'));
+});
 registerView('#/bolus', () => {
   import('./bridge.jsx').then(({ mountReactPage }) => mountReactPage('bolus'));
 });

@@ -7,13 +7,15 @@ import HistoryPage from './pages/HistoryPage';
 import SettingsPage from './pages/SettingsPage';
 import HomePage from './pages/HomePage';
 import BolusPage from './pages/BolusPage';
+import ScanPage from './pages/ScanPage';
 
 const PAGES = {
     'favorites': FavoritesPage,
     'history': HistoryPage,
     'settings': SettingsPage,
     'home': HomePage,
-    'bolus': BolusPage
+    'bolus': BolusPage,
+    'scan': ScanPage
 };
 
 let reactRoot = null;
