@@ -46,8 +46,7 @@ export default function LoginPage() {
             </header>
 
             <Card className="auth-card" style={{ padding: '2rem' }}>
-                <h1 style={{ fontSize: '1.5rem', marginBottom: '1rem' }}>Inicia sesión</h1>
-                <p className="hint" style={{ marginBottom: '1.5rem' }}>API base: <code>{getApiBase() || "(no configurado)"}</code></p>
+                <h1 style={{ fontSize: '1.5rem', marginBottom: '1.5rem' }}>Inicia sesión</h1>
 
                 <form onSubmit={handleSubmit} className="stack">
                     <div>
