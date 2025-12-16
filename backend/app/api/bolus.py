@@ -279,13 +279,17 @@ async def save_treatment(
     # Secure Store Lookup
     ns_config = await get_ns_config(session, user.username)
     
+    # Priority: DB Config > Payload Config
     if ns_config and ns_config.enabled and ns_config.url:
         ns_url = ns_config.url
         ns_token = ns_config.api_secret
     else:
-        # Fallback to payload/legacy only if really needed, but we prefer secure store
-        ns_url = None
-        ns_token = None
+        # Fallback to payload if DB is not configured
+        ns_url = payload.nightscout.get("url") if payload.nightscout else None
+        ns_token = payload.nightscout.get("token") if payload.nightscout else None
+    
+    if not ns_url:
+        error = "Nightscout not configured (neither in DB nor payload)"
 
     if ns_url:
         try:

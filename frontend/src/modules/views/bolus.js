@@ -798,6 +798,9 @@ export function renderBolusResult(res) {
     // 2. Accept Handler
     div.querySelector('#btn-accept').onclick = async () => {
         try {
+            div.querySelector('#btn-accept').disabled = true;
+            div.querySelector('#btn-accept').textContent = "Guardando...";
+
             const carbs = parseFloat(document.getElementById('carbs').value || 0);
             const bg = parseFloat(document.getElementById('bg').value || 0);
             const finalInsulin = parseFloat(div.querySelector('#final-bolus-input').value);
@@ -813,24 +816,44 @@ export function renderBolusResult(res) {
                 customDate = new Date(dateInput.value);
             }
 
+            // Prepare Payload via existing helpers
+            const nsConfig = getLocalNsConfig ? getLocalNsConfig() : {};
+
             const treatment = {
                 eventType: "Meal Bolus",
                 created_at: customDate.toISOString(),
                 carbs: carbs,
                 insulin: finalInsulin,
                 enteredBy: state.user?.username || "BolusAI",
-                notes: `BolusAI: ${res.kind === 'dual' ? 'Dual' : 'Normal'}. Gr: ${carbs}g. BG: ${bg}`
+                notes: `BolusAI: ${res.kind === 'dual' ? 'Dual' : 'Normal'}. Gr: ${carbs}g. BG: ${bg}`,
+                nightscout: {
+                    url: nsConfig && nsConfig.url ? nsConfig.url : null,
+                    token: nsConfig && nsConfig.token ? nsConfig.token : null
+                }
             };
 
             if (res.kind === 'dual') {
                 treatment.notes += ` (Split: ${res.upfront_u} now + ${res.later_u} over ${res.duration_min}m)`;
             }
 
-            await saveTreatment(treatment);
-            alert("Bolo registrado con éxito.");
+            const apiRes = await saveTreatment(treatment);
+
+            let msg = "Bolo registrado con éxito (Local).";
+            if (apiRes && apiRes.nightscout) {
+                if (apiRes.nightscout.uploaded) {
+                    msg = "✅ Bolo guardado (Local + Nightscout).";
+                } else {
+                    msg = "⚠️ Guardado SOLO local.\nError Nightscout: " + (apiRes.nightscout.error || "Desconocido");
+                }
+            }
+
+            alert(msg);
             navigate('#/');
+
         } catch (e) {
             alert("Error guardando tratamiento: " + e.message);
+            div.querySelector('#btn-accept').disabled = false;
+            div.querySelector('#btn-accept').textContent = "Confirmar y Administrar";
         }
     };
 }
