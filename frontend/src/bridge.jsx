@@ -25,6 +25,9 @@ const PAGES = {
     'basal': BasalPage,
     'patterns': PatternsPage,
     'nightscout-settings': NightscoutSettingsPage,
+    'login': LoginPage,
+    'change-password': ChangePasswordPage,
+    'suggestions': SuggestionsPage,
 
 };
 
