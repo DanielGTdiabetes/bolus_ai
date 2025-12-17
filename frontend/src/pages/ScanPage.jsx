@@ -8,6 +8,7 @@ import {
 } from '../lib/api';
 import { state } from '../modules/core/store';
 import { navigate } from '../modules/core/router';
+import { RESTAURANT_MODE_ENABLED } from '../lib/featureFlags';
 
 export default function ScanPage() {
     // We assume 'state' from store.js is the source of truth for "session" data 
@@ -214,6 +215,14 @@ function CameraSection({ scaleGrams, plateEntries, onAddEntry }) {
                     <span style={{ fontSize: '1.4rem' }}>📜</span> Carta
                 </button>
             </div>
+
+            {RESTAURANT_MODE_ENABLED && scanMode === 'menu' && (
+                <div style={{ marginBottom: '0.75rem' }}>
+                    <Button onClick={() => navigate('#/restaurant')} style={{ width: '100%' }}>
+                        Sesión restaurante
+                    </Button>
+                </div>
+            )}
 
             {/* Camera Placeholder / Preview */}
             <div
