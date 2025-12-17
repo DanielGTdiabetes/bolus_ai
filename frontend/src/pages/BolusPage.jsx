@@ -370,10 +370,26 @@ export default function BolusPage() {
                             </div>
                         )}
 
-                        {/* Dual Bolus Toggle */}
-                        <div className="card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1rem', border: '1px solid #e2e8f0' }}>
-                            <div style={{ fontWeight: 600 }}>🌊 Bolo Dual / Extendido</div>
-                            <input type="checkbox" checked={dualEnabled} onChange={toggleDual} style={{ transform: 'scale(1.5)' }} />
+                        {/* Dual Bolus Toggle with Smart Suggestion */}
+                        <div className="card" style={{
+                            display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1rem',
+                            border: dualEnabled ? '2px solid #3b82f6' : '1px solid #e2e8f0',
+                            background: dualEnabled ? '#eff6ff' : '#fff'
+                        }}>
+                            <div>
+                                <div style={{ fontWeight: 600, color: dualEnabled ? '#1d4ed8' : '#0f172a' }}>🌊 Bolo Dual / Extendido</div>
+                                {state.tempFat > 15 && (
+                                    <div style={{ fontSize: '0.75rem', color: '#b91c1c', marginTop: '4px' }}>
+                                        🔥 Alto en grasas ({state.tempFat}g) detectado.
+                                    </div>
+                                )}
+                            </div>
+                            <input
+                                type="checkbox"
+                                checked={dualEnabled}
+                                onChange={toggleDual}
+                                style={{ transform: 'scale(1.5)', cursor: 'pointer' }}
+                            />
                         </div>
 
                         {/* IOB Banner */}

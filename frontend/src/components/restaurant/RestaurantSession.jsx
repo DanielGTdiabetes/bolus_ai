@@ -7,7 +7,8 @@ import {
   addPlateToSession,
   finalizeRestaurantSession
 } from '../../lib/restaurantApi';
-import { saveTreatment } from '../../lib/api';
+import { saveTreatment, getCurrentGlucose, getLocalNsConfig } from '../../lib/api';
+import { formatTrend } from '../../modules/core/utils';
 import { RESTAURANT_CORRECTION_CARBS } from '../../lib/featureFlags';
 // ... (imports)
 
@@ -250,6 +251,18 @@ return (
         </p>
 
         <div style={{ display: 'grid', gap: '0.5rem', marginTop: '0.5rem' }}>
+          {bgData && (
+            <div style={{
+              background: '#f1f5f9', padding: '0.5rem', borderRadius: '6px', textAlign: 'center',
+              border: '1px solid #e2e8f0', marginBottom: '0.5rem'
+            }}>
+              <div style={{ fontSize: '0.9rem', color: '#64748b' }}>Glucosa Actual</div>
+              <div style={{ fontSize: '1.5rem', fontWeight: 800, color: '#0f172a' }}>
+                {bgData.bg_mgdl} <span style={{ fontSize: '1rem' }}>{formatTrend(bgData.trend)}</span>
+              </div>
+            </div>
+          )}
+
           <InfoRow label="Total planificado" value={`${session.expectedCarbs} g`} />
           <InfoRow label="Total actual (HC)" value={`${actualCarbsTotal} g`} />
           <InfoRow label="Total G/P" value={`${actualFatTotal}g / ${actualProteinTotal}g`} />
