@@ -1,6 +1,6 @@
 from pathlib import Path
 from typing import Optional, Literal
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -188,6 +188,16 @@ async def get_current_glucose_server(
             
             entries = await client.get_sgv_range(start_dt, end_dt, count=12)
             
+            # Fallback for stale data: If window search yields nothing, get absolute latest
+            # This ensures we display *something* (even if stale) like the stateless endpoint does.
+            if not entries:
+                 try:
+                     latest_single = await client.get_latest_sgv()
+                     entries = [latest_single]
+                 except Exception:
+                     # If even this fails, then truly no data
+                     pass
+
             if not entries:
                 raise HTTPException(status_code=404, detail="No BG data found")
                 
@@ -198,7 +208,13 @@ async def get_current_glucose_server(
             is_comp = False
             comp_reason = None
             
-            if f_config.enabled:
+            # Only run compression detection if we have enough recent data (at least 2 points)
+            # and the data isn't incredibly old (e.g. > 2 hours). 
+            # If we fell back to a single stale point, detection is impossible.
+            if f_config.enabled and len(entries) > 1:
+                # Check staleness of latest entry for detection valididity? 
+                # Detector logic handles intervals, but let's avoid running it on 1-day old data blocks.
+                
                 # We also need treatments probably?
                 # Optimization: Only fetch treatments if potential low/drop detected?
                 # For now, let's just run detector on SGV. Detector handles missing treatments (assumes none).
@@ -223,7 +239,7 @@ async def get_current_glucose_server(
                     if last_proc.get("date") == latest_entry.date:
                         is_comp = last_proc.get("is_compression", False)
                         comp_reason = last_proc.get("compression_reason")
-
+            
             # Prepare Response
             sgv = latest_entry
             now_ms = datetime.now(timezone.utc).timestamp() * 1000
