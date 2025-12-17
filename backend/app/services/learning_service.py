@@ -95,7 +95,8 @@ class LearningService:
         Computes score based on NS data.
         """
         # Find entries > 4h ago and < 24h ago with no outcome
-        now = datetime.now(timezone.utc)
+        # DB 'created_at' is naive UTC. So we must use naive UTC for comparison.
+        now = datetime.utcnow()
         cutoff = now - timedelta(hours=4)
         old_limit = now - timedelta(hours=24)
         
@@ -121,19 +122,13 @@ class LearningService:
 
     async def _compute_outcome(self, entry: MealEntry, ns_client: NightscoutClient):
         # 1. Fetch SGV data for [entry.created_at, entry.created_at + 4h]
+        # entry.created_at is naive UTC. We need aware UTC for Nightscout Client.
         start_dt = entry.created_at.replace(tzinfo=timezone.utc)
         end_dt = start_dt + timedelta(hours=4)
         
-        # Convert to ISO strings for NS API if needed, or implement range fetch in client
-        # Adding a helper in NS client or fetching 'count' and filtering is inefficient.
-        # Ideally NS Client supports date range. 
-        # Assuming we can fetch treatments/entries around date.
+        # Method name is get_sgv_range
+        sgvs = await ns_client.get_sgv_range(start_dt, end_dt, count=100)
         
-        # For MVP: We fetch last 6h (count=72) and filter locally if easy, 
-        # OR we rely on a new client method `get_sgvs_window`.
-        
-        # Let's assume we implement get_sgvs_window(start, end)
-        sgvs = await ns_client.get_sgvs_window(start_dt, end_dt)
         if not sgvs or len(sgvs) < 12: # Need at least ~1h of data to judge
             logger.warning(f"Insufficient data for {entry.id}")
             return
@@ -177,7 +172,7 @@ class LearningService:
             final_bg=final_bg,
             hypo_occurred=(min_bg < 70),
             hyper_occurred=(max_bg > 180),
-            evaluated_at=datetime.now(timezone.utc)
+            evaluated_at=datetime.utcnow()
         )
         
         self.session.add(outcome)
