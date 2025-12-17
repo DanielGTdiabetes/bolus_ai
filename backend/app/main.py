@@ -66,6 +66,15 @@ async def startup_event() -> None:
     data_dir.mkdir(parents=True, exist_ok=True)
     logger.info("Using data directory: %s", data_dir)
     
+    # Debug Env Vars
+    import os
+    keys = list(os.environ.keys())
+    logger.info(f"Environment Keys available: {keys}")
+    if "DATABASE_URL" in os.environ:
+         logger.info("DATABASE_URL is PRESENT length=" + str(len(os.environ["DATABASE_URL"])))
+    else:
+         logger.info("DATABASE_URL is MISSING")
+    
     # Ensure models are loaded before creating tables
     import app.models 
 
