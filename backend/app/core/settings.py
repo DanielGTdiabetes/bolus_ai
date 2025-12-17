@@ -12,6 +12,14 @@ class NightscoutConfig(BaseModel):
     api_secret: Optional[str] = Field(default=None)
     token: Optional[str] = Field(default=None)
     timeout_seconds: int = Field(default=10, ge=1)
+    
+    # Compression Filter Settings
+    filter_compression: bool = Field(default=False)
+    filter_drop_mgdl: float = Field(default=15.0)
+    filter_rebound_mgdl: float = Field(default=15.0)
+    filter_window_min: int = 15
+    filter_night_start: int = 23
+    filter_night_end: int = 7
 
 
 class ServerConfig(BaseModel):

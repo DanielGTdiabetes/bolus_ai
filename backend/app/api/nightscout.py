@@ -44,6 +44,10 @@ class CurrentGlucoseResponse(BaseModel):
     stale: bool = False
     source: Literal["nightscout"] = "nightscout"
     error: Optional[str] = None
+    
+    # Compression Flags
+    is_compression: bool = False
+    compression_reason: Optional[str] = None
 
 
 def _data_store(settings: Settings = Depends(get_settings)) -> DataStore:
@@ -151,6 +155,7 @@ async def get_current_glucose_stateless(
 async def get_current_glucose_server(
     user: CurrentUser = Depends(get_current_user),
     session: AsyncSession = Depends(get_db_session),
+    settings: Settings = Depends(get_settings)
 ):
     ns = await get_ns_config(session, user.username)
     if not ns or not ns.enabled or not ns.url:
@@ -159,10 +164,68 @@ async def get_current_glucose_server(
     import logging
     logger = logging.getLogger(__name__)
     
+    # Filter Config
+    from app.services.smart_filter import CompressionDetector, FilterConfig
+    f_config = FilterConfig(
+        enabled=settings.nightscout.filter_compression,
+        night_start_hour=settings.nightscout.filter_night_start,
+        night_end_hour=settings.nightscout.filter_night_end,
+        drop_threshold_mgdl=settings.nightscout.filter_drop_mgdl,
+        rebound_threshold_mgdl=settings.nightscout.filter_rebound_mgdl,
+        rebound_window_minutes=settings.nightscout.filter_window_min
+    )
+    
     try:
         client = NightscoutClient(base_url=ns.url, token=ns.api_secret, timeout_seconds=10)
         try:
-            sgv: NightscoutSGV = await client.get_latest_sgv()
+            # We need history to detect compression. 
+            # Fetch last 12 entries (~1 hour) instead of just 1.
+            # Using get_sgv_range is better than get_latest_sgv
+            
+            # End = now + margin, Start = now - 60 min
+            end_dt = datetime.now(timezone.utc)
+            start_dt = end_dt - timedelta(minutes=60)
+            
+            entries = await client.get_sgv_range(start_dt, end_dt, count=12)
+            
+            if not entries:
+                raise HTTPException(status_code=404, detail="No BG data found")
+                
+            # Sort old -> new for detector
+            entries.sort(key=lambda x: x.date)
+            latest_entry = entries[-1]
+            
+            is_comp = False
+            comp_reason = None
+            
+            if f_config.enabled:
+                # We also need treatments probably?
+                # Optimization: Only fetch treatments if potential low/drop detected?
+                # For now, let's just run detector on SGV. Detector handles missing treatments (assumes none).
+                # If we want to be safe, we should fetch treatments.
+                treatments = []
+                # Simple heuristic: Only fetch treatments if latest value is < 80 or drop is large?
+                # Or just fetch them (clients usually cache or small payload).
+                treatments = await client.get_recent_treatments(hours=2, limit=10)
+                
+                detector = CompressionDetector(config=f_config)
+                
+                # Convert to dicts
+                e_dicts = [e.model_dump() for e in entries]
+                t_dicts = [t.model_dump() for t in treatments]
+                
+                processed = detector.detect(e_dicts, t_dicts)
+                
+                # Check the latest entry in processed list
+                # It should match our latest_entry by date
+                if processed:
+                    last_proc = processed[-1]
+                    if last_proc.get("date") == latest_entry.date:
+                        is_comp = last_proc.get("is_compression", False)
+                        comp_reason = last_proc.get("compression_reason")
+
+            # Prepare Response
+            sgv = latest_entry
             now_ms = datetime.now(timezone.utc).timestamp() * 1000
             diff_ms = now_ms - sgv.date
             diff_min = diff_ms / 60000.0
@@ -182,8 +245,11 @@ async def get_current_glucose_server(
                 age_minutes=diff_min,
                 date=int(sgv.date),
                 stale=diff_min > 10,
-                source="nightscout"
+                source="nightscout",
+                is_compression=is_comp,
+                compression_reason=comp_reason
             )
+            
         finally:
             await client.aclose()
     except NightscoutError as nse:
@@ -408,3 +474,69 @@ async def get_treatments_server(
     return unique_treatments[:count] 
 
 
+@router.get("/entries", summary="Get SGV entries with optional filtering")
+async def get_entries(
+    count: int = 288,
+    full_history: bool = False, # If true, might fetch more?
+    user: CurrentUser = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db_session),
+    settings: Settings = Depends(get_settings), # To access filter settings
+):
+    ns = await get_ns_config(session, user.username)
+    if not ns or not ns.enabled or not ns.url:
+         raise HTTPException(status_code=400, detail="Nightscout is not configured")
+    
+    from app.services.smart_filter import CompressionDetector, FilterConfig
+    
+    # 1. Fetch raw entries
+    entries = []
+    treatments = []
+    
+    # Construct Filter Config from Settings (or NS Settings if we moved them to DB? 
+    # For now, we use global settings as per prompt request "Add in config")
+    f_config = FilterConfig(
+        enabled=settings.nightscout.filter_compression,
+        night_start_hour=settings.nightscout.filter_night_start,
+        night_end_hour=settings.nightscout.filter_night_end,
+        drop_threshold_mgdl=settings.nightscout.filter_drop_mgdl,
+        rebound_threshold_mgdl=settings.nightscout.filter_rebound_mgdl,
+        rebound_window_minutes=settings.nightscout.filter_window_min
+    )
+    
+    try:
+        client = NightscoutClient(base_url=ns.url, token=ns.api_secret, timeout_seconds=10)
+        try:
+            # Parallel fetch?
+            # entries = await client.get_sgv_range(...) # client needs update to expose get_sgv_range public or reuse internal
+            # We used _handle_response so get_sgv_range is available in client instance
+            
+            # Calc start date for 'count' or 'hours'
+            # Default 24h
+            end_dt = datetime.now(timezone.utc)
+            start_dt = end_dt - timedelta(hours=24)
+            
+            # Fetch Entries
+            entries = await client.get_sgv_range(start_dt, end_dt, count=count)
+            
+            # Fetch Treatments (for context)
+            if f_config.enabled:
+                treatments = await client.get_recent_treatments(hours=24, limit=100)
+                
+        finally:
+            await client.aclose()
+            
+        # 2. Run Filter
+        detector = CompressionDetector(config=f_config)
+        
+        # Convert Pydanitc models to dicts for enriching
+        entries_dicts = [e.model_dump() for e in entries]
+        treatments_dicts = [t.model_dump() for t in treatments]
+        
+        processed_entries = detector.detect(entries_dicts, treatments_dicts)
+        
+        return processed_entries
+        
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).error(f"Entries fetch failed: {e}")
+        raise HTTPException(status_code=502, detail=str(e))

@@ -47,8 +47,17 @@ function GlucoseHero({ onRefresh }) {
                     {loading ? '...' : '↻'}
                 </button>
             </div>
+
+            {/* Visual Warning for Compression */}
+            {data && data.is_compression && (
+                <div style={{ background: '#fef2f2', color: '#991b1b', fontSize: '0.8rem', padding: '0.4rem', borderRadius: '6px', marginBottom: '0.5rem', border: '1px solid #fca5a5', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                    <span>⚠️</span>
+                    <span title={data.compression_reason}>Posible falsa bajada (Compresión)</span>
+                </div>
+            )}
+
             <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: '0.5rem' }}>
-                <span style={{ fontSize: '3.5rem', fontWeight: 800, color: arrowColor, lineHeight: 1 }}>{displayVal}</span>
+                <span style={{ fontSize: '3.5rem', fontWeight: 800, color: arrowColor, lineHeight: 1, textDecoration: data?.is_compression ? 'underline 3px dotted #fca5a5' : 'none' }}>{displayVal}</span>
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
                     <span style={{ fontSize: '1.5rem', color: arrowColor, fontWeight: 800 }}>{displayArrow}</span>
                     <span style={{ fontSize: '0.8rem', color: '#94a3b8', fontWeight: 600 }}>mg/dL</span>
