@@ -355,7 +355,14 @@ async def get_active_basal(username: str = Depends(auth_required)):
     dose_val = float(latest.get("dose_u") or 0.0)
     remaining_u = dose_val * remaining_pct
     
-
+    return ActiveResponse(
+        dose_u=dose_val,
+        started_at=start_dt,
+        elapsed_h=elapsed_h,
+        remaining_h=max(0.0, duration - elapsed_h),
+        remaining_u=remaining_u,
+        note=latest.get("note") or ""
+    )
 
 # --- Imports ---
 from app.services import basal_repo, basal_engine
