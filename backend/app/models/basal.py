@@ -17,6 +17,7 @@ class BasalEntry(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
     basal_type: Mapped[str] = mapped_column(String)  # "glargine", "degludec", "detemir", "other"
     units: Mapped[float] = mapped_column(Float)
+    effective_from: Mapped[dt_date] = mapped_column(Date, nullable=False, default=dt_date.today)
     effective_hours: Mapped[int] = mapped_column(Integer, default=24)
     note: Mapped[Optional[str]] = mapped_column(String, nullable=True)
 
