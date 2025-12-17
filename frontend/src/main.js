@@ -7,6 +7,7 @@ import { initRouter, registerView, registerDefaultView, router } from './modules
 // The Router in this project uses the full hash string as the key.
 import './bridge.jsx'; // Ensure bridge is loaded for side effects or types if needed, though we import dynamically below.
 import { setUnauthorizedHandler } from './lib/api';
+import { RESTAURANT_MODE_ENABLED } from './lib/featureFlags';
 
 setUnauthorizedHandler(() => {
   window.location.hash = '#/login';
@@ -67,6 +68,12 @@ registerView('#/profile', () => {
 registerView('#/favorites', () => {
   import('./bridge.jsx').then(({ mountReactPage }) => mountReactPage('favorites'));
 });
+
+if (RESTAURANT_MODE_ENABLED) {
+  registerView('#/restaurant', () => {
+    import('./bridge.jsx').then(({ mountReactPage }) => mountReactPage('restaurant'));
+  });
+}
 
 // Initialize Router
 initRouter();

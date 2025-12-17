@@ -14,6 +14,7 @@ from .suggestions import router as suggestions_router
 from .notifications import router as notifications_router
 from .data import router as data_router
 from .nightscout_secrets import router as nightscout_secrets_router
+from .restaurant import router as restaurant_router
 
 api_router = APIRouter()
 api_router.include_router(health_router, prefix="/health", tags=["health"])
@@ -31,5 +32,6 @@ api_router.include_router(notifications_router, prefix="/notifications", tags=["
 api_router.include_router(data_router)
 api_router.include_router(vision_router, prefix="/photo", tags=["vision"], include_in_schema=False)
 api_router.include_router(nightscout_secrets_router, prefix="/nightscout", tags=["nightscout_secrets"])
+api_router.include_router(restaurant_router, prefix="/restaurant", tags=["restaurant"])
 
 __all__ = ["api_router"]

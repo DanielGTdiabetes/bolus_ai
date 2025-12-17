@@ -10,6 +10,7 @@ import { formatTrend } from '../modules/core/utils';
 import { navigate } from '../modules/core/router';
 import { useStore } from '../hooks/useStore';
 import { getDualPlan, getDualPlanTiming } from '../modules/core/store';
+import { RESTAURANT_MODE_ENABLED } from '../lib/featureFlags';
 
 // Subcomponents
 function GlucoseHero({ onRefresh }) {
@@ -132,6 +133,9 @@ function QuickActions() {
                 <QAButton icon="🧮" label="Calcular" onClick={() => navigate('#/bolus')} color="#3b82f6" bg="#eff6ff" />
                 <QAButton icon="⚖️" label="Báscula" onClick={() => navigate('#/scan')} color="#10b981" bg="#ecfdf5" />
                 <QAButton icon="🍴" label="Alimentos" onClick={() => navigate('#/bolus')} color="#f97316" bg="#fff7ed" />
+                {RESTAURANT_MODE_ENABLED && (
+                    <QAButton icon="🍽️" label="Restaurante (Beta)" onClick={() => navigate('#/restaurant')} color="#0ea5e9" bg="#e0f2fe" />
+                )}
             </div>
         </div>
     );
