@@ -77,3 +77,38 @@ export async function calculateRestaurantAdjustment({ expectedCarbs, actualCarbs
   }
   return data;
 }
+
+// --- Persistence ---
+
+export async function startRestaurantSession(payload) {
+  const response = await apiFetch('/api/restaurant/session/start', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const { ok, data } = await parseJsonResponse(response);
+  if (!ok) throw new Error(data.detail || 'Fallo al iniciar sesión persistente');
+  return data;
+}
+
+export async function addPlateToSession(sessionId, plateData) {
+  const response = await apiFetch(`/api/restaurant/session/${sessionId}/plate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(plateData),
+  });
+  const { ok, data } = await parseJsonResponse(response);
+  if (!ok) throw new Error(data.detail || 'Fallo actualizando sesión');
+  return data;
+}
+
+export async function finalizeRestaurantSession(sessionId, outcomeData = {}) {
+  const response = await apiFetch(`/api/restaurant/session/${sessionId}/finalize`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(outcomeData),
+  });
+  const { ok, data } = await parseJsonResponse(response);
+  if (!ok) throw new Error(data.detail || 'Fallo finalizando sesión');
+  return data;
+}

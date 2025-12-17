@@ -10,6 +10,7 @@ import {
     getCurrentGlucose, calculateBolusWithOptionalSplit,
     saveTreatment, getLocalNsConfig, getIOBData
 } from '../lib/api';
+import { startRestaurantSession } from '../lib/restaurantApi';
 import { navigate } from '../modules/core/router';
 import { useStore } from '../hooks/useStore';
 
@@ -194,23 +195,40 @@ export default function BolusPage() {
             const apiRes = await saveTreatment(treatment);
 
             // SPECIAL: Start Restaurant Session if flagged
+            // SPECIAL: Start Restaurant Session if flagged
             if (state.tempRestaurantSession) {
+                const newSessionPayload = {
+                    expectedCarbs: state.tempRestaurantSession.expectedCarbs,
+                    expectedFat: state.tempRestaurantSession.expectedFat,
+                    expectedProtein: state.tempRestaurantSession.expectedProtein,
+                    items: state.tempRestaurantSession.expectedItems || [],
+                    notes: "Iniciada desde BolusPage"
+                };
+
+                let backendSessionId = null;
+                try {
+                    const resStart = await startRestaurantSession(newSessionPayload);
+                    if (resStart && resStart.sessionId) {
+                        backendSessionId = resStart.sessionId;
+                    }
+                } catch (err) {
+                    console.warn("Fallo iniciando sesión backend, usando local:", err);
+                }
+
                 const session = {
-                    sessionId: crypto.randomUUID ? crypto.randomUUID() : String(Date.now()),
+                    sessionId: backendSessionId || (crypto.randomUUID ? crypto.randomUUID() : String(Date.now())),
                     createdAt: new Date().toISOString(),
                     plates: [],
                     menuWarnings: [],
                     ...state.tempRestaurantSession,
-                    // Ensuring compatibility
                     actualCarbsTotal: 0,
                     actualFatTotal: 0,
                     actualProteinTotal: 0
                 };
-                // Remove temporary raw result to save space
                 delete session.rawMenuResult;
 
                 localStorage.setItem('restaurant_session_v1', JSON.stringify(session));
-                state.tempRestaurantSession = null; // Clear flag
+                state.tempRestaurantSession = null;
 
                 alert("✅ Bolo guardado. Iniciando sesión de restaurante...");
                 navigate('#/restaurant');

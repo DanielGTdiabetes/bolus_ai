@@ -125,3 +125,93 @@ async def compare_plate(
     except Exception as exc:  # pragma: no cover
         logger.exception("Unexpected error in compare_plate")
         raise HTTPException(status_code=500, detail="Internal error during plate comparison") from exc
+
+# --- Persistence Endpoints ---
+
+from pydantic import BaseModel
+from typing import List, Dict, Any, Optional
+from app.services.restaurant_db import RestaurantDBService
+
+class CreateSessionRequest(BaseModel):
+    expectedCarbs: float
+    expectedFat: Optional[float] = 0.0
+    expectedProtein: Optional[float] = 0.0
+    items: List[Dict[str, Any]] = []
+    notes: str = ""
+
+class AddPlateRequest(BaseModel):
+    carbs: float
+    fat: float
+    protein: float
+    confidence: Optional[float] = None
+    warnings: List[str] = []
+    reasoning_short: str = ""
+    name: Optional[str] = None
+
+class FinalizeSessionRequest(BaseModel):
+    outcomeScore: Optional[int] = None
+
+@router.post("/session/start", summary="Start a new persistent restaurant session")
+async def start_session(
+    data: CreateSessionRequest,
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    try:
+        # Pydantic v2 usually returns str for UUID if coerced, but let's be safe
+        uid = str(current_user.id) if hasattr(current_user, 'id') else current_user.username
+        
+        session = await RestaurantDBService.create_session(
+            user_id=uid,
+            expected_carbs=data.expectedCarbs,
+            expected_fat=data.expectedFat or 0.0,
+            expected_protein=data.expectedProtein or 0.0,
+            items=data.items,
+            notes=data.notes
+        )
+        if not session:
+            # Fallback if DB not configured
+            return {"status": "ok", "mode": "memory", "warning": "Persistence not available"}
+        return {"status": "ok", "mode": "db", "sessionId": str(session.id)}
+    except Exception as e:
+        logger.error(f"Error starting session: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/session/{session_id}/plate", summary="Add plate to session")
+async def add_plate_to_session(
+    session_id: str,
+    data: AddPlateRequest,
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    try:
+        updated = await RestaurantDBService.add_plate(
+            session_id=session_id,
+            plate_data=data.model_dump()
+        )
+        if not updated:
+            raise HTTPException(status_code=404, detail="Session not found")
+        return {"status": "ok", "actualCarbs": updated.actual_carbs}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error adding plate: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/session/{session_id}/finalize", summary="Finalize session")
+async def finalize_session(
+    session_id: str,
+    data: FinalizeSessionRequest,
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    try:
+        updated = await RestaurantDBService.finalize_session(
+            session_id=session_id,
+            outcome_score=data.outcomeScore
+        )
+        if not updated:
+            raise HTTPException(status_code=404, detail="Session not found")
+        return {"status": "ok", "delta": updated.delta_carbs}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error finalizing: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
