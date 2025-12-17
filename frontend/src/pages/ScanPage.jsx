@@ -76,6 +76,11 @@ export default function ScanPage() {
     const showRestaurantFlow = RESTAURANT_MODE_ENABLED && !useSimpleMode;
     const headerTitle = showRestaurantFlow ? 'Sesión restaurante' : 'Escanear / Pesar';
 
+    const handlePlateUpdate = (newEntries) => {
+        setPlateEntries(newEntries);
+        state.plateBuilder = { entries: newEntries };
+    };
+
     return (
         <>
             <Header title={headerTitle} showBack={true} />
