@@ -9,6 +9,7 @@ import {
 import { state } from '../modules/core/store';
 import { navigate } from '../modules/core/router';
 import { RESTAURANT_MODE_ENABLED } from '../lib/featureFlags';
+import { RestaurantSession } from '../components/restaurant/RestaurantSession';
 
 export default function ScanPage() {
     // We assume 'state' from store.js is the source of truth for "session" data 
@@ -17,6 +18,7 @@ export default function ScanPage() {
 
     const [plateEntries, setPlateEntries] = useState(state.plateBuilder?.entries || []);
     const [scale, setScale] = useState(state.scale || { connected: false, grams: 0, stable: true });
+    const [useSimpleMode, setUseSimpleMode] = useState(!RESTAURANT_MODE_ENABLED);
 
     // Refresh local scale state when global store updates (via callback)
     useEffect(() => {
@@ -46,26 +48,50 @@ export default function ScanPage() {
         state.plateBuilder.total = newEntries.reduce((sum, e) => sum + e.carbs, 0);
     };
 
+    const showRestaurantFlow = RESTAURANT_MODE_ENABLED && !useSimpleMode;
+    const headerTitle = showRestaurantFlow ? 'Sesión restaurante' : 'Escanear / Pesar';
+
     return (
         <>
-            <Header title="Escanear / Pesar" showBack={true} />
+            <Header title={headerTitle} showBack={true} />
             <main className="page" style={{ paddingBottom: '90px' }}>
-                <CameraSection
-                    scaleGrams={scale.grams}
-                    plateEntries={plateEntries}
-                    onAddEntry={(entry) => handlePlateUpdate([...plateEntries, entry])}
-                />
+                {showRestaurantFlow ? (
+                    <div className="stack" style={{ gap: '1rem' }}>
+                        <div style={{ color: '#475569' }}>
+                            <strong>Sesión restaurante</strong>: empieza escaneando la carta y añade platos reales. La cámara se abre directamente.
+                        </div>
+                        <RestaurantSession />
+                        <Button variant="ghost" onClick={() => setUseSimpleMode(true)} style={{ alignSelf: 'flex-start' }}>
+                            Usar modo simple
+                        </Button>
+                    </div>
+                ) : (
+                    <>
+                        {RESTAURANT_MODE_ENABLED && (
+                            <div style={{ marginBottom: '1rem' }}>
+                                <Button variant="secondary" onClick={() => setUseSimpleMode(false)}>
+                                    Volver a sesión restaurante
+                                </Button>
+                            </div>
+                        )}
+                        <CameraSection
+                            scaleGrams={scale.grams}
+                            plateEntries={plateEntries}
+                            onAddEntry={(entry) => handlePlateUpdate([...plateEntries, entry])}
+                        />
 
-                <ScaleSection
-                    scale={scale}
-                    setScale={setScale}
-                />
+                        <ScaleSection
+                            scale={scale}
+                            setScale={setScale}
+                        />
 
-                <PlateBuilder
-                    entries={plateEntries}
-                    onUpdate={handlePlateUpdate}
-                    scaleGrams={scale.grams}
-                />
+                        <PlateBuilder
+                            entries={plateEntries}
+                            onUpdate={handlePlateUpdate}
+                            scaleGrams={scale.grams}
+                        />
+                    </>
+                )}
             </main>
             <BottomNav activeTab="scan" />
         </>
