@@ -134,7 +134,7 @@ function QuickActions() {
                 <QAButton icon="⚖️" label="Báscula" onClick={() => navigate('#/scan')} color="#10b981" bg="#ecfdf5" />
                 <QAButton icon="🍴" label="Alimentos" onClick={() => navigate('#/bolus')} color="#f97316" bg="#fff7ed" />
                 {RESTAURANT_MODE_ENABLED && (
-                    <QAButton icon="🍽️" label="Restaurante (Beta)" onClick={() => navigate('#/restaurant')} color="#0ea5e9" bg="#e0f2fe" />
+                    <QAButton icon="🍽️" label="Sesión restaurante" onClick={() => navigate('#/restaurant')} color="#0ea5e9" bg="#e0f2fe" />
                 )}
             </div>
         </div>
