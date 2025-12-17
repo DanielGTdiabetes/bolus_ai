@@ -269,7 +269,7 @@ function BasalImpactSection() {
             const res = await evaluateBasalChange(days);
             setResult(res);
         } catch (e) {
-            alert(e.message);
+            alert(typeof e.message === 'string' ? e.message : JSON.stringify(e));
         } finally {
             setLoading(false);
         }
@@ -330,7 +330,9 @@ function BasalTimelineSection() {
 
             alert(msg);
             load(); // Reload
-        } catch (e) { alert(e.message); }
+        } catch (e) {
+            alert(typeof e.message === 'string' ? e.message : "Error desconocido al analizar");
+        }
     };
 
     const handleAnalyzeAll = async () => {
@@ -357,7 +359,7 @@ function BasalTimelineSection() {
             alert(`Proceso finalizado. ${processed}/${pending.length} noches analizadas.`);
             load();
         } catch (e) {
-            alert(e.message);
+            alert(typeof e.message === 'string' ? e.message : "Error en proceso masivo");
             setLoading(false); // only if error caught here, otherwise load() clears it
         }
     };

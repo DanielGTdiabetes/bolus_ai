@@ -1,62 +1,95 @@
-
 import asyncio
-import logging
+import os
 import sys
 from pathlib import Path
-
-# Add backend to pythonpath so we can import app
-# This assumes the script is located at backend/scripts/update_schema.py
-backend_dir = Path(__file__).resolve().parent.parent
-if str(backend_dir) not in sys.path:
-    sys.path.append(str(backend_dir))
-
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy import text
-from app.core.settings import get_settings
+from tenacity import retry, stop_after_attempt, wait_exponential
 
+# Add backend to pythonpath
+backend_dir = Path(__file__).resolve().parent.parent
+sys.path.append(str(backend_dir))
+
+from app.models.basal import BasalEntry
+from app.core.db import Base
+
+# Setup logger
+import logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("schema_updater")
 
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
 async def update_schema():
-    print(f"Loading settings...")
+    print("Loading settings...")
+    
+    # Manually load env if present
+    env_path = backend_dir.parent / ".env"
+    if env_path.exists():
+        with open(env_path, "r") as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    k,v = line.split("=", 1)
+                    if k.strip() == "DATABASE_URL":
+                        os.environ["DATABASE_URL"] = v.strip()
+
+    db_url = os.environ.get("DATABASE_URL")
+    if not db_url:
+        logger.error("No DATABASE_URL found")
+        return
+
+    # Fix postgres:// legacy
+    if db_url.startswith("postgres://"):
+        db_url = db_url.replace("postgres://", "postgresql+asyncpg://")
+    if db_url.startswith("postgresql://") and "+asyncpg" not in db_url:
+        db_url = db_url.replace("postgresql://", "postgresql+asyncpg://")
+
+    logger.info(f"Connecting to database: {db_url.split('@')[-1] if '@' in db_url else '...'}")
+    
     try:
-        settings = get_settings()
-    except Exception as e:
-        print(f"Error loading settings: {e}")
-        return
-
-    url = settings.database.url
-    
-    if not url:
-        logger.error("No DATABASE_URL found in settings.")
-        return
-
-    # Sanitize URL for logging
-    safe_url = url.split('@')[-1] if '@' in url else '...'
-    logger.info(f"Connecting to database: {safe_url}")
-    
-    engine = create_async_engine(url)
-
-    async with engine.begin() as conn:
-        logger.info("Checking basal_dose table schema...")
+        engine = create_async_engine(db_url, echo=True)
         
-        columns_to_add = [
-            ("basal_type", "VARCHAR"),
-            ("effective_hours", "INTEGER DEFAULT 24"),
-            ("note", "VARCHAR"),
-            ("effective_from", "DATE DEFAULT CURRENT_DATE")
-        ]
-        
-        for col_name, col_type in columns_to_add:
+        async with engine.begin() as conn:
+            # 1. Create table if not exists (including new columns from definition)
+            # SQLAlchemy create_all won't update existing tables, only create missing ones.
+            # But we want to ensure table exists first.
+            await conn.run_sync(Base.metadata.create_all)
+            
+            # 2. Manually ALTER table to add columns if they are missing
+            # BasalEntry defines: basal_type, effective_hours, note
+            
+            logger.info("Checking for missing columns in basal_dose...")
+            
+            # Check basal_type
             try:
-                logger.info(f"Attempting to add column {col_name}...")
-                await conn.execute(text(f"ALTER TABLE basal_dose ADD COLUMN IF NOT EXISTS {col_name} {col_type};"))
-                logger.info(f"Column {col_name} ensured.")
+                await conn.execute(text("ALTER TABLE basal_dose ADD COLUMN IF NOT EXISTS basal_type VARCHAR"))
+                logger.info("Added basal_type column")
             except Exception as e:
-                logger.warning(f"Could not add column {col_name} (might already exist or other error): {e}")
+                logger.warning(f"Could not add basal_type: {e}")
 
-    await engine.dispose()
-    logger.info("Schema update finished.")
+            # Check effective_hours
+            try:
+                await conn.execute(text("ALTER TABLE basal_dose ADD COLUMN IF NOT EXISTS effective_hours INTEGER DEFAULT 24"))
+                logger.info("Added effective_hours column")
+            except Exception as e:
+                logger.warning(f"Could not add effective_hours: {e}")
+                
+            # Check note
+            try:
+                await conn.execute(text("ALTER TABLE basal_dose ADD COLUMN IF NOT EXISTS note VARCHAR"))
+                logger.info("Added note column")
+            except Exception as e:
+                logger.warning(f"Could not add note: {e}")
+                
+        logger.info("Schema update check completed.")
+        
+    except Exception as e:
+        logger.error(f"Failed to connect or update: {e}")
+        raise e
+    finally:
+        await engine.dispose()
 
 if __name__ == "__main__":
+    if sys.platform == 'win32':
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
     asyncio.run(update_schema())

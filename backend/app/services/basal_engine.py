@@ -354,5 +354,10 @@ async def evaluate_change_service(user_id: str, days: int, db: AsyncSession):
     return {
         "result": result,
         "summary": summary,
-        "evidence": eval_entry.evidence
+        "evidence": {
+            "before": before,
+            "after": after,
+            "score_before": s_before,
+            "score_after": s_after
+        }
     }

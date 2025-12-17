@@ -21,9 +21,9 @@ class BasalEntry(Base):
     effective_from: Mapped[dt_date] = mapped_column(Date, nullable=False, default=dt_date.today)
     
     # Legacy/Model-only columns (likely NULL in DB)
-    # basal_type: Mapped[Optional[str]] = mapped_column(String, nullable=True)  
-    # effective_hours: Mapped[int] = mapped_column(Integer, default=24, nullable=True)
-    # note: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    basal_type: Mapped[Optional[str]] = mapped_column(String, nullable=True)  
+    effective_hours: Mapped[int] = mapped_column(Integer, default=24, nullable=True)
+    note: Mapped[Optional[str]] = mapped_column(String, nullable=True)
 
 class BasalCheckin(Base):
     __tablename__ = "basal_checkin"

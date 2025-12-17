@@ -90,23 +90,27 @@ export async function apiFetch(path: string, options: ApiOptions = {}) {
 
   let response;
   try {
-    response = await fetch(new URL(path, API_BASE || window.location.origin), {
+    const fetchUrl = new URL(path, API_BASE || window.location.origin);
+    response = await fetch(fetchUrl, {
       ...options,
       headers,
     });
   } catch (error) {
-    if (error instanceof TypeError && error.message.includes("fetch")) {
-      // Network error or CORS block
-      console.warn("Fetch Error (Likely CORS or Offline):", error);
-      throw new Error("No se pudo conectar con el servidor (Posible error de red o CORS).");
+    console.error("Fetch Error:", error);
+    if (error instanceof TypeError && (error.message.includes("fetch") || error.message.includes("network") || error.message.includes("Network"))) {
+      throw new Error("No se pudo conectar con el servidor (Offline o bloqueado). Verifique su conexión.");
     }
-    throw error;
+    throw new Error("Error de conexión: " + error.message);
   }
 
   if (response.status === 401) {
     clearSession();
     if (unauthorizedHandler) unauthorizedHandler();
     throw new Error("Sesión caducada. Vuelve a iniciar sesión.");
+  }
+
+  if (response.status === 0) {
+    throw new Error("Error de red desconocido (Posible CORS o servidor caído).");
   }
 
   return response;
