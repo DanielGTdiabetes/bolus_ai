@@ -7,7 +7,10 @@ from fastapi import APIRouter, Depends, Query, HTTPException, status
 from pydantic import BaseModel, Field, root_validator, validator
 
 from app.core.security import auth_required
-from app.services import basal_repo
+from app.services import basal_repo, basal_engine
+from app.core.db import get_db_session
+from sqlalchemy.ext.asyncio import AsyncSession
+from app.services.nightscout_client import NightscoutClient
 
 router = APIRouter()
 
@@ -381,11 +384,7 @@ async def get_active_basal(username: str = Depends(auth_required)):
         note=latest.get("note") or ""
     )
 
-# --- Imports ---
-from app.services import basal_repo, basal_engine
-from app.core.db import get_db_session
-from sqlalchemy.ext.asyncio import AsyncSession
-from app.services.nightscout_client import NightscoutClient
+
 
 # ... (Previous endpoints like /dose, /history, /checkin kept as is logic-wise, assuming checking calls repo correctly)
 
