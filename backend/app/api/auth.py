@@ -84,3 +84,50 @@ async def change_password(
         raise HTTPException(status_code=500, detail="Failed to update password")
         
     return {"ok": True, "user": _public_user(updated)}
+
+class ProfileChangeRequest(BaseModel):
+    new_username: str = Field(min_length=3)
+    password: str # Required to confirm identity before such a big change
+
+@router.post("/change-profile", summary="Update profile (username)")
+async def change_profile(
+    payload: ProfileChangeRequest,
+    settings: Settings = Depends(get_settings),
+    username: str = Depends(auth_required),
+):
+    from app.services.auth_repo import get_user_by_username, rename_user
+    
+    # 1. Verify password
+    user = await get_user_by_username(username)
+    if not user or not verify_password(payload.password, user.get("password_hash", "")):
+        raise HTTPException(status_code=400, detail="Contraseña incorrecta")
+
+    new_username = payload.new_username.strip()
+    if new_username == username:
+         return {"ok": True, "user": _public_user(user), "token": None}
+
+    # 2. Rename
+    success = await rename_user(username, new_username)
+    if not success:
+        raise HTTPException(status_code=400, detail="El nombre de usuario ya existe o error en base de datos")
+
+    # 3. Issue new token
+    # Since username changed, old token subject is invalid for next request
+    token_manager = get_token_manager(settings)
+    new_token = token_manager.create_access_token(subject=new_username)
+    
+    # Return new user obj
+    updated_user = await get_user_by_username(new_username)
+
+    return {
+        "ok": True, 
+        "user": _public_user(updated_user),
+        "access_token": new_token
+    }
+
+def _public_user(user: dict) -> UserPublic:
+    return UserPublic(
+        username=user["username"],
+        role=user.get("role", "user"),
+        needs_password_change=user.get("needs_password_change", False),
+    )

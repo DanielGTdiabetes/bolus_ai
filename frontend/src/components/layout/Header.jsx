@@ -39,11 +39,11 @@ export function Header({ title = "Bolus AI", showBack = false }) {
                                     <div style={{ padding: '10px', borderBottom: '1px solid #f1f5f9', background: '#f8fafc', fontSize: '0.8rem', fontWeight: 600, color: '#64748b' }}>
                                         {user.username || 'Usuario'}
                                     </div>
-                                    <button onClick={() => navigate('#/change-password')} style={{
+                                    <button onClick={() => navigate('#/profile')} style={{
                                         width: '100%', textAlign: 'left', background: 'none', border: 'none',
                                         padding: '12px 16px', cursor: 'pointer', fontSize: '0.9rem', color: '#334155', display: 'flex', gap: '8px'
                                     }}>
-                                        <span>🔑</span> Cambiar Contraseña
+                                        <span>👤</span> Mi Perfil
                                     </button>
                                     <button onClick={() => logout()} style={{
                                         width: '100%', textAlign: 'left', background: 'none', border: 'none',

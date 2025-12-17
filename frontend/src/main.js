@@ -53,6 +53,9 @@ registerView('#/login', () => {
 registerView('#/change-password', () => {
   import('./bridge.jsx').then(({ mountReactPage }) => mountReactPage('change-password'));
 });
+registerView('#/profile', () => {
+  import('./bridge.jsx').then(({ mountReactPage }) => mountReactPage('profile'));
+});
 
 // Hybrid React Pages
 registerView('#/favorites', () => {

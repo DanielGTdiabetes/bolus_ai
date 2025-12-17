@@ -14,6 +14,7 @@ import PatternsPage from './pages/PatternsPage';
 import SuggestionsPage from './pages/SuggestionsPage';
 import LoginPage from './pages/LoginPage';
 import ChangePasswordPage from './pages/ChangePasswordPage';
+import ProfilePage from './pages/ProfilePage';
 
 const PAGES = {
     'favorites': FavoritesPage,
@@ -28,7 +29,7 @@ const PAGES = {
     'login': LoginPage,
     'change-password': ChangePasswordPage,
     'suggestions': SuggestionsPage,
-
+    'profile': ProfilePage,
 };
 
 let reactRoot = null;

@@ -139,6 +139,21 @@ export async function changePassword(old_password, new_password) {
   return data;
 }
 
+export async function updateProfile(new_username, password) {
+  const response = await apiFetch("/api/auth/change-profile", {
+    method: "POST",
+    body: JSON.stringify({ new_username, password }),
+  });
+  const data = await toJson(response);
+  if (!response.ok) {
+    throw new Error(data.detail || "Error al actualizar perfil");
+  }
+  if (data.user && data.access_token) {
+    saveSession(data.access_token, data.user);
+  }
+  return data;
+}
+
 export async function calculateBolus(payload) {
   const response = await apiFetch("/api/bolus/calc", {
     method: "POST",

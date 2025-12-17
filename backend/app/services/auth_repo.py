@@ -110,4 +110,56 @@ async def create_user(username: str, password_hash: str, role: str = "user") -> 
         except Exception as e:
             logger.error(f"Error creating user: {e}")
             return None
+
+async def rename_user(old_username: str, new_username: str) -> bool:
+    """
+    Renames a user and updates all references in other tables.
+    Returns True if successful, False if new_username exists or error.
+    """
+    if not _async_engine:
+        return False
+        
+    # Check if new username exists
+    user = await get_user_by_username(new_username)
+    if user:
+        return False # Already exists
+
+    async with _async_engine.begin() as conn:
+        try:
+            # 1. Update USERS table
+            # We defer constraints just in case? Postgres doesn't easily support disabling constraints inside transaction unless set to DEFERRABLE.
+            # But standard update of PK works if no FKs restrict it or if ON UPDATE CASCADE is set.
+            # Since we assume NO FKs are enforced by DB (based on models), we can update manually.
+            
+            # Users
+            await conn.execute(text("UPDATE users SET username = :new WHERE username = :old"), {"new": new_username, "old": old_username})
+            
+            # Nightscout Secrets
+            await conn.execute(text("UPDATE nightscout_secrets SET user_id = :new WHERE user_id = :old"), {"new": new_username, "old": old_username})
+            
+            # Treatments
+            await conn.execute(text("UPDATE treatments SET user_id = :new WHERE user_id = :old"), {"new": new_username, "old": old_username})
+            # Also entered_by? Maybe not, historically "entered_by" is just text.
+            
+            # Basal Tables
+            tables = [
+                "basal_dose", 
+                "basal_checkin", 
+                "basal_night_summary", 
+                "basal_advice_daily", 
+                "basal_change_evaluation"
+            ]
+            
+            for t in tables:
+                try:
+                    await conn.execute(text(f"UPDATE {t} SET user_id = :new WHERE user_id = :old"), {"new": new_username, "old": old_username})
+                except Exception:
+                    # Table might not exist yet? Ignore.
+                    pass
+                    
+            return True
+        except Exception as e:
+            logger.error(f"Rename user failed: {e}")
+            raise e # Rollback happens automatically on exception exit from 'begin()' block
+
     return None
