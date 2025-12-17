@@ -312,68 +312,67 @@ function CameraSection({ scaleGrams, plateEntries, onAddEntry, scanMode, setScan
                 </button>
             </div>
 
-            {RESTAURANT_MODE_ENABLED && scanMode === 'menu' && (
-                <div style={{ marginBottom: '0.75rem' }}>
-                    <Button onClick={() => navigate('#/restaurant')} style={{ width: '100%' }}>
-                        Sesión restaurante
-                    </Button>
+            {/* Show specific UI based on mode */}
+            {scanMode === 'menu' ? (
+                <div style={{ marginTop: '2rem', textAlign: 'center' }}>
+                    <div style={{ fontSize: '4rem', marginBottom: '1rem' }}>🧑‍🍳</div>
+                    <p style={{ color: '#475569', marginBottom: '1.5rem', lineHeight: '1.5' }}>
+                        El modo <strong>Carta</strong> activa el flujo completo de restaurante:
+                        <br />
+                        1. Escanea el menú
+                        <br />
+                        2. Planifica tu comida
+                        <br />
+                        3. Añade platos reales
+                    </p>
+                    {RESTAURANT_MODE_ENABLED && (
+                        <Button onClick={() => navigate('#/restaurant')} style={{ width: '100%', padding: '1rem', fontSize: '1.1rem' }}>
+                            Iniciar Sesión Restaurante
+                        </Button>
+                    )}
                 </div>
-            )}
+            ) : (
+                <>
+                    {/* Camera Placeholder / Preview for Plate Mode */}
+                    <div
+                        className="camera-placeholder"
+                        onClick={() => cameraInputRef.current.click()}
+                        style={{
+                            background: '#f1f5f9', borderRadius: '16px', height: '200px',
+                            display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+                            border: '2px dashed #cbd5e1', cursor: 'pointer', overflow: 'hidden', position: 'relative'
+                        }}
+                    >
+                        {preview ? (
+                            <img src={preview} style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+                        ) : (
+                            <>
+                                <div style={{ fontSize: '3rem' }}>📷</div>
+                                <div style={{ color: '#64748b' }}>Toca para tomar foto</div>
+                            </>
+                        )}
 
-            {/* Camera Placeholder / Preview */}
-            <div
-                className="camera-placeholder"
-                onClick={() => cameraInputRef.current.click()}
-                style={{
-                    background: '#f1f5f9', borderRadius: '16px', height: '200px',
-                    display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-                    border: '2px dashed #cbd5e1', cursor: 'pointer', overflow: 'hidden', position: 'relative'
-                }}
-            >
-                {preview ? (
-                    <img src={preview} style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
-                ) : (
-                    <>
-                        <div style={{ fontSize: '3rem' }}>📷</div>
-                        <div style={{ color: '#64748b' }}>Toca para tomar foto</div>
-                    </>
-                )}
-
-                {analyzing && (
-                    <div style={{
-                        position: 'absolute', inset: 0, background: 'rgba(255,255,255,0.8)',
-                        display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', color: 'var(--primary)'
-                    }}>
-                        ⏳ Analizando IA...
-                    </div>
-                )}
-            </div>
-
-            {msg && <div style={{ textAlign: 'center', padding: '0.5rem', marginTop: '0.5rem', background: msg.startsWith('❌') ? '#fee2e2' : '#dcfce7', color: msg.startsWith('❌') ? '#991b1b' : '#166534', borderRadius: '8px' }}>{msg}</div>}
-
-            {/* Menu Detected Items List */}
-            {scanMode === 'menu' && detectedItems.length > 0 && (
-                <div className="menu-results" style={{ marginTop: '1rem', border: '1px solid #e2e8f0', borderRadius: '12px', overflow: 'hidden' }}>
-                    <div style={{ background: '#f8fafc', padding: '0.5rem 1rem', borderBottom: '1px solid #e2e8f0', fontWeight: 600, color: '#475569' }}>Platos Detectados</div>
-                    {detectedItems.map((item, idx) => (
-                        <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem 1rem', borderBottom: '1px solid #f1f5f9' }}>
-                            <div style={{ flex: 1 }}>
-                                <div style={{ fontWeight: 600 }}>{item.name}</div>
-                                <div style={{ fontSize: '0.8rem', color: '#64748b' }}>~{item.carbs_g}g carbs</div>
+                        {analyzing && (
+                            <div style={{
+                                position: 'absolute', inset: 0, background: 'rgba(255,255,255,0.8)',
+                                display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', color: 'var(--primary)'
+                            }}>
+                                ⏳ Analizando IA...
                             </div>
-                            <Button size="sm" onClick={() => addToPlateFromMenu(item)} style={{ padding: '0.4rem 0.8rem' }}>+ Añadir</Button>
-                        </div>
-                    ))}
-                </div>
+                        )}
+                    </div>
+
+                    {msg && <div style={{ textAlign: 'center', padding: '0.5rem', marginTop: '0.5rem', background: msg.startsWith('❌') ? '#fee2e2' : '#dcfce7', color: msg.startsWith('❌') ? '#991b1b' : '#166534', borderRadius: '8px' }}>{msg}</div>}
+
+                    <div className="vision-actions" style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem' }}>
+                        <Button onClick={() => cameraInputRef.current.click()} style={{ flex: 1 }}>📷 Cámara</Button>
+                        <Button variant="secondary" onClick={() => galleryInputRef.current.click()} style={{ flex: 1 }}>🖼️ Galería</Button>
+                    </div>
+
+                    <input type="file" ref={cameraInputRef} accept="image/*" capture="environment" hidden onChange={handleFile} />
+                    <input type="file" ref={galleryInputRef} accept="image/*" hidden onChange={handleFile} />
+                </>
             )}
-
-            <div className="vision-actions" style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem' }}>
-                <Button onClick={() => cameraInputRef.current.click()} style={{ flex: 1 }}>📷 Cámara</Button>
-                <Button variant="secondary" onClick={() => galleryInputRef.current.click()} style={{ flex: 1 }}>🖼️ Galería</Button>
-            </div>
-
-            <input type="file" ref={cameraInputRef} accept="image/*" capture="environment" hidden onChange={handleFile} />
-            <input type="file" ref={galleryInputRef} accept="image/*" hidden onChange={handleFile} />
         </div>
     );
 }
