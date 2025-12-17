@@ -15,14 +15,16 @@ if not os.environ.get("APP_SECRET_KEY"):
     print("WARNING: APP_SECRET_KEY not set. Generating temporary one.")
     os.environ["APP_SECRET_KEY"] = Fernet.generate_key().decode()
 
+from app.core.db import init_db, create_tables
+
 async def configure_admin():
-    session_factory = get_session_factory() # Might need to mock or ensure engine init
-    
-    # We need to init engine/tables first usually, but assuming 'app.main' ran migrations?
-    # No, scripts are standalone.
-    from app.core.db import init_db, create_tables
+    # Ensure DB is initialized
     init_db()
     await create_tables()
+
+    # Need to access factory from module global
+    from app.core import db
+    session_factory = db._async_session_factory
 
     async with session_factory() as session:
         user_id = "admin" # The default user

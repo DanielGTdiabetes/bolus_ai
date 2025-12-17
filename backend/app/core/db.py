@@ -140,3 +140,17 @@ async def get_db_session() -> AsyncGenerator[Any, None]:
             yield session
     else:
         yield None
+
+from contextlib import asynccontextmanager
+
+@asynccontextmanager
+async def get_db_session_context():
+    if not _async_session_factory:
+        init_db()
+    
+    if _async_session_factory:
+        async with _async_session_factory() as session:
+            yield session
+    else:
+        # Fallback in-memory
+        yield None
