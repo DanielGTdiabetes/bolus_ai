@@ -163,28 +163,27 @@ export async function renderBasal() {
         const msgEl = document.getElementById('basal-action-msg');
 
         // 2. Check Nightscout
-        const nsConfig = getLocalNsConfig();
+        // 2. Check Nightscout (Try Auto First)
+        // Even if no local config, backend might have it stored manually.
+        const nsConfig = getLocalNsConfig() || {};
         const dtVal = dtInput.value;
         const dateObj = new Date(dtVal);
 
-        if (nsConfig && nsConfig.url) {
-            msgEl.textContent = "Obteniendo glucosa...";
-            try {
-                await createBasalCheckin({
-                    nightscout_url: nsConfig.url,
-                    nightscout_token: nsConfig.token,
-                    created_at: dateObj.toISOString()
-                });
-                msgEl.textContent = "✅ Guardado y analizado.";
-                setTimeout(() => renderBasal(), 1000);
-            } catch (e) {
-                msgEl.textContent = "Error fetch NS: " + e.message;
-                // Fallback manual?
-            }
-        } else {
-            // Show manual
+        msgEl.textContent = "Obteniendo glucosa...";
+        try {
+            await createBasalCheckin({
+                nightscout_url: nsConfig.url,
+                nightscout_token: nsConfig.token,
+                created_at: dateObj.toISOString()
+            });
+            msgEl.textContent = "✅ Guardado y analizado.";
+            msgEl.style.color = "var(--success)";
+            setTimeout(() => renderBasal(), 1000);
+        } catch (e) {
+            console.warn("Auto-checkin failed", e);
+            // Fallback to manual
             document.getElementById('manual-bg-row').classList.remove('hidden');
-            msgEl.textContent = "⚠️ Indica glucosa manual (Nightscout no config).";
+            msgEl.textContent = "⚠️ No se pudo obtener glucosa. Introdúcela manual.";
             msgEl.style.color = "var(--warning)";
         }
     };
