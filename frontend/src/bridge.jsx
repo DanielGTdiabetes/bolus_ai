@@ -60,9 +60,13 @@ export function mountReactPage(pageName, containerId = 'app') {
     }
 
     try {
-        // If there was an old root associated with this container, unmount?
-        // Since vanilla router clears innerHTML, the DOM used by old root is gone.
-        // We just create a new one.
+        if (reactRoot) {
+            reactRoot.unmount();
+            reactRoot = null;
+        }
+
+        // Optional: clear container if unmount didn't fully clean up (React usually does)
+        container.innerHTML = '';
 
         reactRoot = ReactDOM.createRoot(container);
         reactRoot.render(

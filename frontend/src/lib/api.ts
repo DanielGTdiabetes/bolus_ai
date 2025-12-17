@@ -88,10 +88,20 @@ export async function apiFetch(path: string, options: ApiOptions = {}) {
     headers.Authorization = `Bearer ${token}`;
   }
 
-  const response = await fetch(new URL(path, API_BASE || window.location.origin), {
-    ...options,
-    headers,
-  });
+  let response;
+  try {
+    response = await fetch(new URL(path, API_BASE || window.location.origin), {
+      ...options,
+      headers,
+    });
+  } catch (error) {
+    if (error instanceof TypeError && error.message.includes("fetch")) {
+      // Network error or CORS block
+      console.warn("Fetch Error (Likely CORS or Offline):", error);
+      throw new Error("No se pudo conectar con el servidor (Posible error de red o CORS).");
+    }
+    throw error;
+  }
 
   if (response.status === 401) {
     clearSession();

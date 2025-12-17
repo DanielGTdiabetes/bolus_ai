@@ -6,6 +6,12 @@ import { initRouter, registerView, registerDefaultView, router } from './modules
 // Register Routes
 // The Router in this project uses the full hash string as the key.
 import './bridge.jsx'; // Ensure bridge is loaded for side effects or types if needed, though we import dynamically below.
+import { setUnauthorizedHandler } from './lib/api';
+
+setUnauthorizedHandler(() => {
+  window.location.hash = '#/login';
+});
+
 registerDefaultView(() => {
   import('./bridge.jsx').then(({ mountReactPage }) => mountReactPage('home'));
 });
