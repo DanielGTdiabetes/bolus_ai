@@ -43,6 +43,35 @@ function TabButton({ active, onClick, children }) {
     );
 }
 
+function PasswordInput({ value, onChange, placeholder, required = false, minLength }) {
+    const [show, setShow] = useState(false);
+    return (
+        <div style={{ position: 'relative' }}>
+            <input
+                className="w-full border rounded p-2"
+                type={show ? "text" : "password"}
+                placeholder={placeholder}
+                value={value}
+                onChange={onChange}
+                minLength={minLength}
+                required={required}
+                style={{ paddingRight: '40px' }}
+            />
+            <button
+                type="button"
+                onClick={() => setShow(!show)}
+                style={{
+                    position: 'absolute', right: '5px', top: '50%', transform: 'translateY(-50%)',
+                    background: 'none', border: 'none', cursor: 'pointer', padding: '5px', color: '#64748b', fontSize: '1.2rem'
+                }}
+                tabIndex="-1"
+            >
+                {show ? '👁️' : '🔒'}
+            </button>
+        </div>
+    );
+}
+
 function GeneralSection({ user }) {
     const [username, setUsername] = useState(user?.username || '');
     const [password, setPassword] = useState(''); // Need pass to confirm
@@ -88,13 +117,11 @@ function GeneralSection({ user }) {
 
                 <div style={{ marginTop: '1rem', borderTop: '1px solid #eee', paddingTop: '1rem' }}>
                     <label className="block font-medium mb-1">Confirma tu contraseña actual</label>
-                    <input
-                        className="w-full border rounded p-2"
-                        type="password"
+                    <PasswordInput
                         placeholder="Contraseña actual"
                         value={password}
                         onChange={e => setPassword(e.target.value)}
-                        required
+                        required={true}
                     />
                 </div>
 
@@ -136,23 +163,19 @@ function SecuritySection() {
             <form onSubmit={handleChangePass} className="space-y-4">
                 <div>
                     <label className="block font-medium mb-1">Contraseña Actual</label>
-                    <input
-                        className="w-full border rounded p-2"
-                        type="password"
+                    <PasswordInput
                         value={oldPass}
                         onChange={e => setOldPass(e.target.value)}
-                        required
+                        required={true}
                     />
                 </div>
                 <div>
                     <label className="block font-medium mb-1">Nueva Contraseña</label>
-                    <input
-                        className="w-full border rounded p-2"
-                        type="password"
+                    <PasswordInput
                         value={newPass}
                         onChange={e => setNewPass(e.target.value)}
                         minLength={8}
-                        required
+                        required={true}
                     />
                 </div>
 
