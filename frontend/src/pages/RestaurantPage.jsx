@@ -242,7 +242,7 @@ export default function RestaurantPage() {
 
   return (
     <div className="page" style={{ background: '#f8fafc', minHeight: '100vh' }}>
-      <Header title="Restaurante (Beta)" />
+      <Header title="Sesión restaurante" />
       <main style={{ padding: '1rem', paddingBottom: '5rem' }}>
         {error && (
           <div style={{ background: '#fef2f2', color: '#991b1b', padding: '0.75rem', borderRadius: '8px', marginBottom: '1rem' }}>
