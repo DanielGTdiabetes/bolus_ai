@@ -183,7 +183,8 @@ export async function renderBasal() {
             console.warn("Auto-checkin failed", e);
             // Fallback to manual
             document.getElementById('manual-bg-row').classList.remove('hidden');
-            msgEl.textContent = "⚠️ No se pudo obtener glucosa. Introdúcela manual.";
+            // Show explicit error from backend if available (e.g. "No config found")
+            msgEl.textContent = `⚠️ Fallo Auto: ${e.message}. Usa manual.`;
             msgEl.style.color = "var(--warning)";
         }
     };
