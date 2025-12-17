@@ -1,11 +1,12 @@
 from datetime import date, datetime
 import uuid
 from sqlalchemy import text
-from app.core.db import _async_engine, _in_memory_store
+from app.core.db import get_engine, _in_memory_store
 
 async def export_all_user_data(user_id: str):
     # In-Memory Fallback
-    if not _async_engine:
+    engine = get_engine()
+    if not engine:
         # Naive export from memory dicts if structured, but our _in_memory_store is simple
         # For this refactor, we focus on DB.
         return {
@@ -29,7 +30,7 @@ async def export_all_user_data(user_id: str):
 
     data = {"user_id": user_id, "export_date": datetime.utcnow().isoformat()}
 
-    async with _async_engine.begin() as conn:
+    async with engine.begin() as conn:
         for table, sort_col in tables.items():
             try:
                 # Check if table exists to avoid crashes if migration didn't run for some

@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime, date, timedelta
 from typing import List, Optional, Dict, Any
 from sqlalchemy import text
-from app.core.db import _async_engine
+from app.core.db import get_engine
 import logging
 
 logger = logging.getLogger(__name__)
@@ -23,7 +23,7 @@ async def upsert_night_summary(user_id: str, night_date: date, had_hypo: bool, m
     entry_id = str(uuid.uuid4())
     now = datetime.utcnow()
     
-    if _async_engine:
+    if get_engine():
         query = text("""
             INSERT INTO basal_night_summary (id, user_id, night_date, had_hypo, min_bg_mgdl, events_below_70, created_at)
             VALUES (:id, :user_id, :nd, :hypo, :min_bg, :ev_hypo, :now)
@@ -43,7 +43,7 @@ async def upsert_night_summary(user_id: str, night_date: date, had_hypo: bool, m
             "ev_hypo": events_hypo,
             "now": now
         }
-        async with _async_engine.begin() as conn:
+        async with get_engine().begin() as conn:
             result = await conn.execute(query, params)
             row = result.fetchone()
             return dict(row._mapping) if row else None
@@ -62,14 +62,14 @@ async def upsert_night_summary(user_id: str, night_date: date, had_hypo: bool, m
         return entry
 
 async def list_night_summaries(user_id: str, days: int = 7) -> List[Dict[str, Any]]:
-    if _async_engine:
+    if get_engine():
         query = text("""
             SELECT * FROM basal_night_summary
             WHERE user_id = :user_id
             ORDER BY night_date DESC
             LIMIT :limit
         """)
-        async with _async_engine.connect() as conn:
+        async with get_engine().connect() as conn:
             result = await conn.execute(query, {"user_id": user_id, "limit": days})
             rows = result.fetchall()
             return [dict(r._mapping) for r in rows]
@@ -86,7 +86,7 @@ async def upsert_basal_dose(user_id: str, dose_u: float, effective_from: date = 
     # Use provided time or now
     saved_at = created_at if created_at else datetime.utcnow()
     
-    if _async_engine:
+    if get_engine():
         # PostgreSQL
         query = text("""
             INSERT INTO basal_dose (id, user_id, dose_u, effective_from, created_at)
@@ -100,7 +100,7 @@ async def upsert_basal_dose(user_id: str, dose_u: float, effective_from: date = 
             "effective_from": effective_from,
             "created_at": saved_at
         }
-        async with _async_engine.begin() as conn:
+        async with get_engine().begin() as conn:
             result = await conn.execute(query, params)
             row = result.fetchone()
             if row:
@@ -118,14 +118,14 @@ async def upsert_basal_dose(user_id: str, dose_u: float, effective_from: date = 
         return entry
 
 async def get_latest_basal_dose(user_id: str) -> Optional[Dict[str, Any]]:
-    if _async_engine:
+    if get_engine():
         query = text("""
             SELECT * FROM basal_dose 
             WHERE user_id = :user_id 
             ORDER BY effective_from DESC, created_at DESC 
             LIMIT 1
         """)
-        async with _async_engine.connect() as conn:
+        async with get_engine().connect() as conn:
             result = await conn.execute(query, {"user_id": user_id})
             row = result.fetchone()
             return dict(row._mapping) if row else None
@@ -140,7 +140,7 @@ async def upsert_daily_checkin(user_id: str, day: date, bg_mgdl: float, trend: s
     entry_id = str(uuid.uuid4())
     now = datetime.utcnow()
     
-    if _async_engine:
+    if get_engine():
         # Uses ON CONFLICT on (user_id, checkin_date) assuming unique constraint exists per user request
         query = text("""
             INSERT INTO basal_checkin (id, user_id, checkin_date, bg_mgdl, trend, age_min, source, created_at)
@@ -163,7 +163,7 @@ async def upsert_daily_checkin(user_id: str, day: date, bg_mgdl: float, trend: s
             "src": source,
             "now": now
         }
-        async with _async_engine.begin() as conn:
+        async with get_engine().begin() as conn:
             result = await conn.execute(query, params)
             row = result.fetchone()
             return dict(row._mapping) if row else None
@@ -183,14 +183,14 @@ async def upsert_daily_checkin(user_id: str, day: date, bg_mgdl: float, trend: s
         return entry
 
 async def list_checkins(user_id: str, days: int = 14) -> List[Dict[str, Any]]:
-    if _async_engine:
+    if get_engine():
         query = text("""
             SELECT * FROM basal_checkin
             WHERE user_id = :user_id
             ORDER BY checkin_date DESC
             LIMIT :limit
         """)
-        async with _async_engine.connect() as conn:
+        async with get_engine().connect() as conn:
             result = await conn.execute(query, {"user_id": user_id, "limit": days})
             rows = result.fetchall()
             return [dict(r._mapping) for r in rows]
@@ -200,7 +200,7 @@ async def list_checkins(user_id: str, days: int = 14) -> List[Dict[str, Any]]:
         return sorted_checks[:days]
 
 async def get_dose_history(user_id: str, days: int = 30) -> List[Dict[str, Any]]:
-    if _async_engine:
+    if get_engine():
         query = text("""
             SELECT * FROM basal_dose
             WHERE user_id = :user_id
@@ -210,7 +210,7 @@ async def get_dose_history(user_id: str, days: int = 30) -> List[Dict[str, Any]]
         # Calculate start date
         start_date = date.today() - timedelta(days=days)
         
-        async with _async_engine.connect() as conn:
+        async with get_engine().connect() as conn:
             result = await conn.execute(query, {"user_id": user_id, "start_date": start_date})
             rows = result.fetchall()
             return [dict(r._mapping) for r in rows]
@@ -230,8 +230,8 @@ async def delete_old_data(retention_days: int = 90) -> dict:
     
     deleted_counts = {}
     
-    if _async_engine:
-        async with _async_engine.begin() as conn:
+    if get_engine():
+        async with get_engine().begin() as conn:
             # 1. Basal Entries (Doses)
             # using effective_from or created_at. effective_from is safer for history.
             q1 = text("DELETE FROM basal_dose WHERE effective_from < :cutoff")

@@ -2,14 +2,14 @@
 import logging
 from typing import Optional, Dict, Any
 from sqlalchemy import text
-from app.core.db import _async_engine
+from app.core.db import get_engine
 from app.core.security import hash_password
 
 logger = logging.getLogger(__name__)
 
 async def init_auth_db():
     """Calculates/Creates the users table if it doesn't exist and seeds admin."""
-    if not _async_engine:
+    if not get_engine():
         logger.warning("Auth DB init skipped (in-memory mode)")
         return
 
@@ -31,7 +31,7 @@ async def init_auth_db():
         role = EXCLUDED.role;
     """
 
-    async with _async_engine.begin() as conn:
+    async with get_engine().begin() as conn:
         await conn.execute(text(create_table_sql))
         
         # Seed 'admin'
@@ -50,7 +50,7 @@ async def init_auth_db():
         logger.info("Auth DB initialized (users table checked/seeded).")
 
 async def get_user_by_username(username: str) -> Optional[Dict[str, Any]]:
-    if not _async_engine:
+    if not get_engine():
         # Fallback to file-based store (users.json) if DB not configured
         from app.core.settings import get_settings
         from app.core.datastore import UserStore
@@ -68,7 +68,7 @@ async def get_user_by_username(username: str) -> Optional[Dict[str, Any]]:
         return None
 
     query = text("SELECT * FROM users WHERE username = :username")
-    async with _async_engine.connect() as conn:
+    async with get_engine().connect() as conn:
         result = await conn.execute(query, {"username": username})
         row = result.fetchone()
         if row:
@@ -76,7 +76,7 @@ async def get_user_by_username(username: str) -> Optional[Dict[str, Any]]:
     return None
 
 async def update_user(username: str, updates: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    if not _async_engine:
+    if not get_engine():
         # Fallback to file store
         from app.core.settings import get_settings
         from app.core.datastore import UserStore
@@ -117,7 +117,7 @@ async def update_user(username: str, updates: Dict[str, Any]) -> Optional[Dict[s
         RETURNING *
     """
     
-    async with _async_engine.begin() as conn:
+    async with get_engine().begin() as conn:
         result = await conn.execute(text(sql), params)
         row = result.fetchone()
         if row:
@@ -125,7 +125,7 @@ async def update_user(username: str, updates: Dict[str, Any]) -> Optional[Dict[s
     return None
 
 async def create_user(username: str, password_hash: str, role: str = "user") -> Optional[Dict[str, Any]]:
-    if not _async_engine:
+    if not get_engine():
         return None
         
     sql = """
@@ -133,7 +133,7 @@ async def create_user(username: str, password_hash: str, role: str = "user") -> 
         VALUES (:username, :pwd, :role, :change)
         RETURNING *
     """
-    async with _async_engine.begin() as conn:
+    async with get_engine().begin() as conn:
         try:
             result = await conn.execute(text(sql), {
                 "username": username,
@@ -153,7 +153,7 @@ async def rename_user(old_username: str, new_username: str) -> bool:
     Renames a user and updates all references in other tables.
     Returns True if successful, False if new_username exists or error.
     """
-    if not _async_engine:
+    if not get_engine():
         return False
         
     # Check if new username exists
@@ -161,7 +161,7 @@ async def rename_user(old_username: str, new_username: str) -> bool:
     if user:
         return False # Already exists
 
-    async with _async_engine.begin() as conn:
+    async with get_engine().begin() as conn:
         try:
             # 1. Update USERS table
             # We defer constraints just in case? Postgres doesn't easily support disabling constraints inside transaction unless set to DEFERRABLE.
