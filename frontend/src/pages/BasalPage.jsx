@@ -81,27 +81,27 @@ function BasalEntrySection({ onRefresh }) {
 
         setMsg({ text: "Consultando Nightscout...", type: 'info' });
 
-        const nsConfig = getLocalNsConfig();
+        // Check Auto (Backend handles fallback)
+        const nsConfig = getLocalNsConfig() || {};
         const dateObj = new Date(date);
 
-        if (nsConfig && nsConfig.url) {
-            try {
-                await createBasalCheckin({
-                    nightscout_url: nsConfig.url,
-                    nightscout_token: nsConfig.token,
-                    created_at: dateObj.toISOString()
-                });
-                setMsg({ text: "✅ Guardado y analizado.", type: 'success' });
-                if (onRefresh) onRefresh();
-            } catch (e) {
-                const msg = e.message === "[object Object]" ? "Error desconocido (ver consola)" : e.message;
-                if (e.message === "[object Object]") console.error("Basal Checkin Error:", e);
-                setMsg({ text: "Error NS: " + msg, type: 'error' });
-            }
-        } else {
+        // Always try fetching first
+        try {
+            await createBasalCheckin({
+                nightscout_url: nsConfig.url,
+                nightscout_token: nsConfig.token,
+                created_at: dateObj.toISOString()
+            });
+            setMsg({ text: "✅ Guardado y analizado.", type: 'success' });
+            if (onRefresh) onRefresh();
+        } catch (e) {
+            console.warn("Auto Checkin Failed:", e);
+            // Fallback to manual
             setShowManualBg(true);
-            setMsg({ text: "⚠️ Nightscout no config. Indica glucosa manual.", type: 'warning' });
+            const errMsg = e.message === "[object Object]" ? "Desc" : e.message;
+            setMsg({ text: `⚠️ Fallo Auto: ${errMsg}. Usa manual.`, type: 'warning' });
         }
+        setLoading(false);
         setLoading(false);
     };
 
@@ -168,15 +168,15 @@ function BasalEntrySection({ onRefresh }) {
             </div>
 
             {showManualBg && (
-                <div className="fade-in" style={{ background: '#f8fafc', padding: '0.8rem', borderRadius: '8px', marginTop: '0.5rem' }}>
-                    <label style={{ fontSize: '0.75rem', fontWeight: 700, color: '#64748b' }}>GLUCOSA MANUAL (mg/dL)</label>
-                    <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.25rem' }}>
+                <div className="fade-in" style={{ background: '#f8fafc', padding: '1rem', borderRadius: '8px', marginTop: '0.8rem', border: '1px solid #e2e8f0' }}>
+                    <label style={{ fontSize: '0.85rem', fontWeight: 700, color: '#475569', display: 'block', marginBottom: '0.5rem' }}>GLUCOSA MANUAL (mg/dL)</label>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem' }}>
                         <input
-                            type="number" placeholder="BG"
+                            type="number" placeholder="Ej: 110"
                             value={manualBg} onChange={e => setManualBg(e.target.value)}
-                            style={{ flex: 1, padding: '0.5rem', border: '1px solid #cbd5e1', borderRadius: '6px' }}
+                            style={{ width: '100%', padding: '0.8rem', fontSize: '1.2rem', border: '1px solid #cbd5e1', borderRadius: '8px', textAlign: 'center' }}
                         />
-                        <Button onClick={handleManualCheckin} disabled={loading}>Guardar</Button>
+                        <Button onClick={handleManualCheckin} disabled={loading} style={{ width: '100%', padding: '0.8rem' }}>Guardar</Button>
                     </div>
                 </div>
             )}

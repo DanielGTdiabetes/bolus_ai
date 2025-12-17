@@ -45,8 +45,9 @@ export async function renderBasal() {
 
             <div style="display:flex; gap:0.5rem">
                 <button id="btn-save-simple" class="btn-ghost" style="flex:1; border:1px solid #cbd5e1">Solo Guardar</button>
-                <button id="btn-checkin-wake" class="btn-primary" style="flex:1.5">☀️ Al Levantarme (v2)</button>
+                <button id="btn-checkin-wake" class="btn-primary" style="flex:1.5">☀️ Al Levantarme (v3)</button>
             </div>
+            <script>console.log("Basal View v3 loaded");</script>
             <button id="btn-scan-last-night" class="btn-secondary" style="margin-top:0.8rem; width:100%; font-size:0.9rem; border:1px solid #cbd5e1; display:flex; align-items:center; justify-content:center; gap:0.5rem">
                 <span>🌙</span> Analizar Noche (00h-06h)
             </button>
