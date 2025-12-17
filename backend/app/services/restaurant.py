@@ -29,7 +29,7 @@ Devuelve un JSON ESTRICTO:
   "expectedFat": number,   // SUMA TOTAL de grasas estimadas (g)
   "expectedProtein": number, // SUMA TOTAL de proteínas estimadas (g)
   "confidence": number,    // 0.0 a 1.0 (Qué tan seguro estás de la estimación)
-  "items": [],             // Dejar vacío o poner nombres breves de lo detectado solo como referencia textual
+  "items": [],             // DEJAR SIEMPRE VACÍO (la descripción va en reasoning_short)
   "reasoning_short": "Resumen breve: 'Menú de ... con ... y ...'",
   "warnings": ["Si hay dudas sobre salsas, tamaños, etc."]
 }
