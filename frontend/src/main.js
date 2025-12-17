@@ -69,11 +69,9 @@ registerView('#/favorites', () => {
   import('./bridge.jsx').then(({ mountReactPage }) => mountReactPage('favorites'));
 });
 
-if (RESTAURANT_MODE_ENABLED) {
-  registerView('#/restaurant', () => {
-    import('./bridge.jsx').then(({ mountReactPage }) => mountReactPage('restaurant'));
-  });
-}
+registerView('#/restaurant', () => {
+  import('./bridge.jsx').then(({ mountReactPage }) => mountReactPage('restaurant'));
+});
 
 // Initialize Router
 initRouter();

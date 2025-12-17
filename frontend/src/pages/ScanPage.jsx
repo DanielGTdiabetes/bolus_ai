@@ -19,7 +19,7 @@ export default function ScanPage() {
 
     const [plateEntries, setPlateEntries] = useState(state.plateBuilder?.entries || []);
     const [scale, setScale] = useState(state.scale || { connected: false, grams: 0, stable: true });
-    const [useSimpleMode, setUseSimpleMode] = useState(!RESTAURANT_MODE_ENABLED);
+    const [useSimpleMode, setUseSimpleMode] = useState(true);
     const [scanMode, setScanMode] = useState('plate'); // Lifted state
 
     // Refresh local scale state when global store updates (via callback)
