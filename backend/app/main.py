@@ -49,6 +49,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@app.get("/healthz", include_in_schema=False)
+def healthz():
+    return {"status": "ok", "service": "bolus-ai"}
+
+@app.get("/api/health/check", include_in_schema=False)
+def health_check_direct():
+    return {"status": "ok", "direct": True}
+
 app.include_router(api_router, prefix="/api")
 
 
