@@ -35,8 +35,12 @@ async def init_auth_db():
         await conn.execute(text(create_table_sql))
         
         # Seed 'admin'
+        # Seed 'admin'
         # Default password 'admin123'
-        pwd = hash_password("admin123")
+        # use SHA256 hash to ensure stability and avoid bcrypt variations at startup
+        # SHA256('admin123') = 240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9
+        pwd = "240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9"
+        
         await conn.execute(text(seed_sql), {
             "username": "admin",
             "pwd": pwd,
