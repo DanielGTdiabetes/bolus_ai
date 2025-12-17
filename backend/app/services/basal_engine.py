@@ -294,7 +294,7 @@ async def evaluate_change_service(user_id: str, days: int, db: AsyncSession):
         return {"result": "insufficient", "summary": "Faltan datos posteriores."}
         
     if after["n"] < 4:
-         return {"result": "insufficient", "summary": f"Datos posteriores insuficientes (n={after['n']}, min 4)."}
+        return {"result": "insufficient", "summary": f"Datos posteriores insuficientes (n={after['n']}, min 4)."}
          
     # Scoring
     # score = %over + %under + (1 if hypos>=2 else 0)
