@@ -51,6 +51,22 @@ Devuelve JSON estricto:
 Reglas: sé conservador, indica dudas en warnings, NO propongas dosis de insulina ni órdenes de comida.
 """
 
+PROMPT_ANALYZE_PLATE_SIMPLE = """
+Eres un asistente para diabetes. Recibirás una foto de un plato servido.
+
+Objetivo: estimar carbohidratos de forma conservadora.
+
+Devuelve JSON estricto:
+{
+  "carbs": number,         // carbohidratos estimados del plato
+  "confidence": number,    // 0.0 a 1.0
+  "reasoning_short": "texto breve",
+  "warnings": ["..."]
+}
+
+Reglas: sé conservador y explícito en tus dudas. NO sugieras insulina.
+"""
+
 DEFAULT_MAX_MICRO_BOLUS_U = float(os.getenv("RESTAURANT_MAX_MICRO_BOLUS_U", "1.0"))
 DEFAULT_CONFIDENCE_FLOOR = 0.55
 DEFAULT_CARB_SUGGESTION = int(os.getenv("RESTAURANT_CORRECTION_CARBS", "12"))
@@ -70,6 +86,13 @@ class SuggestedAction(BaseModel):
     type: str
     units: Optional[float] = None
     carbsGrams: Optional[int] = None
+
+
+class RestaurantPlateEstimate(BaseModel):
+    carbs: Optional[float] = None
+    confidence: float
+    reasoning_short: str = ""
+    warnings: list[str] = Field(default_factory=list)
 
 
 class RestaurantPlateResult(BaseModel):
@@ -203,6 +226,34 @@ async def analyze_menu_with_gemini(image_bytes: bytes, mime_type: str) -> Restau
     )
 
 
+async def analyze_plate_with_gemini(image_bytes: bytes, mime_type: str) -> RestaurantPlateEstimate:
+    model = _configure_model()
+    parts = [
+        PROMPT_ANALYZE_PLATE_SIMPLE,
+        {"mime_type": mime_type, "data": image_bytes},
+    ]
+    response = await model.generate_content_async(parts, **_timeout_kwargs())
+    content = response.text
+    data = _safe_json_load(content)
+
+    carbs = data.get("carbs")
+    confidence = _float_value(data.get("confidence"), 0.4)
+    reasoning_short = data.get("reasoning_short", "")
+    warnings = _normalize_warnings(data.get("warnings"))
+
+    try:
+        carbs_val = round(float(carbs), 1) if carbs is not None else None
+    except Exception:
+        carbs_val = None
+
+    return RestaurantPlateEstimate(
+        carbs=carbs_val,
+        confidence=confidence,
+        reasoning_short=reasoning_short,
+        warnings=warnings,
+    )
+
+
 def _apply_guardrails(result: RestaurantPlateResult) -> RestaurantPlateResult:
     warnings = list(result.warnings or [])
     action = SuggestedAction(type="NO_ACTION")
@@ -232,7 +283,42 @@ def _apply_guardrails(result: RestaurantPlateResult) -> RestaurantPlateResult:
     return result
 
 
-async def compare_plate_with_gemini(image_bytes: bytes, mime_type: str, expected_carbs: float) -> RestaurantPlateResult:
+def guardrails_from_totals(
+    expected_carbs: float,
+    actual_carbs: float,
+    confidence: Optional[float] = None,
+    base_warnings: Optional[list[str]] = None,
+    reasoning_short: str | None = None,
+) -> RestaurantPlateResult:
+    warnings = _normalize_warnings(base_warnings)
+    try:
+        expected_val = round(float(expected_carbs), 1)
+    except Exception as exc:
+        raise RuntimeError("expected_carbs_missing") from exc
+
+    try:
+        actual_val = round(float(actual_carbs), 1)
+    except Exception as exc:
+        raise RuntimeError("actual_carbs_missing") from exc
+
+    delta = round(actual_val - expected_val, 1)
+    result = RestaurantPlateResult(
+        expectedCarbs=expected_val,
+        actualCarbs=actual_val,
+        deltaCarbs=delta,
+        confidence=_float_value(confidence, DEFAULT_CONFIDENCE_FLOOR),
+        reasoning_short=reasoning_short or "Ajuste agregado de sesión restaurante",
+        warnings=warnings,
+    )
+    return _apply_guardrails(result)
+
+
+async def compare_plate_with_gemini(
+    image_bytes: bytes,
+    mime_type: str,
+    expected_carbs: float,
+    confidence_override: Optional[float] = None,
+) -> RestaurantPlateResult:
     model = _configure_model()
     prompt = PROMPT_COMPARE_PLATE + f"\nexpectedCarbs={expected_carbs}"
     parts = [prompt, {"mime_type": mime_type, "data": image_bytes}]
@@ -261,7 +347,7 @@ async def compare_plate_with_gemini(image_bytes: bytes, mime_type: str, expected
         expectedCarbs=float(expected_carbs),
         actualCarbs=actual_val,
         deltaCarbs=delta,
-        confidence=confidence,
+        confidence=confidence_override if confidence_override is not None else confidence,
         reasoning_short=reasoning_short,
         warnings=warnings,
     )

@@ -1,10 +1,16 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Header } from '../components/layout/Header';
 import { BottomNav } from '../components/layout/BottomNav';
 import { Card, Button } from '../components/ui/Atoms';
-import { analyzeMenuImage, comparePlateImage } from '../lib/restaurantApi';
+import {
+  analyzeMenuImage,
+  analyzePlateImage,
+  calculateRestaurantAdjustment,
+} from '../lib/restaurantApi';
 import { saveTreatment } from '../lib/api';
 import { RESTAURANT_CORRECTION_CARBS } from '../lib/featureFlags';
+import { navigate } from '../modules/core/router';
+import { state } from '../modules/core/store';
 
 const SESSION_KEY = 'restaurant_session_v1';
 const SESSION_TTL_MS = 6 * 60 * 60 * 1000; // 6h
@@ -13,13 +19,15 @@ const defaultSession = () => ({
   sessionId: crypto.randomUUID ? crypto.randomUUID() : String(Date.now()),
   createdAt: new Date().toISOString(),
   expectedCarbs: null,
-  items: [],
+  expectedConfidence: null,
+  expectedItems: [],
+  menuWarnings: [],
   reasoning_short: '',
-  warnings: [],
-  preBolus: { applied: false, units: 0, percent: 75 },
-  actualCarbs: null,
+  plates: [],
+  actualCarbsTotal: 0,
   deltaCarbs: null,
   suggestedAction: null,
+  finalizedAt: null,
 });
 
 function loadSession() {
@@ -39,17 +47,9 @@ function loadSession() {
   }
 }
 
-function persistSession(session) {
+function persistSession(session, actualCarbsTotal) {
   if (!session) return;
-  localStorage.setItem(SESSION_KEY, JSON.stringify(session));
-}
-
-function deriveStep(session, currentStep) {
-  if (!session || !session.expectedCarbs) return 'menu';
-  if (session.actualCarbs !== null) return 'settlement';
-  if (currentStep === 'plate') return 'plate';
-  if (currentStep === 'settlement') return 'settlement';
-  return 'waiting';
+  localStorage.setItem(SESSION_KEY, JSON.stringify({ ...session, actualCarbsTotal }));
 }
 
 function WarningList({ warnings }) {
@@ -74,25 +74,34 @@ function InfoRow({ label, value }) {
 
 export default function RestaurantPage() {
   const [session, setSession] = useState(() => loadSession() || defaultSession());
-  const [step, setStep] = useState(() => deriveStep(loadSession(), 'menu'));
   const [menuImage, setMenuImage] = useState(null);
   const [plateImage, setPlateImage] = useState(null);
   const [menuLoading, setMenuLoading] = useState(false);
   const [plateLoading, setPlateLoading] = useState(false);
+  const [closing, setClosing] = useState(false);
   const [error, setError] = useState('');
-  const [preBolusPlan, setPreBolusPlan] = useState({ totalUnits: '', percent: 75 });
   const [statusMessage, setStatusMessage] = useState('');
-  const stepLabel = useMemo(() => ({
-    menu: 'Carta',
-    waiting: 'Espera',
-    plate: 'Plato',
-    settlement: 'Liquidación',
-  }[step] || 'Carta'), [step]);
+  const menuInputRef = useRef(null);
+  const plateInputRef = useRef(null);
+
+  const actualCarbsTotal = useMemo(
+    () => session.plates.reduce((sum, plate) => sum + (plate.carbs || 0), 0),
+    [session.plates]
+  );
+
+  const aggregateConfidence = useMemo(() => {
+    const confidences = [];
+    if (session.expectedConfidence) confidences.push(session.expectedConfidence);
+    session.plates.forEach((p) => {
+      if (p.confidence) confidences.push(p.confidence);
+    });
+    if (confidences.length === 0) return null;
+    return Math.min(...confidences);
+  }, [session.expectedConfidence, session.plates]);
 
   useEffect(() => {
-    setStep((prev) => deriveStep(session, prev));
-    persistSession(session);
-  }, [session]);
+    persistSession(session, actualCarbsTotal);
+  }, [session, actualCarbsTotal]);
 
   const resetSession = () => {
     const fresh = defaultSession();
@@ -101,7 +110,6 @@ export default function RestaurantPage() {
     setPlateImage(null);
     setError('');
     setStatusMessage('');
-    setStep('menu');
   };
 
   const handleMenuUpload = async (e) => {
@@ -115,19 +123,16 @@ export default function RestaurantPage() {
     setMenuLoading(true);
     try {
       const result = await analyzeMenuImage(menuImage);
-      const updated = {
-        ...session,
+      const freshSession = defaultSession();
+      setSession({
+        ...freshSession,
         expectedCarbs: result.expectedCarbs ?? null,
-        items: result.items || [],
+        expectedConfidence: result.confidence ?? null,
+        expectedItems: result.items || [],
         reasoning_short: result.reasoning_short || '',
-        warnings: Array.from(new Set([...(session.warnings || []), ...(result.warnings || [])])),
-        suggestedAction: null,
-        actualCarbs: null,
-        deltaCarbs: null,
-      };
-      setSession(updated);
+        menuWarnings: result.warnings || [],
+      });
       setStatusMessage('Carta analizada. Estimación lista.');
-      setStep('waiting');
     } catch (err) {
       setError(err.message);
     } finally {
@@ -135,45 +140,12 @@ export default function RestaurantPage() {
     }
   };
 
-  const handlePreBolusApply = async () => {
-    setError('');
-    setStatusMessage('');
-    if (!session.expectedCarbs) {
-      setError('Primero estima los carbohidratos de la carta.');
-      return;
-    }
-    const totalUnits = parseFloat(preBolusPlan.totalUnits);
-    if (!totalUnits || Number.isNaN(totalUnits)) {
-      setError('Introduce las unidades planificadas.');
-      return;
-    }
-    const percent = Math.min(80, Math.max(70, preBolusPlan.percent || 75));
-    const units = parseFloat((totalUnits * (percent / 100)).toFixed(2));
-
-    try {
-      await saveTreatment({
-        insulin: units,
-        carbs: 0,
-        created_at: new Date().toISOString(),
-        notes: `Restaurant pre-bolo ${percent}% (expected ${session.expectedCarbs}g)`,
-        enteredBy: 'BolusAI',
-      });
-      setSession({
-        ...session,
-        preBolus: { applied: true, units, percent },
-      });
-      setStatusMessage('Pre-bolo aplicado y registrado.');
-    } catch (err) {
-      setError(err.message || 'No se pudo aplicar el pre-bolo');
-    }
-  };
-
-  const handlePlateUpload = async (e) => {
+  const handleAddPlate = async (e) => {
     e.preventDefault();
     setError('');
     setStatusMessage('');
     if (!session.expectedCarbs) {
-      setError('Primero necesitas la estimación de la carta.');
+      setError('Primero estima los carbohidratos de la carta.');
       return;
     }
     if (!plateImage) {
@@ -182,21 +154,63 @@ export default function RestaurantPage() {
     }
     setPlateLoading(true);
     try {
-      const result = await comparePlateImage({ imageFile: plateImage, expectedCarbs: session.expectedCarbs });
-      const updated = {
-        ...session,
-        actualCarbs: result.actualCarbs ?? null,
-        deltaCarbs: result.deltaCarbs ?? null,
-        suggestedAction: result.suggestedAction || null,
-        warnings: Array.from(new Set([...(session.warnings || []), ...(result.warnings || [])])),
+      const result = await analyzePlateImage(plateImage);
+      const plate = {
+        id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}`,
+        carbs: result.carbs ?? 0,
+        confidence: result.confidence ?? null,
+        warnings: result.warnings || [],
+        reasoning_short: result.reasoning_short || '',
+        capturedAt: new Date().toISOString(),
       };
-      setSession(updated);
-      setStatusMessage('Comparación lista. Revisa la sugerencia antes de aplicar.');
-      setStep('settlement');
+      setSession((prev) => ({
+        ...prev,
+        plates: [...prev.plates, plate],
+        deltaCarbs: null,
+        suggestedAction: null,
+        finalizedAt: null,
+        menuWarnings: Array.from(new Set([...(prev.menuWarnings || []), ...(result.warnings || [])])),
+      }));
+      setPlateImage(null);
+      if (plateInputRef.current) plateInputRef.current.value = '';
+      setStatusMessage('Plato añadido a la sesión.');
     } catch (err) {
       setError(err.message);
     } finally {
       setPlateLoading(false);
+    }
+  };
+
+  const handleFinishSession = async () => {
+    setError('');
+    setStatusMessage('');
+    if (!session.expectedCarbs) {
+      setError('Necesitas estimar la carta primero.');
+      return;
+    }
+    setClosing(true);
+    try {
+      const adjustment = await calculateRestaurantAdjustment({
+        expectedCarbs: session.expectedCarbs,
+        actualCarbs: actualCarbsTotal,
+        confidence: aggregateConfidence,
+      });
+
+      setSession((prev) => ({
+        ...prev,
+        actualCarbsTotal,
+        deltaCarbs: adjustment.deltaCarbs,
+        suggestedAction: adjustment.suggestedAction,
+        finalizedAt: new Date().toISOString(),
+        menuWarnings: Array.from(
+          new Set([...(prev.menuWarnings || []), ...(adjustment.warnings || [])])
+        ),
+      }));
+      setStatusMessage('Resumen listo. Revisa y confirma antes de aplicar.');
+    } catch (err) {
+      setError(err.message || 'No se pudo calcular el ajuste.');
+    } finally {
+      setClosing(false);
     }
   };
 
@@ -216,14 +230,14 @@ export default function RestaurantPage() {
       insulin: 0,
       carbs: 0,
       created_at: nowIso,
-      notes: `Restaurant action (${action.type}) delta=${session.deltaCarbs}g`,
+      notes: `Sesión restaurante delta=${session.deltaCarbs}g (${action.type})`,
       enteredBy: 'BolusAI',
     };
 
     if (action.type === 'ADD_INSULIN') {
       payload.insulin = action.units;
     } else if (action.type === 'EAT_CARBS') {
-      payload.carbs = action.carbsGrams;
+      payload.carbs = action.carbsGrams || RESTAURANT_CORRECTION_CARBS;
     }
 
     try {
@@ -234,143 +248,229 @@ export default function RestaurantPage() {
     }
   };
 
-  const estimatedPreBolusUnits = useMemo(() => {
-    const totalUnits = parseFloat(preBolusPlan.totalUnits);
-    if (!totalUnits || Number.isNaN(totalUnits)) return 0;
-    return parseFloat((totalUnits * (preBolusPlan.percent / 100)).toFixed(2));
-  }, [preBolusPlan]);
+  const handleSendToBolus = () => {
+    if (!session.expectedCarbs) return;
+    state.tempCarbs = session.expectedCarbs;
+    state.tempReason = 'restaurant_menu';
+    navigate('#/bolus');
+  };
+
+  const sessionStateLabel = session.expectedCarbs ? 'Sesión activa' : 'Sin sesión';
 
   return (
     <div className="page" style={{ background: '#f8fafc', minHeight: '100vh' }}>
       <Header title="Sesión restaurante" />
       <main style={{ padding: '1rem', paddingBottom: '5rem' }}>
         {error && (
-          <div style={{ background: '#fef2f2', color: '#991b1b', padding: '0.75rem', borderRadius: '8px', marginBottom: '1rem' }}>
+          <div
+            style={{
+              background: '#fef2f2',
+              color: '#991b1b',
+              padding: '0.75rem',
+              borderRadius: '8px',
+              marginBottom: '1rem',
+            }}
+          >
             {error}
           </div>
         )}
         {statusMessage && (
-          <div style={{ background: '#ecfeff', color: '#155e75', padding: '0.75rem', borderRadius: '8px', marginBottom: '1rem' }}>
+          <div
+            style={{
+              background: '#ecfeff',
+              color: '#155e75',
+              padding: '0.75rem',
+              borderRadius: '8px',
+              marginBottom: '1rem',
+            }}
+          >
             {statusMessage}
           </div>
         )}
 
         <div style={{ marginBottom: '1rem', color: '#475569', fontWeight: 600 }}>
-          Paso actual: {stepLabel}
+          Estado: {sessionStateLabel}
         </div>
 
         <Card>
-          <h2 style={{ marginTop: 0 }}>1) Carta</h2>
-          <p style={{ color: '#475569' }}>Sube foto de la carta o menú. El sistema estimará carbohidratos de forma conservadora.</p>
+          <h2 style={{ marginTop: 0 }}>Carta</h2>
+          <p style={{ color: '#475569' }}>
+            Sube foto de la carta o menú. El sistema estimará carbohidratos de forma conservadora.
+          </p>
           <form onSubmit={handleMenuUpload}>
-            <input type="file" accept="image/*" onChange={(e) => setMenuImage(e.target.files?.[0] || null)} />
+            <input
+              type="file"
+              accept="image/*"
+              ref={menuInputRef}
+              onChange={(e) => setMenuImage(e.target.files?.[0] || null)}
+            />
             <div style={{ marginTop: '0.75rem', display: 'flex', gap: '0.5rem' }}>
-              <Button type="submit" disabled={menuLoading}>{menuLoading ? 'Analizando...' : 'Analizar carta'}</Button>
-              <Button type="button" style={{ background: '#e2e8f0', color: '#0f172a' }} onClick={resetSession}>Reiniciar</Button>
+              <Button type="submit" disabled={menuLoading}>
+                {menuLoading ? 'Analizando...' : 'Analizar carta'}
+              </Button>
+              <Button type="button" style={{ background: '#e2e8f0', color: '#0f172a' }} onClick={resetSession}>
+                Reiniciar
+              </Button>
             </div>
           </form>
 
           {session.expectedCarbs && (
-            <div style={{ marginTop: '1rem', padding: '0.75rem', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+            <div
+              style={{
+                marginTop: '1rem',
+                padding: '0.75rem',
+                background: '#f8fafc',
+                borderRadius: '8px',
+                border: '1px solid #e2e8f0',
+              }}
+            >
               <InfoRow label="Carbohidratos esperados" value={`${session.expectedCarbs} g`} />
-              {session.items?.length > 0 && (
+              {session.expectedConfidence && (
+                <InfoRow label="Confianza" value={`${Math.round(session.expectedConfidence * 100)}%`} />
+              )}
+              {session.expectedItems?.length > 0 && (
                 <div style={{ marginTop: '0.5rem' }}>
                   <strong style={{ color: '#0f172a' }}>Platos detectados:</strong>
                   <ul style={{ marginTop: '0.25rem', paddingLeft: '1.1rem', color: '#475569' }}>
-                    {session.items.map((item, idx) => (
+                    {session.expectedItems.map((item, idx) => (
                       <li key={idx}>{item.name} ({item.carbs_g ?? '?'}g)</li>
                     ))}
                   </ul>
                 </div>
               )}
-              {session.reasoning_short && <p style={{ color: '#475569', marginTop: '0.5rem' }}>{session.reasoning_short}</p>}
-              <WarningList warnings={session.warnings} />
+              {session.reasoning_short && (
+                <p style={{ color: '#475569', marginTop: '0.5rem' }}>{session.reasoning_short}</p>
+              )}
+              <WarningList warnings={session.menuWarnings} />
+              <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.75rem' }}>
+                <Button type="button" onClick={handleSendToBolus}>
+                  Calcular bolo inicial
+                </Button>
+              </div>
             </div>
           )}
         </Card>
 
-        <Card>
-          <h2 style={{ marginTop: 0 }}>2) Pre-bolo conservador</h2>
-          <p style={{ color: '#475569' }}>Aplica solo si ya tienes la estimación de la carta. Usa 70-80% de tu bolo planificado.</p>
-          <div style={{ display: 'grid', gap: '0.5rem', marginTop: '0.5rem' }}>
-            <label style={{ color: '#334155' }}>
-              Bolo planificado (U)
-              <input
-                type="number"
-                min="0"
-                step="0.1"
-                value={preBolusPlan.totalUnits}
-                onChange={(e) => setPreBolusPlan({ ...preBolusPlan, totalUnits: e.target.value })}
-                style={{ width: '100%', padding: '0.4rem', marginTop: '0.25rem' }}
+        {session.expectedCarbs && (
+          <Card>
+            <h2 style={{ marginTop: 0 }}>Sesión activa</h2>
+            <p style={{ color: '#475569' }}>
+              Añade fotos de cada plato. Sumaremos los carbohidratos detectados y te daremos un ajuste seguro al terminar.
+            </p>
+
+            <div style={{ display: 'grid', gap: '0.5rem', marginTop: '0.5rem' }}>
+              <InfoRow label="Total planificado" value={`${session.expectedCarbs} g`} />
+              <InfoRow label="Total actual" value={`${actualCarbsTotal} g`} />
+              <InfoRow
+                label="Delta"
+                value={`${(actualCarbsTotal - (session.expectedCarbs || 0)).toFixed(1)} g`}
               />
-            </label>
-            <label style={{ color: '#334155' }}>
-              Porcentaje (70-80%)
-              <input
-                type="number"
-                min="70"
-                max="80"
-                step="1"
-                value={preBolusPlan.percent}
-                onChange={(e) => setPreBolusPlan({ ...preBolusPlan, percent: Number(e.target.value) })}
-                style={{ width: '100%', padding: '0.4rem', marginTop: '0.25rem' }}
-              />
-            </label>
-            <div style={{ color: '#0f172a', fontWeight: 700 }}>
-              Pre-bolo sugerido: {estimatedPreBolusUnits} U
             </div>
-            <Button type="button" onClick={handlePreBolusApply} disabled={!session.expectedCarbs}>
-              Aplicar
-            </Button>
-            {session.preBolus?.applied && (
-              <div style={{ color: '#16a34a', fontWeight: 600 }}>
-                ✅ Pre-bolo registrado ({session.preBolus.units}U @ {session.preBolus.percent}%)
+
+            <div style={{ marginTop: '0.75rem', display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+              <Button type="button" onClick={() => plateInputRef.current?.click()} disabled={plateLoading}>
+                {plateLoading ? 'Analizando...' : 'Añadir plato (foto)'}
+              </Button>
+              <input
+                type="file"
+                accept="image/*"
+                ref={plateInputRef}
+                hidden
+                onChange={(e) => setPlateImage(e.target.files?.[0] || null)}
+              />
+              <Button type="button" onClick={handleAddPlate} disabled={plateLoading || !plateImage}>
+                Guardar plato
+              </Button>
+            </div>
+
+            <div style={{ marginTop: '1rem', borderTop: '1px solid #e2e8f0', paddingTop: '0.75rem' }}>
+              <strong style={{ color: '#0f172a' }}>Platos</strong>
+              {session.plates.length === 0 && (
+                <p style={{ color: '#94a3b8' }}>Aún no hay fotos de platos.</p>
+              )}
+              {session.plates.map((plate) => (
+                <div
+                  key={plate.id}
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    padding: '0.5rem 0',
+                    borderBottom: '1px solid #e2e8f0',
+                  }}
+                >
+                  <div>
+                    <div style={{ fontWeight: 700 }}>{plate.carbs ?? '?'} g</div>
+                    <div style={{ color: '#475569', fontSize: '0.85rem' }}>
+                      {new Date(plate.capturedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </div>
+                    {plate.reasoning_short && (
+                      <div style={{ color: '#64748b', fontSize: '0.85rem', marginTop: '0.25rem' }}>
+                        {plate.reasoning_short}
+                      </div>
+                    )}
+                    <WarningList warnings={plate.warnings} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </Card>
+        )}
+
+        {session.expectedCarbs && (
+          <Card>
+            <h2 style={{ marginTop: 0 }}>Cierre</h2>
+            <p style={{ color: '#475569' }}>
+              Al terminar la comida, revisa el balance y aplica el ajuste si procede.
+            </p>
+            <div style={{ display: 'grid', gap: '0.35rem', marginTop: '0.5rem' }}>
+              <InfoRow label="Planificado" value={`${session.expectedCarbs ?? 0} g`} />
+              <InfoRow label="Consumido" value={`${actualCarbsTotal} g`} />
+              <InfoRow label="Delta" value={`${session.deltaCarbs ?? (actualCarbsTotal - (session.expectedCarbs || 0)).toFixed(1)} g`} />
+            </div>
+
+            <div style={{ marginTop: '0.75rem', display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+              <Button type="button" onClick={handleFinishSession} disabled={closing}>
+                {closing ? 'Calculando...' : 'Terminar'}
+              </Button>
+            </div>
+
+            {session.suggestedAction && (
+              <div
+                style={{
+                  marginTop: '0.75rem',
+                  padding: '0.75rem',
+                  background: '#f8fafc',
+                  borderRadius: '8px',
+                  border: '1px solid #e2e8f0',
+                }}
+              >
+                <div style={{ fontWeight: 700, color: '#0f172a' }}>
+                  Acción sugerida: {session.suggestedAction.type}
+                </div>
+                {session.suggestedAction.type === 'ADD_INSULIN' && (
+                  <div style={{ color: '#334155', marginTop: '0.25rem' }}>
+                    Micro-bolo recomendado: {session.suggestedAction.units} U
+                  </div>
+                )}
+                {session.suggestedAction.type === 'EAT_CARBS' && (
+                  <div style={{ color: '#334155', marginTop: '0.25rem' }}>
+                    Toma {session.suggestedAction.carbsGrams || RESTAURANT_CORRECTION_CARBS} g de HC.
+                  </div>
+                )}
+                <WarningList warnings={session.menuWarnings} />
+                <Button
+                  type="button"
+                  onClick={handleApplyAction}
+                  disabled={session.suggestedAction.type === 'NO_ACTION'}
+                  style={{ marginTop: '0.5rem' }}
+                >
+                  Aplicar ajuste
+                </Button>
               </div>
             )}
-          </div>
-        </Card>
-
-        <Card>
-          <h2 style={{ marginTop: 0 }}>3) Espera y foto del plato</h2>
-          <p style={{ color: '#475569' }}>Cuando llegue el plato, sube la foto para comparar con lo planificado.</p>
-          <form onSubmit={handlePlateUpload}>
-            <input type="file" accept="image/*" onChange={(e) => setPlateImage(e.target.files?.[0] || null)} />
-            <div style={{ marginTop: '0.75rem', display: 'flex', gap: '0.5rem' }}>
-              <Button type="submit" disabled={plateLoading || !session.expectedCarbs}>
-                {plateLoading ? 'Comparando...' : 'Comparar plato'}
-              </Button>
-              <Button type="button" style={{ background: '#e2e8f0', color: '#0f172a' }} onClick={() => setStep('plate')}>Ir a paso Plato</Button>
-            </div>
-          </form>
-        </Card>
-
-        <Card>
-          <h2 style={{ marginTop: 0 }}>4) Liquidación</h2>
-          {session.actualCarbs === null ? (
-            <p style={{ color: '#94a3b8' }}>Pendiente de foto del plato.</p>
-          ) : (
-            <div>
-              <InfoRow label="Planificado" value={`${session.expectedCarbs} g`} />
-              <InfoRow label="Detectado" value={`${session.actualCarbs} g`} />
-              <InfoRow label="Delta" value={`${session.deltaCarbs} g`} />
-              {session.suggestedAction && (
-                <div style={{ marginTop: '0.75rem', padding: '0.75rem', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
-                  <div style={{ fontWeight: 700, color: '#0f172a' }}>Acción sugerida: {session.suggestedAction.type}</div>
-                  {session.suggestedAction.type === 'ADD_INSULIN' && (
-                    <div style={{ color: '#334155', marginTop: '0.25rem' }}>Micro-bolo recomendado: {session.suggestedAction.units} U</div>
-                  )}
-                  {session.suggestedAction.type === 'EAT_CARBS' && (
-                    <div style={{ color: '#334155', marginTop: '0.25rem' }}>Come {session.suggestedAction.carbsGrams || RESTAURANT_CORRECTION_CARBS} g de HC.</div>
-                  )}
-                  <WarningList warnings={session.warnings} />
-                  <Button type="button" onClick={handleApplyAction} disabled={session.suggestedAction.type === 'NO_ACTION'} style={{ marginTop: '0.5rem' }}>
-                    Aplicar acción
-                  </Button>
-                </div>
-              )}
-            </div>
-          )}
-        </Card>
+          </Card>
+        )}
       </main>
       <BottomNav />
     </div>
