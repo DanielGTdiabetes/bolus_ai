@@ -34,11 +34,12 @@ export async function renderBasal() {
                 </div>
             </div>
 
-            <div id="manual-bg-row" class="hidden" style="margin-bottom:1rem; padding:0.8rem; background:#f8fafc; border-radius:8px">
-                 <label style="font-size:0.75rem; font-weight:700; color:#64748b; margin-bottom:0.25rem; display:block">GLUCOSA MANUAL (mg/dL)</label>
-                 <div style="display:flex; gap:0.5rem; align-items: stretch;">
-                    <input type="number" id="manual-bg-input" placeholder="Ej: 110" style="flex:2; padding:0.6rem; font-size:1.1rem; border:1px solid #cbd5e1; border-radius:6px; min-width: 0;">
-                     <button id="btn-save-manual" class="btn-primary" style="flex:1; padding:0.6rem; white-space:nowrap;">Guardar</button>
+            <div id="manual-bg-row" class="hidden" style="margin-bottom:1rem; padding:1rem; background:#f8fafc; border-radius:8px; border:1px solid #e2e8f0;">
+                 <label style="font-size:0.85rem; font-weight:700; color:#475569; margin-bottom:0.5rem; display:block">GLUCOSA MANUAL (mg/dL)</label>
+                 
+                 <div style="display:flex; flex-direction:column; gap:0.8rem;">
+                    <input type="number" id="manual-bg-input" placeholder="Ej: 110" style="width:100%; padding:0.8rem; font-size:1.2rem; border:1px solid #cbd5e1; border-radius:8px; text-align:center;">
+                    <button id="btn-save-manual" class="btn-primary" style="width:100%; padding:0.8rem; font-size:1rem;">Guardar</button>
                  </div>
             </div>
 
