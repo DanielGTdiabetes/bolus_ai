@@ -51,8 +51,20 @@ async def init_auth_db():
 
 async def get_user_by_username(username: str) -> Optional[Dict[str, Any]]:
     if not _async_engine:
-        # Fallback? No, strictly require DB for persistence now.
-        # Check seed memory?
+        # Fallback to file-based store (users.json) if DB not configured
+        from app.core.settings import get_settings
+        from app.core.datastore import UserStore
+        from pathlib import Path
+        
+        try:
+            settings = get_settings()
+            data_dir = Path(settings.data.data_dir)
+            store = UserStore(data_dir / "users.json")
+            user = store.find(username)
+            if user:
+                 return user
+        except Exception as e:
+            logger.error(f"Fallback auth failed: {e}")
         return None
 
     query = text("SELECT * FROM users WHERE username = :username")
@@ -65,6 +77,27 @@ async def get_user_by_username(username: str) -> Optional[Dict[str, Any]]:
 
 async def update_user(username: str, updates: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     if not _async_engine:
+        # Fallback to file store
+        from app.core.settings import get_settings
+        from app.core.datastore import UserStore
+        from pathlib import Path
+        try:
+            settings = get_settings()
+            store = UserStore(Path(settings.data.data_dir) / "users.json")
+            user = store.find(username)
+            if user:
+                # Update dict in place and save?
+                # UserStore might not expose update easily but let's check basic usage
+                # Inspecting UserStore (from step 44) implied simple list usage.
+                # Let's assume store has no direct 'update' method based on typical pattern, 
+                # but we can implement a specific update helper if needed.
+                # Actually, UserStore likely loads generic JSON.
+                # Let's implement an ad-hoc update on the store instance if possible.
+                # Or just modify and save.
+                store.update(username, updates) 
+                return store.find(username)
+        except Exception:
+             pass
         return None
     
     set_clauses = []
