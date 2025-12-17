@@ -381,13 +381,14 @@ function BasalTimelineSection() {
                         <thead style={{ background: '#f8fafc', color: '#64748b', fontSize: '0.75rem' }}>
                             <tr>
                                 <th style={{ padding: '0.75rem' }}>Fecha</th>
+                                <th style={{ padding: '0.75rem' }}>Basal</th>
                                 <th style={{ padding: '0.75rem' }}>Despertar</th>
                                 <th style={{ padding: '0.75rem' }}>Noche</th>
                             </tr>
                         </thead>
                         <tbody>
-                            {loading && <tr><td colSpan="3" style={{ textAlign: 'center', padding: '1rem' }}>Cargando...</td></tr>}
-                            {!loading && items.length === 0 && <tr><td colSpan="3" style={{ textAlign: 'center', padding: '1rem' }}>No hay datos</td></tr>}
+                            {loading && <tr><td colSpan="4" style={{ textAlign: 'center', padding: '1rem' }}>Cargando...</td></tr>}
+                            {!loading && items.length === 0 && <tr><td colSpan="4" style={{ textAlign: 'center', padding: '1rem' }}>No hay datos</td></tr>}
                             {!loading && items.map((item, idx) => {
                                 const d = new Date(item.date);
                                 const dateStr = d.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric' });
@@ -395,6 +396,9 @@ function BasalTimelineSection() {
                                 return (
                                     <tr key={idx} style={{ borderBottom: '1px solid #f1f5f9' }}>
                                         <td style={{ padding: '0.75rem', color: '#334155' }}>{dateStr}</td>
+                                        <td style={{ padding: '0.75rem', fontWeight: 700, color: '#3b82f6' }}>
+                                            {item.dose_u ? item.dose_u + ' U' : '-'}
+                                        </td>
                                         <td style={{ padding: '0.75rem', color: '#334155' }}>
                                             {item.wake_bg ? (
                                                 <>

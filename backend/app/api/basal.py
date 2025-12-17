@@ -368,6 +368,7 @@ from app.services.nightscout_client import NightscoutClient
 # New Schema for Timeline
 class TimelineItem(BaseModel):
     date: date
+    dose_u: Optional[float]
     wake_bg: Optional[float]
     wake_trend: Optional[str]
     night_had_hypo: Optional[bool]

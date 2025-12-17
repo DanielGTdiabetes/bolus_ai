@@ -112,10 +112,26 @@ async def get_timeline_service(user_id: str, days: int, db: AsyncSession):
         BasalNightSummary.night_date >= start_date
     ).order_by(BasalNightSummary.night_date.desc())
     nights = (await db.execute(q_night)).scalars().all()
+
+    # Fetch Doses (BasalEntry in 'basal_dose' table usually)
+    # The table is defined in models/basal.py as BasalEntry mapping to 'basal_dose'
+    # We want valid doses in range.
+    q_dose = select(BasalEntry).where(
+        BasalEntry.user_id == user_id,
+        BasalEntry.effective_from >= start_date
+    ).order_by(BasalEntry.effective_from.desc(), BasalEntry.created_at.desc())
+    doses = (await db.execute(q_dose)).scalars().all()
     
     # Combine by Date
     c_map = {c.checkin_date: c for c in checkins}
     n_map = {n.night_date: n for n in nights}
+    
+    # Doses map: (date -> dose). If multiple, take latest created?
+    # effective_from is the key.
+    d_map = {}
+    for dose in doses:
+        if dose.effective_from not in d_map:
+             d_map[dose.effective_from] = dose
     
     items = []
     # Generate list for range
@@ -123,9 +139,11 @@ async def get_timeline_service(user_id: str, days: int, db: AsyncSession):
         d = date.today() - timedelta(days=i)
         c = c_map.get(d)
         n = n_map.get(d)
+        dose = d_map.get(d)
         
         items.append({
             "date": d.isoformat(),
+            "dose_u": dose.dose_u if dose else None,
             "wake_bg": c.bg_mgdl if c else None,
             "wake_trend": c.trend if c else None,
             "night_had_hypo": n.had_hypo if n else None,
@@ -138,7 +156,8 @@ async def get_timeline_service(user_id: str, days: int, db: AsyncSession):
         "items": items,
         "data_quality": {
             "wake_days": len(checkins),
-            "night_days": len(nights)
+            "night_days": len(nights),
+            "dose_days": len(d_map)
         }
     }
 
