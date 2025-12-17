@@ -94,7 +94,9 @@ function BasalEntrySection({ onRefresh }) {
                 setMsg({ text: "✅ Guardado y analizado.", type: 'success' });
                 if (onRefresh) onRefresh();
             } catch (e) {
-                setMsg({ text: "Error NS: " + e.message, type: 'error' });
+                const msg = e.message === "[object Object]" ? "Error desconocido (ver consola)" : e.message;
+                if (e.message === "[object Object]") console.error("Basal Checkin Error:", e);
+                setMsg({ text: "Error NS: " + msg, type: 'error' });
             }
         } else {
             setShowManualBg(true);

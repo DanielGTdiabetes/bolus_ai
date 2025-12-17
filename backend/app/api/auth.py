@@ -33,28 +33,21 @@ class PasswordChangeRequest(BaseModel):
     new_password: str = Field(min_length=8)
 
 
-def _user_store(settings: Settings = Depends(get_settings)) -> UserStore:
-    store = UserStore(Path(settings.data.data_dir) / "users.json")
-    store.ensure_seed_admin()
-    return store
-
-
-def _public_user(user: dict[str, str | bool]) -> UserPublic:
-    return UserPublic(
-        username=user["username"],
-        role=user["role"],
-        needs_password_change=user.get("needs_password_change", False),
-    )
-
-
 @router.post("/login", response_model=LoginResponse, summary="Login")
 async def login(
     payload: LoginRequest,
     settings: Settings = Depends(get_settings),
-    users: UserStore = Depends(_user_store),
 ):
-    user = users.find(payload.username)
-    if not user or not verify_password(payload.password, user.get("password_hash", "")):
+    from app.services.auth_repo import get_user_by_username
+    user = await get_user_by_username(payload.username)
+    
+    if not user:
+        # Check legacy/fallback if DB migration isn't full?
+        # Or just fail.
+        # Fallback to local store for initial migration if needed, but 'init_auth_db' should have seeded admin.
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+
+    if not verify_password(payload.password, user.get("password_hash", "")):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
 
     token_manager = get_token_manager(settings)
@@ -64,8 +57,9 @@ async def login(
 
 
 @router.get("/me", response_model=UserPublic, summary="Current user")
-async def me(username: str = Depends(auth_required), users: UserStore = Depends(_user_store)):
-    user = users.find(username)
+async def me(username: str = Depends(auth_required)):
+    from app.services.auth_repo import get_user_by_username
+    user = await get_user_by_username(username)
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
     return _public_user(user)
@@ -75,14 +69,18 @@ async def me(username: str = Depends(auth_required), users: UserStore = Depends(
 async def change_password(
     payload: PasswordChangeRequest,
     username: str = Depends(auth_required),
-    users: UserStore = Depends(_user_store),
 ):
-    user = users.find(username)
+    from app.services.auth_repo import get_user_by_username, update_user
+    user = await get_user_by_username(username)
+    
     if not user or not verify_password(payload.old_password, user.get("password_hash", "")):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid current password")
 
-    updated = users.update(
+    updated = await update_user(
         username,
         {"password_hash": hash_password(payload.new_password), "needs_password_change": False},
     )
+    if not updated:
+        raise HTTPException(status_code=500, detail="Failed to update password")
+        
     return {"ok": True, "user": _public_user(updated)}
