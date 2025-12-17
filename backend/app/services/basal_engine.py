@@ -119,7 +119,7 @@ async def get_timeline_service(user_id: str, days: int, db: AsyncSession):
     q_dose = select(BasalEntry).where(
         BasalEntry.user_id == user_id,
         BasalEntry.effective_from >= start_date
-    ).order_by(BasalEntry.effective_from.desc(), BasalEntry.created_at.desc())
+    ).order_by(BasalEntry.effective_from.desc(), BasalEntry.created_at.asc())
     doses = (await db.execute(q_dose)).scalars().all()
     
     # Combine by Date

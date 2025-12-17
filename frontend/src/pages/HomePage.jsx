@@ -154,8 +154,44 @@ function ActivityList({ onRefresh }) {
         setLoading(true);
         try {
             const config = getLocalNsConfig();
-            const all = await fetchTreatments({ ...config, count: 20 });
-            const valid = all.filter(t => parseFloat(t.insulin) > 0 || parseFloat(t.carbs) > 0).slice(0, 3);
+
+            // Parallel fetch: Treatments + Latest Basal
+            const [allTreatments, latestBasal] = await Promise.all([
+                fetchTreatments({ ...config, count: 20 }),
+                import('../lib/api').then(m => m.getLatestBasal()).catch(() => null)
+            ]);
+
+            // Map Treatments
+            let combined = allTreatments.map(t => ({
+                ...t,
+                dateObj: new Date(t.created_at || t.timestamp || t.date),
+                type: 'treatment'
+            }));
+
+            // Map Basal (if recent, e.g. last 48h)
+            if (latestBasal && latestBasal.dose_u > 0 && latestBasal.created_at) {
+                const basalDate = new Date(latestBasal.created_at);
+                const now = new Date();
+                const diffHours = (now - basalDate) / (1000 * 60 * 60);
+
+                if (diffHours < 48) {
+                    combined.push({
+                        insulin: latestBasal.dose_u,
+                        carbs: 0,
+                        created_at: latestBasal.created_at,
+                        dateObj: basalDate,
+                        notes: 'Basal Manual',
+                        enteredBy: 'BolusAI',
+                        type: 'basal'
+                    });
+                }
+            }
+
+            // Sort DESC
+            combined.sort((a, b) => b.dateObj - a.dateObj);
+
+            // Filter valid & Slice
+            const valid = combined.filter(t => (parseFloat(t.insulin) > 0 || parseFloat(t.carbs) > 0)).slice(0, 3);
             setItems(valid);
         } catch (e) {
             console.warn(e);
