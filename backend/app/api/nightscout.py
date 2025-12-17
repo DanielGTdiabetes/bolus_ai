@@ -447,7 +447,45 @@ async def get_treatments_server(
     # But later we sort by time. 
     # Let's verify we just filter duplicates effectively.
     
-    all_raw = ns_treatments + db_treatments + local_treatments
+    # D. Basal History (DB)
+    basal_treatments = []
+    try:
+        from app.services import basal_repo
+        # Fetch last 2 days of basal to be safe
+        basal_history = await basal_repo.get_dose_history(user.username, days=2)
+        
+        for b in basal_history:
+            # Check created_at
+            cat = b.get("created_at")
+            if not cat: continue
+            
+            # Ensure UTC aware if naive
+            if cat.tzinfo is None:
+                cat = cat.replace(tzinfo=timezone.utc)
+            
+            created_iso = cat.isoformat().replace("+00:00", "Z")
+            
+            basal_treatments.append({
+                "eventType": "Basal",
+                "created_at": created_iso,
+                "date": cat.timestamp() * 1000,
+                "insulin": float(b.get("dose_u") or 0),
+                "carbs": 0,
+                "notes": "Basal Dose",
+                "enteredBy": "BolusAI",
+                "source": "basal_db"
+            })
+            
+    except Exception as basal_ex:
+        logger.error(f"Error reading basal history: {basal_ex}")
+
+    # Combine all (NS preferred first in sort order if times identical?) 
+    # Actually deduplication logic will keep the first one encountered.
+    # So if we want NS to "win", we should process NS first?
+    # But later we sort by time. 
+    # Let's verify we just filter duplicates effectively.
+    
+    all_raw = ns_treatments + db_treatments + local_treatments + basal_treatments
     
     # Sort by time descending (Newest first)
     try:

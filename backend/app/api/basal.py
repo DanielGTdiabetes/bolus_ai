@@ -209,7 +209,8 @@ async def get_latest_dose(username: str = Depends(auth_required)):
 @router.post("/checkin", response_model=CheckinResponse)
 async def create_checkin(
     payload: CheckinRequest,
-    username: str = Depends(auth_required)
+    username: str = Depends(auth_required),
+    db: AsyncSession = Depends(get_db_session)
 ):
     """
     Obtiene BG de Nightscout, guarda check-in diario y analiza tendencia.
@@ -258,12 +259,28 @@ async def create_checkin(
         finally:
             await ns_client.aclose()
     else:
-        # No source provided
-        # If user just wants to log basal without checkin, they should use /dose or /entry.
-        # But if calling /checkin, we expect some data. 
-        # However, to be safe, if nothing provided, maybe we just return empty or error?
-        # Let's error for now as /checkin implies checkin data.
-        raise HTTPException(status_code=400, detail="Must provide Nightscout URL or Manual BG")
+        # Fallback: Check DB for config
+        from app.services.nightscout_secrets_service import get_ns_config
+        ns_config = await get_ns_config(db, username)
+        
+        if ns_config and ns_config.enabled and ns_config.url:
+            from app.services.nightscout_client import NightscoutClient, NightscoutError, NightscoutSGV
+            ns_client = NightscoutClient(base_url=ns_config.url, token=ns_config.api_secret)
+            try:
+                sgv_data: NightscoutSGV = await ns_client.get_latest_sgv()
+                bg_val = float(sgv_data.sgv)
+                direction = sgv_data.direction or ""
+                timestamp = sgv_data.date
+                
+                now_ms = datetime.utcnow().timestamp() * 1000
+                age_min = int((now_ms - timestamp) / 60000) if timestamp else 0
+            except Exception as e:
+                # If auto-fetch fails, we return error so client can prompt manual
+                raise HTTPException(status_code=400, detail=f"Error fetching from stored Nightscout: {str(e)}")
+            finally:
+                await ns_client.aclose()
+        else:
+            raise HTTPException(status_code=400, detail="Must provide Nightscout URL or Manual BG (No config found)")
 
     # 2. Save Checkin
     checkin_date = date.today()
