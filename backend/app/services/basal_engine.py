@@ -221,7 +221,7 @@ async def evaluate_change_service(user_id: str, days: int, db: AsyncSession):
     latest = entries[0]
     prev = entries[1]
     
-    if latest.units == prev.units:
+    if latest.dose_u == prev.dose_u:
          # No recent change detected in top 2... 
          # In real app verify looking back further?
          # User says: "cuando insertas una basal ... y dose_u difiere".
@@ -336,8 +336,8 @@ async def evaluate_change_service(user_id: str, days: int, db: AsyncSession):
     eval_entry = BasalChangeEvaluation(
         user_id=user_id,
         change_at=latest.created_at, # Using created_at as effective?
-        from_dose_u=prev.units,
-        to_dose_u=latest.units,
+        from_dose_u=prev.dose_u,
+        to_dose_u=latest.dose_u,
         days=days,
         result=result,
         summary=summary,
