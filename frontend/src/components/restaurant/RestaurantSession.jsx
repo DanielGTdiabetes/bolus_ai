@@ -7,7 +7,7 @@ import {
   addPlateToSession,
   finalizeRestaurantSession
 } from '../../lib/restaurantApi';
-import { saveTreatment, getCurrentGlucose, getLocalNsConfig } from '../../lib/api';
+import { saveTreatment, getCurrentGlucose, getLocalNsConfig, getIOBData } from '../../lib/api';
 import { formatTrend } from '../../modules/core/utils';
 import { RESTAURANT_CORRECTION_CARBS } from '../../lib/featureFlags';
 const SESSION_KEY = 'restaurant_session_v1';
@@ -265,6 +265,29 @@ export function RestaurantSession() {
       setError('No hay acción sugerida.');
       return;
     }
+
+    // Safety Check: IOB
+    if (action.type === 'ADD_INSULIN') {
+      try {
+        const config = getLocalNsConfig();
+        const iobData = await getIOBData(config);
+        const iob = iobData?.iob_u ?? iobData?.iob_total ?? 0;
+
+        if (iob > 0.5) {
+          const confirmedRisk = window.confirm(
+            `⚠️ PROTOCOLO DE SEGURIDAD\n\n` +
+            `Tienes ${iob.toFixed(2)} U de insulina activa (IOB).\n` +
+            `El sistema sugiere añadir ${action.units} U más.\n\n` +
+            `¿Estás seguro de que NO es insulina del bolo anterior actuando todavía?\n` +
+            `Si es del bolo dual/extendido, cancela para evitar hipoglucemia.`
+          );
+          if (!confirmedRisk) return;
+        }
+      } catch (e) {
+        console.warn("Safety check failed:", e);
+      }
+    }
+
     const confirmed = window.confirm('Confirma que deseas aplicar la acción sugerida.');
     if (!confirmed) return;
 
