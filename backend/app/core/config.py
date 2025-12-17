@@ -25,6 +25,6 @@ def get_gemini_model() -> str:
 
 def get_vision_timeout() -> int:
     try:
-        return int(get_env("GEMINI_TIMEOUT_SECONDS") or get_env("VISION_TIMEOUT_SECONDS") or "20")
+        return int(get_env("GEMINI_TIMEOUT_SECONDS") or get_env("VISION_TIMEOUT_SECONDS") or "60")
     except ValueError:
-        return 20
+        return 60

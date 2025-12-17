@@ -115,25 +115,61 @@ class RestaurantPlateResult(BaseModel):
     suggestedAction: SuggestedAction = Field(default_factory=lambda: SuggestedAction(type="NO_ACTION"))
 
 
+def _repair_json(json_str: str) -> str:
+    """
+    Attempts to repair truncated JSON by closing open brackets/braces in correct order.
+    """
+    stack = []
+    in_string = False
+    escape = False
+    
+    for char in json_str:
+        if in_string:
+            if escape:
+                escape = False
+            elif char == '\\':
+                escape = True
+            elif char == '"':
+                in_string = False
+        else:
+            if char == '"':
+                in_string = True
+            elif char == '{':
+                stack.append('}')
+            elif char == '[':
+                stack.append(']')
+            elif char == '}' or char == ']':
+                if stack and stack[-1] == char:
+                    stack.pop()
+                    
+    # Close any open string first
+    if in_string:
+        json_str += '"'
+        
+    # Close structures in reverse order (LIFO)
+    while stack:
+        json_str += stack.pop()
+        
+    return json_str
+
+
 def _safe_json_load(content: str) -> dict:
     if not content:
         raise RuntimeError("Empty response from vision provider")
 
+    # 1. Try direct load
     try:
         return json.loads(content)
     except json.JSONDecodeError:
         pass
 
-    # First attempt: Clean raw content
+    # 2. Markdown cleanup
     cleaned = content.strip()
-    
-    # Handle markdown code blocks
     if "```" in cleaned:
         match = re.search(r"```(?:\w+)?\s*(.*?)\s*```", cleaned, re.DOTALL)
         if match:
             cleaned = match.group(1)
         else:
-            # Handle start/end separately if regex didn't match (e.g. truncated end)
             if cleaned.startswith("```"):
                 cleaned = cleaned.split("\n", 1)[-1]
             if cleaned.endswith("```"):
@@ -146,30 +182,24 @@ def _safe_json_load(content: str) -> dict:
     except json.JSONDecodeError:
         pass
 
-    # Second attempt: Look for JSON object pattern
+    # 3. Aggressive extraction (outermost braces)
     match = re.search(r'(\{.*\})', content, re.DOTALL)
     if match:
+        candidate = match.group(1)
         try:
-            return json.loads(match.group(1))
+            return json.loads(candidate)
         except json.JSONDecodeError:
-            pass
+            # Try repairing the extracted candidate
+            try:
+                repaired = _repair_json(candidate)
+                return json.loads(repaired)
+            except json.JSONDecodeError:
+                pass
 
-    # Third attempt: Try to repair truncated JSON
+    # 4. Attempt repair on the cleaned content
     try:
-        # Simple repair: Close incomplete strings
-        if cleaned.count('"') % 2 != 0:
-            cleaned += '"'
-        
-        # Close open lists/objects
-        open_brackets = cleaned.count('[') - cleaned.count(']')
-        open_braces = cleaned.count('{') - cleaned.count('}')
-        
-        if open_brackets > 0:
-            cleaned += ']' * open_brackets
-        if open_braces > 0:
-            cleaned += '}' * open_braces
-            
-        return json.loads(cleaned)
+        repaired = _repair_json(cleaned)
+        return json.loads(repaired)
     except json.JSONDecodeError:
         pass
 
@@ -199,7 +229,7 @@ def _configure_model():
     genai.configure(api_key=api_key)
     generation_config = {
         "temperature": 0.1,
-        "max_output_tokens": 8192,
+        "max_output_tokens": 2048,
         "response_mime_type": "application/json",
     }
     safety_settings = {
@@ -231,8 +261,21 @@ async def analyze_menu_with_gemini(image_bytes: bytes, mime_type: str) -> Restau
         PROMPT_ANALYZE_MENU,
         {"mime_type": mime_type, "data": image_bytes},
     ]
-    response = await model.generate_content_async(parts, **_timeout_kwargs())
-    content = response.text
+    try:
+        response = await model.generate_content_async(parts, **_timeout_kwargs())
+        # Check for safety blocking or other issues
+        if response.prompt_feedback and response.prompt_feedback.block_reason:
+             logger.warning(f"Gemini Vision blocked content: {response.prompt_feedback}")
+             raise RuntimeError(f"Content blocked by safety filters: {response.prompt_feedback.block_reason}")
+             
+        content = response.text
+    except Exception as e:
+        logger.error(f"Gemini generation error: {e}")
+        # If it's a blocked response, the .text attribute access raises ValueError
+        if "parts" in str(e) or "empty" in str(e):
+             raise RuntimeError("Gemini returned empty response (likely blocked by safety settings)")
+        raise
+
     data = _safe_json_load(content)
 
     expected = data.get("expectedCarbs")
