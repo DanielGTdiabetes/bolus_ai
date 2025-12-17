@@ -15,19 +15,21 @@ logger = logging.getLogger(__name__)
 PROMPT_ANALYZE_MENU = """
 Eres un asistente para diabetes y nutrición.
 Recibirás una imagen de una CARTA DE RESTAURANTE (texto impreso o escrito).
-Objetivo: ofrecer una estimación CONSERVADORA de carbohidratos para un plato típico que el usuario pueda pedir.
+Objetivo: ofrecer una estimación CONSERVADORA de carbohidratos, grasas y proteínas para un plato típico.
 
 Instrucciones:
-- Identifica hasta 3 platos plausibles con sus carbohidratos (gramos) por ración.
+- Identifica hasta 3 platos plausibles con sus macronutrientes (gramos) por ración.
 - Usa rangos conservadores (no sobreestimes; asume porciones estándar).
 - Si la carta es confusa o no legible, sé explícito en advertencias y baja la confianza.
 - NO generes dosis de insulina.
 
 Devuelve JSON estricto:
 {
-  "expectedCarbs": number, // carbohidratos recomendados para planificar (conservador)
+  "expectedCarbs": number, // carbohidratos recomendados
+  "expectedFat": number,   // grasas estimadas (opcional, 0 si desconocido)
+  "expectedProtein": number, // proteínas estimadas (opcional, 0 si desconocido)
   "confidence": number,    // 0.0 a 1.0
-  "items": [{"name": "...", "carbs_g": number, "notes": "..."}],
+  "items": [{"name": "...", "carbs_g": number, "fat_g": number, "protein_g": number, "notes": "..."}],
   "reasoning_short": "texto breve",
   "warnings": ["..."]
 }
@@ -43,6 +45,8 @@ Debes COMPARAR (no recalcular desde cero la carta) y estimar si el plato tiene m
 Devuelve JSON estricto:
 {
   "actualCarbs": number, // carbohidratos estimados del plato servido
+  "actualFat": number,   // grasas estimadas
+  "actualProtein": number, // proteínas estimadas
   "confidence": number,  // 0.0 a 1.0
   "reasoning_short": "texto breve",
   "warnings": ["..."]
@@ -54,11 +58,13 @@ Reglas: sé conservador, indica dudas en warnings, NO propongas dosis de insulin
 PROMPT_ANALYZE_PLATE_SIMPLE = """
 Eres un asistente para diabetes. Recibirás una foto de un plato servido.
 
-Objetivo: estimar carbohidratos de forma conservadora.
+Objetivo: estimar carbohidratos, grasas y proteínas de forma conservadora.
 
 Devuelve JSON estricto:
 {
-  "carbs": number,         // carbohidratos estimados del plato
+  "carbs": number,         // carbohidratos estimados
+  "fat": number,           // grasas estimadas (g)
+  "protein": number,       // proteínas estimadas (g)
   "confidence": number,    // 0.0 a 1.0
   "reasoning_short": "texto breve",
   "warnings": ["..."]
@@ -76,6 +82,8 @@ LARGE_DELTA = float(os.getenv("RESTAURANT_LARGE_DELTA", "60"))
 
 class RestaurantMenuResult(BaseModel):
     expectedCarbs: Optional[float] = None
+    expectedFat: Optional[float] = 0.0
+    expectedProtein: Optional[float] = 0.0
     confidence: float
     items: list = Field(default_factory=list)
     reasoning_short: str = ""
@@ -90,6 +98,8 @@ class SuggestedAction(BaseModel):
 
 class RestaurantPlateEstimate(BaseModel):
     carbs: Optional[float] = None
+    fat: Optional[float] = 0.0
+    protein: Optional[float] = 0.0
     confidence: float
     reasoning_short: str = ""
     warnings: list[str] = Field(default_factory=list)
@@ -200,6 +210,8 @@ async def analyze_menu_with_gemini(image_bytes: bytes, mime_type: str) -> Restau
     data = _safe_json_load(content)
 
     expected = data.get("expectedCarbs")
+    expected_fat = _float_value(data.get("expectedFat"), 0.0)
+    expected_protein = _float_value(data.get("expectedProtein"), 0.0)
     confidence = _float_value(data.get("confidence"), 0.4)
     items = data.get("items", []) or []
     reasoning_short = data.get("reasoning_short", "")
@@ -208,6 +220,11 @@ async def analyze_menu_with_gemini(image_bytes: bytes, mime_type: str) -> Restau
     if expected is None and items:
         try:
             expected = sum(float(i.get("carbs_g", 0) or 0) for i in items) / max(1, len(items))
+            # Optional: average fat/protein too if missing from top level
+            if not expected_fat:
+                expected_fat = sum(float(i.get("fat_g", 0) or 0) for i in items) / max(1, len(items))
+            if not expected_protein:
+                expected_protein = sum(float(i.get("protein_g", 0) or 0) for i in items) / max(1, len(items))
         except Exception:
             expected = None
 
@@ -219,6 +236,8 @@ async def analyze_menu_with_gemini(image_bytes: bytes, mime_type: str) -> Restau
 
     return RestaurantMenuResult(
         expectedCarbs=expected,
+        expectedFat=round(expected_fat, 1),
+        expectedProtein=round(expected_protein, 1),
         confidence=confidence,
         items=items,
         reasoning_short=reasoning_short,
@@ -237,6 +256,8 @@ async def analyze_plate_with_gemini(image_bytes: bytes, mime_type: str) -> Resta
     data = _safe_json_load(content)
 
     carbs = data.get("carbs")
+    fat_val = _float_value(data.get("fat"), 0.0)
+    prot_val = _float_value(data.get("protein"), 0.0)
     confidence = _float_value(data.get("confidence"), 0.4)
     reasoning_short = data.get("reasoning_short", "")
     warnings = _normalize_warnings(data.get("warnings"))
@@ -248,6 +269,8 @@ async def analyze_plate_with_gemini(image_bytes: bytes, mime_type: str) -> Resta
 
     return RestaurantPlateEstimate(
         carbs=carbs_val,
+        fat=round(fat_val, 1),
+        protein=round(prot_val, 1),
         confidence=confidence,
         reasoning_short=reasoning_short,
         warnings=warnings,

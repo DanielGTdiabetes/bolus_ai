@@ -193,6 +193,30 @@ export default function BolusPage() {
 
             const apiRes = await saveTreatment(treatment);
 
+            // SPECIAL: Start Restaurant Session if flagged
+            if (state.tempRestaurantSession) {
+                const session = {
+                    sessionId: crypto.randomUUID ? crypto.randomUUID() : String(Date.now()),
+                    createdAt: new Date().toISOString(),
+                    plates: [],
+                    menuWarnings: [],
+                    ...state.tempRestaurantSession,
+                    // Ensuring compatibility
+                    actualCarbsTotal: 0,
+                    actualFatTotal: 0,
+                    actualProteinTotal: 0
+                };
+                // Remove temporary raw result to save space
+                delete session.rawMenuResult;
+
+                localStorage.setItem('restaurant_session_v1', JSON.stringify(session));
+                state.tempRestaurantSession = null; // Clear flag
+
+                alert("✅ Bolo guardado. Iniciando sesión de restaurante...");
+                navigate('#/restaurant');
+                return;
+            }
+
             let msg = "Bolo registrado con éxito (Local).";
             if (apiRes && apiRes.nightscout) {
                 if (apiRes.nightscout.uploaded) {

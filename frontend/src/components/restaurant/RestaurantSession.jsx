@@ -24,6 +24,8 @@ const defaultSession = () => ({
   reasoning_short: '',
   plates: [],
   actualCarbsTotal: 0,
+  actualFatTotal: 0,
+  actualProteinTotal: 0,
   deltaCarbs: null,
   suggestedAction: null,
   finalizedAt: null,
@@ -46,9 +48,9 @@ function loadSession() {
   }
 }
 
-function persistSession(session, actualCarbsTotal) {
+function persistSession(session, totals) {
   if (!session) return;
-  localStorage.setItem(SESSION_KEY, JSON.stringify({ ...session, actualCarbsTotal }));
+  localStorage.setItem(SESSION_KEY, JSON.stringify({ ...session, ...totals }));
 }
 
 function WarningList({ warnings }) {
@@ -83,6 +85,14 @@ export function RestaurantSession() {
     () => session.plates.reduce((sum, plate) => sum + (plate.carbs || 0), 0),
     [session.plates]
   );
+  const actualFatTotal = useMemo(
+    () => session.plates.reduce((sum, plate) => sum + (plate.fat || 0), 0),
+    [session.plates]
+  );
+  const actualProteinTotal = useMemo(
+    () => session.plates.reduce((sum, plate) => sum + (plate.protein || 0), 0),
+    [session.plates]
+  );
 
   const aggregateConfidence = useMemo(() => {
     const confidences = [];
@@ -95,8 +105,8 @@ export function RestaurantSession() {
   }, [session.expectedConfidence, session.plates]);
 
   useEffect(() => {
-    persistSession(session, actualCarbsTotal);
-  }, [session, actualCarbsTotal]);
+    persistSession(session, { actualCarbsTotal, actualFatTotal, actualProteinTotal });
+  }, [session, actualCarbsTotal, actualFatTotal, actualProteinTotal]);
 
   const resetSession = () => {
     const fresh = defaultSession();
@@ -141,6 +151,8 @@ export function RestaurantSession() {
       const plate = {
         id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}`,
         carbs: result.carbs ?? 0,
+        fat: result.fat ?? 0,
+        protein: result.protein ?? 0,
         confidence: result.confidence ?? null,
         warnings: result.warnings || [],
         reasoning_short: result.reasoning_short || '',
@@ -334,7 +346,8 @@ export function RestaurantSession() {
 
           <div style={{ display: 'grid', gap: '0.5rem', marginTop: '0.5rem' }}>
             <InfoRow label="Total planificado" value={`${session.expectedCarbs} g`} />
-            <InfoRow label="Total actual" value={`${actualCarbsTotal} g`} />
+            <InfoRow label="Total actual (HC)" value={`${actualCarbsTotal} g`} />
+            <InfoRow label="Total G/P" value={`${actualFatTotal}g / ${actualProteinTotal}g`} />
             <InfoRow
               label="Delta"
               value={`${(actualCarbsTotal - (session.expectedCarbs || 0)).toFixed(1)} g`}
@@ -370,7 +383,9 @@ export function RestaurantSession() {
                 }}
               >
                 <div>
-                  <div style={{ fontWeight: 700 }}>{plate.carbs ?? '?'} g</div>
+                  <div style={{ fontWeight: 700 }}>
+                    {plate.carbs ?? '?'}g <span style={{ fontSize: '0.8em', color: '#666' }}>({plate.fat | 0}g G, {plate.protein | 0}g P)</span>
+                  </div>
                   <div style={{ color: '#475569', fontSize: '0.85rem' }}>
                     {new Date(plate.capturedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                   </div>

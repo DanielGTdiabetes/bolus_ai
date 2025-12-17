@@ -6,6 +6,7 @@ import {
     estimateCarbsFromImage, connectScale, disconnectScale,
     tare, setOnData
 } from '../lib/api';
+import { analyzeMenuImage } from '../lib/restaurantApi';
 import { state } from '../modules/core/store';
 import { navigate } from '../modules/core/router';
 import { RESTAURANT_MODE_ENABLED } from '../lib/featureFlags';
@@ -19,6 +20,7 @@ export default function ScanPage() {
     const [plateEntries, setPlateEntries] = useState(state.plateBuilder?.entries || []);
     const [scale, setScale] = useState(state.scale || { connected: false, grams: 0, stable: true });
     const [useSimpleMode, setUseSimpleMode] = useState(!RESTAURANT_MODE_ENABLED);
+    const [scanMode, setScanMode] = useState('plate'); // Lifted state
 
     // Refresh local scale state when global store updates (via callback)
     useEffect(() => {
@@ -42,10 +44,33 @@ export default function ScanPage() {
         return () => { setOnData(null); };
     }, []);
 
-    const handlePlateUpdate = (newEntries) => {
-        setPlateEntries([...newEntries]);
-        state.plateBuilder.entries = newEntries;
-        state.plateBuilder.total = newEntries.reduce((sum, e) => sum + e.carbs, 0);
+    const handleStartSession = () => {
+        if (plateEntries.length === 0) {
+            alert('⚠️ Añade al menos un plato de la carta primero.');
+            return;
+        }
+
+        const totalCarbs = plateEntries.reduce((s, e) => s + (e.carbs || 0), 0);
+        const totalFat = plateEntries.reduce((s, e) => s + (e.fat || 0), 0);
+        const totalProt = plateEntries.reduce((s, e) => s + (e.protein || 0), 0);
+
+        state.tempCarbs = totalCarbs;
+        state.tempFat = totalFat;
+        state.tempProtein = totalProt;
+        state.tempItems = plateEntries.map(e => e.name);
+        state.tempReason = "restaurant_kickoff";
+
+        // Mark for BolusPage to start session
+        state.tempRestaurantSession = {
+            expectedCarbs: totalCarbs,
+            expectedFat: totalFat,
+            expectedProtein: totalProt,
+            expectedItems: plateEntries,
+            confidence: state.lastMenuResult?.confidence || 0.5,
+            rawMenuResult: state.lastMenuResult
+        };
+
+        navigate('#/bolus');
     };
 
     const showRestaurantFlow = RESTAURANT_MODE_ENABLED && !useSimpleMode;
@@ -78,6 +103,8 @@ export default function ScanPage() {
                             scaleGrams={scale.grams}
                             plateEntries={plateEntries}
                             onAddEntry={(entry) => handlePlateUpdate([...plateEntries, entry])}
+                            scanMode={scanMode}
+                            setScanMode={setScanMode}
                         />
 
                         <ScaleSection
@@ -89,6 +116,8 @@ export default function ScanPage() {
                             entries={plateEntries}
                             onUpdate={handlePlateUpdate}
                             scaleGrams={scale.grams}
+                            scanMode={scanMode}
+                            onStartSession={handleStartSession}
                         />
                     </>
                 )}
@@ -98,14 +127,14 @@ export default function ScanPage() {
     );
 }
 
-function CameraSection({ scaleGrams, plateEntries, onAddEntry }) {
+function CameraSection({ scaleGrams, plateEntries, onAddEntry, scanMode, setScanMode }) {
     const [analyzing, setAnalyzing] = useState(false);
     const [preview, setPreview] = useState(null);
     const [msg, setMsg] = useState(null);
     const cameraInputRef = useRef(null);
     const galleryInputRef = useRef(null);
 
-    const [scanMode, setScanMode] = useState('plate'); // 'plate' | 'menu'
+    // Removed local scanMode state
     const [detectedItems, setDetectedItems] = useState([]); // For menu mode
 
     const handleFile = async (e) => {
@@ -128,23 +157,36 @@ function CameraSection({ scaleGrams, plateEntries, onAddEntry }) {
             const options = {};
             let netWeight = 0;
 
-            // Only consider weight logic in 'plate' mode
-            if (scanMode === 'plate' && scaleGrams > 0) {
-                const previousWeight = plateEntries.reduce((sum, e) => sum + (e.weight || 0), 0);
-                netWeight = Math.max(0, scaleGrams - previousWeight);
-                options.plate_weight_grams = netWeight;
-            }
+            // Start Analysis
+            let result;
 
-            if (plateEntries.length > 0) {
-                options.existing_items = plateEntries.map(e => e.name).join(", ");
-            }
-
-            // Prompt hint if menu mode
             if (scanMode === 'menu') {
-                options.portion_hint = "restaurant menu, list individual dishes";
-            }
+                // Specialized Menu Analysis
+                result = await analyzeMenuImage(file);
+                // Standardize keys for existing UI if needed, but we mostly use result.items
+                // Store full result globally for "Restaurant Session" start
+                state.lastMenuResult = result;
 
-            const result = await estimateCarbsFromImage(file, options);
+                if (result.items && result.items.length > 0) {
+                    setDetectedItems(result.items);
+                    setMsg('👇 Selecciona los platos que vas a pedir');
+                } else {
+                    setMsg('⚠️ No se detectaron platos claros en la carta');
+                }
+            } else {
+                // Standard Plate Analysis
+                if (scaleGrams > 0) {
+                    const previousWeight = plateEntries.reduce((sum, e) => sum + (e.weight || 0), 0);
+                    netWeight = Math.max(0, scaleGrams - previousWeight);
+                    options.plate_weight_grams = netWeight;
+                }
+
+                if (plateEntries.length > 0) {
+                    options.existing_items = plateEntries.map(e => e.name).join(", ");
+                }
+
+                result = await estimateCarbsFromImage(file, options);
+            }
 
             // Calculate total fat/protein from items if available
             const totalFat = (result.items || []).reduce((sum, i) => sum + (i.fat_g || 0), 0);
@@ -182,13 +224,7 @@ function CameraSection({ scaleGrams, plateEntries, onAddEntry }) {
                 setTimeout(() => setMsg(null), 3000);
 
             } else {
-                // MENU MODE: Show items to select
-                if (result.items && result.items.length > 0) {
-                    setDetectedItems(result.items);
-                    setMsg('👇 Selecciona los platos que vas a pedir');
-                } else {
-                    setMsg('⚠️ No se detectaron platos claros en la carta');
-                }
+                // Already handled in menu block above
             }
 
         } catch (err) {
@@ -208,6 +244,35 @@ function CameraSection({ scaleGrams, plateEntries, onAddEntry }) {
         });
         setMsg(`✅ Añadido: ${item.name}`);
         setTimeout(() => setMsg(null), 2000);
+    };
+
+    const startRestaurantSession = () => {
+        if (plateEntries.length === 0) {
+            setMsg('⚠️ Añade al menos un plato de la carta primero.');
+            return;
+        }
+
+        const totalCarbs = plateEntries.reduce((s, e) => s + (e.carbs || 0), 0);
+        const totalFat = plateEntries.reduce((s, e) => s + (e.fat || 0), 0);
+        const totalProt = plateEntries.reduce((s, e) => s + (e.protein || 0), 0);
+
+        state.tempCarbs = totalCarbs;
+        state.tempFat = totalFat;
+        state.tempProtein = totalProt;
+        state.tempItems = plateEntries.map(e => e.name);
+        state.tempReason = "restaurant_kickoff";
+
+        // Mark for BolusPage to start session
+        state.tempRestaurantSession = {
+            expectedCarbs: totalCarbs,
+            expectedFat: totalFat,
+            expectedProtein: totalProt,
+            expectedItems: plateEntries, // Store full details
+            confidence: state.lastMenuResult?.confidence || 0.5,
+            rawMenuResult: state.lastMenuResult
+        };
+
+        navigate('#/bolus');
     };
 
     return (
@@ -363,7 +428,7 @@ function ScaleSection({ scale, setScale }) {
     );
 }
 
-function PlateBuilder({ entries, onUpdate, scaleGrams }) {
+function PlateBuilder({ entries, onUpdate, scaleGrams, scanMode, onStartSession }) {
     const total = entries.reduce((acc, e) => acc + e.carbs, 0);
 
     const removeEntry = (idx) => {
@@ -373,6 +438,10 @@ function PlateBuilder({ entries, onUpdate, scaleGrams }) {
     };
 
     const goToBolus = () => {
+        if (scanMode === 'menu' && onStartSession) {
+            onStartSession();
+            return;
+        }
         state.tempCarbs = total;
         state.tempFat = entries.reduce((acc, e) => acc + (e.fat || 0), 0);
         state.tempProtein = entries.reduce((acc, e) => acc + (e.protein || 0), 0);
@@ -381,10 +450,12 @@ function PlateBuilder({ entries, onUpdate, scaleGrams }) {
         navigate('#/bolus');
     };
 
+    const actionLabel = (scanMode === 'menu') ? '🚀 Iniciar Comida Restaurante' : '🧮 Calcular con Total';
+
     return (
         <Card style={{ marginTop: '1.5rem' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-                <h3 style={{ margin: 0 }}>🍽️ Mi Plato</h3>
+                <h3 style={{ margin: 0 }}>🍽️ Mi Plato {scanMode === 'menu' ? '(Carta)' : ''}</h3>
                 <span style={{ fontWeight: 700, color: 'var(--primary)' }}>{Math.round(total)}g  Total</span>
             </div>
 
@@ -410,7 +481,9 @@ function PlateBuilder({ entries, onUpdate, scaleGrams }) {
             </div>
 
             {entries.length > 0 && (
-                <Button onClick={goToBolus} style={{ width: '100%' }}>🧮 Calcular con Total</Button>
+                <Button onClick={goToBolus} style={{ width: '100%', background: scanMode === 'menu' ? 'var(--primary)' : undefined }}>
+                    {actionLabel}
+                </Button>
             )}
         </Card>
     );
