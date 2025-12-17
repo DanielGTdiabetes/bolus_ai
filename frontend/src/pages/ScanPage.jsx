@@ -186,16 +186,32 @@ function CameraSection({ scaleGrams, plateEntries, onAddEntry }) {
     return (
         <div className="stack">
             {/* Mode Switcher */}
-            <div style={{ display: 'flex', background: '#e2e8f0', padding: '4px', borderRadius: '12px', marginBottom: '1rem' }}>
+            <div style={{ display: 'flex', background: '#e2e8f0', padding: '6px', borderRadius: '16px', marginBottom: '1.5rem', gap: '6px' }}>
                 <button
                     onClick={() => setScanMode('plate')}
-                    style={{ flex: 1, padding: '8px', borderRadius: '10px', border: 'none', background: scanMode === 'plate' ? '#fff' : 'transparent', fontWeight: scanMode === 'plate' ? 600 : 400, boxShadow: scanMode === 'plate' ? '0 2px 5px rgba(0,0,0,0.1)' : 'none' }}>
-                    🍽️ Un Plato
+                    style={{
+                        flex: 1, padding: '12px', borderRadius: '12px', border: 'none',
+                        background: scanMode === 'plate' ? '#fff' : 'transparent',
+                        color: scanMode === 'plate' ? 'var(--primary)' : '#64748b',
+                        fontWeight: scanMode === 'plate' ? 800 : 500,
+                        boxShadow: scanMode === 'plate' ? '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)' : 'none',
+                        transition: 'all 0.2s ease',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', fontSize: '1rem'
+                    }}>
+                    <span style={{ fontSize: '1.4rem' }}>🍽️</span> Un Plato
                 </button>
                 <button
                     onClick={() => setScanMode('menu')}
-                    style={{ flex: 1, padding: '8px', borderRadius: '10px', border: 'none', background: scanMode === 'menu' ? '#fff' : 'transparent', fontWeight: scanMode === 'menu' ? 600 : 400, boxShadow: scanMode === 'menu' ? '0 2px 5px rgba(0,0,0,0.1)' : 'none' }}>
-                    📜 Carta
+                    style={{
+                        flex: 1, padding: '12px', borderRadius: '12px', border: 'none',
+                        background: scanMode === 'menu' ? '#fff' : 'transparent',
+                        color: scanMode === 'menu' ? 'var(--primary)' : '#64748b',
+                        fontWeight: scanMode === 'menu' ? 800 : 500,
+                        boxShadow: scanMode === 'menu' ? '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)' : 'none',
+                        transition: 'all 0.2s ease',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', fontSize: '1rem'
+                    }}>
+                    <span style={{ fontSize: '1.4rem' }}>📜</span> Carta
                 </button>
             </div>
 
