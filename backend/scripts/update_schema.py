@@ -15,7 +15,8 @@ from app.core.db import Base
 
 # Setup logger
 import logging
-logging.basicConfig(level=logging.INFO)
+import sys
+logging.basicConfig(level=logging.INFO, stream=sys.stdout)
 logger = logging.getLogger("schema_updater")
 
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
@@ -46,8 +47,41 @@ async def update_schema():
 
     logger.info(f"Connecting to database: {db_url.split('@')[-1] if '@' in db_url else '...'}")
     
+    from sqlalchemy.engine import make_url
+    
+    # Parse URL to handle sslmode for asyncpg
+    u = make_url(db_url)
+    connect_args = {}
+    q = dict(u.query)
+    
+    if "sslmode" in q:
+        mode = q.pop("sslmode")
+        if mode == "require" or mode == "verify-full":
+            connect_args["ssl"] = "require"
+        elif mode == "disable":
+            connect_args["ssl"] = False
+            
+    # Reconstruct URL without query params that confuse asyncpg if passed in string but handled in args
+    # Actually create_async_engine can handle some, but let's be clean
+    if "sslmode" not in u.query: 
+         # If we popped it from a dict, we need to rebuild the url object or just pass the original string if we didn't modify it?
+         # make_url returns an immutable-ish object usually or we need to replace.
+         pass
+         
+    # Better approach: 
+    # Just construct the engine with the URL and connect_args, but remove sslmode from URL string if present?
+    # SQLAlchemy 1.4+ make_url result is namedtuple-like but has _replace.
+    
+    if "sslmode" in u.query:
+        # We need to remove it from query
+        new_query = dict(u.query)
+        del new_query["sslmode"]
+        u = u._replace(query=new_query)
+
+    logger.info(f"Connecting to database: {str(u).split('@')[-1] if '@' in str(u) else '...'}")
+    
     try:
-        engine = create_async_engine(db_url, echo=True)
+        engine = create_async_engine(u, connect_args=connect_args, echo=True)
         
         async with engine.begin() as conn:
             # 1. Create table if not exists (including new columns from definition)
@@ -117,6 +151,8 @@ async def update_schema():
         logger.info("Schema update check completed.")
         
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         logger.error(f"Failed to connect or update: {e}")
         raise e
     finally:
