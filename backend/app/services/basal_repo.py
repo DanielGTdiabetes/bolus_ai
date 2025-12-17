@@ -142,15 +142,17 @@ async def upsert_daily_checkin(user_id: str, day: date, bg_mgdl: float, trend: s
     
     if get_engine():
         # Uses ON CONFLICT on (user_id, checkin_date) assuming unique constraint exists per user request
+        # Use 'day' column as primary date to satisfy constraint, keeping 'checkin_date' if it exists or aliases
         query = text("""
-            INSERT INTO basal_checkin (id, user_id, checkin_date, bg_mgdl, trend, age_min, source, created_at)
-            VALUES (:id, :user_id, :day, :bg, :trend, :age, :src, :now)
-            ON CONFLICT (user_id, checkin_date) DO UPDATE
+            INSERT INTO basal_checkin (id, user_id, day, checkin_date, bg_mgdl, trend, age_min, source, created_at)
+            VALUES (:id, :user_id, :day, :day, :bg, :trend, :age, :src, :now)
+            ON CONFLICT (user_id, day) DO UPDATE
             SET bg_mgdl = EXCLUDED.bg_mgdl,
                 trend = EXCLUDED.trend,
                 age_min = EXCLUDED.age_min,
                 source = EXCLUDED.source,
-                created_at = EXCLUDED.created_at
+                created_at = EXCLUDED.created_at,
+                checkin_date = EXCLUDED.day
             RETURNING *
         """)
         params = {
