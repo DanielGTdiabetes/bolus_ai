@@ -15,6 +15,8 @@ import SuggestionsPage from './pages/SuggestionsPage';
 import LoginPage from './pages/LoginPage';
 import ChangePasswordPage from './pages/ChangePasswordPage';
 import ProfilePage from './pages/ProfilePage';
+import { RESTAURANT_MODE_ENABLED } from './lib/featureFlags';
+import RestaurantPage from './pages/RestaurantPage';
 
 const PAGES = {
     'favorites': FavoritesPage,
@@ -31,6 +33,10 @@ const PAGES = {
     'suggestions': SuggestionsPage,
     'profile': ProfilePage,
 };
+
+if (RESTAURANT_MODE_ENABLED) {
+    PAGES['restaurant'] = RestaurantPage;
+}
 
 let reactRoot = null;
 
