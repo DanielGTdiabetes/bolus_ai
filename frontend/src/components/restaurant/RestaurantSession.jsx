@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Card, Button } from '../ui/Atoms';
+import { CameraCapture } from '../CameraCapture';
 import {
   analyzeMenuImage,
   analyzePlateImage,
