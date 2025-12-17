@@ -15,7 +15,7 @@ def _uptime_seconds() -> float:
     return (datetime.utcnow() - _start_time).total_seconds()
 
 
-@router.api_route("/", methods=["GET", "HEAD"], summary="Liveness probe", response_model=None)
+@router.api_route("", methods=["GET", "HEAD"], summary="Liveness probe", response_model=None)
 async def health(request: Request):
     if request.method == "HEAD":
         return Response(status_code=200)
