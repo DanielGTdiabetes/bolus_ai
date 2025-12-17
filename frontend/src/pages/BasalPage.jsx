@@ -14,7 +14,7 @@ export default function BasalPage() {
 
     return (
         <>
-            <Header title="Basal Advisor" showBack={false} />
+            <Header title="Asistente Basal" showBack={false} />
             <main className="page" style={{ paddingBottom: '90px' }}>
                 <BasalEntrySection onRefresh={handleRefresh} />
                 <BasalAdviceSection key={`advice-${refreshTick}`} />
@@ -365,7 +365,7 @@ function BasalTimelineSection() {
     return (
         <section>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-                <h3 style={{ margin: 0, color: '#64748b', fontSize: '1rem' }}>Timeline (14 días)</h3>
+                <h3 style={{ margin: 0, color: '#64748b', fontSize: '1rem' }}>Historial (14 días)</h3>
                 {items.some(i => i.night_had_hypo === null) && (
                     <button
                         onClick={handleAnalyzeAll}
