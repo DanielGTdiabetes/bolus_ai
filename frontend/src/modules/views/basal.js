@@ -36,9 +36,9 @@ export async function renderBasal() {
 
             <div id="manual-bg-row" class="hidden" style="margin-bottom:1rem; padding:0.8rem; background:#f8fafc; border-radius:8px">
                  <label style="font-size:0.75rem; font-weight:700; color:#64748b; margin-bottom:0.25rem; display:block">GLUCOSA MANUAL (mg/dL)</label>
-                 <div style="display:flex; gap:0.5rem">
-                    <input type="number" id="manual-bg-input" placeholder="Check-in BG" style="flex:1; padding:0.5rem; border:1px solid #cbd5e1; border-radius:6px">
-                     <button id="btn-save-manual" class="btn-primary" style="padding:0.5rem 1rem">Guardar</button>
+                 <div style="display:flex; gap:0.5rem; align-items: stretch;">
+                    <input type="number" id="manual-bg-input" placeholder="Ej: 110" style="flex:2; padding:0.6rem; font-size:1.1rem; border:1px solid #cbd5e1; border-radius:6px; min-width: 0;">
+                     <button id="btn-save-manual" class="btn-primary" style="flex:1; padding:0.6rem; white-space:nowrap;">Guardar</button>
                  </div>
             </div>
 
