@@ -216,7 +216,7 @@ async def evaluate_change_service(user_id: str, days: int, db: AsyncSession):
     entries = (await db.execute(stmt)).scalars().all()
     
     if len(entries) < 2:
-        return {"result": "insufficient", "summary": "No hay suficientes registros de basal para detectar cambios."}
+        return {"result": "insufficient", "summary": "No hay suficientes registros de basal para detectar cambios.", "evidence": {}}
         
     latest = entries[0]
     prev = entries[1]
@@ -286,15 +286,15 @@ async def evaluate_change_service(user_id: str, days: int, db: AsyncSession):
     after = await get_stats(change_date, end_after)
 
     if not before or before["n"] < 4:
-        return {"result": "insufficient", "summary": f"Faltan datos previos (n={before['n'] if before else 0}, min 4)."}
+        return {"result": "insufficient", "summary": f"Faltan datos previos (n={before['n'] if before else 0}, min 4).", "evidence": {}}
     
     if not after:
         # Check if enough time passed?
         # Or just not enough data
-        return {"result": "insufficient", "summary": "Faltan datos posteriores."}
+        return {"result": "insufficient", "summary": "Faltan datos posteriores.", "evidence": {}}
         
     if after["n"] < 4:
-        return {"result": "insufficient", "summary": f"Datos posteriores insuficientes (n={after['n']}, min 4)."}
+        return {"result": "insufficient", "summary": f"Datos posteriores insuficientes (n={after['n']}, min 4).", "evidence": {}}
          
     # Scoring
     # score = %over + %under + (1 if hypos>=2 else 0)

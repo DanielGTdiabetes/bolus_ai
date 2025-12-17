@@ -80,6 +80,39 @@ async def update_schema():
                 logger.info("Added note column")
             except Exception as e:
                 logger.warning(f"Could not add note: {e}")
+
+            # 3. Add Missing Constraints (Fixes ON CONFLICT issues)
+            # basal_checkin (user_id, checkin_date)
+            try:
+                # We first check if it exists? Or just try adding it. 
+                # Postgres throws if exists, so we catch.
+                # Use a safer block? 
+                # Or just ALTER TABLE ADD CONSTRAINT ... 
+                await conn.execute(text("""
+                    DO $$ BEGIN
+                        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'uq_basal_checkin_user_date') THEN
+                            ALTER TABLE basal_checkin 
+                            ADD CONSTRAINT uq_basal_checkin_user_date UNIQUE (user_id, checkin_date);
+                        END IF;
+                    END $$;
+                """))
+                logger.info("Ensured constraint uq_basal_checkin_user_date exists")
+            except Exception as e:
+                logger.warning(f"Could not add constraint uq_basal_checkin_user_date: {e}")
+                
+            # basal_night_summary (user_id, night_date)
+            try:
+                 await conn.execute(text("""
+                    DO $$ BEGIN
+                        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'uq_basal_night_user_date') THEN
+                            ALTER TABLE basal_night_summary 
+                            ADD CONSTRAINT uq_basal_night_user_date UNIQUE (user_id, night_date);
+                        END IF;
+                    END $$;
+                """))
+                 logger.info("Ensured constraint uq_basal_night_user_date exists")
+            except Exception as e:
+                logger.warning(f"Could not add constraint uq_basal_night_user_date: {e}")
                 
         logger.info("Schema update check completed.")
         
