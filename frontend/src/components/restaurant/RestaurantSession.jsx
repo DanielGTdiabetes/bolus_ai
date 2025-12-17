@@ -79,6 +79,7 @@ export function RestaurantSession() {
   const [closing, setClosing] = useState(false);
   const [error, setError] = useState('');
   const [statusMessage, setStatusMessage] = useState('');
+  const [applying, setApplying] = useState(false);
 
   // Live Monitor
   const [bgData, setBgData] = useState(null);
@@ -258,6 +259,7 @@ export function RestaurantSession() {
   };
 
   const handleApplyAction = async () => {
+    if (applying) return;
     setError('');
     setStatusMessage('');
     const action = session.suggestedAction;
@@ -266,9 +268,10 @@ export function RestaurantSession() {
       return;
     }
 
-    // Safety Check: IOB
-    if (action.type === 'ADD_INSULIN') {
-      try {
+    setApplying(true);
+    try {
+      // Safety Check: IOB
+      if (action.type === 'ADD_INSULIN') {
         const config = getLocalNsConfig();
         const iobData = await getIOBData(config);
         const iob = iobData?.iob_u ?? iobData?.iob_total ?? 0;
@@ -283,34 +286,32 @@ export function RestaurantSession() {
           );
           if (!confirmedRisk) return;
         }
-      } catch (e) {
-        console.warn("Safety check failed:", e);
       }
-    }
 
-    const confirmed = window.confirm('Confirma que deseas aplicar la acción sugerida.');
-    if (!confirmed) return;
+      const confirmed = window.confirm('Confirma que deseas aplicar la acción sugerida.');
+      if (!confirmed) return;
 
-    const nowIso = new Date().toISOString();
-    const payload = {
-      insulin: 0,
-      carbs: 0,
-      created_at: nowIso,
-      notes: `Sesión restaurante delta=${session.deltaCarbs}g (${action.type})`,
-      enteredBy: 'BolusAI',
-    };
+      const nowIso = new Date().toISOString();
+      const payload = {
+        insulin: 0,
+        carbs: 0,
+        created_at: nowIso,
+        notes: `Sesión restaurante delta=${session.deltaCarbs}g (${action.type})`,
+        enteredBy: 'BolusAI',
+      };
 
-    if (action.type === 'ADD_INSULIN') {
-      payload.insulin = action.units;
-    } else if (action.type === 'EAT_CARBS') {
-      payload.carbs = action.carbsGrams || RESTAURANT_CORRECTION_CARBS;
-    }
+      if (action.type === 'ADD_INSULIN') {
+        payload.insulin = action.units;
+      } else if (action.type === 'EAT_CARBS') {
+        payload.carbs = action.carbsGrams || RESTAURANT_CORRECTION_CARBS;
+      }
 
-    try {
       await saveTreatment(payload);
       setStatusMessage('Acción aplicada y registrada.');
     } catch (err) {
       setError(err.message || 'No se pudo registrar la acción');
+    } finally {
+      setApplying(false);
     }
   };
 
@@ -420,10 +421,16 @@ export function RestaurantSession() {
           <div style={{ display: 'grid', gap: '0.5rem', marginTop: '0.5rem' }}>
             {bgData && (
               <div style={{
-                background: '#f1f5f9', padding: '0.5rem', borderRadius: '6px', textAlign: 'center',
-                border: '1px solid #e2e8f0', marginBottom: '0.5rem'
+                background: (bgData.age_minutes > 15) ? '#fff7ed' : '#f1f5f9',
+                padding: '0.5rem',
+                borderRadius: '6px',
+                textAlign: 'center',
+                border: (bgData.age_minutes > 15) ? '1px solid #fdba74' : '1px solid #e2e8f0',
+                marginBottom: '0.5rem'
               }}>
-                <div style={{ fontSize: '0.9rem', color: '#64748b' }}>Glucosa Actual</div>
+                <div style={{ fontSize: '0.9rem', color: '#64748b' }}>
+                  Glucosa Actual {(bgData.age_minutes > 15) && <span style={{ color: '#c2410c', fontWeight: 'bold' }}>⚠️ {Math.round(bgData.age_minutes)} min</span>}
+                </div>
                 <div style={{ fontSize: '1.5rem', fontWeight: 800, color: '#0f172a' }}>
                   {bgData.bg_mgdl} <span style={{ fontSize: '1rem' }}>{formatTrend(bgData.trend)}</span>
                 </div>
@@ -526,10 +533,10 @@ export function RestaurantSession() {
               <Button
                 type="button"
                 onClick={handleApplyAction}
-                disabled={session.suggestedAction.type === 'NO_ACTION'}
+                disabled={session.suggestedAction.type === 'NO_ACTION' || applying}
                 style={{ marginTop: '0.5rem' }}
               >
-                Aplicar ajuste
+                {applying ? 'Aplicando...' : 'Aplicar ajuste'}
               </Button>
             </div>
           )}
