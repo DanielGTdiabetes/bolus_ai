@@ -35,13 +35,7 @@ async def get_ns_config(session: Optional[AsyncSession], user_id: str) -> Option
                  # Fallback? Or raise? Returning None means "not configured" which is safer than crash.
                  return None
         else:
-             # Fallback for Testing (User Request)
-             # If no DB config exists, use provided test credentials
-             return NSConfig(
-                 enabled=True,
-                 url="https://site--cronica--6cblbs2czn95.code.run/",
-                 api_secret="89h6NeZPKzb3c-"
-             )
+             return None
     else:
         # In-Memory fallback (if used by tests without mock session)
         # We check _in_memory_store.

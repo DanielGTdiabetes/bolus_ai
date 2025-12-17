@@ -421,7 +421,7 @@ async def scan_night_endpoint(
         ns_token = payload.nightscout_token
 
     if not ns_url:
-        raise HTTPException(status_code=400, detail="Nightscout not configured (neither in DB nor payload)")
+        raise HTTPException(status_code=400, detail="Nightscout no configurado. Ve a Ajustes > Nightscout y guarda tus credenciales.")
 
     try:
         ns_client = NightscoutClient(
