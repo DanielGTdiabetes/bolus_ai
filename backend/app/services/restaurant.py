@@ -13,26 +13,32 @@ from app.core.config import get_gemini_model, get_google_api_key, get_vision_tim
 logger = logging.getLogger(__name__)
 
 PROMPT_ANALYZE_MENU = """
-Eres un asistente para diabetes y nutrición.
-Recibirás una imagen de una CARTA DE RESTAURANTE (texto impreso o escrito).
-Objetivo: ofrecer una estimación CONSERVADORA de carbohidratos, grasas y proteínas para un plato típico.
+Eres un asistente experto en nutrición y diabetes.
+Recibirás una imagen de una CARTA DE RESTAURANTE o MENÚ (texto o foto de la carta).
 
-Instrucciones:
-- Identifica hasta 3 platos plausibles con sus macronutrientes (gramos) por ración.
-- Usa rangos conservadores (no sobreestimes; asume porciones estándar).
-- Si la carta es confusa o no legible, sé explícito en advertencias y baja la confianza.
-- NO generes dosis de insulina.
+CONTEXTO: El usuario ha sacado una foto de lo que va a comer (ej: un menú del día, una selección de tapas, o un plato combinado).
 
-Devuelve JSON estricto:
+TU TAREA:
+1. Analizar TODOS los platos o alimentos visibles/relevantes en la imagen que constituyan una comida completa lógica.
+2. Calcular la SUMA TOTAL de macronutrientes (Carbohidratos, Grasas, Proteínas) de esa comida completa.
+3. NO desgloses plato por plato en la respuesta principal, dame el TOTAL acumulado.
+
+Devuelve un JSON ESTRICTO:
 {
-  "expectedCarbs": number, // carbohidratos recomendados
-  "expectedFat": number,   // grasas estimadas (opcional, 0 si desconocido)
-  "expectedProtein": number, // proteínas estimadas (opcional, 0 si desconocido)
-  "confidence": number,    // 0.0 a 1.0
-  "items": [{"name": "...", "carbs_g": number, "fat_g": number, "protein_g": number, "notes": "..."}],
-  "reasoning_short": "texto breve",
-  "warnings": ["..."]
+  "expectedCarbs": number, // SUMA TOTAL de carbohidratos estimados (g)
+  "expectedFat": number,   // SUMA TOTAL de grasas estimadas (g)
+  "expectedProtein": number, // SUMA TOTAL de proteínas estimadas (g)
+  "confidence": number,    // 0.0 a 1.0 (Qué tan seguro estás de la estimación)
+  "items": [],             // Dejar vacío o poner nombres breves de lo detectado solo como referencia textual
+  "reasoning_short": "Resumen breve: 'Menú de ... con ... y ...'",
+  "warnings": ["Si hay dudas sobre salsas, tamaños, etc."]
 }
+
+REGLAS:
+- Sé conservador pero realista.
+- Asume raciones estándar de restaurante.
+- Si ves un "Menú del Día" con opciones (Primero, Segundo, Postre), elige UNA combinación típica equilibrada si no está marcado, o la que parezca más probable.
+- El objetivo es tener una REFERENCIA TOTAL para calcular la insulina inicial.
 """
 
 PROMPT_COMPARE_PLATE = """
