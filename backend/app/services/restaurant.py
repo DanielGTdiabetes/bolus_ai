@@ -124,28 +124,54 @@ def _safe_json_load(content: str) -> dict:
     except json.JSONDecodeError:
         pass
 
+    # First attempt: Clean raw content
     cleaned = content.strip()
+    
+    # Handle markdown code blocks
     if "```" in cleaned:
         match = re.search(r"```(?:\w+)?\s*(.*?)\s*```", cleaned, re.DOTALL)
         if match:
             cleaned = match.group(1)
         else:
+            # Handle start/end separately if regex didn't match (e.g. truncated end)
             if cleaned.startswith("```"):
                 cleaned = cleaned.split("\n", 1)[-1]
             if cleaned.endswith("```"):
                 cleaned = cleaned.rsplit("\n", 1)[0]
+    
+    cleaned = cleaned.strip()
 
     try:
         return json.loads(cleaned)
     except json.JSONDecodeError:
         pass
 
+    # Second attempt: Look for JSON object pattern
     match = re.search(r'(\{.*\})', content, re.DOTALL)
     if match:
         try:
             return json.loads(match.group(1))
         except json.JSONDecodeError:
             pass
+
+    # Third attempt: Try to repair truncated JSON
+    try:
+        # Simple repair: Close incomplete strings
+        if cleaned.count('"') % 2 != 0:
+            cleaned += '"'
+        
+        # Close open lists/objects
+        open_brackets = cleaned.count('[') - cleaned.count(']')
+        open_braces = cleaned.count('{') - cleaned.count('}')
+        
+        if open_brackets > 0:
+            cleaned += ']' * open_brackets
+        if open_braces > 0:
+            cleaned += '}' * open_braces
+            
+        return json.loads(cleaned)
+    except json.JSONDecodeError:
+        pass
 
     logger.error("JSON Parse Error (restaurant). Raw content: %s", content[:500])
     raise RuntimeError("Invalid JSON response from vision provider (Syntax Error)")
@@ -173,7 +199,7 @@ def _configure_model():
     genai.configure(api_key=api_key)
     generation_config = {
         "temperature": 0.1,
-        "max_output_tokens": 2048,
+        "max_output_tokens": 8192,
         "response_mime_type": "application/json",
     }
     safety_settings = {
