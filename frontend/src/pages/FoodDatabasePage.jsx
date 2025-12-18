@@ -115,7 +115,7 @@ export default function FoodDatabasePage() {
                     position: 'relative'
                 }}>
                     <img
-                        src="C:/Users/VORPC/.gemini/antigravity/brain/26cab087-d025-4689-b3c3-6f9fd607fddd/food_database_banner_premium_1766066653593.png"
+                        src="/nutrition_banner.png"
                         alt="Nutrition Banner"
                         style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                     />
