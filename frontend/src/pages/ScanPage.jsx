@@ -97,7 +97,7 @@ export default function ScanPage() {
                     </div>
                 ) : (
                     <>
-                        {RESTAURANT_MODE_ENABLED && (
+                        {RESTAURANT_MODE_ENABLED && localStorage.getItem('restaurant_session_v1') && (
                             <div style={{ marginBottom: '1rem' }}>
                                 <Button variant="secondary" onClick={() => setUseSimpleMode(false)}>
                                     Volver a sesión restaurante

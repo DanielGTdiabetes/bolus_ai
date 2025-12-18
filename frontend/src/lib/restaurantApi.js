@@ -23,6 +23,22 @@ export async function analyzeMenuImage(imageFile) {
   return data;
 }
 
+export async function analyzeMenuText(textDescription) {
+  const formData = new FormData();
+  formData.append('description', textDescription);
+
+  const response = await apiFetch('/api/restaurant/analyze_menu_text', {
+    method: 'POST',
+    body: formData,
+  });
+
+  const { ok, data } = await parseJsonResponse(response);
+  if (!ok) {
+    throw new Error(data.detail || 'No se pudo analizar el texto del menú');
+  }
+  return data;
+}
+
 export async function comparePlateImage({ imageFile, expectedCarbs }) {
   const formData = new FormData();
   if (imageFile) {

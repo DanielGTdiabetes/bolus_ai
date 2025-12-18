@@ -41,6 +41,31 @@ REGLAS:
 - El objetivo es tener una REFERENCIA TOTAL para calcular la insulina inicial.
 """
 
+PROMPT_ANALYZE_MENU_TEXT = """
+Eres un asistente experto en nutrición y diabetes. 
+Recibirás un TEXTO con la descripción de una comida o menú (ej: "un bocadillo de atún con queso y una fanta").
+
+TU TAREA:
+1. Analizar TODOS los alimentos mencionados que constituyan la comida.
+2. Calcular la SUMA TOTAL de macronutrientes (HC, Grasas, Proteínas).
+3. NO desgloses plato por plato en la respuesta principal, dame el TOTAL.
+
+Devuelve un JSON ESTRICTO:
+{
+  "expectedCarbs": number, // SUMA TOTAL de carbohidratos estimados (g)
+  "expectedFat": number,   // SUMA TOTAL Grasas
+  "expectedProtein": number, // SUMA TOTAL Proteínas
+  "confidence": number,    // 0.0 a 1.0
+  "items": [],             // DEJAR VACÍO
+  "reasoning_short": "Resumen breve: 'Bocadillo de atún...'",
+  "warnings": ["Dudas sobre tamaño..."]
+}
+
+REGLAS:
+- Sé conservador pero realista.
+- Asume raciones estándar si no se especifica tamaño.
+"""
+
 PROMPT_COMPARE_PLATE = """
 Eres un asistente para diabetes. Recibirás:
 - expectedCarbs: carbohidratos que el usuario planificó a partir del menú.
@@ -308,6 +333,50 @@ async def analyze_menu_with_gemini(image_bytes: bytes, mime_type: str) -> Restau
             expected = round(float(expected), 1)
         except Exception:
             expected = None
+
+    return RestaurantMenuResult(
+        expectedCarbs=expected,
+        expectedFat=round(expected_fat, 1),
+        expectedProtein=round(expected_protein, 1),
+        confidence=confidence,
+        items=items,
+        reasoning_short=reasoning_short,
+        warnings=warnings,
+    )
+
+
+
+async def analyze_menu_text_with_gemini(text_description: str) -> RestaurantMenuResult:
+    model = _configure_model()
+    # Gemini text-only call
+    parts = [PROMPT_ANALYZE_MENU_TEXT, text_description]
+    try:
+        response = await model.generate_content_async(parts, **_timeout_kwargs())
+        if response.prompt_feedback and response.prompt_feedback.block_reason:
+             raise RuntimeError(f"Safety Block: {response.prompt_feedback.block_reason}")
+        content = response.text
+    except Exception as e:
+        logger.error(f"Gemini text generation error: {e}")
+        raise
+
+    data = _safe_json_load(content)
+
+    expected = data.get("expectedCarbs")
+    expected_fat = _float_value(data.get("expectedFat"), 0.0)
+    expected_protein = _float_value(data.get("expectedProtein"), 0.0)
+    confidence = _float_value(data.get("confidence"), 0.4)
+    items = data.get("items", []) or []
+    # If items provided, try to sum them up if top-level missing, similar to image logic
+    if expected is None and items:
+         try:
+            expected = sum(float(i.get("carbs_g", 0) or 0) for i in items)
+         except: pass
+
+    reasoning_short = data.get("reasoning_short", "")
+    warnings = _normalize_warnings(data.get("warnings"))
+
+    if expected is not None:
+         expected = round(float(expected), 1)
 
     return RestaurantMenuResult(
         expectedCarbs=expected,

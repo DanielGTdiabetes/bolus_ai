@@ -3,6 +3,7 @@ import { Card, Button } from '../ui/Atoms';
 import { CameraCapture } from '../CameraCapture';
 import {
   analyzeMenuImage,
+  analyzeMenuText,
   analyzePlateImage,
   calculateRestaurantAdjustment,
   addPlateToSession,
@@ -79,8 +80,13 @@ export function RestaurantSession() {
   const [plateLoading, setPlateLoading] = useState(false);
   const [closing, setClosing] = useState(false);
   const [error, setError] = useState('');
+
   const [statusMessage, setStatusMessage] = useState('');
   const [applying, setApplying] = useState(false);
+
+  // Text Menu State
+  const [showMenuText, setShowMenuText] = useState(false);
+  const [menuTextVal, setMenuTextVal] = useState('');
 
   // Live Monitor
   const [bgData, setBgData] = useState(null);
@@ -135,6 +141,32 @@ export function RestaurantSession() {
     setError('');
     setStatusMessage('');
     setBgData(null);
+  };
+
+  const handleMenuTextSubmit = async () => {
+    if (!menuTextVal.trim()) return;
+    setError('');
+    setStatusMessage('');
+    setMenuLoading(true);
+    try {
+      const result = await analyzeMenuText(menuTextVal);
+      const freshSession = defaultSession();
+      setSession({
+        ...freshSession,
+        expectedCarbs: result.expectedCarbs ?? null,
+        expectedConfidence: result.confidence ?? null,
+        expectedItems: result.items || [],
+        reasoning_short: result.reasoning_short || '',
+        menuWarnings: result.warnings || [],
+      });
+      setStatusMessage('Menú analizado por texto.');
+      setShowMenuText(false);
+      setMenuTextVal('');
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setMenuLoading(false);
+    }
   };
 
   const handleMenuCapture = async (file) => {
@@ -368,12 +400,47 @@ export function RestaurantSession() {
           />
           <Button
             type="button"
+            variant="secondary"
+            onClick={() => setShowMenuText(!showMenuText)}
+            disabled={menuLoading}
+          >
+            📝 Escribir
+          </Button>
+          <Button
+            type="button"
             style={{ background: '#e2e8f0', color: '#0f172a' }}
             onClick={resetSession}
           >
             Reiniciar
           </Button>
+
+          <Button
+            type="button"
+            style={{ background: '#fee2e2', color: '#991b1b', border: '1px solid #fecaca' }}
+            onClick={() => {
+              if (confirm("¿Seguro que quieres borrar esta sesión?")) {
+                localStorage.removeItem(SESSION_KEY);
+                resetSession();
+              }
+            }}
+          >
+            Cancelar Sesión
+          </Button>
         </div>
+
+        {showMenuText && (
+          <div style={{ marginTop: '0.5rem', background: '#f8fafc', padding: '0.5rem', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+            <textarea
+              placeholder="Ej: Bocadillo de atún con queso mediano y una coca cola zero..."
+              style={{ width: '100%', padding: '0.5rem', borderRadius: '6px', border: '1px solid #cbd5e1', minHeight: '80px', fontFamily: 'inherit' }}
+              value={menuTextVal}
+              onChange={e => setMenuTextVal(e.target.value)}
+            />
+            <Button onClick={handleMenuTextSubmit} disabled={menuLoading || !menuTextVal.trim()} style={{ marginTop: '0.5rem', width: '100%' }}>
+              {menuLoading ? 'Analizando...' : 'Enviar descripción'}
+            </Button>
+          </div>
+        )}
 
         {session.expectedCarbs && (
           <div

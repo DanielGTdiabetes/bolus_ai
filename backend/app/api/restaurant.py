@@ -55,6 +55,28 @@ async def analyze_menu(
         raise HTTPException(status_code=500, detail="Internal error during menu analysis") from exc
 
 
+@router.post("/analyze_menu_text", response_model=RestaurantMenuResult, summary="Analyze restaurant menu from text")
+async def analyze_menu_text(
+    description: str = Form(...),
+    current_user: CurrentUser = Depends(get_current_user),
+    settings: Settings = Depends(get_settings),
+):
+    _ensure_gemini_enabled(settings)
+    logger.info("Restaurant analyze_menu_text user=%s length=%d", current_user.username, len(description))
+
+    # Lazy import to avoid circular dep if any (standard pattern matches other endpoints)
+    from app.services.restaurant import analyze_menu_text_with_gemini
+    
+    try:
+        return await analyze_menu_text_with_gemini(description)
+    except RuntimeError as exc:
+        logger.error("Restaurant analyze text error: %s", exc)
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
+    except Exception as exc: 
+        logger.exception("Unexpected error in analyze_menu_text")
+        raise HTTPException(status_code=500, detail="Internal error during text menu analysis") from exc
+
+
 @router.post("/analyze_plate", response_model=RestaurantPlateEstimate, summary="Analyze individual plate")
 async def analyze_plate(
     image: UploadFile = File(...),
