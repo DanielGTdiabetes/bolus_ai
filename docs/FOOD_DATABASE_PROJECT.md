@@ -3,40 +3,25 @@
 ## Objetivo
 Reemplazar el botón redundante de "Alimentos" por una base de datos local y offline que proporcione información de Hidratos de Carbono (HC) e Índice Glucémico (IG).
 
-## Estado Actual: ✅ COMPLETADO
-- **Extracción de Datos**: Se han extraído más de 120 alimentos clave de la *Fundación para la Diabetes* y la *CUN*.
-- **Información Incluida**:
-    - Nombre del alimento.
-    - **HC por cada 100g** (calculado a partir de 1 ración = 10g HC).
-    - **Índice Glucémico (IG)** con semáforo visual (Alto/Medio/Bajo).
-    - **Medida Habitual** (ej. "Unidad", "Vaso", "Plato mediano").
-- **Interfaz (FoodDatabasePage.jsx)**:
-    - Buscador inteligente.
-    - Filtros por categoría (Lácteos, Cereales, Frutas/Verduras, Bebidas, Otros).
-    - Diseño premium con tarjetas detalladas.
-- **Navegación**: El botón "Alimentos" de la Home ya redirige correctamente a esta nueva sección.
+## Estado Actual: ✅ COMPLETADO (Fase 2)
+- ✅ **Extracción de Datos (v1.2)**: Consolidación de **215 alimentos**.
+- ✅ **Categoría de Proteínas**: Inclusión de alimentos con 0 HC.
+- ✅ **Calculadora de Porciones**: Implementada en cada tarjeta de alimento.
+- ✅ **Sistema de Favoritos**: Guardado persistente y filtro rápido.
+- ✅ **Integración con Bolus**: Envío directo de datos al calculador de bolo.
+- ✅ **Identificación Visual**: Iconos por categoría y banner premium.
+
+## Hoja de Ruta (Roadmap)
+1.  ✅ **Calculadora de Porciones**: Implementado.
+2.  ✅ **Favoritos**: Implementado.
+3.  ✅ **Integración con Bolus**: Implementado.
+4.  ✅ **Fotos / Identificación Visual**: Implementado.
 
 ## Detalles Técnicos
 - **Archivo de datos**: `frontend/src/lib/foodData.json`.
 - **Ruta**: `#/food-db`.
-- **Estructura del JSON**:
-  ```json
-  {
-    "version": "1.1",
-    "source": "Fundación para la Diabetes / CUN",
-    "foods": [
-      {
-        "category": "...",
-        "name": "...",
-        "ch_per_100g": 0,
-        "ig": 0,
-        "measure": "..."
-      }
-    ]
-  }
-  ```
-
-## Próximos Pasos Sugeridos
-1.  **Calculadora de Porciones**: Permitir al usuario introducir los gramos que va a comer y calcular las raciones automáticamente desde la ficha del alimento.
-2.  **Favoritos**: Añadir la posibilidad de marcar alimentos frecuentes.
-3.  **Fotos**: Integrar imágenes reales para facilitar la identificación visual.
+- **Versión**: 1.2 (Diciembre 2025).
+- **Lógica de Colores (IG)**:
+    - Bajo (<55): Verde
+    - Medio (55-69): Ámbar
+    - Alto (>=70): Rojo

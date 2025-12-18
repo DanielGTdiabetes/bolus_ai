@@ -1,23 +1,61 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Header } from '../components/layout/Header';
 import { BottomNav } from '../components/layout/BottomNav';
 import { Button } from '../components/ui/Atoms';
 import foodData from '../lib/foodData.json';
+import { state } from '../modules/core/store';
+import { navigate } from '../modules/core/router';
 
 export default function FoodDatabasePage() {
     const [searchTerm, setSearchTerm] = useState('');
     const [selectedCategory, setSelectedCategory] = useState('Todos');
+    const [portions, setPortions] = useState({}); // { [foodName]: grams }
+    const [favorites, setFavorites] = useState(() => {
+        const saved = localStorage.getItem('food_favorites');
+        return saved ? JSON.parse(saved) : [];
+    });
 
     const foods = foodData.foods || [];
-    const categories = ['Todos', ...new Set(foods.map(f => f.category))];
+    const categories = ['Todos', 'Favoritos', ...new Set(foods.map(f => f.category))];
+
+    const categoryIcons = {
+        'Lácteos': '🥛',
+        'Cereales y Tubérculos': '🌾',
+        'Frutas': '🍎',
+        'Verduras y Hortalizas': '🥦',
+        'Grasas y Frutos Secos': '🥜',
+        'Bebidas': '🍹',
+        'Otros / Platos Preparados': '🍕',
+        'Carnes, Pescados y Huevos': '🍖',
+        'Proteínas': '🍗',
+        'Favoritos': '⭐',
+        'Todos': '📂'
+    };
+
+    useEffect(() => {
+        localStorage.setItem('food_favorites', JSON.stringify(favorites));
+    }, [favorites]);
+
+    const toggleFavorite = (foodName) => {
+        setFavorites(prev =>
+            prev.includes(foodName)
+                ? prev.filter(f => f !== foodName)
+                : [...prev, foodName]
+        );
+    };
 
     const filteredFoods = useMemo(() => {
         return foods.filter(food => {
             const matchesSearch = food.name.toLowerCase().includes(searchTerm.toLowerCase());
-            const matchesCategory = selectedCategory === 'Todos' || food.category === selectedCategory;
+            let matchesCategory = true;
+            if (selectedCategory === 'Favoritos') {
+                matchesCategory = favorites.includes(food.name);
+            } else if (selectedCategory !== 'Todos') {
+                matchesCategory = food.category === selectedCategory;
+            }
             return matchesSearch && matchesCategory;
         });
-    }, [foods, searchTerm, selectedCategory]);
+    }, [foods, searchTerm, selectedCategory, favorites]);
 
     const getGIRating = (gi) => {
         if (!gi || gi === 0) return { label: 'Sin Datos', color: '#94a3b8', bg: '#f1f5f9' };
@@ -26,10 +64,50 @@ export default function FoodDatabasePage() {
         return { label: 'Bajo', color: '#10b981', bg: '#ecfdf5' };
     };
 
+    const handleSendToBolus = (food, grams) => {
+        if (!grams || grams <= 0 || isNaN(parseFloat(grams))) {
+            alert("Introduce una cantidad válida en gramos primero.");
+            return;
+        }
+        const calculatedCarbs = (food.ch_per_100g * parseFloat(grams)) / 100;
+        state.tempCarbs = Math.round(calculatedCarbs * 10) / 10;
+        state.tempItems = [{ name: food.name, amount: parseFloat(grams), carbs: state.tempCarbs }];
+
+        navigate('#/bolus');
+    };
+
     return (
         <>
             <Header title="Base de Alimentos" showBack={true} />
             <main className="page" style={{ paddingBottom: '90px' }}>
+                <div style={{
+                    width: '100%',
+                    height: '160px',
+                    borderRadius: '24px',
+                    overflow: 'hidden',
+                    marginBottom: '1.5rem',
+                    boxShadow: '0 8px 30px rgba(0,0,0,0.1)',
+                    position: 'relative'
+                }}>
+                    <img
+                        src="C:/Users/VORPC/.gemini/antigravity/brain/26cab087-d025-4689-b3c3-6f9fd607fddd/food_database_banner_premium_1766066653593.png"
+                        alt="Nutrition Banner"
+                        style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                    />
+                    <div style={{
+                        position: 'absolute',
+                        bottom: 0,
+                        left: 0,
+                        right: 0,
+                        background: 'linear-gradient(transparent, rgba(0,0,0,0.6))',
+                        padding: '1.5rem',
+                        color: '#fff'
+                    }}>
+                        <div style={{ fontSize: '1.2rem', fontWeight: 900, textShadow: '0 2px 4px rgba(0,0,0,0.3)' }}>Guía Nutricional</div>
+                        <div style={{ fontSize: '0.8rem', opacity: 0.9 }}>Consulta rápida de raciones de HC</div>
+                    </div>
+                </div>
+
                 <section style={{ marginBottom: '1.5rem' }}>
                     <div style={{ position: 'relative', marginBottom: '1rem' }}>
                         <input
@@ -76,9 +154,13 @@ export default function FoodDatabasePage() {
                                     boxShadow: selectedCategory === cat ? '0 4px 12px rgba(59, 130, 246, 0.3)' : '0 2px 4px rgba(0,0,0,0.05)',
                                     cursor: 'pointer',
                                     transition: 'all 0.2s',
-                                    border: selectedCategory === cat ? 'none' : '1px solid #f1f5f9'
+                                    border: selectedCategory === cat ? 'none' : '1px solid #f1f5f9',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '8px'
                                 }}
                             >
+                                <span style={{ fontSize: '1.1rem' }}>{categoryIcons[cat] || '🍲'}</span>
                                 {cat}
                             </button>
                         ))}
@@ -93,59 +175,138 @@ export default function FoodDatabasePage() {
                         <span style={{ fontSize: '0.75rem', color: '#94a3b8', fontWeight: 600 }}>1 ración = 10g HC</span>
                     </div>
 
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '1.2rem' }}>
                         {filteredFoods.length > 0 ? (
                             filteredFoods.map((food, idx) => {
                                 const rating = getGIRating(food.ig);
+                                const grams = portions[food.name] || '';
+                                const rations = raciones_calculadas(food, grams);
+                                const isFav = favorites.includes(food.name);
+
                                 return (
                                     <div key={idx} style={{
                                         background: '#fff',
                                         padding: '1.2rem',
-                                        borderRadius: '20px',
+                                        borderRadius: '24px',
                                         display: 'flex',
                                         flexDirection: 'column',
-                                        gap: '0.8rem',
+                                        gap: '1rem',
                                         boxShadow: '0 4px 6px -1px rgba(0,0,0,0.02), 0 2px 4px -1px rgba(0,0,0,0.06)',
-                                        border: '1px solid #f8fafc',
+                                        border: '1px solid #f1f5f9',
                                         position: 'relative',
                                         overflow: 'hidden'
                                     }}>
                                         <div style={{ position: 'absolute', top: 0, left: 0, bottom: 0, width: '4px', backgroundColor: rating.color }}></div>
 
                                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                                            <div style={{ flex: 1 }}>
-                                                <div style={{ fontWeight: 800, color: '#1e293b', fontSize: '1.05rem', marginBottom: '2px' }}>{food.name}</div>
-                                                <div style={{ fontSize: '0.75rem', color: '#64748b', display: 'flex', alignItems: 'center', gap: '4px', fontWeight: 600 }}>
-                                                    <span style={{ padding: '2px 6px', background: '#f1f5f9', borderRadius: '4px' }}>{food.category}</span>
+                                            <div style={{ display: 'flex', gap: '12px', flex: 1 }}>
+                                                <div style={{
+                                                    fontSize: '1.8rem',
+                                                    background: '#f8fafc',
+                                                    width: '50px',
+                                                    height: '50px',
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    justifyContent: 'center',
+                                                    borderRadius: '14px',
+                                                    border: '1px solid #f1f5f9'
+                                                }}>
+                                                    {categoryIcons[food.category] || '🍲'}
+                                                </div>
+                                                <div style={{ flex: 1 }}>
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                        <div style={{ fontWeight: 800, color: '#1e293b', fontSize: '1.1rem' }}>{food.name}</div>
+                                                        <button
+                                                            onClick={() => toggleFavorite(food.name)}
+                                                            style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.3rem', padding: 0 }}
+                                                        >
+                                                            {isFav ? '⭐' : '☆'}
+                                                        </button>
+                                                    </div>
+                                                    <div style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 600, marginTop: '2px' }}>
+                                                        {food.category}
+                                                    </div>
                                                 </div>
                                             </div>
-                                            <div style={{ textAlign: 'right' }}>
-                                                <div style={{
-                                                    fontSize: '0.6rem',
-                                                    fontWeight: 900,
-                                                    textTransform: 'uppercase',
-                                                    padding: '3px 8px',
-                                                    borderRadius: '6px',
-                                                    backgroundColor: rating.bg,
-                                                    color: rating.color,
-                                                    letterSpacing: '0.05em'
-                                                }}>
-                                                    IG {rating.label}
-                                                </div>
+                                            <div style={{
+                                                fontSize: '0.65rem',
+                                                fontWeight: 900,
+                                                textTransform: 'uppercase',
+                                                padding: '4px 10px',
+                                                borderRadius: '8px',
+                                                backgroundColor: rating.bg,
+                                                color: rating.color,
+                                                letterSpacing: '0.05em'
+                                            }}>
+                                                IG {rating.label}
                                             </div>
                                         </div>
 
-                                        <div style={{ display: 'flex', gap: '1.5rem', marginTop: '0.2rem', padding: '0.8rem', background: '#f8fafc', borderRadius: '12px' }}>
-                                            <div style={{ flex: 1 }}>
-                                                <div style={{ fontSize: '0.65rem', color: '#94a3b8', textTransform: 'uppercase', fontWeight: 800, marginBottom: '4px' }}>HC / 100g</div>
-                                                <div style={{ fontSize: '1.1rem', fontWeight: 800, color: '#334155' }}>
-                                                    {food.ch_per_100g} <span style={{ fontSize: '0.8rem', fontWeight: 600, color: '#64748b' }}>g</span>
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem', background: '#f8fafc', borderRadius: '16px', padding: '1.2rem', border: '1px solid #f1f5f9' }}>
+                                            <div style={{ display: 'flex', gap: '2rem' }}>
+                                                <div style={{ flex: 1 }}>
+                                                    <div style={{ fontSize: '0.65rem', color: '#94a3b8', textTransform: 'uppercase', fontWeight: 800, marginBottom: '6px' }}>HC / 100g</div>
+                                                    <div style={{ fontSize: '1.2rem', fontWeight: 800, color: '#1e293b' }}>
+                                                        {food.ch_per_100g} <span style={{ fontSize: '0.8rem', fontWeight: 600, color: '#64748b' }}>g</span>
+                                                    </div>
+                                                </div>
+                                                <div style={{ flex: 2, borderLeft: '1px solid #e2e8f0', paddingLeft: '2rem' }}>
+                                                    <div style={{ fontSize: '0.65rem', color: '#94a3b8', textTransform: 'uppercase', fontWeight: 800, marginBottom: '6px' }}>Medida Habitual</div>
+                                                    <div style={{ fontSize: '0.9rem', fontWeight: 700, color: '#475569', lineHeight: '1.3' }}>
+                                                        {food.measure || 'Sin especificar'}
+                                                    </div>
                                                 </div>
                                             </div>
-                                            <div style={{ flex: 2, borderLeft: '1px solid #e2e8f0', paddingLeft: '1.5rem' }}>
-                                                <div style={{ fontSize: '0.65rem', color: '#94a3b8', textTransform: 'uppercase', fontWeight: 800, marginBottom: '4px' }}>Medida Habitual</div>
-                                                <div style={{ fontSize: '0.9rem', fontWeight: 700, color: '#475569', lineHeight: '1.2' }}>
-                                                    {food.measure || 'Sin especificar'}
+
+                                            {/* CALCULATOR INTERFACE */}
+                                            <div style={{
+                                                display: 'flex',
+                                                alignItems: 'flex-end',
+                                                gap: '12px',
+                                                borderTop: '1px solid #e2e8f0',
+                                                paddingTop: '1rem',
+                                                marginTop: '0.4rem'
+                                            }}>
+                                                <div style={{ flex: 1 }}>
+                                                    <label style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: 800, marginBottom: '6px', display: 'block' }}>GRAMOS</label>
+                                                    <input
+                                                        type="number"
+                                                        value={grams}
+                                                        onChange={(e) => setPortions(prev => ({ ...prev, [food.name]: e.target.value }))}
+                                                        placeholder="0"
+                                                        style={{
+                                                            width: '100%',
+                                                            padding: '0.6rem',
+                                                            borderRadius: '10px',
+                                                            border: '2px solid #e2e8f0',
+                                                            fontSize: '1.1rem',
+                                                            fontWeight: 800,
+                                                            textAlign: 'center',
+                                                            outline: 'none',
+                                                            background: '#fff'
+                                                        }}
+                                                    />
+                                                </div>
+                                                <div style={{ flex: 1, textAlign: 'center', paddingBottom: '0.4rem' }}>
+                                                    <div style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: 800, marginBottom: '6px' }}>RACIONES</div>
+                                                    <div style={{ fontSize: '1.4rem', fontWeight: 900, color: '#3b82f6', lineHeight: 1 }}>
+                                                        {rations}
+                                                    </div>
+                                                </div>
+                                                <div style={{ flex: 1.2 }}>
+                                                    <Button
+                                                        onClick={() => handleSendToBolus(food, grams)}
+                                                        className="btn-primary"
+                                                        style={{
+                                                            width: '100%',
+                                                            padding: '0.7rem 0',
+                                                            fontSize: '0.85rem',
+                                                            borderRadius: '12px',
+                                                            boxShadow: '0 4px 10px rgba(59, 130, 246, 0.2)'
+                                                        }}
+                                                    >
+                                                        Usar Bolo
+                                                    </Button>
                                                 </div>
                                             </div>
                                         </div>
@@ -155,39 +316,37 @@ export default function FoodDatabasePage() {
                         ) : (
                             <div style={{ textAlign: 'center', padding: '4rem 2rem' }}>
                                 <div style={{ fontSize: '4rem', marginBottom: '1.5rem' }}>🔍</div>
-                                <h4 style={{ color: '#1e293b', marginBottom: '0.5rem', fontWeight: 800 }}>No se encontraron resultados</h4>
+                                <h4 style={{ color: '#1e293b', marginBottom: '0.5rem', fontWeight: 800 }}>Sin resultados</h4>
                                 <p style={{ color: '#64748b', fontSize: '0.9rem', lineHeight: '1.5', maxWidth: '280px', margin: '0 auto 1.5rem' }}>
-                                    Recuerda que los alimentos con <strong>0 raciones</strong> (como carnes, pescados o huevos) suelen estar omitidos en las tablas de raciones de HC.
+                                    Prueba con palabras más generales o revisa si el alimento tiene 0 HC.
                                 </p>
-                                <Button
-                                    onClick={() => { setSearchTerm(''); setSelectedCategory('Todos'); }}
-                                    style={{ marginTop: '0.5rem' }}
-                                >
-                                    Ver todos los alimentos
-                                </Button>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem', alignItems: 'center' }}>
+                                    <Button
+                                        onClick={() => { setSearchTerm(''); setSelectedCategory('Todos'); }}
+                                        style={{ width: '220px' }}
+                                    >
+                                        Limpiar búsqueda
+                                    </Button>
+                                    <Button
+                                        variant="secondary"
+                                        onClick={() => navigate('#/')}
+                                        style={{ width: '220px' }}
+                                    >
+                                        Volver al Inicio
+                                    </Button>
+                                </div>
                             </div>
                         )}
                     </div>
                 </section>
-
-                <div style={{
-                    marginTop: '3rem',
-                    padding: '1.5rem',
-                    background: '#f1f5f9',
-                    borderRadius: '20px',
-                    border: '1px solid #e2e8f0',
-                    textAlign: 'center'
-                }}>
-                    <div style={{ fontSize: '1.5rem', marginBottom: '0.5rem' }}>ℹ️</div>
-                    <p style={{ fontSize: '0.8rem', color: '#64748b', margin: 0, lineHeight: '1.5', fontWeight: 500 }}>
-                        Fuente: <strong>{foodData.source}</strong>.<br />
-                        Los valores de Hidratos de Carbono (HC) son aproximados por cada 100g de producto.
-                        Consulta siempre el etiquetado nutricional específico de tu marca.
-                    </p>
-                </div>
             </main>
-            <BottomNav activeTab="" />
+            <BottomNav activeTab="home" />
         </>
     );
 }
 
+function raciones_calculadas(food, grams) {
+    if (!grams || isNaN(parseFloat(grams))) return '0';
+    const val = (food.ch_per_100g * parseFloat(grams)) / 1000;
+    return val % 1 === 0 ? val : val.toFixed(1);
+}
