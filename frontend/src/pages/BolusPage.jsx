@@ -25,6 +25,7 @@ export default function BolusPage() {
     const [slot, setSlot] = useState('lunch');
     const [correctionOnly, setCorrectionOnly] = useState(false);
     const [dualEnabled, setDualEnabled] = useState(false);
+    const [plateItems, setPlateItems] = useState([]);
 
     // Result State
     const [result, setResult] = useState(null); // The raw API response
@@ -60,6 +61,10 @@ export default function BolusPage() {
         }
 
         // Capture Meal Meta for Learning
+        if (state.tempItems) {
+            setPlateItems(state.tempItems);
+        }
+
         if (state.tempItems || state.tempFat || state.tempProtein) {
             mealMetaRef.current = {
                 items: state.tempItems || [],
@@ -161,7 +166,7 @@ export default function BolusPage() {
                 carbs: parseFloat(carbs) || 0,
                 insulin: finalInsulin,
                 enteredBy: state.user?.username || "BolusAI",
-                notes: `BolusAI: ${result.kind === 'dual' ? 'Dual' : 'Normal'}. Gr: ${carbs}. BG: ${glucose}`,
+                notes: `BolusAI: ${result.kind === 'dual' ? 'Dual' : 'Normal'}. Gr: ${carbs}. BG: ${glucose}. ${plateItems.length > 0 ? 'Items: ' + plateItems.map(i => i.name).join(', ') : ''}`,
                 nightscout: {
                     url: nsConfig.url || null,
                 }
@@ -337,6 +342,29 @@ export default function BolusPage() {
                                 ))}
                             </div>
                         </div>
+
+                        {/* Plate Summary */}
+                        {plateItems.length > 0 && (
+                            <div style={{ marginTop: '-10px', marginBottom: '1rem', padding: '0.8rem', background: '#f8fafc', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+                                <div style={{ fontSize: '0.75rem', fontWeight: 700, color: '#64748b', marginBottom: '0.5rem', textTransform: 'uppercase' }}>
+                                    CONTENIDO DEL PLATO
+                                </div>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                    {plateItems.map((item, idx) => (
+                                        <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', color: '#334155' }}>
+                                            <span>{item.amount && item.amount < 10 ? `${item.amount}x` : `•`} {item.name}</span>
+                                            <span style={{ fontWeight: 600, color: '#64748b' }}>
+                                                {item.carbs ? Math.round(item.carbs) : 0}g
+                                            </span>
+                                        </div>
+                                    ))}
+                                    <div style={{ borderTop: '1px dashed #cbd5e1', paddingTop: '6px', marginTop: '4px', display: 'flex', justifyContent: 'space-between', fontSize: '0.9rem', fontWeight: 800, color: '#1e293b' }}>
+                                        <span>Total</span>
+                                        <span>{plateItems.reduce((acc, i) => acc + (i.carbs || 0), 0).toFixed(0)}g</span>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
 
                         {/* Learning Hint Banner */}
                         {learningHint && (
