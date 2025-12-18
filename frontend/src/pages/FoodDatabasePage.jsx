@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { Header } from '../components/layout/Header';
 import { BottomNav } from '../components/layout/BottomNav';
-import { Card } from '../components/ui/Atoms';
+import { Button } from '../components/ui/Atoms';
 import foodData from '../lib/foodData.json';
 
 export default function FoodDatabasePage() {
@@ -154,14 +154,17 @@ export default function FoodDatabasePage() {
                             })
                         ) : (
                             <div style={{ textAlign: 'center', padding: '4rem 2rem' }}>
-                                <div style={{ fontSize: '4rem', marginBottom: '1.5rem', filter: 'grayscale(1)' }}>🥘</div>
-                                <h4 style={{ color: '#475569', marginBottom: '0.5rem' }}>¿No encuentras lo que buscas?</h4>
-                                <p style={{ color: '#94a3b8', fontSize: '0.9rem' }}>Intenta con términos más generales o cambia la categoría.</p>
+                                <div style={{ fontSize: '4rem', marginBottom: '1.5rem' }}>🔍</div>
+                                <h4 style={{ color: '#1e293b', marginBottom: '0.5rem', fontWeight: 800 }}>No se encontraron resultados</h4>
+                                <p style={{ color: '#64748b', fontSize: '0.9rem', lineHeight: '1.5', maxWidth: '280px', margin: '0 auto 1.5rem' }}>
+                                    Recuerda que los alimentos con <strong>0 raciones</strong> (como carnes, pescados o huevos) suelen estar omitidos en las tablas de raciones de HC.
+                                </p>
                                 <Button
-                                    label="Ver todos los alimentos"
                                     onClick={() => { setSearchTerm(''); setSelectedCategory('Todos'); }}
-                                    style={{ marginTop: '1.5rem' }}
-                                />
+                                    style={{ marginTop: '0.5rem' }}
+                                >
+                                    Ver todos los alimentos
+                                </Button>
                             </div>
                         )}
                     </div>
