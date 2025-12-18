@@ -234,6 +234,10 @@ def _build_user_prompt(hints: dict) -> str:
             user_prompt += " Ignore other items on the plate that might be visible in the background. "
 
         user_prompt += f"Focus on identifying the main food item(s) that corresponds to this {weight}g portion."
+    
+    if hints.get("image_description"):
+        user_prompt += f" User description of the food: '{hints['image_description']}'. Use this to identify the item accurately."
+
     return user_prompt
 
 

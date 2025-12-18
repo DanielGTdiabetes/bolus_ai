@@ -110,6 +110,7 @@ async def estimate_from_image(
     nightscout_token: Optional[str] = Form(None),
     
     round_step_u: Optional[float] = Form(None),
+    image_description: Optional[str] = Form(None),
 
     current_user: CurrentUser = Depends(get_current_user),
     settings: Settings = Depends(get_settings),
@@ -165,6 +166,7 @@ async def estimate_from_image(
             "portion_hint": portion_hint,
             "plate_weight_grams": effective_weight,
             "existing_items": existing_items,
+            "image_description": image_description,
         }
         
         # Update settings with our resolved env vars to ensure service uses them

@@ -278,6 +278,7 @@ interface VisionOptions {
   nightscout?: { url?: string; token?: string };
   round_step_u?: number;
   existing_items?: string;
+  image_description?: string;
 }
 
 export async function estimateCarbsFromImage(file: File, options: VisionOptions = {}) {
@@ -287,6 +288,7 @@ export async function estimateCarbsFromImage(file: File, options: VisionOptions 
   if (options.bg_mgdl) formData.append("bg_mgdl", String(options.bg_mgdl));
   if (options.target_mgdl) formData.append("target_mgdl", String(options.target_mgdl));
   if (options.portion_hint) formData.append("portion_hint", options.portion_hint);
+  if (options.image_description) formData.append("image_description", options.image_description);
 
   if (typeof options.prefer_extended !== 'undefined') formData.append("prefer_extended", String(options.prefer_extended));
 

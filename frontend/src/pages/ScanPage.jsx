@@ -139,6 +139,8 @@ function CameraSection({ scaleGrams, plateEntries, onAddEntry, scanMode, setScan
     const cameraInputRef = useRef(null);
     const galleryInputRef = useRef(null);
 
+    const [imageDescription, setImageDescription] = useState('');
+
     // Removed local scanMode state
     const [detectedItems, setDetectedItems] = useState([]); // For menu mode
 
@@ -190,6 +192,10 @@ function CameraSection({ scaleGrams, plateEntries, onAddEntry, scanMode, setScan
                     options.existing_items = plateEntries.map(e => e.name).join(", ");
                 }
 
+                if (imageDescription.trim()) {
+                    options.image_description = imageDescription.trim();
+                }
+
                 result = await estimateCarbsFromImage(file, options);
             }
 
@@ -236,6 +242,8 @@ function CameraSection({ scaleGrams, plateEntries, onAddEntry, scanMode, setScan
             setMsg(`❌ Error: ${err.message}`);
         } finally {
             setAnalyzing(false);
+            // Optional: clear description after success? Maybe user wants to keep it if it failed?
+            // Keeping it for now.
         }
     };
 
@@ -360,6 +368,22 @@ function CameraSection({ scaleGrams, plateEntries, onAddEntry, scanMode, setScan
                                 ⏳ Analizando IA...
                             </div>
                         )}
+                    </div>
+
+                    <div style={{ marginTop: '1rem' }}>
+                        <label style={{ display: 'block', marginBottom: '0.25rem', color: '#475569', fontWeight: 600 }}>
+                            📝 Descripción adicional (opcional)
+                        </label>
+                        <textarea
+                            rows={2}
+                            placeholder="Ej: Una cuchara de crema de cacahuete, sin azúcar..."
+                            value={imageDescription}
+                            onChange={(e) => setImageDescription(e.target.value)}
+                            style={{
+                                width: '100%', padding: '0.75rem', borderRadius: '8px', border: '1px solid #cbd5e1',
+                                fontFamily: 'inherit', resize: 'vertical'
+                            }}
+                        />
                     </div>
 
                     {msg && <div style={{ textAlign: 'center', padding: '0.5rem', marginTop: '0.5rem', background: msg.startsWith('❌') ? '#fee2e2' : '#dcfce7', color: msg.startsWith('❌') ? '#991b1b' : '#166534', borderRadius: '8px' }}>{msg}</div>}
