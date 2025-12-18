@@ -25,13 +25,13 @@ El cerebro de la app. Calcula la dosis necesaria basándose en:
 - Carbohidratos a ingerir.
 - Glucosa actual.
 - Insulina activa (IOB).
-- Ejercicio planeado.
 - Estrategia de absorción (Normal o Lenta/Dual).
 
 ### 4. 📉 Basal (Gestión de Insulina Lenta)
 Herramientas para optimizar tu dosis basal:
 - **Control al Despertar**: Registra tu glucosa matutina para evaluar si la basal de la noche anterior fue correcta.
 - **Analizar Noche**: Escanea automáticamente tu Nightscout (00:00 - 06:00) en busca de hipoglucemias desapercibidas.
+- **Filtro de Compresión**: El sistema incluye un algoritmo inteligente que detecta "falsas hipos" nocturnas. Si la glucosa baja bruscamente y sube igual de rápido sin haber comido, la app la identificará como una posible compresión del sensor (por dormir encima), evitando que una lectura errónea afecte a tus estadísticas de noche.
 - **Evaluación de Cambios**: Si cambias tu dosis basal, la app comparará los 7 días anteriores vs. los 7 posteriores para decirte si el cambio fue efectivo.
 
 ### 5. ☰ Menú (Avanzado)
