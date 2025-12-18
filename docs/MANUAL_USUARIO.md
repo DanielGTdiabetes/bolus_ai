@@ -65,11 +65,10 @@ El cálculo se divide en varias fases matemáticas:
 1.  **Dosis por Comida**: `Carbohidratos (g) / CR (Ratio de CH)`.
 2.  **Dosis de Corrección**: `(Glucosa Actual - Glucosa Objetivo) / ISF (Sensibilidad)`.
 3.  **Ajuste por IOB**: Se resta la insulina activa detectada en Nightscout para evitar el "apilamiento" de insulina.
-4.  **Ajuste por Ejercicio**: Si marcas que vas a hacer ejercicio, la dosis total se reduce (hasta un 90% según intensidad y duración).
-5.  **Redondeo Inteligente (Techne)**:
+4.  **Redondeo Inteligente (Techne)**:
     - Si la flecha de glucosa es **Ascendente**, la app redondea hacia arriba (ej: 2.3U -> 2.5U).
     - Si la flecha es **Descendente**, redondea hacia abajo (ej: 2.3U -> 2.0U).
-6.  **Estrategia Dual/Cuadrada**: Para comidas con mucha grasa o proteína, puedes dividir el bolo en una parte inmediata y otra extendida en el tiempo.
+5.  **Estrategia Dual/Cuadrada**: Para comidas con mucha grasa o proteína, puedes dividir el bolo en una parte inmediata y otra extendida en el tiempo.
 
 ---
 
