@@ -19,6 +19,12 @@ Analyze the image of food provided.
 Estimate carbohydrates, fats, and proteins precisely.
 If the image is a RESTAURANT MENU, list the distinct dishes visible.
 
+**FIDUCIAL MARKER INSTRUCTION:**
+If you detect a **RED INSULIN PEN** (NovoPen Echo Plus style, cylindrical, dark red metallic) in the image, use it as a **FIDUCIAL MARKER** for scale.
+- The pen measures **exactly 16.5 cm (165 mm)** in length.
+- Use this precise length to calculate the real world dimensions (diameter/volume) of the plates and food portions.
+- If present, explicitly mention in the "assumptions" field that you used the insulin pen for scale calibration.
+
 Output STRICT JSON (RFC 8259 compliant).
 - NO comments // or /* */
 - NO trailing commas
