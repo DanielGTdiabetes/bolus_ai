@@ -97,13 +97,22 @@ export default function ScanPage() {
                     </div>
                 ) : (
                     <>
-                        {RESTAURANT_MODE_ENABLED && localStorage.getItem('restaurant_session_v1') && (
-                            <div style={{ marginBottom: '1rem' }}>
-                                <Button variant="secondary" onClick={() => setUseSimpleMode(false)}>
-                                    Volver a sesión restaurante
-                                </Button>
-                            </div>
-                        )}
+
+                        {RESTAURANT_MODE_ENABLED && (() => {
+                            try {
+                                const raw = localStorage.getItem('restaurant_session_v1');
+                                if (!raw) return false;
+                                const data = JSON.parse(raw);
+                                // Session is only active if it has expectedCarbs (menu scanned/entered) and isn't finalized
+                                return data.expectedCarbs && !data.finalizedAt;
+                            } catch { return false; }
+                        })() && (
+                                <div style={{ marginBottom: '1rem' }}>
+                                    <Button variant="secondary" onClick={() => setUseSimpleMode(false)}>
+                                        Volver a sesión restaurante
+                                    </Button>
+                                </div>
+                            )}
                         <CameraSection
                             scaleGrams={scale.grams}
                             plateEntries={plateEntries}
