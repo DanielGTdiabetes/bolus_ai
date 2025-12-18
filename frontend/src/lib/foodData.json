@@ -2284,6 +2284,69 @@
       "ch_per_100g": 5.0,
       "ig": 85,
       "measure": "Unidad mediana (70g)"
+    },
+    {
+      "category": "Comida Rápida",
+      "name": "Hamburguesa Big Mac (Aprox.)",
+      "ch_per_100g": 20.0,
+      "ig": 65,
+      "measure": "1 Ud. (~220g)"
+    },
+    {
+      "category": "Comida Rápida",
+      "name": "Hamburguesa Whopper (Aprox.)",
+      "ch_per_100g": 18.0,
+      "ig": 65,
+      "measure": "1 Ud. (~280g)"
+    },
+    {
+      "category": "Comida Rápida",
+      "name": "Patatas Fritas Fast Food",
+      "ch_per_100g": 40.0,
+      "ig": 75,
+      "measure": "Ración Mediana (~110g)"
+    },
+    {
+      "category": "Comida Rápida",
+      "name": "Nuggets de Pollo",
+      "ch_per_100g": 18.0,
+      "ig": 60,
+      "measure": "1 Unidad (~18g)"
+    },
+    {
+      "category": "Comida Rápida",
+      "name": "Aros de Cebolla",
+      "ch_per_100g": 35.0,
+      "ig": 75,
+      "measure": "Ración 6 uds (~90g)"
+    },
+    {
+      "category": "Comida Rápida",
+      "name": "Pizza (Porción Masa Fina)",
+      "ch_per_100g": 32.0,
+      "ig": 65,
+      "measure": "1 Porción (~100g)"
+    },
+    {
+      "category": "Comida Rápida",
+      "name": "Kebab Completo (con pan)",
+      "ch_per_100g": 22.0,
+      "ig": 60,
+      "measure": "1 Ud. grande (~350g)"
+    },
+    {
+      "category": "Comida Rápida",
+      "name": "Tiras de Pollo Crujiente",
+      "ch_per_100g": 15.0,
+      "ig": 60,
+      "measure": "1 Tira (~40g)"
+    },
+    {
+      "category": "Comida Rápida",
+      "name": "Hot Dog / Perrito Caliente",
+      "ch_per_100g": 24.0,
+      "ig": 70,
+      "measure": "1 Ud. (~120g)"
     }
   ]
 }

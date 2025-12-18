@@ -29,6 +29,7 @@ export default function FoodDatabasePage() {
         'Carnes, Pescados y Huevos': '🍖',
         'Proteínas': '🍗',
         'Favoritos': '⭐',
+        'Comida Rápida': '🍔',
         'Todos': '📂'
     };
 
