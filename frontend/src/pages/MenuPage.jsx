@@ -53,7 +53,6 @@ export default function MenuPage() {
 
                 <MenuSection title="Cuenta y Sistema" items={[
                     { icon: '👤', label: 'Mi Perfil', sub: 'Datos personales e insulina', hash: '#/profile', color: '#10b981', bg: '#ecfdf5' },
-                    { icon: '📡', label: 'Nightscout', sub: 'Conexión y datos', hash: '#/nightscout-settings', color: '#6366f1', bg: '#e0e7ff' },
                     { icon: '⚙️', label: 'Ajustes', sub: 'Configuración general', hash: '#/settings', color: '#64748b', bg: '#f1f5f9' }
                 ]} />
             </main>
