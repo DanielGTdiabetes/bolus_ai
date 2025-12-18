@@ -1,187 +1,243 @@
 {
-  "version": "1.2",
-  "source": "Fundación para la Diabetes / CUN / Manual",
-  "total_items": 260,
+  "version": "1.3 (Sincronizado)",
+  "source": "Fundación para la Diabetes (Automated Extraction)",
+  "total_items": 326,
   "foods": [
     {
-      "category": "Lácteos",
-      "name": "Cuajada",
-      "ch_per_100g": 5.7,
-      "ig": 35,
-      "measure": "Unidad (125ml)"
-    },
-    {
-      "category": "Lácteos",
-      "name": "Flan",
-      "ch_per_100g": 22.2,
+      "category": "Bebidas",
+      "name": "Agua de coco",
+      "ch_per_100g": 5.0,
       "ig": null,
-      "measure": "Unidad (110g)"
+      "measure": "Vaso de 200cc"
     },
     {
-      "category": "Lácteos",
-      "name": "Flan 0%",
-      "ch_per_100g": 14.3,
-      "ig": null,
-      "measure": "Unidad (110g)"
-    },
-    {
-      "category": "Lácteos",
-      "name": "Helado 'sin azúcares añadidos'",
-      "ch_per_100g": 10,
+      "category": "Bebidas",
+      "name": "Bebida de almendra",
+      "ch_per_100g": 5.0,
       "ig": 35,
-      "measure": "Unidad (100ml)"
+      "measure": "Vaso o brick de 200cc"
     },
     {
-      "category": "Lácteos",
-      "name": "Helado de crema",
-      "ch_per_100g": 20,
-      "ig": 60,
-      "measure": "Bola mediana (100g)"
+      "category": "Bebidas",
+      "name": "Bebida de arroz",
+      "ch_per_100g": 5.0,
+      "ig": 85,
+      "measure": "Vaso o brick de 200cc"
     },
     {
-      "category": "Lácteos",
-      "name": "Helado de crema",
-      "ch_per_100g": 20,
-      "ig": 60,
-      "measure": "Tarrina individual (150ml)"
-    },
-    {
-      "category": "Lácteos",
-      "name": "Helado de hielo",
-      "ch_per_100g": 20,
-      "ig": 65,
-      "measure": "Unidad (100ml)"
-    },
-    {
-      "category": "Lácteos",
-      "name": "Kéfir",
-      "ch_per_100g": 5,
+      "category": "Bebidas",
+      "name": "Bebida de avena",
+      "ch_per_100g": 5.0,
       "ig": 35,
-      "measure": "Unidad (125ml)"
+      "measure": "Vaso o brick de 200cc"
     },
     {
-      "category": "Lácteos",
-      "name": "Leche condensada",
-      "ch_per_100g": 50,
-      "ig": 61,
-      "measure": "Cucharada sopera (20g)"
+      "category": "Bebidas",
+      "name": "Bebida de cacao",
+      "ch_per_100g": 10.0,
+      "ig": 34,
+      "measure": "Vaso o brick de 200cc"
     },
     {
-      "category": "Lácteos",
-      "name": "Leche desnatada",
-      "ch_per_100g": 5,
-      "ig": 32,
-      "measure": "Vaso o taza (200ml)"
-    },
-    {
-      "category": "Lácteos",
-      "name": "Leche en polvo",
-      "ch_per_100g": 40,
+      "category": "Bebidas",
+      "name": "Bebida de soja",
+      "ch_per_100g": 4.0,
       "ig": 30,
-      "measure": "Cucharada sopera colmada (25g)"
+      "measure": "Vaso o brick de 200cc"
     },
     {
-      "category": "Lácteos",
-      "name": "Leche entera",
-      "ch_per_100g": 5,
-      "ig": 27,
-      "measure": "Vaso o taza (200ml)"
+      "category": "Bebidas",
+      "name": "Bebida energética",
+      "ch_per_100g": 12.5,
+      "ig": 70,
+      "measure": "Lata de 250cc"
     },
     {
-      "category": "Lácteos",
-      "name": "Leche semidesnatada",
-      "ch_per_100g": 5,
-      "ig": 30,
-      "measure": "Vaso o taza (200ml)"
+      "category": "Bebidas",
+      "name": "Bebida isotónica",
+      "ch_per_100g": 7.7,
+      "ig": 78,
+      "measure": "Lata de 330cc"
     },
     {
-      "category": "Lácteos",
-      "name": "Leche sin lactosa",
-      "ch_per_100g": 5,
-      "ig": null,
-      "measure": "Vaso o taza (200ml)"
+      "category": "Bebidas",
+      "name": "Bebida refrescante de sabores (4,5% de hidratos de carbono)",
+      "ch_per_100g": 5.0,
+      "ig": 70,
+      "measure": "Vaso de 200cc"
     },
     {
-      "category": "Lácteos",
-      "name": "Nata líquida",
-      "ch_per_100g": 3.3,
-      "ig": null,
-      "measure": "Botellín o brick (200ml)"
+      "category": "Bebidas",
+      "name": "Bebida refrescante tipo cola (10% de hidratos de carbono)",
+      "ch_per_100g": 10.0,
+      "ig": 70,
+      "measure": "Vaso de 200cc"
     },
     {
-      "category": "Lácteos",
-      "name": "Natillas",
-      "ch_per_100g": 20,
-      "ig": null,
-      "measure": "Unidad (125ml)"
-    },
-    {
-      "category": "Lácteos",
-      "name": "Queso fresco",
-      "ch_per_100g": 4,
-      "ig": 35,
-      "measure": "Tarrina individual (70g)"
-    },
-    {
-      "category": "Lácteos",
-      "name": "Queso tipo Petit suisse",
-      "ch_per_100g": 13.3,
-      "ig": 40,
-      "measure": "Unidad (50g)"
-    },
-    {
-      "category": "Lácteos",
-      "name": "Quesos de pasta, semis o curados",
+      "category": "Bebidas",
+      "name": "Bebida refrescante tipo cola o sabores light o sin azúcar",
       "ch_per_100g": 0,
       "ig": null,
       "measure": ""
     },
     {
-      "category": "Lácteos",
-      "name": "Yogur desnatado, de sabores o fruta",
-      "ch_per_100g": 6.7,
-      "ig": 35,
-      "measure": "Unidad (125ml)"
+      "category": "Bebidas",
+      "name": "Bitter",
+      "ch_per_100g": 10.0,
+      "ig": 70,
+      "measure": "Vaso o botellín de 200cc"
     },
     {
-      "category": "Lácteos",
-      "name": "Yogur entero, de sabores o fruta",
+      "category": "Bebidas",
+      "name": "Caldo de pollo o carne",
+      "ch_per_100g": 0,
+      "ig": null,
+      "measure": ""
+    },
+    {
+      "category": "Bebidas",
+      "name": "Cava brut",
+      "ch_per_100g": 0,
+      "ig": null,
+      "measure": ""
+    },
+    {
+      "category": "Bebidas",
+      "name": "Cava seco o semiseco",
+      "ch_per_100g": 4.0,
+      "ig": null,
+      "measure": "Copa (100cc)"
+    },
+    {
+      "category": "Bebidas",
+      "name": "Cerveza",
+      "ch_per_100g": 4.0,
+      "ig": 110,
+      "measure": "Vaso o caña (200cc)"
+    },
+    {
+      "category": "Bebidas",
+      "name": "Cerveza light",
+      "ch_per_100g": 3.3,
+      "ig": null,
+      "measure": "Vaso o caña (200cc)"
+    },
+    {
+      "category": "Bebidas",
+      "name": "Cerveza sin alcohol",
+      "ch_per_100g": 4.0,
+      "ig": 110,
+      "measure": "Vaso o caña (200cc)"
+    },
+    {
+      "category": "Bebidas",
+      "name": "Destilados (ginebra, whisky, ron, vodka)",
+      "ch_per_100g": 0,
+      "ig": null,
+      "measure": ""
+    },
+    {
+      "category": "Bebidas",
+      "name": "Gaseosa",
+      "ch_per_100g": 0,
+      "ig": null,
+      "measure": ""
+    },
+    {
+      "category": "Bebidas",
+      "name": "Horchata",
+      "ch_per_100g": 13.3,
+      "ig": null,
+      "measure": "Un vaso (200cc)"
+    },
+    {
+      "category": "Bebidas",
+      "name": "Horchata light",
+      "ch_per_100g": 3.3,
+      "ig": null,
+      "measure": "Un vaso (200cc)"
+    },
+    {
+      "category": "Bebidas",
+      "name": "Licor de melocotón o manzana",
+      "ch_per_100g": 33.3,
+      "ig": null,
+      "measure": "Un chupito (30cc)"
+    },
+    {
+      "category": "Bebidas",
+      "name": "Mosto",
       "ch_per_100g": 14.3,
-      "ig": 35,
-      "measure": "Unidad (125ml)"
+      "ig": null,
+      "measure": "Una copa (100cc)"
     },
     {
-      "category": "Lácteos",
-      "name": "Yogur líquido",
-      "ch_per_100g": 14.3,
-      "ig": 40,
-      "measure": "Unidad (200ml)"
+      "category": "Bebidas",
+      "name": "Sangría",
+      "ch_per_100g": 10.0,
+      "ig": null,
+      "measure": "Un vaso (200cc)"
     },
     {
-      "category": "Lácteos",
-      "name": "Yogur natural entero o desnatado",
-      "ch_per_100g": 5,
-      "ig": 35,
-      "measure": "Unidad (125ml)"
+      "category": "Bebidas",
+      "name": "Sidra",
+      "ch_per_100g": 5.0,
+      "ig": null,
+      "measure": "Una copa (100cc)"
     },
     {
-      "category": "Lácteos",
-      "name": "Yogur tipo Actimel",
-      "ch_per_100g": 10,
-      "ig": 35,
-      "measure": "Unidad (100ml)"
+      "category": "Bebidas",
+      "name": "Tónica",
+      "ch_per_100g": 10.0,
+      "ig": 70,
+      "measure": "Un vaso o botellín (200cc)"
     },
     {
-      "category": "Lácteos",
-      "name": "Yogur tipo Actimel 0%",
-      "ch_per_100g": 5,
+      "category": "Bebidas",
+      "name": "Vermut",
+      "ch_per_100g": 13.3,
+      "ig": null,
+      "measure": "Una copa (100cc)"
+    },
+    {
+      "category": "Bebidas",
+      "name": "Vino blanco o tinto",
+      "ch_per_100g": 0,
+      "ig": null,
+      "measure": ""
+    },
+    {
+      "category": "Bebidas",
+      "name": "Vino dulce",
+      "ch_per_100g": 13.3,
+      "ig": null,
+      "measure": "Un chupito (30cc)"
+    },
+    {
+      "category": "Bebidas",
+      "name": "Zumo de fruta",
+      "ch_per_100g": 10.0,
+      "ig": 60,
+      "measure": "Un vaso o brick (200cc)"
+    },
+    {
+      "category": "Bebidas",
+      "name": "Zumo de fruta \"sin azúcar añadido\"",
+      "ch_per_100g": 4.0,
+      "ig": 45,
+      "measure": "Un vaso o brick (200cc)"
+    },
+    {
+      "category": "Bebidas",
+      "name": "Zumo de tomate",
+      "ch_per_100g": 5.0,
       "ig": 35,
-      "measure": "Unidad (100ml)"
+      "measure": "Un vaso o brick (200cc)"
     },
     {
       "category": "Cereales y Tubérculos",
       "name": "Altramuz",
-      "ch_per_100g": 20,
+      "ch_per_100g": 20.0,
       "ig": 15,
       "measure": "Tapa (30g)"
     },
@@ -201,20 +257,6 @@
     },
     {
       "category": "Cereales y Tubérculos",
-      "name": "Arroz blanco, hervido",
-      "ch_per_100g": 26.3,
-      "ig": 70,
-      "measure": "Plato mediano (160g)"
-    },
-    {
-      "category": "Cereales y Tubérculos",
-      "name": "Arroz blanco, hervido",
-      "ch_per_100g": 26.3,
-      "ig": 70,
-      "measure": "Plato grande (240g)"
-    },
-    {
-      "category": "Cereales y Tubérculos",
       "name": "Arroz hinchado para desayuno",
       "ch_per_100g": 83.3,
       "ig": 85,
@@ -230,23 +272,9 @@
     {
       "category": "Cereales y Tubérculos",
       "name": "Arroz integral, hervido",
-      "ch_per_100g": 25,
+      "ch_per_100g": 25.0,
       "ig": 50,
       "measure": "Guarnición (80g)"
-    },
-    {
-      "category": "Cereales y Tubérculos",
-      "name": "Arroz integral, hervido",
-      "ch_per_100g": 25,
-      "ig": 50,
-      "measure": "Plato mediano (160g)"
-    },
-    {
-      "category": "Cereales y Tubérculos",
-      "name": "Arroz integral, hervido",
-      "ch_per_100g": 25,
-      "ig": 50,
-      "measure": "Plato grande (240g)"
     },
     {
       "category": "Cereales y Tubérculos",
@@ -268,20 +296,6 @@
       "ch_per_100g": 26.3,
       "ig": 70,
       "measure": "Guarnición (80g)"
-    },
-    {
-      "category": "Cereales y Tubérculos",
-      "name": "Arroz, cocido",
-      "ch_per_100g": 26.3,
-      "ig": 70,
-      "measure": "Plato mediano (160g)"
-    },
-    {
-      "category": "Cereales y Tubérculos",
-      "name": "Arroz, cocido",
-      "ch_per_100g": 26.3,
-      "ig": 70,
-      "measure": "Plato grande (240g)"
     },
     {
       "category": "Cereales y Tubérculos",
@@ -314,23 +328,9 @@
     {
       "category": "Cereales y Tubérculos",
       "name": "Boniato",
-      "ch_per_100g": 20,
+      "ch_per_100g": 20.0,
       "ig": 50,
       "measure": "Pequeño (80g)"
-    },
-    {
-      "category": "Cereales y Tubérculos",
-      "name": "Boniato",
-      "ch_per_100g": 20,
-      "ig": 50,
-      "measure": "Mediano (160g)"
-    },
-    {
-      "category": "Cereales y Tubérculos",
-      "name": "Boniato",
-      "ch_per_100g": 20,
-      "ig": 50,
-      "measure": "Grande (320g)"
     },
     {
       "category": "Cereales y Tubérculos",
@@ -370,7 +370,7 @@
     {
       "category": "Cereales y Tubérculos",
       "name": "Cereales desayuno, ricos en fibra (>10%)",
-      "ch_per_100g": 50,
+      "ch_per_100g": 50.0,
       "ig": 50,
       "measure": ""
     },
@@ -398,14 +398,14 @@
     {
       "category": "Cereales y Tubérculos",
       "name": "Fideos de arroz, hervido",
-      "ch_per_100g": 20,
+      "ch_per_100g": 20.0,
       "ig": 50,
       "measure": ""
     },
     {
       "category": "Cereales y Tubérculos",
       "name": "Fideos de soja, hervido",
-      "ch_per_100g": 25,
+      "ch_per_100g": 25.0,
       "ig": null,
       "measure": ""
     },
@@ -440,7 +440,7 @@
     {
       "category": "Cereales y Tubérculos",
       "name": "Garbanzo, crudo",
-      "ch_per_100g": 50,
+      "ch_per_100g": 50.0,
       "ig": null,
       "measure": ""
     },
@@ -460,20 +460,6 @@
     },
     {
       "category": "Cereales y Tubérculos",
-      "name": "Garbanzo, hervido",
-      "ch_per_100g": 18.2,
-      "ig": 35,
-      "measure": "Plato mediano (200g)"
-    },
-    {
-      "category": "Cereales y Tubérculos",
-      "name": "Garbanzo, hervido",
-      "ch_per_100g": 18.2,
-      "ig": 35,
-      "measure": "Plato grande (300g)"
-    },
-    {
-      "category": "Cereales y Tubérculos",
       "name": "Gofio",
       "ch_per_100g": 83.3,
       "ig": null,
@@ -482,23 +468,9 @@
     {
       "category": "Cereales y Tubérculos",
       "name": "Guisantes congelados, frescos, de lata",
-      "ch_per_100g": 10,
+      "ch_per_100g": 10.0,
       "ig": 35,
       "measure": "Guarnición (200g)"
-    },
-    {
-      "category": "Cereales y Tubérculos",
-      "name": "Guisantes congelados, frescos, de lata",
-      "ch_per_100g": 10,
-      "ig": 35,
-      "measure": "Plato mediano (400g)"
-    },
-    {
-      "category": "Cereales y Tubérculos",
-      "name": "Guisantes congelados, frescos, de lata",
-      "ch_per_100g": 10,
-      "ig": 35,
-      "measure": "Plato grande (600g)"
     },
     {
       "category": "Cereales y Tubérculos",
@@ -552,14 +524,14 @@
     {
       "category": "Cereales y Tubérculos",
       "name": "Hummus",
-      "ch_per_100g": 10,
+      "ch_per_100g": 10.0,
       "ig": null,
       "measure": ""
     },
     {
       "category": "Cereales y Tubérculos",
       "name": "Judías blancas, crudo",
-      "ch_per_100g": 40,
+      "ch_per_100g": 40.0,
       "ig": null,
       "measure": ""
     },
@@ -579,20 +551,6 @@
     },
     {
       "category": "Cereales y Tubérculos",
-      "name": "Judías blancas, hervido",
-      "ch_per_100g": 18.2,
-      "ig": 35,
-      "measure": "Plato mediano (200g)"
-    },
-    {
-      "category": "Cereales y Tubérculos",
-      "name": "Judías blancas, hervido",
-      "ch_per_100g": 18.2,
-      "ig": 35,
-      "measure": "Plato grande (300g)"
-    },
-    {
-      "category": "Cereales y Tubérculos",
       "name": "Legumbre, en conserva",
       "ch_per_100g": 14.3,
       "ig": null,
@@ -601,170 +559,114 @@
     {
       "category": "Cereales y Tubérculos",
       "name": "Lentejas, crudo",
-      "ch_per_100g": 50,
+      "ch_per_100g": 50.0,
       "ig": null,
       "measure": ""
     },
     {
       "category": "Cereales y Tubérculos",
       "name": "Lentejas, en conserva",
-      "ch_per_100g": 14.29,
+      "ch_per_100g": 14.3,
       "ig": 35,
       "measure": ""
     },
     {
       "category": "Cereales y Tubérculos",
       "name": "Lentejas, hervido",
-      "ch_per_100g": 20,
+      "ch_per_100g": 20.0,
       "ig": 35,
       "measure": "Guarnición (100g)"
     },
     {
       "category": "Cereales y Tubérculos",
-      "name": "Lentejas, hervido",
-      "ch_per_100g": 20,
-      "ig": 35,
-      "measure": "Plato mediano (200g)"
-    },
-    {
-      "category": "Cereales y Tubérculos",
-      "name": "Lentejas, hervido",
-      "ch_per_100g": 20,
-      "ig": 35,
-      "measure": "Plato grande (300g)"
-    },
-    {
-      "category": "Cereales y Tubérculos",
       "name": "Maíz en lata",
-      "ch_per_100g": 20,
+      "ch_per_100g": 20.0,
       "ig": 65,
       "measure": "Lata pequeña (150g)"
     },
     {
       "category": "Cereales y Tubérculos",
       "name": "Maíz en lata sin azúcar añadido",
-      "ch_per_100g": 11.11,
+      "ch_per_100g": 11.1,
       "ig": null,
       "measure": "Lata pequeña (150g)"
     },
     {
       "category": "Cereales y Tubérculos",
       "name": "Maíz tostado (quicos)",
-      "ch_per_100g": 50,
+      "ch_per_100g": 50.0,
       "ig": null,
       "measure": "Bolsa pequeña (40g)"
     },
     {
       "category": "Cereales y Tubérculos",
       "name": "Mijo, cocido",
-      "ch_per_100g": 18.87,
+      "ch_per_100g": 18.9,
       "ig": 70,
       "measure": ""
     },
     {
       "category": "Cereales y Tubérculos",
       "name": "Mijo, crudo",
-      "ch_per_100g": 66.67,
+      "ch_per_100g": 66.7,
       "ig": null,
       "measure": ""
     },
     {
       "category": "Cereales y Tubérculos",
       "name": "Pan blanco (de trigo)",
-      "ch_per_100g": 50,
+      "ch_per_100g": 50.0,
       "ig": 70,
       "measure": "Barra de 1/4, unos 3 cm (20g)"
     },
     {
       "category": "Cereales y Tubérculos",
-      "name": "Pan blanco (de trigo)",
-      "ch_per_100g": 50,
-      "ig": 70,
-      "measure": "Panecillo restaurante (60g)"
-    },
-    {
-      "category": "Cereales y Tubérculos",
-      "name": "Pan blanco (de trigo)",
-      "ch_per_100g": 50,
-      "ig": 70,
-      "measure": "Barra de 1/4 entera (180g)"
-    },
-    {
-      "category": "Cereales y Tubérculos",
       "name": "Pan de centeno",
-      "ch_per_100g": 50,
+      "ch_per_100g": 50.0,
       "ig": 65,
       "measure": ""
     },
     {
       "category": "Cereales y Tubérculos",
       "name": "Pan de hamburguesa o Frankfurt",
-      "ch_per_100g": 55.56,
+      "ch_per_100g": 55.6,
       "ig": 85,
       "measure": "Unidad pequeña (55g)"
     },
     {
       "category": "Cereales y Tubérculos",
-      "name": "Pan de hamburguesa o Frankfurt",
-      "ch_per_100g": 55.56,
-      "ig": 85,
-      "measure": "Unidad (80g)"
-    },
-    {
-      "category": "Cereales y Tubérculos",
       "name": "Pan de molde",
-      "ch_per_100g": 50,
+      "ch_per_100g": 50.0,
       "ig": 85,
       "measure": "Rebanada (25g)"
     },
     {
       "category": "Cereales y Tubérculos",
       "name": "Pan de trigo de grano entero",
-      "ch_per_100g": 43.48,
+      "ch_per_100g": 43.5,
       "ig": 40,
       "measure": ""
     },
     {
       "category": "Cereales y Tubérculos",
       "name": "Pan en bastoncitos",
-      "ch_per_100g": 66.67,
+      "ch_per_100g": 66.7,
       "ig": 70,
       "measure": "3 unidades (15g)"
     },
     {
       "category": "Cereales y Tubérculos",
       "name": "Pan rallado",
-      "ch_per_100g": 66.67,
+      "ch_per_100g": 66.7,
       "ig": 70,
       "measure": "Cucharada sopera colmada (23g)"
     },
     {
       "category": "Cereales y Tubérculos",
       "name": "Pan tostado o biscote",
-      "ch_per_100g": 66.67,
+      "ch_per_100g": 66.7,
       "ig": 70,
       "measure": "Tostada canapé (2g)"
-    },
-    {
-      "category": "Cereales y Tubérculos",
-      "name": "Pan tostado o biscote",
-      "ch_per_100g": 66.67,
-      "ig": 70,
-      "measure": "Unidad mini (3,3g)"
-    },
-    {
-      "category": "Cereales y Tubérculos",
-      "name": "Pan tostado o biscote",
-      "ch_per_100g": 66.67,
-      "ig": 70,
-      "measure": "Unidad (10g)"
-    },
-    {
-      "category": "Cereales y Tubérculos",
-      "name": "Pan tostado o biscote",
-      "ch_per_100g": 66.67,
-      "ig": 70,
-      "measure": "Krispoll (12,5g)"
     },
     {
       "category": "Cereales y Tubérculos",
@@ -776,128 +678,79 @@
     {
       "category": "Cereales y Tubérculos",
       "name": "Pasta alimenticia integral, crudo",
-      "ch_per_100g": 66.67,
+      "ch_per_100g": 66.7,
       "ig": null,
       "measure": ""
     },
     {
       "category": "Cereales y Tubérculos",
       "name": "Pasta alimenticia integral, hervido",
-      "ch_per_100g": 22.22,
+      "ch_per_100g": 22.2,
       "ig": 45,
       "measure": "Guarnición (90g)"
-    },
-    {
-      "category": "Cereales y Tubérculos",
-      "name": "Pasta alimenticia integral, hervido",
-      "ch_per_100g": 22.22,
-      "ig": 45,
-      "measure": "Plato mediano (180g)"
-    },
-    {
-      "category": "Cereales y Tubérculos",
-      "name": "Pasta alimenticia integral, hervido",
-      "ch_per_100g": 22.22,
-      "ig": 45,
-      "measure": "Plato grande (270g)"
     },
     {
       "category": "Cereales y Tubérculos",
       "name": "Pasta alimenticia, crudo",
-      "ch_per_100g": 71.43,
+      "ch_per_100g": 71.4,
       "ig": null,
       "measure": ""
     },
     {
       "category": "Cereales y Tubérculos",
       "name": "Pasta alimenticia, hervido",
-      "ch_per_100g": 22.22,
+      "ch_per_100g": 22.2,
       "ig": 50,
       "measure": "Guarnición (90g)"
     },
     {
       "category": "Cereales y Tubérculos",
-      "name": "Pasta alimenticia, hervido",
-      "ch_per_100g": 22.22,
-      "ig": 50,
-      "measure": "Plato mediano (180g)"
-    },
-    {
-      "category": "Cereales y Tubérculos",
-      "name": "Pasta alimenticia, hervido",
-      "ch_per_100g": 22.22,
-      "ig": 50,
-      "measure": "Plato grande (270g)"
-    },
-    {
-      "category": "Cereales y Tubérculos",
       "name": "Pasta fresca rellena",
-      "ch_per_100g": 33.33,
+      "ch_per_100g": 33.3,
       "ig": null,
       "measure": ""
     },
     {
       "category": "Cereales y Tubérculos",
       "name": "Pasta sin glúten",
-      "ch_per_100g": 76.92,
+      "ch_per_100g": 76.9,
       "ig": 73,
       "measure": ""
     },
     {
       "category": "Cereales y Tubérculos",
       "name": "Patata, al horno o asada",
-      "ch_per_100g": 28.57,
+      "ch_per_100g": 28.6,
       "ig": 62,
       "measure": ""
     },
     {
       "category": "Cereales y Tubérculos",
       "name": "Patata, crudo",
-      "ch_per_100g": 15.38,
+      "ch_per_100g": 15.4,
       "ig": null,
       "measure": ""
     },
     {
       "category": "Cereales y Tubérculos",
       "name": "Patata, hervida",
-      "ch_per_100g": 15.38,
+      "ch_per_100g": 15.4,
       "ig": 65,
       "measure": "Guarnición (100g)"
     },
     {
       "category": "Cereales y Tubérculos",
-      "name": "Patata, hervida",
-      "ch_per_100g": 15.38,
-      "ig": 65,
-      "measure": "Plato mediano (200g)"
-    },
-    {
-      "category": "Cereales y Tubérculos",
-      "name": "Patata, hervida",
-      "ch_per_100g": 15.38,
-      "ig": 65,
-      "measure": "Plato grande (300g)"
-    },
-    {
-      "category": "Cereales y Tubérculos",
       "name": "Patatas chips",
-      "ch_per_100g": 50,
+      "ch_per_100g": 50.0,
       "ig": 95,
       "measure": "Bolsa pequeña (30g)"
     },
     {
       "category": "Cereales y Tubérculos",
       "name": "Patatas fritas",
-      "ch_per_100g": 33.33,
+      "ch_per_100g": 33.3,
       "ig": 70,
       "measure": "Guarnición (60g)"
-    },
-    {
-      "category": "Cereales y Tubérculos",
-      "name": "Patatas fritas",
-      "ch_per_100g": 33.33,
-      "ig": 70,
-      "measure": "Porción hamburguesería (120g)"
     },
     {
       "category": "Cereales y Tubérculos",
@@ -909,65 +762,58 @@
     {
       "category": "Cereales y Tubérculos",
       "name": "Puré de patatas, en copos",
-      "ch_per_100g": 66.67,
+      "ch_per_100g": 66.7,
       "ig": 90,
       "measure": ""
     },
     {
       "category": "Cereales y Tubérculos",
       "name": "Quinoa, crudo",
-      "ch_per_100g": 52.63,
+      "ch_per_100g": 52.6,
       "ig": null,
       "measure": ""
     },
     {
       "category": "Cereales y Tubérculos",
       "name": "Quinoa, hervido",
-      "ch_per_100g": 20.83,
+      "ch_per_100g": 20.8,
       "ig": 35,
       "measure": ""
     },
     {
       "category": "Cereales y Tubérculos",
-      "name": "Sémola de trigo, crudo",
-      "ch_per_100g": 71.43,
-      "ig": null,
-      "measure": ""
-    },
-    {
-      "category": "Cereales y Tubérculos",
-      "name": "Sémola de trigo, hervido",
-      "ch_per_100g": 11.11,
-      "ig": 67,
-      "measure": ""
-    },
-    {
-      "category": "Cereales y Tubérculos",
       "name": "Soja seca, crudo",
-      "ch_per_100g": 33.33,
+      "ch_per_100g": 33.3,
       "ig": null,
       "measure": ""
     },
     {
       "category": "Cereales y Tubérculos",
       "name": "Soja seca, hervido",
-      "ch_per_100g": 10,
+      "ch_per_100g": 10.0,
       "ig": 15,
       "measure": ""
     },
     {
       "category": "Cereales y Tubérculos",
       "name": "Sushi",
-      "ch_per_100g": 22.22,
+      "ch_per_100g": 22.2,
       "ig": 42,
       "measure": "Pieza pequeña (20g)"
     },
     {
       "category": "Cereales y Tubérculos",
-      "name": "Sushi",
-      "ch_per_100g": 22.22,
-      "ig": 42,
-      "measure": "Pieza grande (40g)"
+      "name": "Sémola de trigo, crudo",
+      "ch_per_100g": 71.4,
+      "ig": null,
+      "measure": ""
+    },
+    {
+      "category": "Cereales y Tubérculos",
+      "name": "Sémola de trigo, hervido",
+      "ch_per_100g": 11.1,
+      "ig": 67,
+      "measure": ""
     },
     {
       "category": "Cereales y Tubérculos",
@@ -979,21 +825,21 @@
     {
       "category": "Cereales y Tubérculos",
       "name": "Tapioca, crudo",
-      "ch_per_100g": 83.33,
+      "ch_per_100g": 83.3,
       "ig": null,
       "measure": ""
     },
     {
       "category": "Cereales y Tubérculos",
       "name": "Trigo sarraceno, crudo",
-      "ch_per_100g": 71.43,
+      "ch_per_100g": 71.4,
       "ig": null,
       "measure": ""
     },
     {
       "category": "Cereales y Tubérculos",
       "name": "Trigo sarraceno, hervido",
-      "ch_per_100g": 23.81,
+      "ch_per_100g": 23.8,
       "ig": 40,
       "measure": ""
     },
@@ -1007,7 +853,7 @@
     {
       "category": "Cereales y Tubérculos",
       "name": "Trigo tierno, hervido",
-      "ch_per_100g": 25.64,
+      "ch_per_100g": 25.6,
       "ig": 54,
       "measure": ""
     },
@@ -1021,16 +867,51 @@
     {
       "category": "Cereales y Tubérculos",
       "name": "Yuca, crudo",
-      "ch_per_100g": 40,
+      "ch_per_100g": 40.0,
       "ig": null,
       "measure": ""
+    },
+    {
+      "category": "Frutas",
+      "name": "Aguacate",
+      "ch_per_100g": 6.2,
+      "ig": 10,
+      "measure": "Unidad mediana (150g)"
+    },
+    {
+      "category": "Frutas",
+      "name": "Albaricoque",
+      "ch_per_100g": 6.7,
+      "ig": 30,
+      "measure": "Unidad mediana (50g)"
     },
     {
       "category": "Frutas",
       "name": "Arándano",
       "ch_per_100g": 10.0,
       "ig": 25,
-      "measure": "Puñado (100g)"
+      "measure": "Puñado, con la mano cerrada (20g)"
+    },
+    {
+      "category": "Frutas",
+      "name": "Caqui (persimon)",
+      "ch_per_100g": 15.4,
+      "ig": null,
+      "measure": "Unidad mediana (150g)"
+    },
+    {
+      "category": "Frutas",
+      "name": "Castaña cruda",
+      "ch_per_100g": 33.3,
+      "ig": 65,
+      "measure": "Unidad (10g)"
+    },
+    {
+      "category": "Frutas",
+      "name": "Castaña tostada",
+      "ch_per_100g": 40.0,
+      "ig": 65,
+      "measure": "Unidad (3g)"
     },
     {
       "category": "Frutas",
@@ -1041,13 +922,6 @@
     },
     {
       "category": "Frutas",
-      "name": "Ciruela",
-      "ch_per_100g": 10.0,
-      "ig": 35,
-      "measure": "2 unidades (100g)"
-    },
-    {
-      "category": "Frutas",
       "name": "Chirimoya",
       "ch_per_100g": 20.0,
       "ig": 35,
@@ -1055,59 +929,108 @@
     },
     {
       "category": "Frutas",
+      "name": "Ciruela",
+      "ch_per_100g": 10.0,
+      "ig": 35,
+      "measure": "2 unidades (100g)"
+    },
+    {
+      "category": "Frutas",
+      "name": "Coco fresco",
+      "ch_per_100g": 5.0,
+      "ig": 45,
+      "measure": "Tajada mediana (35g)"
+    },
+    {
+      "category": "Frutas",
+      "name": "Coco seco",
+      "ch_per_100g": 6.7,
+      "ig": 45,
+      "measure": "Cucharada colmada (20g)"
+    },
+    {
+      "category": "Frutas",
       "name": "Dátil",
-      "ch_per_100g": 66.67,
+      "ch_per_100g": 66.7,
       "ig": 70,
       "measure": "Unidad (12g)"
     },
     {
       "category": "Frutas",
       "name": "Frambuesa",
-      "ch_per_100g": 6.67,
+      "ch_per_100g": 6.7,
       "ig": 25,
-      "measure": "Puñado (150g)"
+      "measure": "Un puñado, con la mano cerrada (20g)"
     },
     {
       "category": "Frutas",
-      "name": "Fresón",
+      "name": "Fresones",
       "ch_per_100g": 5.0,
       "ig": 25,
-      "measure": "8 unidades (200g)"
+      "measure": "8 unidades grandes (200g)"
     },
     {
       "category": "Frutas",
       "name": "Granada",
-      "ch_per_100g": 14.29,
+      "ch_per_100g": 14.3,
       "ig": 35,
-      "measure": "Unidad (175g)"
+      "measure": "Unidad mediana (175g)"
     },
     {
       "category": "Frutas",
-      "name": "Higo",
+      "name": "Grosella",
+      "ch_per_100g": 5.0,
+      "ig": 25,
+      "measure": "Puñado, con mano cerrada (20g)"
+    },
+    {
+      "category": "Frutas",
+      "name": "Grosella negra",
+      "ch_per_100g": 7.1,
+      "ig": 15,
+      "measure": "Puñado, con mano cerrada (20g)"
+    },
+    {
+      "category": "Frutas",
+      "name": "Higos",
       "ch_per_100g": 10.0,
       "ig": 35,
-      "measure": "Unidad (100g)"
+      "measure": "Unidad mediana (50g)"
     },
     {
       "category": "Frutas",
       "name": "Kiwi",
       "ch_per_100g": 10.0,
       "ig": 50,
-      "measure": "Unidad (100g)"
+      "measure": "Unidad mediana (100g)"
+    },
+    {
+      "category": "Frutas",
+      "name": "Limón",
+      "ch_per_100g": 0,
+      "ig": null,
+      "measure": ""
+    },
+    {
+      "category": "Frutas",
+      "name": "Litchi",
+      "ch_per_100g": 14.3,
+      "ig": 50,
+      "measure": "6 unidades (70g)"
     },
     {
       "category": "Frutas",
       "name": "Mandarina",
       "ch_per_100g": 10.0,
       "ig": 30,
-      "measure": "Unidad (100g)"
+      "measure": "Unidad mediana (100g)"
     },
     {
       "category": "Frutas",
       "name": "Mango",
       "ch_per_100g": 10.0,
       "ig": 50,
-      "measure": "Unidad (100g)"
+      "measure": "Unidad mediana (200g)"
     },
     {
       "category": "Frutas",
@@ -1118,6 +1041,13 @@
     },
     {
       "category": "Frutas",
+      "name": "Manzana asada",
+      "ch_per_100g": 20.0,
+      "ig": 35,
+      "measure": "Unidad mediana (120g)"
+    },
+    {
+      "category": "Frutas",
       "name": "Melocotón",
       "ch_per_100g": 10.0,
       "ig": 35,
@@ -1125,10 +1055,38 @@
     },
     {
       "category": "Frutas",
+      "name": "Melocotón en conserva",
+      "ch_per_100g": 20.0,
+      "ig": 35,
+      "measure": "Una mitad (50g)"
+    },
+    {
+      "category": "Frutas",
       "name": "Melón",
       "ch_per_100g": 5.0,
       "ig": 60,
-      "measure": "Tajada (200g)"
+      "measure": "Un tajada mediana (200g)"
+    },
+    {
+      "category": "Frutas",
+      "name": "Membrillo",
+      "ch_per_100g": 6.7,
+      "ig": 35,
+      "measure": "Unidad mediana (350g)"
+    },
+    {
+      "category": "Frutas",
+      "name": "Membrillo, dulce de",
+      "ch_per_100g": 50.0,
+      "ig": 65,
+      "measure": ""
+    },
+    {
+      "category": "Frutas",
+      "name": "Moras",
+      "ch_per_100g": 6.7,
+      "ig": 25,
+      "measure": "Un puñado, con mano cerrada (20g)"
     },
     {
       "category": "Frutas",
@@ -1139,10 +1097,31 @@
     },
     {
       "category": "Frutas",
+      "name": "Nectarina",
+      "ch_per_100g": 10.0,
+      "ig": 35,
+      "measure": "Unidad mediana (100g)"
+    },
+    {
+      "category": "Frutas",
+      "name": "Níspero",
+      "ch_per_100g": 10.0,
+      "ig": 55,
+      "measure": "Unidad mediana (33g)"
+    },
+    {
+      "category": "Frutas",
       "name": "Papaya",
       "ch_per_100g": 8.0,
       "ig": 55,
-      "measure": "Tajada (125g)"
+      "measure": "Una tajada (250g)"
+    },
+    {
+      "category": "Frutas",
+      "name": "Paraguayo",
+      "ch_per_100g": 10.0,
+      "ig": 35,
+      "measure": "Unidad mediana (100g)"
     },
     {
       "category": "Frutas",
@@ -1153,10 +1132,24 @@
     },
     {
       "category": "Frutas",
-      "name": "Piña natural",
+      "name": "Piña",
       "ch_per_100g": 10.0,
       "ig": 45,
-      "measure": "Rodaja (100g)"
+      "measure": "2 rodajas (100g)"
+    },
+    {
+      "category": "Frutas",
+      "name": "Piña en conserva",
+      "ch_per_100g": 11.8,
+      "ig": 53,
+      "measure": "2 rodajas (100g)"
+    },
+    {
+      "category": "Frutas",
+      "name": "Piña en su jugo",
+      "ch_per_100g": 16.7,
+      "ig": 50,
+      "measure": "2 rodajas (100g)"
     },
     {
       "category": "Frutas",
@@ -1170,7 +1163,7 @@
       "name": "Sandía",
       "ch_per_100g": 5.0,
       "ig": 75,
-      "measure": "Tajada (200g)"
+      "measure": "Una tajada grande (200g)"
     },
     {
       "category": "Frutas",
@@ -1180,44 +1173,891 @@
       "measure": "12 unidades (100g)"
     },
     {
-      "category": "Verduras y Hortalizas",
-      "name": "Acelgas",
-      "ch_per_100g": 3.33,
+      "category": "Grasas y Frutos Secos",
+      "name": "Aceituna",
+      "ch_per_100g": 4.0,
       "ig": 15,
-      "measure": "Plato fondo (300g)"
+      "measure": "Una tapa (12 unidades o 30g)"
+    },
+    {
+      "category": "Grasas y Frutos Secos",
+      "name": "Albaricoque seco",
+      "ch_per_100g": 66.7,
+      "ig": 35,
+      "measure": "Unidad (5g)"
+    },
+    {
+      "category": "Grasas y Frutos Secos",
+      "name": "Almendra",
+      "ch_per_100g": 6.7,
+      "ig": 15,
+      "measure": "Un puñado, con mano cerrada (20g)"
+    },
+    {
+      "category": "Grasas y Frutos Secos",
+      "name": "Almendra tostada",
+      "ch_per_100g": 7.1,
+      "ig": 15,
+      "measure": "Un puñado, con mano cerrada (20g)"
+    },
+    {
+      "category": "Grasas y Frutos Secos",
+      "name": "Avellana",
+      "ch_per_100g": 6.7,
+      "ig": 15,
+      "measure": "Un puñado, con mano cerrada (20g)"
+    },
+    {
+      "category": "Grasas y Frutos Secos",
+      "name": "Cacahuete",
+      "ch_per_100g": 10.0,
+      "ig": 15,
+      "measure": "Un puñado, con mano cerrada (20g)"
+    },
+    {
+      "category": "Grasas y Frutos Secos",
+      "name": "Ciruela pasa",
+      "ch_per_100g": 66.7,
+      "ig": 40,
+      "measure": "Unidad (8g)"
+    },
+    {
+      "category": "Grasas y Frutos Secos",
+      "name": "Dátil seco",
+      "ch_per_100g": 66.7,
+      "ig": 70,
+      "measure": "Unidad (10g)"
+    },
+    {
+      "category": "Grasas y Frutos Secos",
+      "name": "Higo seco",
+      "ch_per_100g": 66.7,
+      "ig": 40,
+      "measure": "Unidad (8g)"
+    },
+    {
+      "category": "Grasas y Frutos Secos",
+      "name": "Nuez",
+      "ch_per_100g": 3.3,
+      "ig": 15,
+      "measure": "Un puñado, con mano cerrada (20g)"
+    },
+    {
+      "category": "Grasas y Frutos Secos",
+      "name": "Pipas",
+      "ch_per_100g": 12.5,
+      "ig": 35,
+      "measure": "Un puñado, con mano cerrada (15g)"
+    },
+    {
+      "category": "Grasas y Frutos Secos",
+      "name": "Pistacho",
+      "ch_per_100g": 12.5,
+      "ig": 15,
+      "measure": "Un puñado, con mano cerrada (20g)"
+    },
+    {
+      "category": "Grasas y Frutos Secos",
+      "name": "Piñón",
+      "ch_per_100g": 3.3,
+      "ig": 15,
+      "measure": "Un puñado, con mano cerrada (20g)"
+    },
+    {
+      "category": "Grasas y Frutos Secos",
+      "name": "Sésamo",
+      "ch_per_100g": 10.0,
+      "ig": null,
+      "measure": "Una cucharada sopera rasa (12g)"
+    },
+    {
+      "category": "Grasas y Frutos Secos",
+      "name": "Uva pasa",
+      "ch_per_100g": 66.7,
+      "ig": 65,
+      "measure": "Un puñado, con mano cerrada (20g)"
+    },
+    {
+      "category": "Lácteos",
+      "name": "Cuajada",
+      "ch_per_100g": 5.7,
+      "ig": 35,
+      "measure": "Unidad (125ml)"
+    },
+    {
+      "category": "Lácteos",
+      "name": "Flan",
+      "ch_per_100g": 22.2,
+      "ig": null,
+      "measure": "Unidad (110g)"
+    },
+    {
+      "category": "Lácteos",
+      "name": "Flan 0%",
+      "ch_per_100g": 14.3,
+      "ig": null,
+      "measure": "Unidad (110g)"
+    },
+    {
+      "category": "Lácteos",
+      "name": "Helado \"sin azúcares añadidos\"",
+      "ch_per_100g": 10.0,
+      "ig": 35,
+      "measure": "Unidad (100ml)"
+    },
+    {
+      "category": "Lácteos",
+      "name": "Helado de crema",
+      "ch_per_100g": 20.0,
+      "ig": 60,
+      "measure": "Bola mediana (100g)"
+    },
+    {
+      "category": "Lácteos",
+      "name": "Helado de hielo",
+      "ch_per_100g": 20.0,
+      "ig": 65,
+      "measure": "Unidad (100ml)"
+    },
+    {
+      "category": "Lácteos",
+      "name": "Kéfir",
+      "ch_per_100g": 5.0,
+      "ig": 35,
+      "measure": "Unidad (125ml)"
+    },
+    {
+      "category": "Lácteos",
+      "name": "Leche condensada",
+      "ch_per_100g": 50.0,
+      "ig": 61,
+      "measure": "Cucharada sopera (20g)"
+    },
+    {
+      "category": "Lácteos",
+      "name": "Leche desnatada",
+      "ch_per_100g": 5.0,
+      "ig": 32,
+      "measure": "Vaso o taza (200ml)"
+    },
+    {
+      "category": "Lácteos",
+      "name": "Leche en polvo",
+      "ch_per_100g": 40.0,
+      "ig": 30,
+      "measure": "Cucharada sopera colmada (25g)"
+    },
+    {
+      "category": "Lácteos",
+      "name": "Leche entera",
+      "ch_per_100g": 5.0,
+      "ig": 27,
+      "measure": "Vaso o taza (200ml)"
+    },
+    {
+      "category": "Lácteos",
+      "name": "Leche semidesnatada",
+      "ch_per_100g": 5.0,
+      "ig": 30,
+      "measure": "Vaso o taza (200ml)"
+    },
+    {
+      "category": "Lácteos",
+      "name": "Leche sin lactosa",
+      "ch_per_100g": 5.0,
+      "ig": null,
+      "measure": "Vaso o taza (200ml)"
+    },
+    {
+      "category": "Lácteos",
+      "name": "Nata líquida",
+      "ch_per_100g": 3.3,
+      "ig": null,
+      "measure": "Botellín o brick (200ml)"
+    },
+    {
+      "category": "Lácteos",
+      "name": "Natillas",
+      "ch_per_100g": 20.0,
+      "ig": null,
+      "measure": "Unidad (125ml)"
+    },
+    {
+      "category": "Lácteos",
+      "name": "Queso fresco",
+      "ch_per_100g": 4.0,
+      "ig": 35,
+      "measure": "Tarrina individual (70g)"
+    },
+    {
+      "category": "Lácteos",
+      "name": "Queso tipo Petit suisse",
+      "ch_per_100g": 13.3,
+      "ig": 40,
+      "measure": "Unidad (50g)"
+    },
+    {
+      "category": "Lácteos",
+      "name": "Quesos de pasta, semis o curados",
+      "ch_per_100g": 0,
+      "ig": null,
+      "measure": ""
+    },
+    {
+      "category": "Lácteos",
+      "name": "Yogur desnatado, de sabores o fruta",
+      "ch_per_100g": 6.7,
+      "ig": 35,
+      "measure": "Unidad (125ml)"
+    },
+    {
+      "category": "Lácteos",
+      "name": "Yogur entero, de sabores o fruta",
+      "ch_per_100g": 14.3,
+      "ig": 35,
+      "measure": "Unidad (125ml)"
+    },
+    {
+      "category": "Lácteos",
+      "name": "Yogur líquido",
+      "ch_per_100g": 14.3,
+      "ig": 40,
+      "measure": "Unidad (200ml)"
+    },
+    {
+      "category": "Lácteos",
+      "name": "Yogur natural entero o desnatado",
+      "ch_per_100g": 5.0,
+      "ig": 35,
+      "measure": "Unidad (125ml)"
+    },
+    {
+      "category": "Lácteos",
+      "name": "Yogur tipo Actimel",
+      "ch_per_100g": 10.0,
+      "ig": 35,
+      "measure": "Unidad (100ml)"
+    },
+    {
+      "category": "Lácteos",
+      "name": "Yogur tipo Actimel 0%",
+      "ch_per_100g": 5.0,
+      "ig": 35,
+      "measure": "Unidad (100ml)"
+    },
+    {
+      "category": "Otros / Platos Preparados",
+      "name": "Arepa",
+      "ch_per_100g": 40.0,
+      "ig": 72,
+      "measure": "Unidad"
+    },
+    {
+      "category": "Otros / Platos Preparados",
+      "name": "Azúcar blanco",
+      "ch_per_100g": 100.0,
+      "ig": 70,
+      "measure": "Cucharada postre (8g)"
+    },
+    {
+      "category": "Otros / Platos Preparados",
+      "name": "Azúcar moreno",
+      "ch_per_100g": 100.0,
+      "ig": 70,
+      "measure": "Cucharada postre (8g)"
+    },
+    {
+      "category": "Otros / Platos Preparados",
+      "name": "Barrita energética (de cereales)",
+      "ch_per_100g": 50.0,
+      "ig": 70,
+      "measure": "Unidad (25g)"
+    },
+    {
+      "category": "Otros / Platos Preparados",
+      "name": "Bizcocho o melindro",
+      "ch_per_100g": 50.0,
+      "ig": 65,
+      "measure": "Unidad comercial individual (25g)"
+    },
+    {
+      "category": "Otros / Platos Preparados",
+      "name": "Bollería en general",
+      "ch_per_100g": 50.0,
+      "ig": 70,
+      "measure": ""
+    },
+    {
+      "category": "Otros / Platos Preparados",
+      "name": "Cacao en polvo",
+      "ch_per_100g": 83.3,
+      "ig": null,
+      "measure": "Cucharada postre (8g)"
+    },
+    {
+      "category": "Otros / Platos Preparados",
+      "name": "Cacao en polvo sin azúcar",
+      "ch_per_100g": 45.5,
+      "ig": null,
+      "measure": "Cucharada postre (8g)"
+    },
+    {
+      "category": "Otros / Platos Preparados",
+      "name": "Calamares a la romana",
+      "ch_per_100g": 8.3,
+      "ig": null,
+      "measure": "4 unidades"
+    },
+    {
+      "category": "Otros / Platos Preparados",
+      "name": "Canelones con bechamel",
+      "ch_per_100g": 10.0,
+      "ig": null,
+      "measure": "3 unidades (250g)"
+    },
+    {
+      "category": "Otros / Platos Preparados",
+      "name": "Caramelo",
+      "ch_per_100g": 83.3,
+      "ig": 70,
+      "measure": "Unidad (5g)"
+    },
+    {
+      "category": "Otros / Platos Preparados",
+      "name": "Carne rebozada",
+      "ch_per_100g": 6.7,
+      "ig": null,
+      "measure": "Un filete de 100g de carne"
+    },
+    {
+      "category": "Otros / Platos Preparados",
+      "name": "Chocolate >90% cacao",
+      "ch_per_100g": 13.3,
+      "ig": null,
+      "measure": ""
+    },
+    {
+      "category": "Otros / Platos Preparados",
+      "name": "Chocolate blanco o con leche",
+      "ch_per_100g": 58.8,
+      "ig": 70,
+      "measure": "Pastilla (8g)"
+    },
+    {
+      "category": "Otros / Platos Preparados",
+      "name": "Chocolate negro",
+      "ch_per_100g": 40.0,
+      "ig": 20,
+      "measure": "Pastilla (8g)"
+    },
+    {
+      "category": "Otros / Platos Preparados",
+      "name": "Churros",
+      "ch_per_100g": 40.0,
+      "ig": null,
+      "measure": "2 unidades (25g)"
+    },
+    {
+      "category": "Otros / Platos Preparados",
+      "name": "Crema de cacahuete",
+      "ch_per_100g": 10.0,
+      "ig": 40,
+      "measure": "Cucharada sopera colmada (20g)"
+    },
+    {
+      "category": "Otros / Platos Preparados",
+      "name": "Crema de cacao",
+      "ch_per_100g": 40.0,
+      "ig": 55,
+      "measure": "Cucharada sopera colmada (25g)"
+    },
+    {
+      "category": "Otros / Platos Preparados",
+      "name": "Crema pastelera",
+      "ch_per_100g": 25.0,
+      "ig": null,
+      "measure": "Cucharada sopera colmada (20g)"
+    },
+    {
+      "category": "Otros / Platos Preparados",
+      "name": "Crepe",
+      "ch_per_100g": 25.0,
+      "ig": null,
+      "measure": "Unidad (75g)"
+    },
+    {
+      "category": "Otros / Platos Preparados",
+      "name": "Croquetas",
+      "ch_per_100g": 20.0,
+      "ig": null,
+      "measure": "3 unidades (90g)"
+    },
+    {
+      "category": "Otros / Platos Preparados",
+      "name": "Cruasán",
+      "ch_per_100g": 50.0,
+      "ig": 70,
+      "measure": "Unidad (60g)"
+    },
+    {
+      "category": "Otros / Platos Preparados",
+      "name": "Donut",
+      "ch_per_100g": 43.5,
+      "ig": 75,
+      "measure": "Unidad (58g)"
+    },
+    {
+      "category": "Otros / Platos Preparados",
+      "name": "Durum",
+      "ch_per_100g": 10.0,
+      "ig": null,
+      "measure": "Unidad"
+    },
+    {
+      "category": "Otros / Platos Preparados",
+      "name": "Döner kebab",
+      "ch_per_100g": 16.7,
+      "ig": null,
+      "measure": "Unidad"
+    },
+    {
+      "category": "Otros / Platos Preparados",
+      "name": "Empanadilla de carne",
+      "ch_per_100g": 20.0,
+      "ig": null,
+      "measure": "2 unidades (80g)"
+    },
+    {
+      "category": "Otros / Platos Preparados",
+      "name": "Ensaimada",
+      "ch_per_100g": 43.5,
+      "ig": 70,
+      "measure": "Unidad (70g)"
+    },
+    {
+      "category": "Otros / Platos Preparados",
+      "name": "Ensaladilla rusa",
+      "ch_per_100g": 10.0,
+      "ig": null,
+      "measure": ""
+    },
+    {
+      "category": "Otros / Platos Preparados",
+      "name": "Fajita, tortilla mejicana",
+      "ch_per_100g": 50.0,
+      "ig": null,
+      "measure": "Unidad comercial (40g)"
+    },
+    {
+      "category": "Otros / Platos Preparados",
+      "name": "Fructosa (edulcorante)",
+      "ch_per_100g": 100.0,
+      "ig": 20,
+      "measure": "Cucharada sopera (20g)"
+    },
+    {
+      "category": "Otros / Platos Preparados",
+      "name": "Gazpacho comercial",
+      "ch_per_100g": 6.7,
+      "ig": null,
+      "measure": "Vaso (200cc)"
+    },
+    {
+      "category": "Otros / Platos Preparados",
+      "name": "Gelatina 0%",
+      "ch_per_100g": 2.0,
+      "ig": null,
+      "measure": "Unidad (125cc)"
+    },
+    {
+      "category": "Otros / Platos Preparados",
+      "name": "Gelatina comercial",
+      "ch_per_100g": 16.1,
+      "ig": null,
+      "measure": "Unidad (125cc)"
+    },
+    {
+      "category": "Otros / Platos Preparados",
+      "name": "Glucosa (líquida o en pastillas)",
+      "ch_per_100g": 100.0,
+      "ig": 100,
+      "measure": "Pastilla pequeña (2,5g)"
+    },
+    {
+      "category": "Otros / Platos Preparados",
+      "name": "Golosinas",
+      "ch_per_100g": 55.6,
+      "ig": 70,
+      "measure": ""
+    },
+    {
+      "category": "Otros / Platos Preparados",
+      "name": "Ketchup",
+      "ch_per_100g": 20.0,
+      "ig": 55,
+      "measure": "Sobre (9g)"
+    },
+    {
+      "category": "Otros / Platos Preparados",
+      "name": "Lasaña",
+      "ch_per_100g": 10.0,
+      "ig": 53,
+      "measure": "Plato restaurante (260g)"
+    },
+    {
+      "category": "Otros / Platos Preparados",
+      "name": "Levadura",
+      "ch_per_100g": 7.7,
+      "ig": null,
+      "measure": ""
+    },
+    {
+      "category": "Otros / Platos Preparados",
+      "name": "Magdalena",
+      "ch_per_100g": 40.0,
+      "ig": 70,
+      "measure": "Unidad (50g)"
+    },
+    {
+      "category": "Otros / Platos Preparados",
+      "name": "Mazapán",
+      "ch_per_100g": 40.0,
+      "ig": null,
+      "measure": "Unidad (35g)"
+    },
+    {
+      "category": "Otros / Platos Preparados",
+      "name": "Merengue",
+      "ch_per_100g": 90.9,
+      "ig": null,
+      "measure": ""
+    },
+    {
+      "category": "Otros / Platos Preparados",
+      "name": "Mermelada",
+      "ch_per_100g": 50.0,
+      "ig": 65,
+      "measure": "Cucharada sopera (25g)"
+    },
+    {
+      "category": "Otros / Platos Preparados",
+      "name": "Mermelada light",
+      "ch_per_100g": 10.0,
+      "ig": 30,
+      "measure": "Cucharada sopera (25g)"
+    },
+    {
+      "category": "Otros / Platos Preparados",
+      "name": "Miel",
+      "ch_per_100g": 76.9,
+      "ig": 85,
+      "measure": "Cucharada sopera (18g)"
+    },
+    {
+      "category": "Otros / Platos Preparados",
+      "name": "Mostaza",
+      "ch_per_100g": 0,
+      "ig": null,
+      "measure": ""
+    },
+    {
+      "category": "Otros / Platos Preparados",
+      "name": "Palomitas",
+      "ch_per_100g": 50.0,
+      "ig": 85,
+      "measure": ""
+    },
+    {
+      "category": "Otros / Platos Preparados",
+      "name": "Pastel de chocolate",
+      "ch_per_100g": 40.0,
+      "ig": null,
+      "measure": "Porción (100g)"
+    },
+    {
+      "category": "Otros / Platos Preparados",
+      "name": "Pastel de crema",
+      "ch_per_100g": 28.6,
+      "ig": null,
+      "measure": "Porción (100g)"
+    },
+    {
+      "category": "Otros / Platos Preparados",
+      "name": "Pepinillos en vinagre",
+      "ch_per_100g": 0,
+      "ig": null,
+      "measure": ""
+    },
+    {
+      "category": "Otros / Platos Preparados",
+      "name": "Pizza",
+      "ch_per_100g": 25.0,
+      "ig": 45,
+      "measure": "Pizza individual (400g)"
+    },
+    {
+      "category": "Otros / Platos Preparados",
+      "name": "Regaliz",
+      "ch_per_100g": 66.7,
+      "ig": null,
+      "measure": "Unidad (8g)"
+    },
+    {
+      "category": "Otros / Platos Preparados",
+      "name": "Rollito de primavera",
+      "ch_per_100g": 20.0,
+      "ig": null,
+      "measure": "2 unidades (100g)"
+    },
+    {
+      "category": "Otros / Platos Preparados",
+      "name": "Salsa barbacoa",
+      "ch_per_100g": 10.0,
+      "ig": null,
+      "measure": "3 cucharadas soperas (50g)"
+    },
+    {
+      "category": "Otros / Platos Preparados",
+      "name": "Salsa bechamel",
+      "ch_per_100g": 10.0,
+      "ig": null,
+      "measure": "3 cucharadas soperas (50g)"
+    },
+    {
+      "category": "Otros / Platos Preparados",
+      "name": "Salsa boloñesa",
+      "ch_per_100g": 6.7,
+      "ig": null,
+      "measure": "5 cucharadas soperas (75g)"
+    },
+    {
+      "category": "Otros / Platos Preparados",
+      "name": "Salsa carbonara",
+      "ch_per_100g": 0,
+      "ig": null,
+      "measure": ""
+    },
+    {
+      "category": "Otros / Platos Preparados",
+      "name": "Salsa de soja",
+      "ch_per_100g": 0,
+      "ig": null,
+      "measure": ""
+    },
+    {
+      "category": "Otros / Platos Preparados",
+      "name": "Salsa de tomate comercial",
+      "ch_per_100g": 10.0,
+      "ig": null,
+      "measure": "3 cucharadas soperas (50g)"
+    },
+    {
+      "category": "Otros / Platos Preparados",
+      "name": "Seitán",
+      "ch_per_100g": 3.3,
+      "ig": null,
+      "measure": "Porción (100g)"
+    },
+    {
+      "category": "Otros / Platos Preparados",
+      "name": "Sucedáneo de café, tipo EKO",
+      "ch_per_100g": 0,
+      "ig": null,
+      "measure": ""
+    },
+    {
+      "category": "Otros / Platos Preparados",
+      "name": "Surimi (palitos de cangrejo)",
+      "ch_per_100g": 10.0,
+      "ig": null,
+      "measure": "Barrita (20g)"
+    },
+    {
+      "category": "Otros / Platos Preparados",
+      "name": "Tarta de manzana",
+      "ch_per_100g": 40.0,
+      "ig": null,
+      "measure": "Porción (100g)"
+    },
+    {
+      "category": "Otros / Platos Preparados",
+      "name": "Tofú",
+      "ch_per_100g": 3.3,
+      "ig": null,
+      "measure": "Porción (100g)"
+    },
+    {
+      "category": "Otros / Platos Preparados",
+      "name": "Tortilla de patatas",
+      "ch_per_100g": 8.3,
+      "ig": null,
+      "measure": "Tapa (100g)"
+    },
+    {
+      "category": "Otros / Platos Preparados",
+      "name": "Turrón tipo Alicante",
+      "ch_per_100g": 40.0,
+      "ig": null,
+      "measure": "1/6 tableta (50g)"
+    },
+    {
+      "category": "Otros / Platos Preparados",
+      "name": "Turrón tipo Jijona",
+      "ch_per_100g": 40.0,
+      "ig": null,
+      "measure": "1/6 tableta (50g)"
+    },
+    {
+      "category": "Otros / Platos Preparados",
+      "name": "Turrón tipo chocolate",
+      "ch_per_100g": 50.0,
+      "ig": null,
+      "measure": "1/6 de tableta (50g)"
+    },
+    {
+      "category": "Otros / Platos Preparados",
+      "name": "Vinagre",
+      "ch_per_100g": 0,
+      "ig": null,
+      "measure": ""
+    },
+    {
+      "category": "Otros / Platos Preparados",
+      "name": "Vinagre tipo Módena (caramelizado)",
+      "ch_per_100g": 66.7,
+      "ig": null,
+      "measure": "Cucharada sopera (15g)"
+    },
+    {
+      "category": "Proteínas",
+      "name": "Embutido (Jamón York, Serrano)",
+      "ch_per_100g": 0.5,
+      "ig": 0,
+      "measure": "Loncha (20g)"
+    },
+    {
+      "category": "Proteínas",
+      "name": "Filete de Ternera",
+      "ch_per_100g": 0,
+      "ig": 0,
+      "measure": "Filete (150g)"
+    },
+    {
+      "category": "Proteínas",
+      "name": "Huevo",
+      "ch_per_100g": 0,
+      "ig": 0,
+      "measure": "Unidad (50g)"
+    },
+    {
+      "category": "Proteínas",
+      "name": "Pechuga de Pavo",
+      "ch_per_100g": 0,
+      "ig": 0,
+      "measure": "Filete (100g-150g)"
+    },
+    {
+      "category": "Proteínas",
+      "name": "Pechuga de Pollo",
+      "ch_per_100g": 0,
+      "ig": 0,
+      "measure": "Filete (100g-150g)"
+    },
+    {
+      "category": "Proteínas",
+      "name": "Pescado Azul (Salmón, Atún)",
+      "ch_per_100g": 0,
+      "ig": 0,
+      "measure": "Lomo/Rodaja (150g)"
+    },
+    {
+      "category": "Proteínas",
+      "name": "Pescado Blanco (Merluza, Bacalao)",
+      "ch_per_100g": 0,
+      "ig": 0,
+      "measure": "Lomo/Rodaja (150g)"
+    },
+    {
+      "category": "Verduras y Hortalizas",
+      "name": "Acelga",
+      "ch_per_100g": 3.3,
+      "ig": 15,
+      "measure": "Plato grande (250g)"
     },
     {
       "category": "Verduras y Hortalizas",
       "name": "Ajo",
       "ch_per_100g": 25.0,
       "ig": 30,
-      "measure": "3 dientes (12g)"
+      "measure": "3 dientes (10g)"
     },
     {
       "category": "Verduras y Hortalizas",
       "name": "Alcachofa",
-      "ch_per_100g": 5.0,
+      "ch_per_100g": 3.3,
       "ig": 20,
-      "measure": "2 unidades (200g)"
+      "measure": "Plato grande (150g)"
+    },
+    {
+      "category": "Verduras y Hortalizas",
+      "name": "Alga",
+      "ch_per_100g": 5.0,
+      "ig": null,
+      "measure": ""
+    },
+    {
+      "category": "Verduras y Hortalizas",
+      "name": "Apio",
+      "ch_per_100g": 2.0,
+      "ig": 15,
+      "measure": ""
+    },
+    {
+      "category": "Verduras y Hortalizas",
+      "name": "Apio-nabo",
+      "ch_per_100g": 2.0,
+      "ig": null,
+      "measure": "Guarnición (125g)"
     },
     {
       "category": "Verduras y Hortalizas",
       "name": "Berenjena",
-      "ch_per_100g": 3.33,
+      "ch_per_100g": 3.3,
       "ig": 20,
-      "measure": "Unidad grande (300g)"
+      "measure": "Guarnición (125)"
+    },
+    {
+      "category": "Verduras y Hortalizas",
+      "name": "Berro",
+      "ch_per_100g": 0,
+      "ig": 15,
+      "measure": ""
+    },
+    {
+      "category": "Verduras y Hortalizas",
+      "name": "Berza",
+      "ch_per_100g": 0,
+      "ig": 15,
+      "measure": ""
+    },
+    {
+      "category": "Verduras y Hortalizas",
+      "name": "Borraja",
+      "ch_per_100g": 3.3,
+      "ig": 15,
+      "measure": ""
     },
     {
       "category": "Verduras y Hortalizas",
       "name": "Brócoli",
-      "ch_per_100g": 3.33,
+      "ch_per_100g": 3.3,
       "ig": 15,
-      "measure": "Plato (300g)"
+      "measure": "Plato grande (300g)"
     },
     {
       "category": "Verduras y Hortalizas",
       "name": "Calabacín",
-      "ch_per_100g": 3.33,
+      "ch_per_100g": 3.3,
       "ig": 15,
       "measure": "Unidad grande (300g)"
     },
@@ -1226,35 +2066,98 @@
       "name": "Calabaza",
       "ch_per_100g": 5.0,
       "ig": 75,
-      "measure": "Taza (200g)"
+      "measure": ""
+    },
+    {
+      "category": "Verduras y Hortalizas",
+      "name": "Cardo",
+      "ch_per_100g": 3.3,
+      "ig": 15,
+      "measure": ""
     },
     {
       "category": "Verduras y Hortalizas",
       "name": "Cebolla",
-      "ch_per_100g": 6.67,
+      "ch_per_100g": 6.7,
       "ig": 15,
       "measure": "Unidad mediana (150g)"
     },
     {
       "category": "Verduras y Hortalizas",
-      "name": "Coliflor",
-      "ch_per_100g": 3.33,
-      "ig": 15,
-      "measure": "Plato (300g)"
+      "name": "Cebolla frita en aros",
+      "ch_per_100g": 10.0,
+      "ig": null,
+      "measure": ""
     },
     {
       "category": "Verduras y Hortalizas",
-      "name": "Espárragos blanca o verde",
-      "ch_per_100g": 2.5,
+      "name": "Champiñón",
+      "ch_per_100g": 0,
       "ig": 15,
-      "measure": "8-10 unidades (400g)"
+      "measure": ""
     },
     {
       "category": "Verduras y Hortalizas",
-      "name": "Espinacas",
-      "ch_per_100g": 3.33,
+      "name": "Col de Bruselas, Coliflor",
+      "ch_per_100g": 3.3,
       "ig": 15,
-      "measure": "Plato (300g)"
+      "measure": "Plato grande (300g)"
+    },
+    {
+      "category": "Verduras y Hortalizas",
+      "name": "Col ácida",
+      "ch_per_100g": 0,
+      "ig": 15,
+      "measure": ""
+    },
+    {
+      "category": "Verduras y Hortalizas",
+      "name": "Edamame",
+      "ch_per_100g": 10.0,
+      "ig": 35,
+      "measure": ""
+    },
+    {
+      "category": "Verduras y Hortalizas",
+      "name": "Endibia",
+      "ch_per_100g": 3.3,
+      "ig": 15,
+      "measure": "Unidad (100g)"
+    },
+    {
+      "category": "Verduras y Hortalizas",
+      "name": "Escarola",
+      "ch_per_100g": 0,
+      "ig": 15,
+      "measure": ""
+    },
+    {
+      "category": "Verduras y Hortalizas",
+      "name": "Espinaca",
+      "ch_per_100g": 0,
+      "ig": 15,
+      "measure": ""
+    },
+    {
+      "category": "Verduras y Hortalizas",
+      "name": "Espárrago blanco en conserva",
+      "ch_per_100g": 3.3,
+      "ig": 15,
+      "measure": ""
+    },
+    {
+      "category": "Verduras y Hortalizas",
+      "name": "Espárrago verde",
+      "ch_per_100g": 2.0,
+      "ig": 15,
+      "measure": ""
+    },
+    {
+      "category": "Verduras y Hortalizas",
+      "name": "Grelos",
+      "ch_per_100g": 0,
+      "ig": null,
+      "measure": ""
     },
     {
       "category": "Verduras y Hortalizas",
@@ -1266,44 +2169,114 @@
     {
       "category": "Verduras y Hortalizas",
       "name": "Lechuga",
-      "ch_per_100g": 2.5,
+      "ch_per_100g": 3.3,
       "ig": 15,
-      "measure": "Ensalada grande (400g)"
+      "measure": "Ración individual (70g)"
+    },
+    {
+      "category": "Verduras y Hortalizas",
+      "name": "Lombarda",
+      "ch_per_100g": 0,
+      "ig": 15,
+      "measure": ""
+    },
+    {
+      "category": "Verduras y Hortalizas",
+      "name": "Nabo",
+      "ch_per_100g": 3.3,
+      "ig": 30,
+      "measure": "Unidad (100g)"
+    },
+    {
+      "category": "Verduras y Hortalizas",
+      "name": "Palmitos",
+      "ch_per_100g": 5.0,
+      "ig": 20,
+      "measure": "Unidad (25g)"
     },
     {
       "category": "Verduras y Hortalizas",
       "name": "Pepino",
-      "ch_per_100g": 2.5,
+      "ch_per_100g": 3.3,
       "ig": 15,
-      "measure": "Unidad media (400g)"
+      "measure": "Unidad mediana (150g)"
     },
     {
       "category": "Verduras y Hortalizas",
-      "name": "Pimiento roja/verde",
-      "ch_per_100g": 4.0,
+      "name": "Pimiento rojo/verde",
+      "ch_per_100g": 3.3,
       "ig": 15,
-      "measure": "Unidad grande (250g)"
+      "measure": "Unidad mediana (150g)"
     },
     {
       "category": "Verduras y Hortalizas",
       "name": "Puerro",
-      "ch_per_100g": 6.67,
+      "ch_per_100g": 3.3,
       "ig": 15,
-      "measure": "2 unidades (150g)"
+      "measure": "Unidad mediana (75g)"
+    },
+    {
+      "category": "Verduras y Hortalizas",
+      "name": "Remolacha",
+      "ch_per_100g": 6.7,
+      "ig": 30,
+      "measure": ""
+    },
+    {
+      "category": "Verduras y Hortalizas",
+      "name": "Repollo",
+      "ch_per_100g": 3.3,
+      "ig": 15,
+      "measure": "Guarnición (125g)"
+    },
+    {
+      "category": "Verduras y Hortalizas",
+      "name": "Ruibarbo",
+      "ch_per_100g": 0,
+      "ig": null,
+      "measure": ""
     },
     {
       "category": "Verduras y Hortalizas",
       "name": "Rábano",
-      "ch_per_100g": 3.33,
+      "ch_per_100g": 3.3,
       "ig": 15,
-      "measure": "10-12 unidades (300g)"
+      "measure": "5 unidades medianas (100g)"
+    },
+    {
+      "category": "Verduras y Hortalizas",
+      "name": "Setas",
+      "ch_per_100g": 3.3,
+      "ig": 15,
+      "measure": "Plato grande (200g)"
+    },
+    {
+      "category": "Verduras y Hortalizas",
+      "name": "Soja en brotes",
+      "ch_per_100g": 3.3,
+      "ig": 15,
+      "measure": ""
     },
     {
       "category": "Verduras y Hortalizas",
       "name": "Tomate",
-      "ch_per_100g": 3.33,
+      "ch_per_100g": 3.3,
       "ig": 30,
-      "measure": "2 unidades (300g)"
+      "measure": "Unidad mediana (150g)"
+    },
+    {
+      "category": "Verduras y Hortalizas",
+      "name": "Zanahoria",
+      "ch_per_100g": 6.7,
+      "ig": 30,
+      "measure": "Unidad mediana (70g)"
+    },
+    {
+      "category": "Verduras y Hortalizas",
+      "name": "Zanahoria en conserva",
+      "ch_per_100g": 4.4,
+      "ig": null,
+      "measure": ""
     },
     {
       "category": "Verduras y Hortalizas",
@@ -1311,468 +2284,6 @@
       "ch_per_100g": 5.0,
       "ig": 85,
       "measure": "Unidad mediana (70g)"
-    },
-    {
-      "category": "Verduras y Hortalizas",
-      "name": "Zanahoria cruda",
-      "ch_per_100g": 8.33,
-      "ig": 30,
-      "measure": "Unidad mediana (120g)"
-    },
-    {
-      "category": "Fruta grasa y seca",
-      "name": "Aceituna",
-      "ch_per_100g": 4,
-      "ig": 15,
-      "measure": "Una tapa (12 unidades o 30g)"
-    },
-    {
-      "category": "Fruta grasa y seca",
-      "name": "Albaricoque seco",
-      "ch_per_100g": 66.67,
-      "ig": 35,
-      "measure": "Unidad (5g)"
-    },
-    {
-      "category": "Fruta grasa y seca",
-      "name": "Almendra",
-      "ch_per_100g": 6.67,
-      "ig": 15,
-      "measure": "Un puñado, con mano cerrada (20g)"
-    },
-    {
-      "category": "Fruta grasa y seca",
-      "name": "Avellana",
-      "ch_per_100g": 6.67,
-      "ig": 15,
-      "measure": "Un puñado, con mano cerrada (20g)"
-    },
-    {
-      "category": "Fruta grasa y seca",
-      "name": "Cacahuete",
-      "ch_per_100g": 10,
-      "ig": 15,
-      "measure": "Un puñado, con mano cerrada (20g)"
-    },
-    {
-      "category": "Fruta grasa y seca",
-      "name": "Nuez",
-      "ch_per_100g": 3.33,
-      "ig": 15,
-      "measure": "Un puñado, con mano cerrada (20g)"
-    },
-    {
-      "category": "Fruta grasa y seca",
-      "name": "Pistacho",
-      "ch_per_100g": 12.5,
-      "ig": 15,
-      "measure": "Un puñado, con mano cerrada (20g)"
-    },
-    {
-      "category": "Bebidas",
-      "name": "Agua de coco",
-      "ch_per_100g": 5,
-      "ig": null,
-      "measure": "Vaso de 200cc"
-    },
-    {
-      "category": "Bebidas",
-      "name": "Bebida de avena",
-      "ch_per_100g": 5,
-      "ig": 35,
-      "measure": "Vaso o brick de 200cc"
-    },
-    {
-      "category": "Bebidas",
-      "name": "Bebida de soja",
-      "ch_per_100g": 4,
-      "ig": 30,
-      "measure": "Vaso o brick de 200cc"
-    },
-    {
-      "category": "Bebidas",
-      "name": "Cerveza",
-      "ch_per_100g": 4,
-      "ig": 110,
-      "measure": "Tercio o mediana (330cc)"
-    },
-    {
-      "category": "Bebidas",
-      "name": "Zumo de fruta",
-      "ch_per_100g": 10,
-      "ig": 60,
-      "measure": "Un vaso o brick (200cc)"
-    },
-    {
-      "category": "Otros / Platos Preparados",
-      "name": "Azúcar blanco",
-      "ch_per_100g": 100.0,
-      "ig": 70,
-      "measure": "Cucharada postre (8g)"
-    },
-    {
-      "category": "Otros / Platos Preparados",
-      "name": "Cacao en polvo",
-      "ch_per_100g": 83.3,
-      "ig": null,
-      "measure": "Cucharada sopera (20g)"
-    },
-    {
-      "category": "Otros / Platos Preparados",
-      "name": "Chocolate negro",
-      "ch_per_100g": 40.0,
-      "ig": 20,
-      "measure": "Pastilla (8g)"
-    },
-    {
-      "category": "Otros / Platos Preparados",
-      "name": "Donut",
-      "ch_per_100g": 43.5,
-      "ig": 75,
-      "measure": "Unidad (58g)"
-    },
-    {
-      "category": "Otros / Platos Preparados",
-      "name": "Lasaña",
-      "ch_per_100g": 10.0,
-      "ig": 53,
-      "measure": "Plato restaurante (260g)"
-    },
-    {
-      "category": "Otros / Platos Preparados",
-      "name": "Miel",
-      "ch_per_100g": 76.9,
-      "ig": 85,
-      "measure": "Cucharada sopera (18g)"
-    },
-    {
-      "category": "Otros / Platos Preparados",
-      "name": "Pizza",
-      "ch_per_100g": 25.0,
-      "ig": 45,
-      "measure": "Triángulo (100g)"
-    },
-    {
-      "category": "Otros / Platos Preparados",
-      "name": "Tortilla de patatas",
-      "ch_per_100g": 8.3,
-      "ig": null,
-      "measure": "Tapa (100g)"
-    },
-    {
-      "category": "Proteínas",
-      "name": "Pechuga de Pollo",
-      "ch_per_100g": 0,
-      "ig": 0,
-      "measure": "Filete (100g-150g)"
-    },
-    {
-      "category": "Proteínas",
-      "name": "Pechuga de Pavo",
-      "ch_per_100g": 0,
-      "ig": 0,
-      "measure": "Filete (100g-150g)"
-    },
-    {
-      "category": "Proteínas",
-      "name": "Filete de Ternera",
-      "ch_per_100g": 0,
-      "ig": 0,
-      "measure": "Filete (150g)"
-    },
-    {
-      "category": "Proteínas",
-      "name": "Pescado Blanco (Merluza, Bacalao)",
-      "ch_per_100g": 0,
-      "ig": 0,
-      "measure": "Lomo/Rodaja (150g)"
-    },
-    {
-      "category": "Proteínas",
-      "name": "Pescado Azul (Salmón, Atún)",
-      "ch_per_100g": 0,
-      "ig": 0,
-      "measure": "Lomo/Rodaja (150g)"
-    },
-    {
-      "category": "Proteínas",
-      "name": "Huevo",
-      "ch_per_100g": 0,
-      "ig": 0,
-      "measure": "Unidad (50g)"
-    },
-    {
-      "category": "Proteínas",
-      "name": "Embutido (Jamón York, Serrano)",
-      "ch_per_100g": 0.5,
-      "ig": 0,
-      "measure": "Loncha (20g)"
-    },
-    {
-      "category": "Bebidas",
-      "name": "Agua tónica",
-      "ch_per_100g": 9,
-      "ig": 70,
-      "measure": "Vaso (200ml)"
-    },
-    {
-      "category": "Bebidas",
-      "name": "Bebida de almendras",
-      "ch_per_100g": 3,
-      "ig": 30,
-      "measure": "Vaso (200ml)"
-    },
-    {
-      "category": "Bebidas",
-      "name": "Bebida de arroz",
-      "ch_per_100g": 10,
-      "ig": 85,
-      "measure": "Vaso (200ml)"
-    },
-    {
-      "category": "Bebidas",
-      "name": "Bebida de avena",
-      "ch_per_100g": 8,
-      "ig": 30,
-      "measure": "Vaso (200ml)"
-    },
-    {
-      "category": "Bebidas",
-      "name": "Bebida de soja",
-      "ch_per_100g": 4,
-      "ig": 30,
-      "measure": "Vaso (200ml)"
-    },
-    {
-      "category": "Bebidas",
-      "name": "Bebida energética",
-      "ch_per_100g": 11,
-      "ig": 70,
-      "measure": "Lata (250ml)"
-    },
-    {
-      "category": "Bebidas",
-      "name": "Bebida isotónica",
-      "ch_per_100g": 8,
-      "ig": 78,
-      "measure": "Botella (500ml)"
-    },
-    {
-      "category": "Bebidas",
-      "name": "Cerveza",
-      "ch_per_100g": 3.5,
-      "ig": 110,
-      "measure": "Caña (200ml)"
-    },
-    {
-      "category": "Bebidas",
-      "name": "Cerveza sin alcohol",
-      "ch_per_100g": 4,
-      "ig": 90,
-      "measure": "Caña (200ml)"
-    },
-    {
-      "category": "Bebidas",
-      "name": "Refresco de cola/limón/naranja",
-      "ch_per_100g": 10.6,
-      "ig": 70,
-      "measure": "Lata (330ml)"
-    },
-    {
-      "category": "Bebidas",
-      "name": "Refresco light/zero",
-      "ch_per_100g": 0,
-      "ig": 0,
-      "measure": "Lata (330ml)"
-    },
-    {
-      "category": "Bebidas",
-      "name": "Zumo de fruta comercial",
-      "ch_per_100g": 12,
-      "ig": 65,
-      "measure": "Vaso (200ml)"
-    },
-    {
-      "category": "Bebidas",
-      "name": "Zumo de naranja natural",
-      "ch_per_100g": 10,
-      "ig": 55,
-      "measure": "Vaso (200ml)"
-    },
-    {
-      "category": "Frutos Secos",
-      "name": "Almendras crudas",
-      "ch_per_100g": 6.9,
-      "ig": 15,
-      "measure": "Puñado (30g)"
-    },
-    {
-      "category": "Frutos Secos",
-      "name": "Avellanas",
-      "ch_per_100g": 7,
-      "ig": 15,
-      "measure": "Puñado (30g)"
-    },
-    {
-      "category": "Frutos Secos",
-      "name": "Cacahuetes",
-      "ch_per_100g": 8,
-      "ig": 15,
-      "measure": "Puñado (30g)"
-    },
-    {
-      "category": "Frutos Secos",
-      "name": "Castañas",
-      "ch_per_100g": 40,
-      "ig": 60,
-      "measure": "Unidad (10g)"
-    },
-    {
-      "category": "Frutos Secos",
-      "name": "Dátiles secos",
-      "ch_per_100g": 75,
-      "ig": 100,
-      "measure": "Unidad (8g)"
-    },
-    {
-      "category": "Frutos Secos",
-      "name": "Higos secos",
-      "ch_per_100g": 63,
-      "ig": 60,
-      "measure": "Unidad (20g)"
-    },
-    {
-      "category": "Frutos Secos",
-      "name": "Nueces",
-      "ch_per_100g": 3.3,
-      "ig": 15,
-      "measure": "Puñado (30g)"
-    },
-    {
-      "category": "Frutos Secos",
-      "name": "Orejones (Albaricoque seco)",
-      "ch_per_100g": 53,
-      "ig": 35,
-      "measure": "Unidad (10g)"
-    },
-    {
-      "category": "Frutos Secos",
-      "name": "Pasas",
-      "ch_per_100g": 69,
-      "ig": 65,
-      "measure": "Puñado (30g)"
-    },
-    {
-      "category": "Frutos Secos",
-      "name": "Pistachos",
-      "ch_per_100g": 18,
-      "ig": 15,
-      "measure": "Puñado (30g)"
-    },
-    {
-      "category": "Frutos Secos",
-      "name": "Pipas de girasol",
-      "ch_per_100g": 12,
-      "ig": 35,
-      "measure": "Puñado (30g)"
-    },
-    {
-      "category": "Otros",
-      "name": "Azúcar blanco",
-      "ch_per_100g": 99.8,
-      "ig": 70,
-      "measure": "Cucharada (10g)"
-    },
-    {
-      "category": "Otros",
-      "name": "Azúcar moreno",
-      "ch_per_100g": 97,
-      "ig": 70,
-      "measure": "Cucharada (10g)"
-    },
-    {
-      "category": "Otros",
-      "name": "Cacao en polvo (azucarado)",
-      "ch_per_100g": 78,
-      "ig": 60,
-      "measure": "Cucharada (15g)"
-    },
-    {
-      "category": "Otros",
-      "name": "Cacao puro en polvo",
-      "ch_per_100g": 16,
-      "ig": 20,
-      "measure": "Cucharada (10g)"
-    },
-    {
-      "category": "Otros",
-      "name": "Chocolate con leche",
-      "ch_per_100g": 54,
-      "ig": 49,
-      "measure": "Onza (10g)"
-    },
-    {
-      "category": "Otros",
-      "name": "Chocolate negro 70%",
-      "ch_per_100g": 34,
-      "ig": 22,
-      "measure": "Onza (10g)"
-    },
-    {
-      "category": "Otros",
-      "name": "Chocolate negro 85%",
-      "ch_per_100g": 19,
-      "ig": 20,
-      "measure": "Onza (10g)"
-    },
-    {
-      "category": "Otros",
-      "name": "Ketchup",
-      "ch_per_100g": 26,
-      "ig": 55,
-      "measure": "Sobre (10g)"
-    },
-    {
-      "category": "Otros",
-      "name": "Mayonesa",
-      "ch_per_100g": 1,
-      "ig": 0,
-      "measure": "Cucharada (15g)"
-    },
-    {
-      "category": "Otros",
-      "name": "Mermelada con azúcar",
-      "ch_per_100g": 60,
-      "ig": 65,
-      "measure": "Cucharada (20g)"
-    },
-    {
-      "category": "Otros",
-      "name": "Mermelada sin azúcar",
-      "ch_per_100g": 5,
-      "ig": 30,
-      "measure": "Cucharada (20g)"
-    },
-    {
-      "category": "Otros",
-      "name": "Miel",
-      "ch_per_100g": 80,
-      "ig": 85,
-      "measure": "Cucharada (20g)"
-    },
-    {
-      "category": "Otros",
-      "name": "Aceitunas",
-      "ch_per_100g": 1,
-      "ig": 15,
-      "measure": "Unidad (4g)"
-    },
-    {
-      "category": "Otros",
-      "name": "Pepinillos en vinagre",
-      "ch_per_100g": 2,
-      "ig": 15,
-      "measure": "Unidad (30g)"
     }
   ]
 }
