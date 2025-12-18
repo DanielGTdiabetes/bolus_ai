@@ -52,9 +52,10 @@ export default function BolusPage() {
         // Capture Learning Hint
         if (state.tempLearningHint) {
             setLearningHint(state.tempLearningHint);
-            if (state.tempLearningHint.suggest_extended) {
-                setDualEnabled(true);
-            }
+            // Auto-enable removed: user must confirm.
+            // if (state.tempLearningHint.suggest_extended) {
+            //     setDualEnabled(true);
+            // }
             state.tempLearningHint = null;
         }
 
@@ -68,10 +69,10 @@ export default function BolusPage() {
         }
 
         // Auto-enable Dual if fat/protein high (UI Heuristic)
-        // If Learning Hint already enabled it, this is redundant but safe.
-        if (state.tempFat > 15 || state.tempProtein > 20) {
-            setDualEnabled(true);
-        }
+        // Removed auto-set to allow user choice based on suggestion
+        // if (state.tempFat > 15 || state.tempProtein > 20) {
+        //     setDualEnabled(true);
+        // }
 
         state.tempFat = null;
         state.tempProtein = null;
@@ -429,28 +430,61 @@ function ResultView({ result, onBack, onSave, saving }) {
     // Local state for edit before confirm
     const [finalDose, setFinalDose] = useState(result.upfront_u);
 
+    const later = parseFloat(result.later_u || 0);
+    const upfront = parseFloat(finalDose || 0);
+    const total = upfront + later;
+
     return (
         <div className="card result-card fade-in" style={{ border: '2px solid var(--primary)', padding: '1.5rem' }}>
             <div style={{ textAlign: 'center' }}>
-                <div className="text-muted">Bolo Recomendado</div>
-                <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'baseline', gap: '5px' }}>
+                <div className="text-muted" style={{ marginBottom: '0.5rem' }}>Bolo Recomendado</div>
+
+                {/* DUAL BOLUS: Prominent Total Display */}
+                {result.kind === 'dual' && (
+                    <div style={{
+                        background: '#f1f5f9',
+                        borderRadius: '12px',
+                        padding: '1rem',
+                        marginBottom: '1.5rem',
+                        border: '1px solid #cbd5e1'
+                    }}>
+                        <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#64748b', letterSpacing: '1px' }}>TOTAL</div>
+                        <div style={{ fontSize: '3rem', fontWeight: 800, color: '#0f172a', lineHeight: 1 }}>
+                            {total % 1 === 0 ? total : total.toFixed(2)} <span style={{ fontSize: '1.5rem', color: '#64748b' }}>U</span>
+                        </div>
+                    </div>
+                )}
+
+                {/* Immediate Input */}
+                <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'baseline', gap: '8px' }}>
+                    {result.kind === 'dual' && <span style={{ fontSize: '1rem', fontWeight: 600, color: '#64748b' }}>Ahora:</span>}
                     <input
                         type="number"
                         value={finalDose}
                         onChange={e => setFinalDose(e.target.value)}
                         step="0.5"
-                        style={{ width: '140px', textAlign: 'right', fontSize: '3rem', color: 'var(--primary)', fontWeight: 800, border: 'none', borderBottom: '2px dashed var(--primary)', outline: 'none', background: 'transparent' }}
+                        style={{
+                            width: '120px', textAlign: 'right',
+                            fontSize: result.kind === 'dual' ? '2rem' : '3.5rem',
+                            color: 'var(--primary)', fontWeight: 800,
+                            border: 'none', borderBottom: '2px dashed var(--primary)',
+                            outline: 'none', background: 'transparent'
+                        }}
                     />
                     <span style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--primary)' }}>U</span>
                 </div>
+
+                {/* Extended Part */}
                 {result.kind === 'dual' && (
-                    <div className="text-muted" style={{ marginTop: '0.5rem' }}>
-                        + {result.later_u} U extendido ({result.duration_min} min)
+                    <div style={{ marginTop: '0.5rem', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '5px', color: '#64748b' }}>
+                        <span style={{ fontSize: '1rem', fontWeight: 600 }}>Extendido:</span>
+                        <span style={{ fontSize: '1.2rem', fontWeight: 700 }}>{result.later_u} U</span>
+                        <span style={{ fontSize: '0.9rem' }}>({result.duration_min} min)</span>
                     </div>
                 )}
             </div>
 
-            <ul style={{ marginTop: '1rem', fontSize: '0.85rem', color: '#64748b', paddingLeft: '1.2rem' }}>
+            <ul style={{ marginTop: '1.5rem', fontSize: '0.85rem', color: '#64748b', paddingLeft: '1.2rem' }}>
                 {result.calc?.explain?.map((line, i) => <li key={i}>{line}</li>)}
             </ul>
 
@@ -462,7 +496,7 @@ function ResultView({ result, onBack, onSave, saving }) {
             )}
 
             <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1.5rem' }}>
-                <Button onClick={() => onSave(finalDose)} disabled={saving} style={{ flex: 1, background: 'var(--success)' }}>
+                <Button onClick={() => onSave(finalDose)} disabled={saving} style={{ flex: 1, background: 'var(--success)', padding: '1rem', fontSize: '1.1rem' }}>
                     {saving ? 'Guardando...' : '✅ Confirmar'}
                 </Button>
                 <Button variant="ghost" onClick={onBack} disabled={saving} style={{ flex: 1 }}>
