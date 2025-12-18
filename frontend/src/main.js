@@ -38,6 +38,9 @@ registerView('#/basal', () => {
 registerView('#/scale', () => {
   import('./bridge.jsx').then(({ mountReactPage }) => mountReactPage('scale'));
 });
+registerView('#/food-db', () => {
+  import('./bridge.jsx').then(({ mountReactPage }) => mountReactPage('food-db'));
+});
 
 // Analysis & History
 registerView('#/history', () => {

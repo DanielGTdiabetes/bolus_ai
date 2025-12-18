@@ -202,7 +202,7 @@ function QuickActions() {
                 <QAButton icon="⭐" label="Favoritos" onClick={() => navigate('#/favorites')} color="#f59e0b" bg="#fffbeb" />
                 <QAButton icon="🧮" label="Calcular" onClick={() => navigate('#/bolus')} color="#3b82f6" bg="#eff6ff" />
                 <QAButton icon="⚖️" label="Báscula" onClick={() => navigate('#/scale')} color="#10b981" bg="#ecfdf5" />
-                <QAButton icon="🍴" label="Alimentos" onClick={() => navigate('#/bolus')} color="#f97316" bg="#fff7ed" />
+                <QAButton icon="🍴" label="Alimentos" onClick={() => navigate('#/food-db')} color="#f97316" bg="#fff7ed" />
             </div>
         </div>
     );

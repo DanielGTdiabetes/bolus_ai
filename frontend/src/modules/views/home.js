@@ -434,7 +434,7 @@ export async function renderHome() {
             <div class="qa-icon-box">⚖️</div>
             <span class="qa-label">Báscula</span>
         </button>
-        <button class="qa-btn qa-food" onclick="navigate('#/bolus')">
+        <button class="qa-btn qa-food" onclick="navigate('#/food-db')">
             <div class="qa-icon-box">🍴</div>
             <span class="qa-label">Alimentos</span>
         </button>
