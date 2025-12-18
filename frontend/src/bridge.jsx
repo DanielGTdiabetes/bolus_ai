@@ -17,6 +17,7 @@ import ChangePasswordPage from './pages/ChangePasswordPage';
 import ProfilePage from './pages/ProfilePage';
 import { RESTAURANT_MODE_ENABLED } from './lib/featureFlags';
 import RestaurantPage from './pages/RestaurantPage';
+import MenuPage from './pages/MenuPage';
 
 const PAGES = {
     'favorites': FavoritesPage,
@@ -32,6 +33,7 @@ const PAGES = {
     'change-password': ChangePasswordPage,
     'suggestions': SuggestionsPage,
     'profile': ProfilePage,
+    'menu': MenuPage,
 };
 
 if (RESTAURANT_MODE_ENABLED) {

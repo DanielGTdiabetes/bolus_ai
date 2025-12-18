@@ -38,10 +38,18 @@ function GlucoseHero({ onRefresh }) {
     const displayVal = data ? Math.round(data.bg_mgdl) : '--';
     const displayArrow = data ? (data.trendArrow || formatTrend(data.trend, false)) : '--';
     const displayTime = data ? `${Math.round(data.age_minutes)} min` : '--';
-    const arrowColor = data ? (data.bg_mgdl > 180 ? '#ef4444' : (data.bg_mgdl <= 70 ? '#ef4444' : '#10b981')) : '#64748b';
+    const isLow = data ? data.bg_mgdl <= 70 : false;
+    const arrowColor = data ? (data.bg_mgdl > 180 ? '#ef4444' : (isLow ? '#991b1b' : '#10b981')) : '#64748b';
+    const bgColor = isLow ? '#fef2f2' : '#fff';
+    const borderColor = isLow ? '#ef4444' : '#fff';
+    const boxShadow = isLow ? '0 0 0 2px #fecaca' : '0 4px 6px -1px rgba(0, 0, 0, 0.05)';
 
     return (
-        <section className="card glucose-hero" style={{ marginBottom: '1rem', padding: '1.5rem', borderRadius: '16px', background: '#fff', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)' }}>
+        <section className="card glucose-hero" style={{
+            marginBottom: '1rem', padding: '1.5rem', borderRadius: '16px',
+            background: bgColor, border: isLow ? `1px solid ${borderColor}` : 'none',
+            boxShadow: boxShadow, transition: 'all 0.3s ease'
+        }}>
             <div className="gh-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
                 <div style={{ fontSize: '0.9rem', fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Glucosa Actual</div>
                 <button onClick={load} style={{ background: 'none', border: 'none', fontSize: '1.2rem', cursor: 'pointer', color: loading ? '#cbd5e1' : '#3b82f6' }}>

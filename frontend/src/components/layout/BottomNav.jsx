@@ -7,10 +7,7 @@ export function BottomNav({ activeTab = 'home' }) {
         { id: 'scan', icon: '📷', label: 'Escanear', hash: '#/scan' },
         { id: 'bolus', icon: '💉', label: 'Bolo', hash: '#/bolus' },
         { id: 'basal', icon: '📉', label: 'Basal', hash: '#/basal' },
-        { id: 'history', icon: '⏱️', label: 'Hist.', hash: '#/history' },
-        { id: 'patterns', icon: '📊', label: 'Patrones', hash: '#/patterns' },
-        { id: 'suggestions', icon: '💡', label: 'Suger.', hash: '#/suggestions' },
-        { id: 'settings', icon: '⚙️', label: 'Ajustes', hash: '#/settings' }
+        { id: 'menu', icon: '☰', label: 'Menú', hash: '#/menu' }
     ];
 
     return (
