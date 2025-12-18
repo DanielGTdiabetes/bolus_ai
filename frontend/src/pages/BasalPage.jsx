@@ -319,8 +319,8 @@ function BasalTimelineSection() {
     const handleAnalyzItem = async (dateStr) => {
         if (!confirm(`¿Analizar noche del ${dateStr}?`)) return;
         try {
-            const config = getLocalNsConfig();
-            if (!config) throw new Error("Configurar Nightscout");
+            const config = getLocalNsConfig() || {};
+            // if (!config) throw new Error("Configurar Nightscout");
             const res = await runNightScan(config, dateStr);
             console.log(res);
 
@@ -343,8 +343,8 @@ function BasalTimelineSection() {
 
         setLoading(true);
         try {
-            const config = getLocalNsConfig();
-            if (!config) throw new Error("Configurar Nightscout");
+            const config = getLocalNsConfig() || {};
+            // if (!config) throw new Error("Configurar Nightscout");
 
             let processed = 0;
             // Process sequentially to be gentle on API

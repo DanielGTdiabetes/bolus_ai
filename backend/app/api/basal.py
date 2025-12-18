@@ -97,7 +97,7 @@ class ActiveResponse(BaseModel):
     note: str
 
 class NightScanRequest(BaseModel):
-    nightscout_url: str
+    nightscout_url: Optional[str] = None
     nightscout_token: Optional[str] = None
     target_date: Optional[date] = None
 
