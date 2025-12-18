@@ -304,8 +304,8 @@ function RestaurantActivePanel() {
     );
 }
 
-// U2 Dual Panel Component (Ported Logic)
-function DualBolusPanel() {
+// U2 Dual Panel Component
+function DualBolusPanel({ onHide, onCancel }) {
     const [plan, setPlan] = useState(null);
     const [timing, setTiming] = useState(null);
     const [recalcResult, setRecalcResult] = useState(null);
@@ -321,15 +321,21 @@ function DualBolusPanel() {
         } else {
             setPlan(null);
         }
-    }, 5000); // Check every 5s
+    }, 1000); // Check every 1s for better timer resolution
 
     if (!plan) return null;
 
-    const handleClear = () => {
-        if (confirm("¿Borrar plan activo?")) {
+    // Use cancel prop or default
+    const handleCancelClick = () => {
+        if (confirm("¿Cancelar el bolo extendido y borrar datos?")) {
             localStorage.removeItem("bolusai_active_dual_plan");
             setPlan(null);
+            if (onCancel) onCancel();
         }
+    };
+
+    const handleHideClick = () => {
+        if (onHide) onHide();
     };
 
     const handleRecalc = async () => {
@@ -376,14 +382,17 @@ function DualBolusPanel() {
         }
     };
 
-    const remaining = timing?.remaining_min ?? '--';
-    const elapsed = timing?.elapsed_min ?? '--';
+    const remaining = (timing?.remaining_min !== undefined && !isNaN(timing.remaining_min)) ? timing.remaining_min : '--';
+    const elapsed = (timing?.elapsed_min !== undefined && !isNaN(timing.elapsed_min)) ? timing.elapsed_min : '--';
 
     return (
         <section className="card u2-card" style={{ marginBottom: '1rem', background: '#f0f9ff', borderColor: '#bae6fd' }}>
-            <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <h3 style={{ margin: 0, color: '#0369a1', fontSize: '1rem' }}>⏱️ Bolo Dividido (U2)</h3>
-                <button onClick={handleClear} style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', fontSize: '0.8rem' }}>Ocultar</button>
+            <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <h3 style={{ margin: 0, color: '#0369a1', fontSize: '1rem' }}>⏱️ Bolo Dividido</h3>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                    <button onClick={handleCancelClick} style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600 }}>Cancelar</button>
+                    <button onClick={handleHideClick} style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', fontSize: '0.8rem' }}>Ocultar</button>
+                </div>
             </div>
             <div className="stack" style={{ marginTop: '0.5rem' }}>
                 <div style={{ textAlign: 'center' }}>
@@ -405,7 +414,7 @@ function DualBolusPanel() {
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                     <div style={{ flex: 1 }}>
                         <label style={{ fontSize: '0.75rem', fontWeight: 600, color: '#475569' }}>Carbs Extra (g)</label>
-                        <input type="number" style={{ width: '100%', padding: '0.4rem', borderRadius: '4px', border: '1px solid #cbd5e1' }}
+                        <input type="number" style={{ width: '100%', padding: '0.6rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '1.1rem' }}
                             value={extraCarbs} onChange={e => setExtraCarbs(e.target.value)} />
                     </div>
                     <Button onClick={handleRecalc} style={{ marginTop: '1.2rem' }} disabled={loading}>
@@ -433,13 +442,51 @@ export default function HomePage() {
     const [refreshSignal, setRefreshSignal] = useState(0);
     const triggerRefresh = () => setRefreshSignal(prev => prev + 1);
 
+    // Dual Bolus Logic Lifted
+    const [activePlan, setActivePlan] = useState(getDualPlan());
+    const [dualHidden, setDualHidden] = useState(activePlan ? false : true);
+
+    // Check plan existence periodically
+    useInterval(() => {
+        const p = getDualPlan();
+        if (p && !activePlan) {
+            setActivePlan(p);
+            setDualHidden(false); // Auto-show on new plan
+        } else if (!p && activePlan) {
+            setActivePlan(null);
+            setDualHidden(true); // Reset
+        }
+    }, 2000);
+
+    const handleNotificationClick = () => {
+        if (activePlan && dualHidden) {
+            setDualHidden(false);
+            alert("Bolo Dividido visible de nuevo.");
+        } else {
+            // Standard notification drawer logic if we had one
+        }
+    };
+
     return (
         <>
-            <Header title="Bolus AI" showBack={false} />
+            <Header
+                title="Bolus AI"
+                showBack={false}
+                notificationActive={!!activePlan && dualHidden}
+                onNotificationClick={handleNotificationClick}
+            />
             <main className="page" style={{ paddingBottom: '90px' }}>
                 <GlucoseHero onRefresh={refreshSignal} />
                 <RestaurantActivePanel />
-                <DualBolusPanel /> {/* Only shows if active */}
+                {activePlan && !dualHidden && (
+                    <DualBolusPanel
+                        onHide={() => setDualHidden(true)}
+                        onCancel={() => {
+                            setActivePlan(null);
+                            setDualHidden(true);
+                        }}
+                    />
+                )}
                 <MetricsGrid onRefresh={refreshSignal} />
                 <QuickActions />
                 <ActivityList onRefresh={refreshSignal} />

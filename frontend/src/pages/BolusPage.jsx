@@ -188,9 +188,10 @@ export default function BolusPage() {
                 treatment.notes += ` (Split: ${result.upfront_u} now + ${result.later_u} over ${result.duration_min}m)`;
                 // Update global state for HomePage tracking
                 state.lastBolusPlan = result.plan;
+                state.lastBolusPlan.created_at_ts = Date.now(); // Fix NaN issue
                 // If the user modified the immediate dose, we update the 'now' part of the plan
                 state.lastBolusPlan.now_u = finalInsulin;
-                import('../modules/core/store').then(({ saveDualPlan }) => saveDualPlan(result.plan));
+                import('../modules/core/store').then(({ saveDualPlan }) => saveDualPlan(state.lastBolusPlan));
             }
 
             const apiRes = await saveTreatment(treatment);

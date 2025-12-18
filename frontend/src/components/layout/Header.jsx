@@ -3,7 +3,7 @@ import { useStore } from '../../hooks/useStore';
 import { navigate } from '../../modules/core/router';
 import { logout } from '../../lib/api';
 
-export function Header({ title = "Bolus AI", showBack = false }) {
+export function Header({ title = "Bolus AI", showBack = false, notificationActive = false, onNotificationClick }) {
     const user = useStore(s => s.user);
     const dbMode = useStore(s => s.dbMode);
     const [menuOpen, setMenuOpen] = useState(false);
@@ -12,6 +12,7 @@ export function Header({ title = "Bolus AI", showBack = false }) {
 
     return (
         <>
+            {/* ... (keep existing dbMode alert if present, though not shown in strict partial replacement usually) */}
             {dbMode === 'memory' && (
                 <div style={{
                     background: '#fff7ed', color: '#c2410c', fontSize: '0.8rem', padding: '0.4rem',
@@ -63,8 +64,14 @@ export function Header({ title = "Bolus AI", showBack = false }) {
                     {!showBack && <div className="header-subtitle">Tu asistente de diabetes</div>}
                 </div>
 
-                <div className="header-action">
-                    <button className="ghost">🔔</button>
+                <div className="header-action" style={{ position: 'relative' }}>
+                    <button className="ghost" onClick={onNotificationClick}>🔔</button>
+                    {notificationActive && (
+                        <div style={{
+                            position: 'absolute', top: '8px', right: '8px', width: '10px', height: '10px',
+                            background: '#ef4444', borderRadius: '50%', border: '2px solid white'
+                        }} />
+                    )}
                 </div>
             </header>
         </>
