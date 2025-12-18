@@ -485,8 +485,20 @@ function ResultView({ result, onBack, onSave, saving }) {
                 )}
             </div>
 
+            {/* Safety Alerts */}
+            {result.calc?.explain?.filter(l => l.includes('⛔') || l.includes('⚠️')).map((line, i) => (
+                <div key={'alert-' + i} style={{
+                    background: line.includes('⛔') ? '#fee2e2' : '#fff7ed',
+                    color: line.includes('⛔') ? '#991b1b' : '#c2410c',
+                    padding: '0.75rem', borderRadius: '8px', marginBottom: '1rem',
+                    fontWeight: 'bold', border: line.includes('⛔') ? '2px solid #ef4444' : '1px solid #fdba74'
+                }}>
+                    {line}
+                </div>
+            ))}
+
             <ul style={{ marginTop: '1.5rem', fontSize: '0.85rem', color: '#64748b', paddingLeft: '1.2rem' }}>
-                {result.calc?.explain?.map((line, i) => <li key={i}>{line}</li>)}
+                {result.calc?.explain?.filter(l => !l.includes('⛔') && !l.includes('⚠️')).map((line, i) => <li key={i}>{line}</li>)}
             </ul>
 
             {result.warnings && result.warnings.length > 0 && (

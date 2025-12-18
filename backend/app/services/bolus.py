@@ -54,21 +54,31 @@ def recommend_bolus(request: BolusRequestData, settings: UserSettings, iob_u: fl
     correction_units = 0.0
     bg = request.bg_mgdl
     
-    if bg is not None and bg > target:
+    if bg is not None:
         if cf <= 0:
             cf = 30.0 # Safety default
+        
+        # Enable Reverse Correction (negative result if bg < target)
         correction_units = (bg - target) / cf
         
-    correction_cap = min(max(correction_units, 0.0), settings.max_correction_u)
-    if correction_cap < correction_units:
-        explain.append(f"Corrección limitada a {settings.max_correction_u} U")
-    correction_units = correction_cap
-
+        # Cap ONLY positive correction
+        if correction_units > 0:
+            if correction_units > settings.max_correction_u:
+                explain.append(f"Corrección positiva limitada a {settings.max_correction_u} U")
+                correction_units = settings.max_correction_u
+    
+    # Calculate tentative total
+    # If correction_units is negative, it will reduce the carb_units
     total = carb_units + correction_units - iob_u
 
-    if bg is not None and bg < 70:
-        explain.append("BG < 70 mg/dL: riesgo hipoglucemia; recomendamos 0 U")
-        total = 0.0
+    # HYPOGLYCEMIA SAFETY
+    if bg is not None:
+        if bg < 50:
+            explain.append("⛔ GLUCOSA CRÍTICA (< 50): RIESGO GRAVE. Tratar hipoglucemia primero. Bolo cancelado.")
+            total = 0.0
+        elif bg < 70:
+            explain.append("⚠️ Glucosa Baja (50-70): Se aplica corrección negativa. Consumir carbohidratos INMEDIATAMENTE.")
+            # We allow the calc (which already has negative correction), but ensure it's not below 0
     
     total = min(total, settings.max_bolus_u)
     if total == settings.max_bolus_u:

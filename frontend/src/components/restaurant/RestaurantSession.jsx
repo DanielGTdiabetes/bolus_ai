@@ -256,8 +256,19 @@ export function RestaurantSession() {
     }
     setClosing(true);
     try {
+      // Safety Check: Did user take initial bolus?
+      const tookInitial = window.confirm(
+        `❓ CONFIRMACIÓN DE DOSIS\n\n` +
+        `¿Te administraste insulina para los ${session.expectedCarbs}g iniciales de la carta?\n` +
+        `\n` +
+        `[Aceptar] = SÍ, me puse el bolo inicial.\n` +
+        `[Cancelar] = NO, no me he puesto nada (o muy poco).`
+      );
+
+      const effectiveExpected = tookInitial ? session.expectedCarbs : 0;
+
       const adjustment = await calculateRestaurantAdjustment({
-        expectedCarbs: session.expectedCarbs,
+        expectedCarbs: effectiveExpected,
         actualCarbs: actualCarbsTotal,
         confidence: aggregateConfidence,
       });
