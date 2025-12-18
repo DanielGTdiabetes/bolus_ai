@@ -4,7 +4,7 @@ import { BottomNav } from '../components/layout/BottomNav';
 import { Card, Button } from '../components/ui/Atoms';
 import { useInterval } from '../hooks/useInterval';
 import {
-    getCurrentGlucose, getIOBData, fetchTreatments, getLocalNsConfig
+    getCurrentGlucose, getIOBData, fetchTreatments, getLocalNsConfig, getGlucoseEntries
 } from '../lib/api';
 import { formatTrend } from '../modules/core/utils';
 import { navigate } from '../modules/core/router';
@@ -13,8 +13,61 @@ import { getDualPlan, getDualPlanTiming } from '../modules/core/store';
 import { RESTAURANT_MODE_ENABLED } from '../lib/featureFlags';
 
 // Subcomponents
+const Sparkline = ({ data, isLow }) => {
+    if (!data || data.length < 2) return null;
+
+    // Dimensions
+    const width = 300;
+    const height = 60;
+    const padding = 5;
+
+    // Sort data by date ascending just in case
+    const sorted = [...data].sort((a, b) => a.date - b.date);
+
+    // Scales
+    const maxVal = Math.max(...sorted.map(d => d.sgv)) + 10;
+    const minVal = Math.min(...sorted.map(d => d.sgv)) - 10;
+    const range = maxVal - minVal || 1;
+
+    const startTime = sorted[0].date;
+    const timeRange = sorted[sorted.length - 1].date - startTime || 1;
+
+    // Points
+    const points = sorted.map(d => {
+        const x = ((d.date - startTime) / timeRange) * width;
+        const y = height - ((d.sgv - minVal) / range) * (height - 2 * padding) - padding;
+        return `${x},${y}`;
+    }).join(' ');
+
+    // Area path (closed loop for gradient)
+    const areaPoints = `${0},${height} ${points} ${width},${height}`;
+
+    const strokeColor = isLow ? '#ef4444' : '#3b82f6';
+    const gradientId = isLow ? "gradLow" : "gradNormal";
+
+    return (
+        <div style={{ width: '100%', height: '60px', marginTop: '1rem', overflow: 'hidden' }}>
+            <svg width="100%" height="100%" viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none">
+                <defs>
+                    <linearGradient id="gradNormal" x1="0%" y1="0%" x2="0%" y2="100%">
+                        <stop offset="0%" stopColor="#3b82f6" stopOpacity="0.2" />
+                        <stop offset="100%" stopColor="#3b82f6" stopOpacity="0" />
+                    </linearGradient>
+                    <linearGradient id="gradLow" x1="0%" y1="0%" x2="0%" y2="100%">
+                        <stop offset="0%" stopColor="#ef4444" stopOpacity="0.2" />
+                        <stop offset="100%" stopColor="#ef4444" stopOpacity="0" />
+                    </linearGradient>
+                </defs>
+                <path d={`M ${areaPoints} Z`} fill={`url(#${gradientId})`} stroke="none" />
+                <polyline points={points} fill="none" stroke={strokeColor} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+        </div>
+    );
+};
+
 function GlucoseHero({ onRefresh }) {
     const [data, setData] = useState(null);
+    const [history, setHistory] = useState([]);
     const [loading, setLoading] = useState(false);
 
     // Auto-refresh config (hook requires interval in ms or null)
@@ -23,9 +76,14 @@ function GlucoseHero({ onRefresh }) {
     const load = async () => {
         setLoading(true);
         try {
-            const config = getLocalNsConfig(); // Use fetch logic which falls back to backend if null
-            const res = await getCurrentGlucose(config);
-            setData(res);
+            const config = getLocalNsConfig();
+            // Parallel fetch
+            const [current, hist] = await Promise.all([
+                getCurrentGlucose(config),
+                getGlucoseEntries(36).catch(() => []) // Silently fail history if needed
+            ]);
+            setData(current);
+            setHistory(hist);
         } catch (e) {
             console.warn("BG Fetch Error", e);
         } finally {
@@ -38,6 +96,7 @@ function GlucoseHero({ onRefresh }) {
     const displayVal = data ? Math.round(data.bg_mgdl) : '--';
     const displayArrow = data ? (data.trendArrow || formatTrend(data.trend, false)) : '--';
     const displayTime = data ? `${Math.round(data.age_minutes)} min` : '--';
+
     const isLow = data ? data.bg_mgdl <= 70 : false;
     const arrowColor = data ? (data.bg_mgdl > 180 ? '#ef4444' : (isLow ? '#991b1b' : '#10b981')) : '#64748b';
     const bgColor = isLow ? '#fef2f2' : '#fff';
@@ -77,6 +136,9 @@ function GlucoseHero({ onRefresh }) {
                     Hace {displayTime}
                 </span>
             </div>
+
+            {/* Sparkline Graph */}
+            <Sparkline data={history} isLow={isLow} />
         </section>
     );
 }
