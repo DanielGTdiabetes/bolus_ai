@@ -35,6 +35,9 @@ registerView('#/bolus', () => {
 registerView('#/basal', () => {
   import('./bridge.jsx').then(({ mountReactPage }) => mountReactPage('basal'));
 });
+registerView('#/scale', () => {
+  import('./bridge.jsx').then(({ mountReactPage }) => mountReactPage('scale'));
+});
 
 // Analysis & History
 registerView('#/history', () => {

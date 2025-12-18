@@ -201,7 +201,7 @@ function QuickActions() {
             <div className="qa-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.5rem' }}>
                 <QAButton icon="⭐" label="Favoritos" onClick={() => navigate('#/favorites')} color="#f59e0b" bg="#fffbeb" />
                 <QAButton icon="🧮" label="Calcular" onClick={() => navigate('#/bolus')} color="#3b82f6" bg="#eff6ff" />
-                <QAButton icon="⚖️" label="Báscula" onClick={() => navigate('#/scan')} color="#10b981" bg="#ecfdf5" />
+                <QAButton icon="⚖️" label="Báscula" onClick={() => navigate('#/scale')} color="#10b981" bg="#ecfdf5" />
                 <QAButton icon="🍴" label="Alimentos" onClick={() => navigate('#/bolus')} color="#f97316" bg="#fff7ed" />
             </div>
         </div>

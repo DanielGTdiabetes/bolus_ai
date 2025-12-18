@@ -18,6 +18,7 @@ import ProfilePage from './pages/ProfilePage';
 import { RESTAURANT_MODE_ENABLED } from './lib/featureFlags';
 import RestaurantPage from './pages/RestaurantPage';
 import MenuPage from './pages/MenuPage';
+import ScalePage from './pages/ScalePage';
 
 const PAGES = {
     'favorites': FavoritesPage,
@@ -34,6 +35,7 @@ const PAGES = {
     'suggestions': SuggestionsPage,
     'profile': ProfilePage,
     'menu': MenuPage,
+    'scale': ScalePage,
 };
 
 if (RESTAURANT_MODE_ENABLED) {

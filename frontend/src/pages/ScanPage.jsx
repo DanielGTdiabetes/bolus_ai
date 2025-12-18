@@ -11,6 +11,7 @@ import { state } from '../modules/core/store';
 import { navigate } from '../modules/core/router';
 import { RESTAURANT_MODE_ENABLED } from '../lib/featureFlags';
 import { RestaurantSession } from '../components/restaurant/RestaurantSession';
+import { ScaleSection as ScaleControl } from '../components/scale/ScaleSection';
 
 export default function ScanPage() {
     // We assume 'state' from store.js is the source of truth for "session" data 
@@ -22,27 +23,6 @@ export default function ScanPage() {
     const [useSimpleMode, setUseSimpleMode] = useState(true);
     const [scanMode, setScanMode] = useState('plate'); // Lifted state
 
-    // Refresh local scale state when global store updates (via callback)
-    useEffect(() => {
-        const handler = (data) => {
-            // Update global
-            if (typeof data.grams === 'number') state.scale.grams = data.grams;
-            if (typeof data.stable === 'boolean') state.scale.stable = data.stable;
-            if (typeof data.connected === 'boolean') state.scale.connected = data.connected;
-
-            // Update local
-            setScale({ ...state.scale });
-        };
-
-        if (state.scale.connected) {
-            setOnData(handler);
-        }
-
-        // We also want to capture the handler so we can set it on connect
-        window.scaleHandler = handler;
-
-        return () => { setOnData(null); };
-    }, []);
 
     const handleStartSession = () => {
         if (plateEntries.length === 0) {
@@ -121,10 +101,7 @@ export default function ScanPage() {
                             setScanMode={setScanMode}
                         />
 
-                        <ScaleSection
-                            scale={scale}
-                            setScale={setScale}
-                        />
+                        <ScaleControl onDataReceived={() => setScale({ ...state.scale })} />
 
                         <PlateBuilder
                             entries={plateEntries}
@@ -410,60 +387,6 @@ function CameraSection({ scaleGrams, plateEntries, onAddEntry, scanMode, setScan
     );
 }
 
-function ScaleSection({ scale, setScale }) {
-    const handleConnect = async () => {
-        if (scale.connected) {
-            await disconnectScale();
-            setScale(prev => ({ ...prev, connected: false }));
-            state.scale.connected = false;
-        } else {
-            try {
-                await connectScale();
-                state.scale.connected = true;
-                setScale(prev => ({ ...prev, connected: true }));
-                if (window.scaleHandler) setOnData(window.scaleHandler);
-            } catch (e) {
-                alert("Error conectando báscula: " + e.message);
-            }
-        }
-    };
-
-    const handleTare = async () => {
-        await tare();
-    };
-
-    const handleUseWeight = () => {
-        state.tempCarbs = scale.grams;
-        navigate('#/bolus');
-    };
-
-    return (
-        <Card className="scale-card" style={{ marginTop: '1.5rem' }}>
-            <h3 style={{ margin: '0 0 1rem 0' }}>⚖️ Báscula Bluetooth</h3>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div className={`status-badge ${scale.connected ? 'success' : ''}`} style={{
-                    padding: '0.25rem 0.75rem', borderRadius: '99px', fontSize: '0.75rem', fontWeight: 600,
-                    background: scale.connected ? '#dcfce7' : '#f1f5f9', color: scale.connected ? '#166534' : '#64748b'
-                }}>
-                    {scale.connected ? 'Conectado' : 'Desconectado'}
-                </div>
-                <div style={{ textAlign: 'right' }}>
-                    <div style={{ fontSize: '2rem', fontWeight: 800, color: 'var(--primary)' }}>
-                        {scale.grams !== null ? scale.grams : '--'} <span style={{ fontSize: '1rem' }}>g</span>
-                    </div>
-                </div>
-            </div>
-
-            <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem' }}>
-                <Button variant="secondary" onClick={handleConnect} style={{ flex: 1 }}>
-                    {scale.connected ? 'Desconectar' : 'Conectar'}
-                </Button>
-                <Button variant="ghost" onClick={handleTare} disabled={!scale.connected}>Tarar</Button>
-                <Button onClick={handleUseWeight} disabled={!scale.connected || !scale.grams}>Usar Peso</Button>
-            </div>
-        </Card>
-    );
-}
 
 function PlateBuilder({ entries, onUpdate, scaleGrams, scanMode, onStartSession }) {
     const total = entries.reduce((acc, e) => acc + e.carbs, 0);
