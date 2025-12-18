@@ -1,7 +1,7 @@
 {
   "version": "1.2",
   "source": "Fundación para la Diabetes / CUN / Manual",
-  "total_items": 215,
+  "total_items": 260,
   "foods": [
     {
       "category": "Lácteos",
@@ -1507,6 +1507,272 @@
       "ch_per_100g": 0.5,
       "ig": 0,
       "measure": "Loncha (20g)"
+    },
+    {
+      "category": "Bebidas",
+      "name": "Agua tónica",
+      "ch_per_100g": 9,
+      "ig": 70,
+      "measure": "Vaso (200ml)"
+    },
+    {
+      "category": "Bebidas",
+      "name": "Bebida de almendras",
+      "ch_per_100g": 3,
+      "ig": 30,
+      "measure": "Vaso (200ml)"
+    },
+    {
+      "category": "Bebidas",
+      "name": "Bebida de arroz",
+      "ch_per_100g": 10,
+      "ig": 85,
+      "measure": "Vaso (200ml)"
+    },
+    {
+      "category": "Bebidas",
+      "name": "Bebida de avena",
+      "ch_per_100g": 8,
+      "ig": 30,
+      "measure": "Vaso (200ml)"
+    },
+    {
+      "category": "Bebidas",
+      "name": "Bebida de soja",
+      "ch_per_100g": 4,
+      "ig": 30,
+      "measure": "Vaso (200ml)"
+    },
+    {
+      "category": "Bebidas",
+      "name": "Bebida energética",
+      "ch_per_100g": 11,
+      "ig": 70,
+      "measure": "Lata (250ml)"
+    },
+    {
+      "category": "Bebidas",
+      "name": "Bebida isotónica",
+      "ch_per_100g": 8,
+      "ig": 78,
+      "measure": "Botella (500ml)"
+    },
+    {
+      "category": "Bebidas",
+      "name": "Cerveza",
+      "ch_per_100g": 3.5,
+      "ig": 110,
+      "measure": "Caña (200ml)"
+    },
+    {
+      "category": "Bebidas",
+      "name": "Cerveza sin alcohol",
+      "ch_per_100g": 4,
+      "ig": 90,
+      "measure": "Caña (200ml)"
+    },
+    {
+      "category": "Bebidas",
+      "name": "Refresco de cola/limón/naranja",
+      "ch_per_100g": 10.6,
+      "ig": 70,
+      "measure": "Lata (330ml)"
+    },
+    {
+      "category": "Bebidas",
+      "name": "Refresco light/zero",
+      "ch_per_100g": 0,
+      "ig": 0,
+      "measure": "Lata (330ml)"
+    },
+    {
+      "category": "Bebidas",
+      "name": "Zumo de fruta comercial",
+      "ch_per_100g": 12,
+      "ig": 65,
+      "measure": "Vaso (200ml)"
+    },
+    {
+      "category": "Bebidas",
+      "name": "Zumo de naranja natural",
+      "ch_per_100g": 10,
+      "ig": 55,
+      "measure": "Vaso (200ml)"
+    },
+    {
+      "category": "Frutos Secos",
+      "name": "Almendras crudas",
+      "ch_per_100g": 6.9,
+      "ig": 15,
+      "measure": "Puñado (30g)"
+    },
+    {
+      "category": "Frutos Secos",
+      "name": "Avellanas",
+      "ch_per_100g": 7,
+      "ig": 15,
+      "measure": "Puñado (30g)"
+    },
+    {
+      "category": "Frutos Secos",
+      "name": "Cacahuetes",
+      "ch_per_100g": 8,
+      "ig": 15,
+      "measure": "Puñado (30g)"
+    },
+    {
+      "category": "Frutos Secos",
+      "name": "Castañas",
+      "ch_per_100g": 40,
+      "ig": 60,
+      "measure": "Unidad (10g)"
+    },
+    {
+      "category": "Frutos Secos",
+      "name": "Dátiles secos",
+      "ch_per_100g": 75,
+      "ig": 100,
+      "measure": "Unidad (8g)"
+    },
+    {
+      "category": "Frutos Secos",
+      "name": "Higos secos",
+      "ch_per_100g": 63,
+      "ig": 60,
+      "measure": "Unidad (20g)"
+    },
+    {
+      "category": "Frutos Secos",
+      "name": "Nueces",
+      "ch_per_100g": 3.3,
+      "ig": 15,
+      "measure": "Puñado (30g)"
+    },
+    {
+      "category": "Frutos Secos",
+      "name": "Orejones (Albaricoque seco)",
+      "ch_per_100g": 53,
+      "ig": 35,
+      "measure": "Unidad (10g)"
+    },
+    {
+      "category": "Frutos Secos",
+      "name": "Pasas",
+      "ch_per_100g": 69,
+      "ig": 65,
+      "measure": "Puñado (30g)"
+    },
+    {
+      "category": "Frutos Secos",
+      "name": "Pistachos",
+      "ch_per_100g": 18,
+      "ig": 15,
+      "measure": "Puñado (30g)"
+    },
+    {
+      "category": "Frutos Secos",
+      "name": "Pipas de girasol",
+      "ch_per_100g": 12,
+      "ig": 35,
+      "measure": "Puñado (30g)"
+    },
+    {
+      "category": "Otros",
+      "name": "Azúcar blanco",
+      "ch_per_100g": 99.8,
+      "ig": 70,
+      "measure": "Cucharada (10g)"
+    },
+    {
+      "category": "Otros",
+      "name": "Azúcar moreno",
+      "ch_per_100g": 97,
+      "ig": 70,
+      "measure": "Cucharada (10g)"
+    },
+    {
+      "category": "Otros",
+      "name": "Cacao en polvo (azucarado)",
+      "ch_per_100g": 78,
+      "ig": 60,
+      "measure": "Cucharada (15g)"
+    },
+    {
+      "category": "Otros",
+      "name": "Cacao puro en polvo",
+      "ch_per_100g": 16,
+      "ig": 20,
+      "measure": "Cucharada (10g)"
+    },
+    {
+      "category": "Otros",
+      "name": "Chocolate con leche",
+      "ch_per_100g": 54,
+      "ig": 49,
+      "measure": "Onza (10g)"
+    },
+    {
+      "category": "Otros",
+      "name": "Chocolate negro 70%",
+      "ch_per_100g": 34,
+      "ig": 22,
+      "measure": "Onza (10g)"
+    },
+    {
+      "category": "Otros",
+      "name": "Chocolate negro 85%",
+      "ch_per_100g": 19,
+      "ig": 20,
+      "measure": "Onza (10g)"
+    },
+    {
+      "category": "Otros",
+      "name": "Ketchup",
+      "ch_per_100g": 26,
+      "ig": 55,
+      "measure": "Sobre (10g)"
+    },
+    {
+      "category": "Otros",
+      "name": "Mayonesa",
+      "ch_per_100g": 1,
+      "ig": 0,
+      "measure": "Cucharada (15g)"
+    },
+    {
+      "category": "Otros",
+      "name": "Mermelada con azúcar",
+      "ch_per_100g": 60,
+      "ig": 65,
+      "measure": "Cucharada (20g)"
+    },
+    {
+      "category": "Otros",
+      "name": "Mermelada sin azúcar",
+      "ch_per_100g": 5,
+      "ig": 30,
+      "measure": "Cucharada (20g)"
+    },
+    {
+      "category": "Otros",
+      "name": "Miel",
+      "ch_per_100g": 80,
+      "ig": 85,
+      "measure": "Cucharada (20g)"
+    },
+    {
+      "category": "Otros",
+      "name": "Aceitunas",
+      "ch_per_100g": 1,
+      "ig": 15,
+      "measure": "Unidad (4g)"
+    },
+    {
+      "category": "Otros",
+      "name": "Pepinillos en vinagre",
+      "ch_per_100g": 2,
+      "ig": 15,
+      "measure": "Unidad (30g)"
     }
   ]
 }

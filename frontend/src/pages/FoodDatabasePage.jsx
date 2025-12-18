@@ -32,6 +32,9 @@ export default function FoodDatabasePage() {
         'Todos': '📂'
     };
 
+    const [cart, setCart] = useState([]);
+    const [isCartOpen, setIsCartOpen] = useState(false);
+
     useEffect(() => {
         localStorage.setItem('food_favorites', JSON.stringify(favorites));
     }, [favorites]);
@@ -42,6 +45,45 @@ export default function FoodDatabasePage() {
                 ? prev.filter(f => f !== foodName)
                 : [...prev, foodName]
         );
+    };
+
+    const getGIRating = (gi) => {
+        if (!gi || gi === 0) return { label: 'Sin Datos', color: '#94a3b8', bg: '#f1f5f9' };
+        if (gi >= 70) return { label: 'Alto', color: '#ef4444', bg: '#fef2f2' };
+        if (gi >= 55) return { label: 'Medio', color: '#f59e0b', bg: '#fffbeb' };
+        return { label: 'Bajo', color: '#10b981', bg: '#ecfdf5' };
+    };
+
+    const handleAddToCart = (food, grams) => {
+        if (!grams || grams <= 0 || isNaN(parseFloat(grams))) {
+            alert("Introduce una cantidad válida en gramos primero.");
+            return;
+        }
+        const calculatedCarbs = (food.ch_per_100g * parseFloat(grams)) / 100;
+        const newItem = {
+            name: food.name,
+            amount: parseFloat(grams),
+            carbs: Math.round(calculatedCarbs * 10) / 10,
+            id: Date.now() // Simple ID
+        };
+        setCart(prev => [...prev, newItem]);
+
+        // Visual feedback could be added here (e.g. toast), but for now we rely on the bar appearing
+        setPortions(prev => ({ ...prev, [food.name]: '' })); // Clear input
+    };
+
+    const removeFromCart = (itemId) => {
+        setCart(prev => prev.filter(item => item.id !== itemId));
+    };
+
+    const handleCheckout = () => {
+        if (cart.length === 0) return;
+
+        const totalCarbs = cart.reduce((sum, item) => sum + item.carbs, 0);
+        state.tempCarbs = Math.round(totalCarbs * 10) / 10;
+        state.tempItems = cart;
+
+        navigate('#/bolus');
     };
 
     const filteredFoods = useMemo(() => {
@@ -57,24 +99,7 @@ export default function FoodDatabasePage() {
         });
     }, [foods, searchTerm, selectedCategory, favorites]);
 
-    const getGIRating = (gi) => {
-        if (!gi || gi === 0) return { label: 'Sin Datos', color: '#94a3b8', bg: '#f1f5f9' };
-        if (gi >= 70) return { label: 'Alto', color: '#ef4444', bg: '#fef2f2' };
-        if (gi >= 55) return { label: 'Medio', color: '#f59e0b', bg: '#fffbeb' };
-        return { label: 'Bajo', color: '#10b981', bg: '#ecfdf5' };
-    };
 
-    const handleSendToBolus = (food, grams) => {
-        if (!grams || grams <= 0 || isNaN(parseFloat(grams))) {
-            alert("Introduce una cantidad válida en gramos primero.");
-            return;
-        }
-        const calculatedCarbs = (food.ch_per_100g * parseFloat(grams)) / 100;
-        state.tempCarbs = Math.round(calculatedCarbs * 10) / 10;
-        state.tempItems = [{ name: food.name, amount: parseFloat(grams), carbs: state.tempCarbs }];
-
-        navigate('#/bolus');
-    };
 
     return (
         <>
@@ -295,17 +320,22 @@ export default function FoodDatabasePage() {
                                                 </div>
                                                 <div style={{ flex: 1.2 }}>
                                                     <Button
-                                                        onClick={() => handleSendToBolus(food, grams)}
+                                                        onClick={() => handleAddToCart(food, grams)}
                                                         className="btn-primary"
                                                         style={{
                                                             width: '100%',
                                                             padding: '0.7rem 0',
                                                             fontSize: '0.85rem',
                                                             borderRadius: '12px',
-                                                            boxShadow: '0 4px 10px rgba(59, 130, 246, 0.2)'
+                                                            boxShadow: '0 4px 10px rgba(59, 130, 246, 0.2)',
+                                                            display: 'flex',
+                                                            alignItems: 'center',
+                                                            justifyContent: 'center',
+                                                            gap: '6px'
                                                         }}
                                                     >
-                                                        Usar Bolo
+                                                        <span>Añadir</span>
+                                                        <span style={{ fontSize: '1.1rem' }}>+</span>
                                                     </Button>
                                                 </div>
                                             </div>
@@ -340,7 +370,96 @@ export default function FoodDatabasePage() {
                     </div>
                 </section>
             </main>
+            {cart.length > 0 && (
+                <div style={{
+                    position: 'fixed',
+                    bottom: '80px',
+                    left: '1rem',
+                    right: '1rem',
+                    background: '#1e293b',
+                    borderRadius: '20px',
+                    padding: '1rem 1.5rem',
+                    boxShadow: '0 10px 25px rgba(0,0,0,0.3)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    zIndex: 100,
+                    animation: 'slideUp 0.3s ease-out'
+                }}>
+                    <div
+                        onClick={() => setIsCartOpen(!isCartOpen)}
+                        style={{ display: 'flex', flexDirection: 'column', cursor: 'pointer' }}
+                    >
+                        <div style={{ color: '#94a3b8', fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase' }}>
+                            {cart.length} ITEMS
+                        </div>
+                        <div style={{ color: '#fff', fontSize: '1.3rem', fontWeight: 800 }}>
+                            {cart.reduce((sum, item) => sum + item.carbs, 0).toFixed(1)}g <span style={{ fontSize: '0.9rem', color: '#64748b' }}>HC</span>
+                        </div>
+                    </div>
+
+                    <Button
+                        onClick={handleCheckout}
+                        style={{
+                            background: '#3b82f6',
+                            color: '#fff',
+                            borderRadius: '14px',
+                            padding: '0.8rem 1.5rem',
+                            fontSize: '0.9rem',
+                            fontWeight: 700,
+                            boxShadow: '0 4px 12px rgba(59, 130, 246, 0.4)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px'
+                        }}
+                    >
+                        Calcular Bolo
+                        <span>→</span>
+                    </Button>
+
+                    {isCartOpen && (
+                        <div style={{
+                            position: 'absolute',
+                            bottom: '100%',
+                            left: 0,
+                            right: 0,
+                            marginBottom: '10px',
+                            background: '#fff',
+                            borderRadius: '20px',
+                            padding: '1rem',
+                            boxShadow: '0 10px 40px rgba(0,0,0,0.2)',
+                            maxHeight: '300px',
+                            overflowY: 'auto'
+                        }}>
+                            <h4 style={{ margin: '0 0 1rem', fontSize: '1rem', fontWeight: 800, color: '#1e293b' }}>Tu Plato</h4>
+                            {cart.map((item) => (
+                                <div key={item.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.8rem', borderBottom: '1px solid #f1f5f9', paddingBottom: '0.8rem' }}>
+                                    <div>
+                                        <div style={{ fontWeight: 700, fontSize: '0.9rem', color: '#334155' }}>{item.name}</div>
+                                        <div style={{ fontSize: '0.75rem', color: '#64748b' }}>{item.amount}g • {item.carbs}g HC</div>
+                                    </div>
+                                    <button
+                                        onClick={(e) => { e.stopPropagation(); removeFromCart(item.id); }}
+                                        style={{ color: '#ef4444', background: '#fee2e2', border: 'none', borderRadius: '8px', width: '28px', height: '28px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
+                                    >
+                                        ✕
+                                    </button>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            )}
+
             <BottomNav activeTab="home" />
+
+            {/* Inline Styles for Animation */}
+            <style>{`
+                @keyframes slideUp {
+                    from { transform: translateY(20px); opacity: 0; }
+                    to { transform: translateY(0); opacity: 1; }
+                }
+            `}</style>
         </>
     );
 }
