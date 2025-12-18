@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy import text
 from sqlalchemy.engine import make_url
 
-url = "postgresql+asyncpg://neondb_owner:npg_exC4YhAql3pu@ep-polished-rain-agw1bcl2-pooler.c-2.eu-central-1.aws.neon.tech/neondb?sslmode=require"
+url = "postgresql+asyncpg://USUARIO:PASSWORD@HOST/DATABASE?sslmode=require"
 
 async def test_conn():
     print(f"Parsing {url}...")

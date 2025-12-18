@@ -13,8 +13,8 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("write_test")
 
 async def test_write():
-    url = "https://site--cronica--6cblbs2czn95.code.run/"
-    token = "89h6NeZPKzb3c-"
+    url = "https://TU_SITIO_NIGHTSCOUT.com/"
+    token = "TU_TOKEN_NIGHTSCOUT"
     
     logger.info(f"Testing WRITE permission to: {url}")
     

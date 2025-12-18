@@ -28,8 +28,8 @@ async def configure_admin():
 
     async with session_factory() as session:
         user_id = "admin" # The default user
-        url = "https://site--cronica--6cblbs2czn95.code.run"
-        api_secret = "app-7f120a3c663f5c7c"
+        url = "https://TU_SITIO_NIGHTSCOUT.com"
+        api_secret = "TU_API_SECRET_O_TOKEN"
         
         print(f"Upserting configuration for user '{user_id}'...")
         await upsert_ns_config(session, user_id, url, api_secret, enabled=True)

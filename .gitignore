@@ -8,3 +8,13 @@ pytest_cache/
 .vscode/
 frontend/dist/
 frontend/node_modules/
+
+# Local Data & Config
+backend/data/
+config/config.json
+!config/config.example.json
+
+# Logs & Temporary Files
+*.log
+backend/test_logs.txt
+backend/test_output.txt
