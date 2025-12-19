@@ -22,6 +22,7 @@ import FoodDatabasePage from './pages/FoodDatabasePage';
 import ScalePage from './pages/ScalePage';
 import BodyMapPage from './pages/BodyMapPage';
 import SuppliesPage from './pages/SuppliesPage';
+import NotificationsPage from './pages/NotificationsPage';
 
 const PAGES = {
     'favorites': FavoritesPage,
@@ -42,6 +43,7 @@ const PAGES = {
     'food-db': FoodDatabasePage,
     'bodymap': BodyMapPage,
     'supplies': SuppliesPage,
+    'notifications': NotificationsPage,
 };
 
 if (RESTAURANT_MODE_ENABLED) {

@@ -50,6 +50,9 @@ registerView('#/food-db', () => {
 registerView('#/history', () => {
   import('./bridge.jsx').then(({ mountReactPage }) => mountReactPage('history'));
 });
+registerView('#/notifications', () => {
+  import('./bridge.jsx').then(({ mountReactPage }) => mountReactPage('notifications'));
+});
 registerView('#/patterns', () => {
   import('./bridge.jsx').then(({ mountReactPage }) => mountReactPage('patterns'));
 });

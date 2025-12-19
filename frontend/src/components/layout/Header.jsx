@@ -7,6 +7,41 @@ export function Header({ title = "Bolus AI", showBack = false, notificationActiv
     const user = useStore(s => s.user);
     const dbMode = useStore(s => s.dbMode);
     const [menuOpen, setMenuOpen] = useState(false);
+    const [hasSupplyWarning, setHasSupplyWarning] = useState(false);
+
+    React.useEffect(() => {
+        const check = () => {
+            try {
+                const n = parseInt(localStorage.getItem('supplies_needles') || '100');
+                const s = parseInt(localStorage.getItem('supplies_sensors') || '10');
+                if (n < 20 || s < 4) return true;
+
+                // Also check Sick Mode?
+                const sick = localStorage.getItem('sick_mode_enabled') === 'true';
+                if (sick) return true;
+
+                return false;
+            } catch { return false; }
+        };
+        setHasSupplyWarning(check());
+    }, []);
+
+    const handleNotifClick = () => {
+        if (onNotificationClick) {
+            onNotificationClick();
+        } else {
+            // Default: Check where to go
+            if (hasSupplyWarning) {
+                // If sick mode or supplies, show notifications page or specific?
+                // Let's go to supplies if that's the issue?
+                // Actually, standard behavior: Go to Notifications Page.
+                // We will create/ensure that page exists.
+                navigate('#/notifications');
+            } else {
+                navigate('#/notifications');
+            }
+        }
+    };
 
     if (!user) return null;
 
@@ -65,8 +100,8 @@ export function Header({ title = "Bolus AI", showBack = false, notificationActiv
                 </div>
 
                 <div className="header-action" style={{ position: 'relative' }}>
-                    <button className="ghost" onClick={onNotificationClick}>🔔</button>
-                    {notificationActive && (
+                    <button className="ghost" onClick={handleNotifClick}>🔔</button>
+                    {(notificationActive || hasSupplyWarning) && (
                         <div style={{
                             position: 'absolute', top: '8px', right: '8px', width: '10px', height: '10px',
                             background: '#ef4444', borderRadius: '50%', border: '2px solid white'
