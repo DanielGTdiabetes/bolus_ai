@@ -174,12 +174,21 @@ async def run_analysis_service(
         "windows_written": windows_written
     }
 
-async def get_summary_service(user_id: str, days: int, db: AsyncSession):
+async def get_summary_service(user_id: str, days: int, db: AsyncSession, settings: UserSettings = None):
     # Query aggregated data
     # Filter by user and bolus_at >= now - days
     
     since = datetime.now(timezone.utc) - timedelta(days=days)
-    
+
+    # Optimization: If settings were updated recently, only analyze SINCE that update
+    # to avoid advising changes based on old data that might already be fixed.
+    if settings and settings.updated_at:
+        # settings.updated_at is timezone aware (UTC) usually
+        # If the user updated settings 2 days ago, we should only look at last 2 days
+        # even if they asked for 30.
+        if settings.updated_at > since:
+            since = settings.updated_at
+
     query = select(BolusPostAnalysis).where(
         BolusPostAnalysis.user_id == user_id,
         BolusPostAnalysis.bolus_at >= since
@@ -238,6 +247,17 @@ async def get_summary_service(user_id: str, days: int, db: AsyncSession):
     # Insights
     insights = []
     
+    # Helper to get current CR
+    def get_current_cr(meal_name):
+        if not settings: return None
+        # Settings.cr is MealFactors object or dict depending on parsing.
+        # It's a Pydantic model usually.
+        if hasattr(settings.cr, meal_name):
+            return getattr(settings.cr, meal_name)
+        # Fallback if dictionary or accessing via key string
+        # (Though Pydantic model access via dot is standard)
+        return getattr(settings.cr, meal_name, 10.0)
+
     # "Para cada meal_slot y window_h... si n >= 5..."
     for m, windows in by_meal.items():
         for w_key, counts in windows.items():
@@ -257,10 +277,40 @@ async def get_summary_service(user_id: str, days: int, db: AsyncSession):
                 short_ratio = counts["short"] / total_valid
                 over_ratio = counts["over"] / total_valid
                 
+                # Get current ratio for this meal
+                current_icr = get_current_cr(m)
+                
                 if short_ratio >= 0.60:
-                    insights.append(f"En {translate_meal(m)}, a {w_key} tiendes a quedarte corto.")
+                    advice = ""
+                    if current_icr:
+                        # Suggest lower ICR (more insulin)
+                        # Round to nearest 0.5
+                        raw_new = current_icr * 0.9
+                        new_icr = round(raw_new * 2) / 2
+                        
+                        if new_icr >= current_icr: new_icr = current_icr - 0.5 # Ensure at least -0.5 change
+                        if new_icr < 1: new_icr = 1 # Safety floor
+                        
+                        advice = f"Valora cambiar tu Ratio de {current_icr} a {new_icr}."
+                    else:
+                        advice = "Valora bajar tu Ratio (necesitas más insulina)."
+                        
+                    insights.append(f"En {translate_meal(m)}, a las {w_key} sueles estar ALTO. {advice}")
+                    
                 elif over_ratio >= 0.60:
-                    insights.append(f"En {translate_meal(m)}, a {w_key} tiendes a pasarte.")
+                    advice = ""
+                    if current_icr:
+                        # Suggest higher ICR (less insulin)
+                        raw_new = current_icr * 1.1
+                        new_icr = round(raw_new * 2) / 2
+                        
+                        if new_icr <= current_icr: new_icr = current_icr + 0.5 # Ensure at least +0.5 change
+                        
+                        advice = f"Valora cambiar tu Ratio de {current_icr} a {new_icr}."
+                    else:
+                        advice = "Valora subir tu Ratio (te sobra insulina)."
+
+                    insights.append(f"En {translate_meal(m)}, a las {w_key} sueles estar BAJO. {advice}")
                     
     return {
         "days": days,

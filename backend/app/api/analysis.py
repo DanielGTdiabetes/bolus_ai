@@ -73,10 +73,13 @@ async def run_analysis_endpoint(
             await client.aclose()
 
 @router.get("/bolus/summary", summary="Get post-bolus analysis summary")
+@router.get("/bolus/summary", summary="Get post-bolus analysis summary")
 async def get_summary_endpoint(
     days: int = 30,
     current_user: Any = Depends(get_current_user),
+    store: DataStore = Depends(_data_store),
     db: AsyncSession = Depends(get_db_session)
 ):
     user_id = current_user.username
-    return await get_summary_service(user_id=user_id, days=days, db=db)
+    settings = store.load_settings()
+    return await get_summary_service(user_id=user_id, days=days, db=db, settings=settings)

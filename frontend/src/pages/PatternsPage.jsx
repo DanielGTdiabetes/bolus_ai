@@ -143,8 +143,8 @@ function PatternResults({ data }) {
 
                                         return (
                                             <td key={h} style={{ padding: '0.5rem', textAlign: 'center', verticalAlign: 'top' }}>
-                                                {w.short > 0 && <span className="chip" style={{ background: '#fef3c7', color: '#b45309', border: '1px solid #fcd34d', fontSize: '0.75rem', padding: '2px 4px', borderRadius: '4px', marginRight: '2px' }}>Corto:{w.short}</span>}
-                                                {w.over > 0 && <span className="chip" style={{ background: '#fee2e2', color: '#b91c1c', border: '1px solid #fca5a5', fontSize: '0.75rem', padding: '2px 4px', borderRadius: '4px', marginRight: '2px' }}>Mucha:{w.over}</span>}
+                                                {w.short > 0 && <span className="chip" style={{ background: '#fef3c7', color: '#b45309', border: '1px solid #fcd34d', fontSize: '0.75rem', padding: '2px 4px', borderRadius: '4px', marginRight: '2px' }}>Altos:{w.short}</span>}
+                                                {w.over > 0 && <span className="chip" style={{ background: '#fee2e2', color: '#b91c1c', border: '1px solid #fca5a5', fontSize: '0.75rem', padding: '2px 4px', borderRadius: '4px', marginRight: '2px' }}>Bajos:{w.over}</span>}
                                                 {w.ok > 0 && <span className="chip" style={{ background: '#dcfce7', color: '#15803d', border: '1px solid #86efac', fontSize: '0.75rem', padding: '2px 4px', borderRadius: '4px' }}>OK:{w.ok}</span>}
                                             </td>
                                         );
