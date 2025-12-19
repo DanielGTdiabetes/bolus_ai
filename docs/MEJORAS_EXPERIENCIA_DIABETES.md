@@ -73,8 +73,7 @@ Este documento recoge las propuestas priorizadas por el usuario.
 ---
 
 ## 6. 📝 Gestión Avanzada de Historial
-**Propuesta:** Mejorar la visualización y control de los datos pasados.
+✅ **ESTADO: COMPLETADO (v1)**
 
-*   **Edición de Entradas:** Posibilidad de corregir errores en registros anteriores (ej: dosis incorrecta, hora mal puesta).
-*   **Visualización de Comidas:** Mostrar el nombre del plato ("Smart Input") directamente en la lista del historial para identificar rápidamente qué se comió.
-*   **Prioridad:** Media/Baja (Hacer con cuidado para no romper la sincronización).
+*   **Edición de Entradas:** Botón lápiz (✏️) para corregir errores en Dosis, Carbohidratos o Fecha/Hora. Actualiza directamente Nightscout.
+*   **Visualización de Comidas:** Muestra el nombre del plato ("🍕 Pizza") destacado en el listado si se usó el Smart Input.
