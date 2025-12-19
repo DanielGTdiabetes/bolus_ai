@@ -370,6 +370,10 @@ async def get_treatments_server(
                 models = await client.get_recent_treatments(hours=48, limit=count)
                 for m in models:
                     d = m.model_dump()
+                    # Ensure _id is present for frontend
+                    if m.id:
+                        d["_id"] = m.id
+                    
                     # Ensure created_at is strictly ISO with Z if it is UTC
                     if m.created_at: 
                         # m.created_at is timezone-aware in the model
@@ -467,6 +471,7 @@ async def get_treatments_server(
             created_iso = cat.isoformat().replace("+00:00", "Z")
             
             basal_treatments.append({
+                "_id": str(b.get("id")),
                 "eventType": "Basal",
                 "created_at": created_iso,
                 "date": cat.timestamp() * 1000,

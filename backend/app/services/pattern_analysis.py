@@ -47,6 +47,16 @@ async def run_analysis_service(
     
     from app.models.treatment import Treatment
     
+    from sqlalchemy import delete
+    
+    # 0. Clean up previous analysis for this period to ensure deleted/edited items are reflected
+    # This prevents "ghost" analysis records from treatments that no longer exist
+    stmt_cleanup = delete(BolusPostAnalysis).where(
+        BolusPostAnalysis.user_id == user_id,
+        BolusPostAnalysis.bolus_at >= start_cutoff
+    )
+    await db.execute(stmt_cleanup)
+    
     # DB Query
     stmt = (
         select(Treatment)

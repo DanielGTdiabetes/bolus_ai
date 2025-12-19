@@ -27,7 +27,7 @@ class NightscoutSGV(BaseModel):
         return int(v)
 
 
-class Treatment(BaseModel):
+    id: Optional[str] = Field(default=None, alias="_id")
     eventType: Optional[str] = None
     created_at: Optional[datetime] = None
     enteredBy: Optional[str] = None
