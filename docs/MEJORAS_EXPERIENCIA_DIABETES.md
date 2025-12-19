@@ -49,14 +49,16 @@ Este documento recoge las propuestas priorizadas por el usuario.
 
 ---
 
-## 4. 📦 Próximos Pasos: Gestión de Suministros
-**Propuesta:** 
-*   **Caducidades:** Recordatorios para Sensores (14 días), Catéteres (3 días) y Plumas abiertas (30 días).
-*   **Inventario (Control de Stock):** 
-    *   **Agujas:** Sistema de descuento automático.
-        *   Entrada fácil de stock (ej: +3 cajas de 100u).
-        *   Descuento automático de 1 unidad con cada bolo confirmado.
-        *   Opción manual de "Reset" o ajuste de inventario.
+## 4. 📦 Gestión de Suministros
+✅ **ESTADO: COMPLETADO (v1)**
+
+*   **Agujas:** 
+    *   **Control Automático:** Descuenta 1 unidad con cada Bolo o registro de Basal.
+    *   **Botón Rápido:** "Añadir Caja (+100)" para reposiciones fáciles.
+    *   **Alertas:** Verde (>50), Ámbar (<50), Rojo (<20).
+*   **Sensores:**
+    *   **Control Manual:** Botones simples (+1/-1) para gestionar el inventario.
+    *   **Alertas:** Aviso cuando quedan menos de 4 unidades.
 
 ---
 

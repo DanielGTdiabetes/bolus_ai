@@ -36,12 +36,15 @@ Herramientas para optimizar tu dosis basal:
 - **Evaluación de Cambios**: Si cambias tu dosis basal, la app comparará los 7 días anteriores vs. los 7 posteriores para decirte si el cambio fue efectivo.
 
 ### 5. ☰ Menú (Avanzado)
+- **📦 Suministros (NUEVO)**: Control de inventario de consumibles.
+    - **Agujas**: Se descuentan solas cada vez que registras una dosis. Tú solo tienes que darle a "+1 Caja" cuando compres.
+    - **Sensores**: Control manual simple (+1 / -1).
 - **⏱️ Historial**: Registro completo de todos los tratamientos.
 - **📊 Patrones**: Análisis detallado de tendencias por franjas horarias.
-- **📍 Mapa Corporal**: Vista completa del estado de tus sitios de inyección para corregir manualmente si te has equivocado al registrar.
-- **⭐ Favoritos**: Gestiona tus comidas guardadas para que el Smart Input funcione mejor.
+- **📍 Mapa Corporal**: Vista completa del estado de tus sitios de inyección.
+- **⭐ Favoritos**: Gestiona tus comidas guardadas.
 - **👤 Perfil**: Configura tus dosis máximas, ratios y tipo de insulina.
-- **⚙️ Ajustes**: Configuración técnica (Nightscout, modo oscuro, etc.).
+- **⚙️ Ajustes**: Configuración técnica.
 
 ---
 

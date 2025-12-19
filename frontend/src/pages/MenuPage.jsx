@@ -53,6 +53,7 @@ export default function MenuPage() {
                 ]} />
 
                 <MenuSection title="Cuenta y Sistema" items={[
+                    { icon: '📦', label: 'Suministros', sub: 'Stock de agujas', hash: '#/supplies', color: '#0ea5e9', bg: '#e0f2fe' },
                     { icon: '👤', label: 'Mi Perfil', sub: 'Datos personales e insulina', hash: '#/profile', color: '#10b981', bg: '#ecfdf5' },
                     { icon: '⚙️', label: 'Ajustes', sub: 'Configuración general', hash: '#/settings', color: '#64748b', bg: '#f1f5f9' }
                 ]} />

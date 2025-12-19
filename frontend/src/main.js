@@ -1,7 +1,11 @@
 // Main Entry Point
 import { initRouter, registerView, registerDefaultView, router } from './modules/core/router.js';
 
-// Views - None imported directly, all lazy via bridge!
+registerView('#/supplies', () => {
+  import('./bridge.jsx').then(({ mountReactPage }) => mountReactPage('supplies'));
+});
+
+// Settings & Profile imported directly, all lazy via bridge!
 
 // Register Routes
 // The Router in this project uses the full hash string as the key.

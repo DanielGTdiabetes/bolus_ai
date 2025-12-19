@@ -67,6 +67,12 @@ function BasalEntrySection({ onRefresh }) {
                     saveInjectionSite('basal', injectionSite);
                 }
 
+                // Decrement needle stock
+                const currentStock = parseInt(localStorage.getItem('supplies_needles') || '0', 10);
+                if (currentStock > 0) {
+                    localStorage.setItem('supplies_needles', String(currentStock - 1));
+                }
+
                 return true;
             } catch (e) {
                 setMsg({ text: "Error guardando dosis: " + e.message, type: 'error' });
