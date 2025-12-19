@@ -2,41 +2,30 @@ import React, { useState, useEffect } from 'react';
 import { Header } from '../components/layout/Header';
 import { BottomNav } from '../components/layout/BottomNav';
 import { Card, Button } from '../components/ui/Atoms';
+import { getSupplies, updateSupply } from '../lib/api';
 
-// Helper functions
-export const getStock = (key) => parseInt(localStorage.getItem(key) || '0', 10);
-export const updateStock = (key, val) => localStorage.setItem(key, val.toString());
-
-function StockItem({ title, storageKey, boxSize = 100, warnThreshold = 20, dangerThreshold = 5 }) {
-    const [stock, setStock] = useState(0);
+function StockItem({ title, storageKey, currentStock, onUpdate, boxSize = 100, warnThreshold = 20, dangerThreshold = 5 }) {
     const [editMode, setEditMode] = useState(false);
     const [manualVal, setManualVal] = useState('');
 
-    useEffect(() => {
-        setStock(getStock(storageKey));
-    }, [storageKey]);
-
     const changeStock = (delta) => {
-        const current = getStock(storageKey);
-        const newVal = current + delta;
-        updateStock(storageKey, newVal);
-        setStock(newVal);
+        const newVal = currentStock + delta;
+        onUpdate(storageKey, newVal);
         if (delta > 5) alert(`✅ Añadidos ${delta} ${title}.`);
     };
 
     const saveManual = () => {
         const val = parseInt(manualVal);
         if (!isNaN(val)) {
-            updateStock(storageKey, val);
-            setStock(val);
+            onUpdate(storageKey, val);
             setEditMode(false);
         }
     };
 
     let statusColor = "#10b981"; // Green
     let statusText = "🟢 Stock Saludable";
-    if (stock < warnThreshold) { statusColor = "#f59e0b"; statusText = "🟠 Stock Medio"; }
-    if (stock < dangerThreshold) { statusColor = "#ef4444"; statusText = "🔴 Stock Bajo"; }
+    if (currentStock < warnThreshold) { statusColor = "#f59e0b"; statusText = "🟠 Stock Medio"; }
+    if (currentStock < dangerThreshold) { statusColor = "#ef4444"; statusText = "🔴 Stock Bajo"; }
 
     return (
         <Card className="stack" style={{ marginBottom: '1rem' }}>
@@ -45,7 +34,7 @@ function StockItem({ title, storageKey, boxSize = 100, warnThreshold = 20, dange
                     {title}
                 </div>
                 <div style={{ fontSize: '3.5rem', fontWeight: 800, color: statusColor, lineHeight: 1, margin: '0.5rem 0' }}>
-                    {stock}
+                    {currentStock}
                 </div>
                 <div style={{ display: 'inline-block', padding: '4px 12px', borderRadius: '20px', background: `${statusColor}15`, color: statusColor, fontSize: '0.8rem', fontWeight: 700 }}>
                     {statusText}
@@ -70,7 +59,7 @@ function StockItem({ title, storageKey, boxSize = 100, warnThreshold = 20, dange
                         <input
                             type="number"
                             value={manualVal}
-                            placeholder={stock}
+                            placeholder={currentStock}
                             onChange={e => setManualVal(e.target.value)}
                             style={{ flex: 1, padding: '0.8rem', borderRadius: '8px', border: '1px solid #cbd5e1' }}
                         />
@@ -79,7 +68,7 @@ function StockItem({ title, storageKey, boxSize = 100, warnThreshold = 20, dange
                     </div>
                 ) : (
                     <button
-                        onClick={() => { setManualVal(stock); setEditMode(true); }}
+                        onClick={() => { setManualVal(currentStock); setEditMode(true); }}
                         style={{ width: '100%', padding: '0.5rem', background: 'transparent', border: 'none', color: '#94a3b8', textDecoration: 'underline', cursor: 'pointer', fontSize: '0.85rem' }}
                     >
                         ✏️ Corregir {title}
@@ -91,14 +80,48 @@ function StockItem({ title, storageKey, boxSize = 100, warnThreshold = 20, dange
 }
 
 export default function SuppliesPage() {
+    const [supplies, setSupplies] = useState({});
+    const [loading, setLoading] = useState(true);
+
+    const load = async () => {
+        try {
+            const data = await getSupplies();
+            // Convert list [{key, quantity}] to dict {key: quantity}
+            const map = {};
+            data.forEach(item => map[item.key] = item.quantity);
+            setSupplies(map);
+        } catch (e) {
+            console.error(e);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    useEffect(() => { load(); }, []);
+
+    const handleUpdate = async (key, val) => {
+        // Optimistic update
+        setSupplies(prev => ({ ...prev, [key]: val }));
+        try {
+            await updateSupply(key, val);
+        } catch (e) {
+            console.error(e);
+            alert("Error guardando stock en la nube.");
+            load(); // Revert
+        }
+    };
+
+    if (loading) return <div className="page p-4">Cargando stock...</div>;
+
     return (
         <>
             <Header title="Suministros" showBack={true} />
             <main className="page" style={{ paddingBottom: '90px' }}>
-
                 <StockItem
                     title="Agujas"
                     storageKey="supplies_needles"
+                    currentStock={supplies["supplies_needles"] || 0}
+                    onUpdate={handleUpdate}
                     boxSize={100}
                     warnThreshold={50}
                     dangerThreshold={20}
@@ -107,6 +130,8 @@ export default function SuppliesPage() {
                 <StockItem
                     title="Sensores"
                     storageKey="supplies_sensors"
+                    currentStock={supplies["supplies_sensors"] || 0}
+                    onUpdate={handleUpdate}
                     boxSize={1}
                     warnThreshold={4}
                     dangerThreshold={2}

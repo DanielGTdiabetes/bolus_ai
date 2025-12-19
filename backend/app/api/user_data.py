@@ -1,0 +1,119 @@
+
+from typing import Any, List, Dict
+from fastapi import APIRouter, Depends, HTTPException, Body
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, delete
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+from app.core.security import get_current_user
+from app.core.db import get_db_session
+from app.models.user_data import FavoriteFood, SupplyItem
+from pydantic import BaseModel
+
+router = APIRouter()
+
+# --- Schemas ---
+class FavoriteCreate(BaseModel):
+    name: str
+    carbs: float
+
+class FavoriteRead(BaseModel):
+    id: str
+    name: str
+    carbs: float
+    # created_at...
+
+    class Config:
+        from_attributes = True
+
+    @staticmethod
+    def from_orm(obj):
+        return FavoriteRead(id=str(obj.id), name=obj.name, carbs=obj.carbs)
+
+class SupplyUpdate(BaseModel):
+    key: str
+    quantity: int
+
+class SupplyRead(BaseModel):
+    key: str
+    quantity: int
+
+# --- Favorites Endpoints ---
+
+@router.get("/favorites", response_model=List[FavoriteRead])
+async def get_favorites(
+    current_user: Any = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session)
+):
+    stmt = select(FavoriteFood).where(FavoriteFood.user_id == current_user.username)
+    result = await db.execute(stmt)
+    return [FavoriteRead.from_orm(f) for f in result.scalars().all()]
+
+@router.post("/favorites", response_model=FavoriteRead)
+async def create_favorite(
+    fav: FavoriteCreate,
+    current_user: Any = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session)
+):
+    new_fav = FavoriteFood(
+        user_id=current_user.username,
+        name=fav.name,
+        carbs=fav.carbs
+    )
+    db.add(new_fav)
+    await db.commit()
+    await db.refresh(new_fav)
+    return FavoriteRead.from_orm(new_fav)
+
+@router.delete("/favorites/{fav_id}")
+async def delete_favorite(
+    fav_id: str,
+    current_user: Any = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session)
+):
+    # Check ownership
+    stmt = select(FavoriteFood).where(FavoriteFood.id == fav_id)
+    result = await db.execute(stmt)
+    fav = result.scalar_one_or_none()
+    
+    if not fav:
+        raise HTTPException(status_code=404, detail="Favorite not found")
+        
+    if fav.user_id != current_user.username:
+        raise HTTPException(status_code=403, detail="Not authorized")
+        
+    await db.execute(delete(FavoriteFood).where(FavoriteFood.id == fav_id))
+    await db.commit()
+    return {"status": "success"}
+
+# --- Supplies Endpoints ---
+
+@router.get("/supplies", response_model=List[SupplyRead])
+async def get_supplies(
+    current_user: Any = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session)
+):
+    stmt = select(SupplyItem).where(SupplyItem.user_id == current_user.username)
+    result = await db.execute(stmt)
+    items = result.scalars().all()
+    # Normalize keys? Frontend expects 'supplies_needles' etc.
+    return [SupplyRead(key=item.item_key, quantity=item.quantity) for item in items]
+
+@router.post("/supplies")
+async def update_supply(
+    payload: SupplyUpdate,
+    current_user: Any = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session)
+):
+    # Upsert
+    stmt = pg_insert(SupplyItem).values(
+        user_id=current_user.username,
+        item_key=payload.key,
+        quantity=payload.quantity
+    ).on_conflict_do_update(
+        index_elements=["user_id", "item_key"], 
+        set_=dict(quantity=payload.quantity)
+    )
+    await db.execute(stmt)
+    await db.commit()
+    return {"status": "success", "key": payload.key, "quantity": payload.quantity}

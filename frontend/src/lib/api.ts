@@ -714,3 +714,45 @@ export async function deleteTreatment(id) {
 }
 
 export * from "./bleScale";
+
+export async function getFavorites() {
+  const response = await apiFetch("/api/user/favorites");
+  const data = await toJson(response);
+  if (!response.ok) throw new Error(data.detail || "Error obteniendo favoritos");
+  return data;
+}
+
+export async function addFavorite(name, carbs) {
+  const response = await apiFetch("/api/user/favorites", {
+    method: "POST",
+    body: JSON.stringify({ name, carbs })
+  });
+  const data = await toJson(response);
+  if (!response.ok) throw new Error(data.detail || "Error guardando favorito");
+  return data;
+}
+
+export async function deleteFavorite(id) {
+  const response = await apiFetch(`/api/user/favorites/${id}`, {
+    method: "DELETE"
+  });
+  if (!response.ok) throw new Error("Error eliminando favorito");
+  return true;
+}
+
+export async function getSupplies() {
+  const response = await apiFetch("/api/user/supplies");
+  const data = await toJson(response);
+  if (!response.ok) throw new Error(data.detail || "Error obteniendo suministros");
+  return data;
+}
+
+export async function updateSupply(key, quantity) {
+  const response = await apiFetch("/api/user/supplies", {
+    method: "POST",
+    body: JSON.stringify({ key, quantity })
+  });
+  const data = await toJson(response);
+  if (!response.ok) throw new Error(data.detail || "Error actualizando suministro");
+  return data;
+}
