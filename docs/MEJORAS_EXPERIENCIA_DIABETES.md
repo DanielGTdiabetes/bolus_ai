@@ -5,38 +5,54 @@ Este documento recoge las propuestas priorizadas por el usuario.
 ---
 
 ## 1. 🧠 Aprendizaje y Predicción (Prioridad Alta)
-**Objetivo:** Que el sistema aprenda cómo sienta cada comida específica (no solo carbohidratos genéricos) para predecir fallos y sugerir ajustes.
+**Objetivo:** Que el sistema aprenda cómo sienta cada comida específica para predecir fallos y sugerir ajustes.
 
-**El Desafío:** Para aprender de la "Pizza", el sistema necesita saber que estás comiendo "Pizza", no solo "60g de carbohidratos".
+**El Desafío:** Para aprender de la "Pizza" de forma segura, el sistema necesita saber qué estás comiendo.
 
 **Solución: "Smart Input" en la Calculadora de Bolo**
-*   **Campo de Texto Inteligente:** Un campo "¿Qué vas a comer?" en la pantalla principal de cálculo.
-*   **Funcionalidad Híbrida (Buscador + Registro):**
-    *   **Autocompletado (Buscador):** Si escribes "Macarr...", busca en tus **Favoritos** y rellena automáticamente los carbohidratos (ej: "Macarrones con Tomate - 65g"). ✅ **(IMPLEMENTADO v1)**
-    *   **Guardado Rápido:** Si escribes algo nuevo (ej: "Bocadillo Tortilla") y pones los hidratos a mano, al terminar te ofrece: *"¿Guardar en favoritos para la próxima?"*. ✅ **(IMPLEMENTADO v1)**
-*   **Resultado:**
-    *   Facilita la entrada de datos (menos tecleo si ya existe). ✅
-    *   Etiqueta el tratamiento con el nombre real de la comida. ✅
-    *   Alimenta al motor de IA para que la próxima vez diga: *"Ojo, con el Bocadillo de Tortilla sueles necesitar un 10% más"*. ⏳ **(PENDIENTE FASE 2: ESTRATEGIA)**
+*   **Campo Inteligente:** "¿Qué vas a comer?".
+*   **Funcionalidad Híbrida:**
+    *   **Autocompletado:** Busca en tus **Favoritos** y rellena automáticamente los carbohidratos. ✅ **(IMPLEMENTADO v1)**
+    *   **Aprendizaje Rápido:** Al confirmar un bolo, pregunta: *"¿Guardar [Comida] como favorito?"*. ✅ **(IMPLEMENTADO v1)**
+    *   **Carbohidratos Manuales:** Siempre permite sobrescribir la cantidad sugerida.
+*   **Próximo Paso (Fase 2):**
+    *   Sugerencias de Estrategia: *"Con [Pizza] sueles necesitar Bolo Dual (+10%)"*. ⏳
 
 ---
 
 ## 2. 📍 Rotación de Sitios de Inyección (Body Map)
-**El Problema:** Inyectarse siempre en el mismo sitio causa lipodistrofias y mala absorción.
-**Propuesta:** Avatar visual para registrar y rotar zonas de inyección (muslos, abdomen, brazos).
+**Objetivo:** Evitar lipodistrofias y asegurar buena absorción rotando los puntos.
 
 ✅ **ESTADO: COMPLETADO**
-*   Componente visual con anatomía humana (Abdomen y Piernas).
-*   Lógica de rotación (evitar repetir último punto).
-*   Integrado en Página de Bolo (Rápida) y Basal (Lenta).
-*   Página "Mapa Corporal" para revisión y corrección manual.
+*   **Visuales Profesionales:** Nuevas ilustraciones médicas anatómicas (v2).
+    *   **Abdomen:** Vista frontal detallada.
+    *   **Piernas/Glúteos:** Vista trasera unificada (más clara para zonas basales).
+*   **Lógica de Rotación:**
+    *   Recuerda el último punto exacto usado por tipo de insulina.
+    *   Sugiere automáticamente el siguiente punto siguiendo un orden lógico.
+*   **Integración:**
+    *   Disponible en **Bolo** (Rápida).
+    *   Disponible en **Basal** (Lenta).
+    *   Página dedicada **"Mapa Corporal"** para consultar historial y corregir errores.
 
 ---
 
-## 3. 📦 Gestión de Suministros
+## 3. 🛡️ Seguridad Basal: Calculadora de Olvido
+**Problema:** Olvidar la hora habitual de la basal (Lenta) genera duda: *"¿Me la pongo entera o la reduzco para no solapar con mañana?"*.
+
+✅ **ESTADO: COMPLETADO**
+*   **Calculadora "Late Dose":**
+    *   Calcula el retraso exacto respecto a tu hora habitual.
+    *   **< 30 min:** Sugiere Dosis Completa.
+    *   **Retraso Medio:** Reduce la dosis proporcionalmente para cubrir solo las horas restantes hasta la próxima dosis programada.
+    *   **> 12h:** Alerta de riesgo y sugiere saltar o consultar médico.
+
+---
+
+## 4. 📦 Próximos Pasos: Gestión de Suministros
 **Propuesta:** Recordatorios de caducidad para sensores (14 días), catéteres (3 días) y plumas abiertas (30 días).
 
 ---
 
-## 4. 📄 Informes y Modo Enfermedad
-**Propuesta:** Informes tipo AGP para el médico y modo "Días Enfermos" para reglas de insulina más agresivas temporalmente.
+## 5. 📄 Informes y Modo Enfermedad
+**Propuesta:** Informes tipo AGP para el médico y modo "Días Enfermos".
