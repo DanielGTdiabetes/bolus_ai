@@ -18,22 +18,21 @@ export default function BodyMapPage() {
     const [selectedRapid, setSelectedRapid] = useState(null);
     const [selectedBasal, setSelectedBasal] = useState(null);
 
+    const [refreshKey, setRefreshKey] = useState(0);
+
     const handleRapidChange = (id) => {
-        if (confirm("¿Marcar este punto como el ÚLTIMO utilizado?")) {
+        if (window.confirm("¿Marcar este punto como el ÚLTIMO utilizado?")) {
             saveInjectionSite('rapid', id);
-            setSelectedRapid(id); // Optimistic update
-            // We need to trigger a re-render of the Selector to pick up the new "Last Used" visual
-            // A simple way is to toggle a key, or we can just rely on the fact that we updated the "Selected" prop.
-            // But the internal "Last Used" state in the child component won't update unless we force it.
-            window.location.reload(); // Simplest fix for now given constraints, but let's remove the extra alert causing the "loop" feeling.
+            setSelectedRapid(id);
+            setRefreshKey(prev => prev + 1); // Force re-render of children to pick up localStorage change
         }
     };
 
     const handleBasalChange = (id) => {
-        if (confirm("¿Marcar este punto como el ÚLTIMO utilizado?")) {
+        if (window.confirm("¿Marcar este punto como el ÚLTIMO utilizado?")) {
             saveInjectionSite('basal', id);
             setSelectedBasal(id);
-            window.location.reload();
+            setRefreshKey(prev => prev + 1);
         }
     };
 
@@ -51,6 +50,7 @@ export default function BodyMapPage() {
 
                     <div style={{ marginTop: '2rem' }}>
                         <InjectionSiteSelector
+                            key={'rapid-' + refreshKey}
                             type="rapid"
                             selected={selectedRapid}
                             onSelect={handleRapidChange}
@@ -59,6 +59,7 @@ export default function BodyMapPage() {
 
                     <div style={{ marginTop: '3rem', borderTop: '1px dashed #cbd5e1', paddingTop: '2rem' }}>
                         <InjectionSiteSelector
+                            key={'basal-' + refreshKey}
                             type="basal"
                             selected={selectedBasal}
                             onSelect={handleBasalChange}

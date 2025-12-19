@@ -15,10 +15,26 @@ import { navigate } from '../modules/core/router';
 import { useStore } from '../hooks/useStore';
 import { InjectionSiteSelector, saveInjectionSite, getSiteLabel } from '../components/injection/InjectionSiteSelector';
 
+const FAV_KEY = "bolusai_favorites";
+
+function getFavorites() {
+    try {
+        return JSON.parse(localStorage.getItem(FAV_KEY) || "[]");
+    } catch { return []; }
+}
+
+function saveToFavorites(name, carbs) {
+    const favs = getFavorites();
+    if (favs.some(f => f.name.trim().toLowerCase() === name.trim().toLowerCase())) return; // Avoid dupes
+    favs.push({ id: Date.now(), name, carbs });
+    localStorage.setItem(FAV_KEY, JSON.stringify(favs));
+}
+
 export default function BolusPage() {
     // State
     const [glucose, setGlucose] = useState('');
     const [carbs, setCarbs] = useState('');
+    const [foodName, setFoodName] = useState('');
     const [date, setDate] = useState(() => {
         const now = new Date();
         return new Date(now.getTime() - (now.getTimezoneOffset() * 60000)).toISOString().slice(0, 16);
@@ -48,7 +64,11 @@ export default function BolusPage() {
         // But since we are inside the same window context, we can read global 'state'
         if (state.tempCarbs) {
             setCarbs(String(state.tempCarbs));
+            if (state.tempReason && state.tempReason.startsWith("Fav: ")) {
+                setFoodName(state.tempReason.replace("Fav: ", ""));
+            }
             state.tempCarbs = null; // Clear it
+            state.tempReason = null;
         }
 
         // Capture Learning Hint
@@ -167,7 +187,7 @@ export default function BolusPage() {
                 carbs: parseFloat(carbs) || 0,
                 insulin: finalInsulin,
                 enteredBy: state.user?.username || "BolusAI",
-                notes: `BolusAI: ${result.kind === 'dual' ? 'Dual' : 'Normal'}. Gr: ${carbs}. BG: ${glucose}. ${plateItems.length > 0 ? 'Items: ' + plateItems.map(i => i.name).join(', ') : ''}`,
+                notes: `BolusAI: ${result.kind === 'dual' ? 'Dual' : 'Normal'}. Gr: ${carbs}. BG: ${glucose}. ${foodName ? 'Comida: ' + foodName + '.' : ''} ${plateItems.length > 0 ? 'Items: ' + plateItems.map(i => i.name).join(', ') : ''}`,
                 nightscout: {
                     url: nsConfig.url || null,
                 }
@@ -292,6 +312,19 @@ export default function BolusPage() {
                             {glucose && !isNaN(parseFloat(glucose)) && (
                                 <input type="range" min="40" max="400" value={glucose} onChange={e => setGlucose(e.target.value)} className="w-full mt-2" />
                             )}
+                        </div>
+
+                        {/* Smart Food Input */}
+                        <div className="form-group">
+                            <div className="label-row"><span className="label-text">🍽️ ¿Qué vas a comer? (Opcional)</span></div>
+                            <FoodSmartAutocomplete
+                                value={foodName}
+                                onChange={setFoodName}
+                                onSelect={(item) => {
+                                    setFoodName(item.name);
+                                    setCarbs(String(item.carbs));
+                                }}
+                            />
                         </div>
 
                         {/* Date */}
@@ -451,6 +484,8 @@ export default function BolusPage() {
                         onBack={() => setResult(null)}
                         onSave={handleSave}
                         saving={saving}
+                        currentCarbs={carbs}
+                        foodName={foodName}
                     />
                 )}
 
@@ -460,10 +495,32 @@ export default function BolusPage() {
     );
 }
 
-function ResultView({ result, onBack, onSave, saving }) {
+function ResultView({ result, onBack, onSave, saving, currentCarbs, foodName }) {
     // Local state for edit before confirm
     const [finalDose, setFinalDose] = useState(result.upfront_u);
     const [injectionSite, setInjectionSite] = useState(null);
+
+    // Check if entered food is new
+    const [isNewFav, setIsNewFav] = useState(false);
+    const [saveFav, setSaveFav] = useState(false);
+
+    useEffect(() => {
+        if (foodName && foodName.trim().length > 2) {
+            const favs = getFavorites();
+            const exists = favs.some(f => f.name.toLowerCase() === foodName.toLowerCase());
+            if (!exists) {
+                setIsNewFav(true);
+                setSaveFav(true); // Default to true for convenience? Or false? Let's say true to encourage learning.
+            }
+        }
+    }, [foodName]);
+
+    const handleConfirm = () => {
+        if (saveFav && isNewFav && foodName) {
+            saveToFavorites(foodName, currentCarbs);
+        }
+        onSave(finalDose, injectionSite);
+    };
 
     const later = parseFloat(result.later_u || 0);
     const upfront = parseFloat(finalDose || 0);
@@ -542,6 +599,18 @@ function ResultView({ result, onBack, onSave, saving }) {
                 </div>
             )}
 
+            {isNewFav && (
+                <div style={{ margin: '1rem 0', background: '#f0fdf4', padding: '0.8rem', borderRadius: '8px', border: '1px dashed #4ade80' }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '0.9rem', color: '#166534', cursor: 'pointer' }}>
+                        <input type="checkbox" checked={saveFav} onChange={e => setSaveFav(e.target.checked)} style={{ transform: 'scale(1.2)' }} />
+                        <div>
+                            <strong>¿Guardar como favorito?</strong>
+                            <div style={{ fontSize: '0.8rem', opacity: 0.8 }}>Aprendera que "{foodName}" son {currentCarbs}g.</div>
+                        </div>
+                    </label>
+                </div>
+            )}
+
             <div style={{ margin: '1rem 0' }}>
                 <InjectionSiteSelector
                     type="rapid"
@@ -551,13 +620,63 @@ function ResultView({ result, onBack, onSave, saving }) {
             </div>
 
             <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1.5rem' }}>
-                <Button onClick={() => onSave(finalDose, injectionSite)} disabled={saving} style={{ flex: 1, background: 'var(--success)', padding: '1rem', fontSize: '1.1rem' }}>
+                <Button onClick={handleConfirm} disabled={saving} style={{ flex: 1, background: 'var(--success)', padding: '1rem', fontSize: '1.1rem' }}>
                     {saving ? 'Guardando...' : '✅ Confirmar'}
                 </Button>
                 <Button variant="ghost" onClick={onBack} disabled={saving} style={{ flex: 1 }}>
                     Cancelar
                 </Button>
             </div>
+        </div>
+    );
+}
+
+function FoodSmartAutocomplete({ value, onChange, onSelect }) {
+    const [suggestions, setSuggestions] = useState([]);
+
+    // Suggest based on input
+    useEffect(() => {
+        if (!value || value.length < 2) {
+            setSuggestions([]);
+            return;
+        }
+        const favs = getFavorites();
+        const matches = favs.filter(f => f.name.toLowerCase().includes(value.toLowerCase()));
+        setSuggestions(matches.slice(0, 3)); // Limit to 3
+    }, [value]);
+
+    return (
+        <div style={{ position: 'relative' }}>
+            <Input
+                placeholder="Ej: Pizza, Manzana..."
+                value={value}
+                onChange={e => onChange(e.target.value)}
+                style={{ width: '100%' }}
+            />
+            {suggestions.length > 0 && (
+                <div style={{
+                    position: 'absolute', top: '100%', left: 0, right: 0,
+                    background: '#fff', border: '1px solid #cbd5e1',
+                    borderRadius: '8px', zIndex: 10, boxShadow: '0 4px 6px rgba(0,0,0,0.1)'
+                }}>
+                    {suggestions.map(s => (
+                        <div
+                            key={s.id}
+                            onClick={() => {
+                                onSelect(s);
+                                setSuggestions([]);
+                            }}
+                            style={{
+                                padding: '0.8rem', borderBottom: '1px solid #f1f5f9',
+                                cursor: 'pointer', display: 'flex', justifyContent: 'space-between'
+                            }}
+                        >
+                            <span>{s.name}</span>
+                            <span style={{ fontWeight: 700, color: 'var(--primary)' }}>{s.carbs}g</span>
+                        </div>
+                    ))}
+                </div>
+            )}
         </div>
     );
 }
