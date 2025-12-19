@@ -50,7 +50,13 @@ Este documento recoge las propuestas priorizadas por el usuario.
 ---
 
 ## 4. 📦 Próximos Pasos: Gestión de Suministros
-**Propuesta:** Recordatorios de caducidad para sensores (14 días), catéteres (3 días) y plumas abiertas (30 días).
+**Propuesta:** 
+*   **Caducidades:** Recordatorios para Sensores (14 días), Catéteres (3 días) y Plumas abiertas (30 días).
+*   **Inventario (Control de Stock):** 
+    *   **Agujas:** Sistema de descuento automático.
+        *   Entrada fácil de stock (ej: +3 cajas de 100u).
+        *   Descuento automático de 1 unidad con cada bolo confirmado.
+        *   Opción manual de "Reset" o ajuste de inventario.
 
 ---
 
