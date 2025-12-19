@@ -115,14 +115,15 @@ function AbdomenImageVisual({ selected, recommended, lastUsed, onPointClick }) {
 
     const getCoords = (zoneId, pointNum) => {
         // Percentages relative to container
-        let y = 60; // Mid
-        if (zoneId.includes('_top')) y = 40;
-        if (zoneId.includes('_mid')) y = 60;
-        if (zoneId.includes('_bot')) y = 80;
+        let y = 53; // Mid
+        if (zoneId.includes('_top')) y = 35;
+        if (zoneId.includes('_mid')) y = 53;
+        if (zoneId.includes('_bot')) y = 71;
 
         // X Spacing from Center (50)
-        // P1: 10% dist, P2: 20%, P3: 30%
-        const offsets = [10, 20, 30];
+        // P3 is furthest out, P1 is closest to center
+        // Tighter grouping for better fit
+        const offsets = [7, 14, 21];
         const dist = offsets[pointNum - 1];
 
         let x = 50;
@@ -192,17 +193,14 @@ function AbdomenImageVisual({ selected, recommended, lastUsed, onPointClick }) {
 
 function LegsImageVisual({ selected, recommended, lastUsed, onPointClick }) {
     // 300x300
-    // The generated image has 2 panels (Front Thighs | Back Glutes) side by side.
-    // So X: 0-50% is Thighs, 50-100% is Glutes.
-
-    // Thighs (Left Panel): Left Leg (x~15), Right Leg (x~35)
-    // Glutes (Right Panel): Left Glute (x~65), Right Glute (x~85)
+    // Back View: Glutes (Top), Thighs (Bottom)
+    // Patient Left = Left side of image (Posterior view)
 
     const POINTS = {
-        'leg_left:1': { x: 18, y: 55 },
-        'leg_right:1': { x: 32, y: 55 },
-        'glute_left:1': { x: 68, y: 50 },
-        'glute_right:1': { x: 82, y: 50 }
+        'glute_left:1': { x: 32, y: 38 },
+        'glute_right:1': { x: 68, y: 38 },
+        'leg_left:1': { x: 28, y: 75 },
+        'leg_right:1': { x: 72, y: 75 }
     };
 
     return (
@@ -214,9 +212,7 @@ function LegsImageVisual({ selected, recommended, lastUsed, onPointClick }) {
             />
 
             <svg viewBox="0 0 100 100" style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%' }}>
-                {/* Labels */}
-                <text x="25" y="10" fontSize="4" fill="#64748b" textAnchor="middle" fontWeight="bold">MUSLOS</text>
-                <text x="75" y="10" fontSize="4" fill="#64748b" textAnchor="middle" fontWeight="bold">GLÚTEOS</text>
+                {/* Labels removed for single chart */}
 
                 {ZONES.basal.map(zone => {
                     const fullId = `${zone.id}:1`;

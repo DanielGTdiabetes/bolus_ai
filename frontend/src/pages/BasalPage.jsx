@@ -232,107 +232,107 @@ function BasalEntrySection({ onRefresh }) {
                     />
                 </div>
             </div>
-        </div>
 
-            {/* Late Calculator Popup */ }
-    {
-        showLateCalc && (
-            <div className="fade-in" style={{
-                marginBottom: '1rem', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '8px', padding: '1rem'
-            }}>
-                <div style={{ fontWeight: 700, color: '#1e40af', marginBottom: '0.5rem', display: 'flex', justifyContent: 'space-between' }}>
-                    <span>⏰ Calculadora de Olvido</span>
-                    <button onClick={() => setShowLateCalc(false)} style={{ border: 'none', background: 'transparent', cursor: 'pointer' }}>✖</button>
-                </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '10px' }}>
-                    <div>
-                        <label style={{ fontSize: '0.75rem', color: '#64748b' }}>H. Habitual</label>
-                        <input type="time" value={usualTime} onChange={e => setUsualTime(e.target.value)} style={{ width: '100%', padding: '0.5rem', borderRadius: '6px', border: '1px solid #cbd5e1' }} />
-                    </div>
-                    <div>
-                        <label style={{ fontSize: '0.75rem', color: '#64748b' }}>Dosis Normal</label>
-                        <input type="number" value={usualDose} onChange={e => setUsualDose(e.target.value)} style={{ width: '100%', padding: '0.5rem', borderRadius: '6px', border: '1px solid #cbd5e1' }} />
-                    </div>
-                </div>
-
-                <Button onClick={calculateLateDose} style={{ width: '100%', padding: '0.5rem', fontSize: '0.9rem', marginBottom: '10px' }}>Calcular Ajuste</Button>
-
-                {calcResult && (
-                    <div style={{ background: '#fff', padding: '0.8rem', borderRadius: '6px', border: calcResult.isDanger ? '1px solid #fca5a5' : '1px solid #cbd5e1' }}>
-                        <div style={{ fontSize: '0.9rem', color: calcResult.isDanger ? '#dc2626' : '#334155', marginBottom: '5px' }}>
-                            {calcResult.msg}
+            {/* Late Calculator Popup */}
+            {
+                showLateCalc && (
+                    <div className="fade-in" style={{
+                        marginBottom: '1rem', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '8px', padding: '1rem'
+                    }}>
+                        <div style={{ fontWeight: 700, color: '#1e40af', marginBottom: '0.5rem', display: 'flex', justifyContent: 'space-between' }}>
+                            <span>⏰ Calculadora de Olvido</span>
+                            <button onClick={() => setShowLateCalc(false)} style={{ border: 'none', background: 'transparent', cursor: 'pointer' }}>✖</button>
                         </div>
-                        {!calcResult.isDanger && (
-                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '0.5rem' }}>
-                                <span style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--primary)' }}>{calcResult.u} U</span>
-                                <Button size="sm" onClick={applyCalc}>Usar esta dosis</Button>
+
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '10px' }}>
+                            <div>
+                                <label style={{ fontSize: '0.75rem', color: '#64748b' }}>H. Habitual</label>
+                                <input type="time" value={usualTime} onChange={e => setUsualTime(e.target.value)} style={{ width: '100%', padding: '0.5rem', borderRadius: '6px', border: '1px solid #cbd5e1' }} />
+                            </div>
+                            <div>
+                                <label style={{ fontSize: '0.75rem', color: '#64748b' }}>Dosis Normal</label>
+                                <input type="number" value={usualDose} onChange={e => setUsualDose(e.target.value)} style={{ width: '100%', padding: '0.5rem', borderRadius: '6px', border: '1px solid #cbd5e1' }} />
+                            </div>
+                        </div>
+
+                        <Button onClick={calculateLateDose} style={{ width: '100%', padding: '0.5rem', fontSize: '0.9rem', marginBottom: '10px' }}>Calcular Ajuste</Button>
+
+                        {calcResult && (
+                            <div style={{ background: '#fff', padding: '0.8rem', borderRadius: '6px', border: calcResult.isDanger ? '1px solid #fca5a5' : '1px solid #cbd5e1' }}>
+                                <div style={{ fontSize: '0.9rem', color: calcResult.isDanger ? '#dc2626' : '#334155', marginBottom: '5px' }}>
+                                    {calcResult.msg}
+                                </div>
+                                {!calcResult.isDanger && (
+                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '0.5rem' }}>
+                                        <span style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--primary)' }}>{calcResult.u} U</span>
+                                        <Button size="sm" onClick={applyCalc}>Usar esta dosis</Button>
+                                    </div>
+                                )}
                             </div>
                         )}
                     </div>
-                )}
+                )
+            }
+
+            {
+                !showLateCalc && (
+                    <div style={{ textAlign: 'right', marginBottom: '0.5rem' }}>
+                        <button onClick={() => setShowLateCalc(true)} style={{ fontSize: '0.75rem', color: 'var(--primary)', textDecoration: 'underline', background: 'none', border: 'none', cursor: 'pointer' }}>
+                            ⏰ ¿Llegas tarde? Calcular ajuste
+                        </button>
+                    </div>
+                )
+            }
+
+            <div style={{ margin: '1rem 0' }}>
+                <InjectionSiteSelector
+                    type="basal"
+                    selected={injectionSite}
+                    onSelect={setInjectionSite}
+                />
             </div>
-        )
-    }
 
-    {
-        !showLateCalc && (
-            <div style={{ textAlign: 'right', marginBottom: '0.5rem' }}>
-                <button onClick={() => setShowLateCalc(true)} style={{ fontSize: '0.75rem', color: 'var(--primary)', textDecoration: 'underline', background: 'none', border: 'none', cursor: 'pointer' }}>
-                    ⏰ ¿Llegas tarde? Calcular ajuste
-                </button>
-            </div>
-        )
-    }
+            {
+                showManualBg && (
+                    <div className="fade-in" style={{ background: '#f8fafc', padding: '1rem', borderRadius: '8px', marginTop: '0.8rem', border: '1px solid #e2e8f0' }}>
+                        <label style={{ fontSize: '0.85rem', fontWeight: 700, color: '#475569', display: 'block', marginBottom: '0.5rem' }}>GLUCOSA MANUAL (mg/dL)</label>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem' }}>
+                            <input
+                                type="number" placeholder="Ej: 110"
+                                value={manualBg} onChange={e => setManualBg(e.target.value)}
+                                style={{ width: '100%', padding: '0.8rem', fontSize: '1.2rem', border: '1px solid #cbd5e1', borderRadius: '8px', textAlign: 'center' }}
+                            />
+                            <Button onClick={handleManualCheckin} disabled={loading} style={{ width: '100%', padding: '0.8rem' }}>Guardar</Button>
+                        </div>
+                    </div>
+                )
+            }
 
-    <div style={{ margin: '1rem 0' }}>
-        <InjectionSiteSelector
-            type="basal"
-            selected={injectionSite}
-            onSelect={setInjectionSite}
-        />
-    </div>
-
-    {
-        showManualBg && (
-            <div className="fade-in" style={{ background: '#f8fafc', padding: '1rem', borderRadius: '8px', marginTop: '0.8rem', border: '1px solid #e2e8f0' }}>
-                <label style={{ fontSize: '0.85rem', fontWeight: 700, color: '#475569', display: 'block', marginBottom: '0.5rem' }}>GLUCOSA MANUAL (mg/dL)</label>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem' }}>
-                    <input
-                        type="number" placeholder="Ej: 110"
-                        value={manualBg} onChange={e => setManualBg(e.target.value)}
-                        style={{ width: '100%', padding: '0.8rem', fontSize: '1.2rem', border: '1px solid #cbd5e1', borderRadius: '8px', textAlign: 'center' }}
-                    />
-                    <Button onClick={handleManualCheckin} disabled={loading} style={{ width: '100%', padding: '0.8rem' }}>Guardar</Button>
-                </div>
-            </div>
-        )
-    }
-
-                <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
-                    <Button variant="ghost" onClick={handleSaveSimple} disabled={loading} style={{ border: '1px solid #e2e8f0', flex: 1 }}>
-                        {loading ? '...' : 'Solo Guardar'}
-                    </Button>
-                    <Button onClick={handleCheckinWake} disabled={loading} style={{ flex: 1.5 }}>
-                        {loading ? '...' : '☀️ Al Levantarme'}
-                    </Button>
-                </div>
-
-                <Button variant="secondary" onClick={handleScanNight} disabled={loading} style={{ width: '100%' }}>
-                    🌙 Analizar Noche (00h-06h)
+            <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
+                <Button variant="ghost" onClick={handleSaveSimple} disabled={loading} style={{ border: '1px solid #e2e8f0', flex: 1 }}>
+                    {loading ? '...' : 'Solo Guardar'}
                 </Button>
-
-    {
-        msg && (
-            <div style={{
-                marginTop: '0.5rem', padding: '0.5rem', borderRadius: '6px', fontSize: '0.85rem', textAlign: 'center',
-                background: msg.type === 'error' ? '#fee2e2' : (msg.type === 'warning' ? '#fef3c7' : '#dcfce7'),
-                color: msg.type === 'error' ? '#991b1b' : (msg.type === 'warning' ? '#92400e' : '#166534')
-            }}>
-                {msg.text}
+                <Button onClick={handleCheckinWake} disabled={loading} style={{ flex: 1.5 }}>
+                    {loading ? '...' : '☀️ Al Levantarme'}
+                </Button>
             </div>
-        )
-    }
+
+            <Button variant="secondary" onClick={handleScanNight} disabled={loading} style={{ width: '100%' }}>
+                🌙 Analizar Noche (00h-06h)
+            </Button>
+
+            {
+                msg && (
+                    <div style={{
+                        marginTop: '0.5rem', padding: '0.5rem', borderRadius: '6px', fontSize: '0.85rem', textAlign: 'center',
+                        background: msg.type === 'error' ? '#fee2e2' : (msg.type === 'warning' ? '#fef3c7' : '#dcfce7'),
+                        color: msg.type === 'error' ? '#991b1b' : (msg.type === 'warning' ? '#92400e' : '#166534')
+                    }}>
+                        {msg.text}
+                    </div>
+                )
+            }
         </Card >
     );
 }
