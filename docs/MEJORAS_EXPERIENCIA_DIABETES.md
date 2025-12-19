@@ -62,5 +62,20 @@ Este documento recoge las propuestas priorizadas por el usuario.
 
 ---
 
-## 5. 📄 Informes y Modo Enfermedad
-**Propuesta:** Informes tipo AGP para el médico y modo "Días Enfermos".
+## 5. 🤒 Modo Enfermedad
+✅ **ESTADO: COMPLETADO (v1)**
+
+*   **Interruptor Simple:** Activable desde Perfil > Enfermedad.
+*   **Lógica Automática:**
+    *   **+20% Dosis:** Aumenta automáticamente los ratios (ICR/ISF).
+    *   **Alertas:** Avisa de riesgo de Cetonas si Glucosa > 250.
+    *   **Indicador Visual:** Icono de estado en la home y calculadoras.
+
+---
+
+## 6. 📝 Gestión Avanzada de Historial
+**Propuesta:** Mejorar la visualización y control de los datos pasados.
+
+*   **Edición de Entradas:** Posibilidad de corregir errores en registros anteriores (ej: dosis incorrecta, hora mal puesta).
+*   **Visualización de Comidas:** Mostrar el nombre del plato ("Smart Input") directamente en la lista del historial para identificar rápidamente qué se comió.
+*   **Prioridad:** Media/Baja (Hacer con cuidado para no romper la sincronización).
