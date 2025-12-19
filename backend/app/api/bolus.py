@@ -318,7 +318,10 @@ async def save_treatment(
             logger.error(f"Failed to save meal learning entry: {e}")
 
     # 1. Save locally (Always, as backup)
+    treatment_id = str(uuid.uuid4())
     treatment_data = {
+        "_id": treatment_id,
+        "id": treatment_id,
         "eventType": "Correction Bolus" if payload.carbs == 0 else "Meal Bolus",
         "created_at": payload.created_at,
         "insulin": payload.insulin,
@@ -347,7 +350,7 @@ async def save_treatment(
             dt = dt_aware.astimezone(timezone.utc).replace(tzinfo=None)
             
             db_treatment = Treatment(
-                id=str(uuid.uuid4()),
+                id=treatment_id,
                 user_id=user.username,
                 event_type=treatment_data["eventType"],
                 created_at=dt,

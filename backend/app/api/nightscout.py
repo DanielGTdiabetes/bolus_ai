@@ -411,7 +411,7 @@ async def get_treatments_server(
                      created_iso += "Z"
                 
                 db_treatments.append({
-                    "_id": row.id,
+                    "_id": str(row.id),
                     "eventType": row.event_type,
                     "created_at": created_iso,
                     "date": row.created_at.replace(tzinfo=timezone.utc).timestamp() * 1000,

@@ -55,11 +55,13 @@ class BasalDoseCreate(BaseModel):
         return v
     
 class BasalDoseResponse(BaseModel):
+    id: Optional[str] = Field(default=None, alias="_id")
     dose_u: float
     effective_from: date
     created_at: datetime
 
 class HistoryItem(BaseModel):
+    id: Optional[str] = Field(default=None, alias="_id")
     effective_from: date
     dose_u: float
     created_at: Optional[datetime] = None
@@ -140,6 +142,7 @@ async def log_dose(
         saved_created = datetime.utcnow()
 
     return BasalDoseResponse(
+        id=str(res.get("id") or ""),
         dose_u=float(saved_dose),
         effective_from=saved_eff,
         created_at=saved_created
@@ -192,6 +195,7 @@ async def get_basal_history(
     items = await basal_repo.get_dose_history(username, days=days)
     formatted_items = [
         HistoryItem(
+            id=str(item.get('id') or ""),
             effective_from=item['effective_from'],
             dose_u=float(item.get('dose_u') or 0.0),
             created_at=item.get('created_at')
