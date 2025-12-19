@@ -1,13 +1,16 @@
 import React, { useState, useEffect } from 'react';
 
 /**
- * ZONES DEFINITION & LOGIC
+ * ZONES DEFINITION CUSTOMIZED
  */
+
 const ZONES = {
     rapid: [
+        // LEFT SIDE (User Left)
         { id: 'abd_l_top', label: 'Abd. Izq - Arriba', count: 3 },
         { id: 'abd_l_mid', label: 'Abd. Izq - Medio', count: 3 },
         { id: 'abd_l_bot', label: 'Abd. Izq - Bajo', count: 3 },
+        // RIGHT SIDE (User Right)
         { id: 'abd_r_top', label: 'Abd. Der - Arriba', count: 3 },
         { id: 'abd_r_mid', label: 'Abd. Der - Medio', count: 3 },
         { id: 'abd_r_bot', label: 'Abd. Der - Bajo', count: 3 },
@@ -68,7 +71,7 @@ export function InjectionSiteSelector({ type, onSelect, selected }) {
                 <div style={{ fontSize: '0.85rem', fontWeight: 600, color: '#64748b', marginBottom: '1rem' }}>
                     📍 Rotación Abdomen
                 </div>
-                <AbdomenVisual
+                <AbdomenImageVisual
                     selected={selected}
                     recommended={recommended}
                     lastUsed={lastUsed}
@@ -84,9 +87,9 @@ export function InjectionSiteSelector({ type, onSelect, selected }) {
     return (
         <div className="injection-selector fade-in" style={{ textAlign: 'center' }}>
             <div style={{ fontSize: '0.85rem', fontWeight: 600, color: '#64748b', marginBottom: '1rem' }}>
-                📍 Rotación Piernas/Glúteos
+                📍 Rotación Piernas/Gluesto
             </div>
-            <LegsVisual
+            <LegsImageVisual
                 selected={selected}
                 recommended={recommended}
                 lastUsed={lastUsed}
@@ -99,84 +102,77 @@ export function InjectionSiteSelector({ type, onSelect, selected }) {
     );
 }
 
-// --- VISUAL COMPONENTS (SVG AVATARS) ---
+// --- IMAGE VISUAL COMPONENTS ---
 
-function AbdomenVisual({ selected, recommended, lastUsed, onPointClick }) {
-    // We map our logical ZONES to SVG coordinates (x, y)
-    // 0,0 is top-left of the viewBox
-    // Torso is roughly centered. 
-    // Navel at 50, 60 (width 100, height 120)
+function AbdomenImageVisual({ selected, recommended, lastUsed, onPointClick }) {
+    // 300x300 container
+    // Image is centered. We overlay SVGs points.
+
+    // Coordinates mapping for "body_abdomen.png"
+    // Assuming image is centered perfectly.
+    // X center = 50%. 
+    // Y center approx mid.
 
     const getCoords = (zoneId, pointNum) => {
-        // Base positions relative to Navel (50, 60)
-        // Left side x < 50, Right side x > 50
+        // Percentages relative to container
+        let y = 60; // Mid
+        if (zoneId.includes('_top')) y = 40;
+        if (zoneId.includes('_mid')) y = 60;
+        if (zoneId.includes('_bot')) y = 80;
 
-        let baseX = 50;
-        let baseY = 60;
+        // X Spacing from Center (50)
+        // P1: 10% dist, P2: 20%, P3: 30%
+        const offsets = [10, 20, 30];
+        const dist = offsets[pointNum - 1];
 
-        // Y Offsets
-        if (zoneId.includes('_top')) baseY = 35; // 5 fingers up
-        if (zoneId.includes('_mid')) baseY = 60; // Navel line
-        if (zoneId.includes('_bot')) baseY = 85; // Low
+        let x = 50;
+        if (zoneId.includes('_l_')) x = 50 - dist;
+        if (zoneId.includes('_r_')) x = 50 + dist;
 
-        // X Offsets (Inner -> Outer)
-        // Left: 50 - offset. Right: 50 + offset.
-        // Point 1 (Inner) ~ 15px/units away
-        // Point 2 (Mid) ~ 25px
-        // Point 3 (Outer) ~ 35px
-
-        const offsets = [12, 24, 36];
-        const dist = offsets[pointNum - 1]; // 0, 1, 2
-
-        if (zoneId.includes('_l_')) baseX = 50 - dist;
-        if (zoneId.includes('_r_')) baseX = 50 + dist;
-
-        return { cx: baseX, cy: baseY };
+        return { x, y };
     };
 
     return (
-        <div style={{ position: 'relative', width: '200px', margin: '0 auto' }}>
-            <svg viewBox="0 0 100 120" style={{ width: '100%', dropShadow: '0 4px 6px rgba(0,0,0,0.1)' }}>
-                {/* Body Outline */}
-                <path d="M 30,10 Q 20,40 25,100 L 75,100 Q 80,40 70,10 L 30,10" fill="#fce7f3" stroke="#fbcfe8" strokeWidth="2" />
-                {/* Navel */}
-                <circle cx="50" cy="60" r="1.5" fill="#f472b6" opacity="0.6" />
-                <path d="M 48,60 Q 50,62 52,60" stroke="#f472b6" fill="none" strokeWidth="0.5" opacity="0.6" />
+        <div style={{ position: 'relative', width: '300px', height: '300px', margin: '0 auto', borderRadius: '12px', overflow: 'hidden', boxShadow: '0 4px 10px rgba(0,0,0,0.1)' }}>
+            <img
+                src="./body_abdomen.png"
+                alt="Abdomen Map"
+                style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+            />
 
-                {/* Grid Lines (Optional Guide) */}
-                <line x1="50" y1="20" x2="50" y2="100" stroke="#fff" strokeWidth="0.5" strokeDasharray="2" opacity="0.5" />
-                <line x1="25" y1="60" x2="75" y2="60" stroke="#fff" strokeWidth="0.5" strokeDasharray="2" opacity="0.5" />
+            {/* Overlay SVG Layer */}
+            <svg viewBox="0 0 100 100" style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%' }}>
+                {/* Labels */}
+                <text x="10" y="10" fontSize="4" fill="#94a3b8" fontWeight="bold">IZQ</text>
+                <text x="90" y="10" fontSize="4" fill="#94a3b8" fontWeight="bold" textAnchor="end">DER</text>
 
-                {/* Points */}
                 {ZONES.rapid.map(zone => (
                     Array.from({ length: zone.count }).map((_, i) => {
                         const pNum = i + 1;
                         const fullId = `${zone.id}:${pNum}`;
-                        const { cx, cy } = getCoords(zone.id, pNum);
+                        const { x, y } = getCoords(zone.id, pNum);
 
                         const isSel = (fullId === selected);
                         const isRec = (fullId === recommended);
                         const isLast = (fullId === lastUsed);
 
-                        let fill = "#fff";
-                        let stroke = "#f9a8d4";
+                        let fill = "rgba(255,255,255,0.5)";
+                        let stroke = "#94a3b8";
                         let r = 2.5;
+                        let sw = 0.5;
 
-                        if (isLast) { fill = "#fecaca"; stroke = "#ef4444"; r = 2.5; } // Red
-                        if (isRec) { fill = "#bbf7d0"; stroke = "#22c55e"; r = 3; } // Green pulse
-                        if (isSel) { fill = "#2563eb"; stroke = "#1d4ed8"; r = 4; } // Blue active
+                        if (isLast) { fill = "#fecaca"; stroke = "#ef4444"; sw = 1; }
+                        if (isRec) { fill = "#bbf7d0"; stroke = "#16a34a"; r = 3; sw = 1; }
+                        if (isSel) { fill = "#2563eb"; stroke = "#1e40af"; r = 4; sw = 1; fill = "rgba(37,99,235,0.9)"; }
 
                         return (
                             <g key={fullId} onClick={() => onPointClick(fullId)} style={{ cursor: 'pointer' }}>
-                                {/* Invisible larger target for easier clicking */}
-                                <circle cx={cx} cy={cy} r="5" fill="transparent" />
-                                {/* Visible Dot */}
-                                <circle cx={cx} cy={cy} r={r} fill={fill} stroke={stroke} strokeWidth="1"
+                                {/* Invisible larger target */}
+                                <circle cx={x} cy={y} r="6" fill="transparent" />
+                                <circle cx={x} cy={y} r={r} fill={fill} stroke={stroke} strokeWidth={sw}
                                     className={isRec && !isSel ? "pulse-animation" : ""}
                                 />
-                                {isRec && !isSel && (
-                                    <circle cx={cx} cy={cy} r={r + 2} fill="none" stroke="#22c55e" strokeWidth="0.2" opacity="0.5" />
-                                )}
+                                {isSel && <text x={x} y={y + 1} fontSize="3" textAnchor="middle" fill="white" fontWeight="bold">{pNum}</text>}
                             </g>
                         );
                     })
@@ -184,55 +180,65 @@ function AbdomenVisual({ selected, recommended, lastUsed, onPointClick }) {
             </svg>
             <style>{`
                 @keyframes pulse {
-                    0% { transform: scale(1); opacity: 1; }
-                    50% { transform: scale(1.5); opacity: 0.5; }
-                    100% { transform: scale(1); opacity: 1; }
+                    0% { stroke-width: 0.5; opacity: 1; r: 3px; }
+                    50% { stroke-width: 2; opacity: 0.8; r: 4px; }
+                    100% { stroke-width: 0.5; opacity: 1; r: 3px; }
                 }
-                .pulse-animation___ { animation: pulse 2s infinite; } 
+                .pulse-animation rect, .pulse-animation circle { animation: pulse 2s infinite; } 
             `}</style>
         </div>
     );
 }
 
-function LegsVisual({ selected, recommended, lastUsed, onPointClick }) {
-    // Simple Legs/Thighs/Glutes
-    // ViewBox 0 0 100 120
+function LegsImageVisual({ selected, recommended, lastUsed, onPointClick }) {
+    // 300x300
+    // The generated image has 2 panels (Front Thighs | Back Glutes) side by side.
+    // So X: 0-50% is Thighs, 50-100% is Glutes.
+
+    // Thighs (Left Panel): Left Leg (x~15), Right Leg (x~35)
+    // Glutes (Right Panel): Left Glute (x~65), Right Glute (x~85)
+
     const POINTS = {
-        'leg_left:1': { cx: 35, cy: 70 },
-        'leg_right:1': { cx: 65, cy: 70 },
-        'glute_left:1': { cx: 30, cy: 40 }, // Back view conceptually
-        'glute_right:1': { cx: 70, cy: 40 }
+        'leg_left:1': { x: 18, y: 55 },
+        'leg_right:1': { x: 32, y: 55 },
+        'glute_left:1': { x: 68, y: 50 },
+        'glute_right:1': { x: 82, y: 50 }
     };
 
     return (
-        <div style={{ position: 'relative', width: '150px', margin: '0 auto' }}>
-            <svg viewBox="0 0 100 120" style={{ width: '100%' }}>
-                {/* Legs Outline (Front/Back Hybrid for simplicity) */}
-                <path d="M 20,40 Q 15,60 25,110 L 45,110 L 50,60 L 55,110 L 75,110 Q 85,60 80,40 Q 50,30 20,40" fill="#f1f5f9" stroke="#94a3b8" strokeWidth="1" />
-                {/* Glute lines */}
-                <path d="M 50,60 Q 30,55 20,40" fill="none" stroke="#cbd5e1" strokeWidth="0.5" />
-                <path d="M 50,60 Q 70,55 80,40" fill="none" stroke="#cbd5e1" strokeWidth="0.5" />
+        <div style={{ position: 'relative', width: '300px', height: '300px', margin: '0 auto', borderRadius: '12px', overflow: 'hidden', boxShadow: '0 4px 10px rgba(0,0,0,0.1)' }}>
+            <img
+                src="./body_legs.png"
+                alt="Legs/Glutes Map"
+                style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+            />
+
+            <svg viewBox="0 0 100 100" style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%' }}>
+                {/* Labels */}
+                <text x="25" y="10" fontSize="4" fill="#64748b" textAnchor="middle" fontWeight="bold">MUSLOS</text>
+                <text x="75" y="10" fontSize="4" fill="#64748b" textAnchor="middle" fontWeight="bold">GLÚTEOS</text>
 
                 {ZONES.basal.map(zone => {
                     const fullId = `${zone.id}:1`;
-                    const pos = POINTS[fullId] || { cx: 50, cy: 50 };
+                    const pos = POINTS[fullId] || { x: 50, y: 50 };
 
                     const isSel = (fullId === selected);
                     const isRec = (fullId === recommended);
                     const isLast = (fullId === lastUsed);
 
-                    let fill = "#cbd5e1";
+                    let fill = "rgba(255,255,255,0.5)";
                     let stroke = "#94a3b8";
-                    let r = 4;
+                    let r = 3;
 
                     if (isLast) { fill = "#fecaca"; stroke = "#ef4444"; }
-                    if (isRec) { fill = "#bbf7d0"; stroke = "#22c55e"; }
-                    if (isSel) { fill = "#2563eb"; stroke = "#1d4ed8"; r = 5; }
+                    if (isRec) { fill = "#bbf7d0"; stroke = "#16a34a"; }
+                    if (isSel) { fill = "#2563eb"; stroke = "#1e40af"; r = 5; fill = "rgba(37,99,235,0.9)"; }
 
                     return (
                         <g key={fullId} onClick={() => onPointClick(fullId)} style={{ cursor: 'pointer' }}>
-                            <circle cx={pos.cx} cy={pos.cy} r={r} fill={fill} stroke={stroke} strokeWidth="1" />
-                            {isRec && !isSel && <circle cx={pos.cx} cy={pos.cy} r="7" fill="none" stroke="#22c55e" strokeWidth="0.5" />}
+                            <circle cx={pos.x} cy={pos.y} r={r + 4} fill="transparent" />
+                            <circle cx={pos.x} cy={pos.y} r={r} fill={fill} stroke={stroke} strokeWidth="1" />
+                            {isRec && !isSel && <circle cx={pos.x} cy={pos.y} r="6" fill="none" stroke="#22c55e" strokeWidth="0.5" />}
                         </g>
                     );
                 })}
@@ -240,6 +246,7 @@ function LegsVisual({ selected, recommended, lastUsed, onPointClick }) {
         </div>
     );
 }
+
 
 // HELPERS
 export function saveInjectionSite(type, fullId) {

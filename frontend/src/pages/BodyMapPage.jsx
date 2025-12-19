@@ -19,20 +19,20 @@ export default function BodyMapPage() {
     const [selectedBasal, setSelectedBasal] = useState(null);
 
     const handleRapidChange = (id) => {
-        setSelectedRapid(id);
-        if (confirm("¿Marcar este punto como el ÚLTIMO utilizado (corregir historial)?")) {
+        if (confirm("¿Marcar este punto como el ÚLTIMO utilizado?")) {
             saveInjectionSite('rapid', id);
-            // Force reload by re-mounting or just alert
-            alert("Historial actualizado.");
-            window.location.reload();
+            setSelectedRapid(id); // Optimistic update
+            // We need to trigger a re-render of the Selector to pick up the new "Last Used" visual
+            // A simple way is to toggle a key, or we can just rely on the fact that we updated the "Selected" prop.
+            // But the internal "Last Used" state in the child component won't update unless we force it.
+            window.location.reload(); // Simplest fix for now given constraints, but let's remove the extra alert causing the "loop" feeling.
         }
     };
 
     const handleBasalChange = (id) => {
-        setSelectedBasal(id);
-        if (confirm("¿Marcar este punto como el ÚLTIMO utilizado (corregir historial)?")) {
+        if (confirm("¿Marcar este punto como el ÚLTIMO utilizado?")) {
             saveInjectionSite('basal', id);
-            alert("Historial actualizado.");
+            setSelectedBasal(id);
             window.location.reload();
         }
     };
