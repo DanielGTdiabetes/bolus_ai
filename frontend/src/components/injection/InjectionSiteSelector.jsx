@@ -115,15 +115,14 @@ function AbdomenImageVisual({ selected, recommended, lastUsed, onPointClick }) {
 
     const getCoords = (zoneId, pointNum) => {
         // Percentages relative to container
-        let y = 53; // Mid
-        if (zoneId.includes('_top')) y = 35;
-        if (zoneId.includes('_mid')) y = 53;
-        if (zoneId.includes('_bot')) y = 71;
+        let y = 58; // Mid (Navel Line)
+        if (zoneId.includes('_top')) y = 42;
+        if (zoneId.includes('_mid')) y = 58;
+        if (zoneId.includes('_bot')) y = 74;
 
         // X Spacing from Center (50)
         // P3 is furthest out, P1 is closest to center
-        // Tighter grouping for better fit
-        const offsets = [7, 14, 21];
+        const offsets = [8, 17, 26];
         const dist = offsets[pointNum - 1];
 
         let x = 50;
@@ -144,8 +143,8 @@ function AbdomenImageVisual({ selected, recommended, lastUsed, onPointClick }) {
             {/* Overlay SVG Layer */}
             <svg viewBox="0 0 100 100" style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%' }}>
                 {/* Labels */}
-                <text x="10" y="10" fontSize="4" fill="#94a3b8" fontWeight="bold">IZQ</text>
-                <text x="90" y="10" fontSize="4" fill="#94a3b8" fontWeight="bold" textAnchor="end">DER</text>
+                <text x="5" y="10" fontSize="4" fill="#94a3b8" fontWeight="bold">IZQ</text>
+                <text x="95" y="10" fontSize="4" fill="#94a3b8" fontWeight="bold" textAnchor="end">DER</text>
 
                 {ZONES.rapid.map(zone => (
                     Array.from({ length: zone.count }).map((_, i) => {
