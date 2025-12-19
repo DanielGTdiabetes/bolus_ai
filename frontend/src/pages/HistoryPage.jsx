@@ -1,58 +1,64 @@
 import React, { useEffect, useState } from 'react';
 import { Header } from '../components/layout/Header';
 import { BottomNav } from '../components/layout/BottomNav';
-import { fetchTreatments, getLocalNsConfig } from '../lib/api';
+import { fetchTreatments, getLocalNsConfig, updateTreatment } from '../lib/api';
+import { Button, Input, Card } from '../components/ui/Atoms';
 
 export default function HistoryPage() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const [treatments, setTreatments] = useState([]);
     const [stats, setStats] = useState({ insulin: 0, carbs: 0 });
+    const [editingTx, setEditingTx] = useState(null);
+
+    const load = async () => {
+        setLoading(true);
+        try {
+            const config = getLocalNsConfig() || {};
+            const data = await fetchTreatments({ ...config, count: 50 });
+
+            // Process Stats
+            const today = new Date().toDateString();
+            let iTotal = 0, cTotal = 0;
+
+            const valid = data.filter(t => {
+                const u = parseFloat(t.insulin) || 0;
+                const c = parseFloat(t.carbs) || 0;
+                const hasData = (u > 0 || c > 0);
+
+                if (hasData) {
+                    const d = new Date(t.created_at || t.timestamp || t.date);
+                    if (d.toDateString() === today) {
+                        if (u > 0) iTotal += u;
+                        if (c > 0) cTotal += c;
+                    }
+                }
+                return hasData;
+            });
+
+            setTreatments(valid);
+            setStats({ insulin: iTotal, carbs: cTotal });
+        } catch (e) {
+            setError(e.message);
+        } finally {
+            setLoading(false);
+        }
+    };
 
     useEffect(() => {
-        let mounted = true;
-
-        const load = async () => {
-            try {
-                // Relaxed config check, relying on backend fallback
-                const config = getLocalNsConfig() || {};
-                const data = await fetchTreatments({ ...config, count: 50 });
-
-                if (!mounted) return;
-
-                // Process Stats
-                const today = new Date().toDateString();
-                let iTotal = 0, cTotal = 0;
-
-                const valid = data.filter(t => {
-                    const u = parseFloat(t.insulin) || 0;
-                    const c = parseFloat(t.carbs) || 0;
-                    const hasData = (u > 0 || c > 0);
-
-                    if (hasData) {
-                        const d = new Date(t.created_at || t.timestamp || t.date);
-                        if (d.toDateString() === today) {
-                            if (u > 0) iTotal += u;
-                            if (c > 0) cTotal += c;
-                        }
-                    }
-                    return hasData;
-                });
-
-                setTreatments(valid);
-                setStats({ insulin: iTotal, carbs: cTotal });
-                setLoading(false);
-            } catch (e) {
-                if (mounted) {
-                    setError(e.message);
-                    setLoading(false);
-                }
-            }
-        };
         load();
-
-        return () => { mounted = false; };
     }, []);
+
+    const handleSaveEdit = async (id, payload) => {
+        try {
+            await updateTreatment(id, payload);
+            setEditingTx(null);
+            load(); // Reload data
+            alert("✅ Registro actualizado");
+        } catch (e) {
+            alert("Error: " + e.message);
+        }
+    };
 
     return (
         <>
@@ -91,20 +97,119 @@ export default function HistoryPage() {
                         if (u > 0) val += `${u} U `;
                         if (c > 0) val += `${c} g`;
 
+                        let foodName = null;
+                        if (t.notes) {
+                            const match = t.notes.match(/Comida:\s*([^.]+)/);
+                            if (match && match[1]) {
+                                foodName = match[1].trim();
+                            }
+                        }
+
                         return (
-                            <div className="activity-item" key={t._id || idx}>
-                                <div className="act-icon" style={isBolus ? {} : { background: '#fff7ed', color: '#f97316' }}>{icon}</div>
+                            <div className="activity-item" key={t._id || idx} style={{ alignItems: 'flex-start' }}>
+                                <div className="act-icon" style={isBolus ? { marginTop: '4px' } : { background: '#fff7ed', color: '#f97316', marginTop: '4px' }}>{icon}</div>
                                 <div className="act-details">
                                     <div className="act-val">{val}</div>
-                                    <div className="act-sub">{t.notes || t.enteredBy || 'Entrada'}</div>
+                                    {foodName && (
+                                        <div style={{ fontWeight: 700, color: '#1e293b', fontSize: '0.9rem', marginBottom: '2px' }}>
+                                            🍽️ {foodName}
+                                        </div>
+                                    )}
+                                    <div className="act-sub" style={{ fontSize: '0.75rem', color: '#94a3b8', lineHeight: 1.2 }}>
+                                        {t.notes || t.enteredBy || 'Entrada'}
+                                    </div>
                                 </div>
-                                <div className="act-time">{timeStr}</div>
+                                <div className="act-time" style={{ marginTop: '4px' }}>{timeStr}</div>
+                                {t._id && (
+                                    <button
+                                        onClick={() => setEditingTx(t)}
+                                        style={{ background: 'none', border: 'none', cursor: 'pointer', marginLeft: '0.5rem', opacity: 0.5, fontSize: '1.2rem' }}
+                                    >
+                                        ✏️
+                                    </button>
+                                )}
                             </div>
                         );
                     })}
                 </div>
+
+                {editingTx && (
+                    <EditHistoryModal
+                        treatment={editingTx}
+                        onClose={() => setEditingTx(null)}
+                        onSave={handleSaveEdit}
+                    />
+                )}
             </main>
             <BottomNav activeTab="history" />
         </>
+    );
+}
+
+function EditHistoryModal({ treatment, onClose, onSave }) {
+    // Helpers
+    const getInitialDate = (t) => {
+        const d = new Date(t.created_at || t.timestamp || t.date || Date.now());
+        // Format YYYY-MM-DDTHH:mm for input
+        const pad = n => n < 10 ? '0' + n : n;
+        return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    };
+
+    const [insulin, setInsulin] = useState(treatment.insulin || '');
+    const [carbs, setCarbs] = useState(treatment.carbs || '');
+    const [dateVal, setDateVal] = useState(getInitialDate(treatment));
+    const [submitting, setSubmitting] = useState(false);
+
+    const handleSubmit = async () => {
+        if (!treatment._id) return;
+        setSubmitting(true);
+
+        // Prepare payload (Only fields we edit)
+        // Keep it simple. User wants to fix errors.
+        const payload = {
+            insulin: parseFloat(insulin) || 0,
+            carbs: parseFloat(carbs) || 0,
+            created_at: new Date(dateVal).toISOString()
+        };
+
+        await onSave(treatment._id, payload);
+        // onClose handled by parent logic if successful
+        setSubmitting(false);
+    };
+
+    return (
+        <div style={{
+            position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+            background: 'rgba(0,0,0,0.5)', zIndex: 1000,
+            display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem'
+        }}>
+            <Card style={{ width: '100%', maxWidth: '400px', padding: '1.5rem' }}>
+                <h3 style={{ marginBottom: '1rem', fontWeight: 800 }}>Editar Registro</h3>
+
+                <div style={{ marginBottom: '1rem' }}>
+                    <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600, color: '#64748b' }}>Insulina (U)</label>
+                    <Input type="number" step="0.1" value={insulin} onChange={e => setInsulin(e.target.value)} />
+                </div>
+
+                <div style={{ marginBottom: '1rem' }}>
+                    <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600, color: '#64748b' }}>Carbohidratos (g)</label>
+                    <Input type="number" step="1" value={carbs} onChange={e => setCarbs(e.target.value)} />
+                </div>
+
+                <div style={{ marginBottom: '1.5rem' }}>
+                    <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600, color: '#64748b' }}>Fecha y Hora</label>
+                    <Input type="datetime-local" value={dateVal} onChange={e => setDateVal(e.target.value)} />
+                </div>
+
+                <div style={{ display: 'flex', gap: '1rem' }}>
+                    <Button onClick={handleSubmit} disabled={submitting} style={{ flex: 1 }}>
+                        {submitting ? 'Guardando...' : 'Guardar'}
+                    </Button>
+                    <Button onClick={onClose} variant="ghost" style={{ flex: 1 }}>
+                        Cancelar
+                    </Button>
+                </div>
+            </Card>
+        </div>
     );
 }

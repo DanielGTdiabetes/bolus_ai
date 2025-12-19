@@ -694,4 +694,23 @@ export async function runAutoScan() {
   return data;
 }
 
+export async function updateTreatment(id, payload) {
+  const response = await apiFetch(`/api/nightscout/treatments/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(payload)
+  });
+  const data = await toJson(response);
+  if (!response.ok) throw new Error(data.detail || "Error al actualizar tratamiento");
+  return data;
+}
+
+export async function deleteTreatment(id) {
+  const response = await apiFetch(`/api/nightscout/treatments/${id}`, {
+    method: "DELETE"
+  });
+  const data = await toJson(response);
+  if (!response.ok) throw new Error(data.detail || "Error al eliminar tratamiento");
+  return data;
+}
+
 export * from "./bleScale";
