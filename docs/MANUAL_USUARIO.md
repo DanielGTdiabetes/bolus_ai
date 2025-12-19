@@ -20,25 +20,26 @@ Usa la cámara para identificar alimentos y estimar carbohidratos.
 - **Referencia de Tamaño**: Si colocas tu pluma de insulina (roja, 16.5cm) al lado del plato, la IA la usará para calcular el volumen real de la comida.
 - **Báscula**: Puedes conectar una báscula Bluetooth para pesar los ingredientes individualmente y obtener precisión absoluta.
 
-### 3. 💉 Bolo (Calculadora)
+### 3. 💉 Bolo (Calculadora Inteligente)
 El cerebro de la app. Calcula la dosis necesaria basándose en:
-- Carbohidratos a ingerir.
-- Glucosa actual.
-- Insulina activa (IOB).
-- Estrategia de absorción (Normal o Lenta/Dual).
+- **Smart Input**: Escribe qué vas a comer (ej: "Pizza") y el sistema buscará en tus favoritos para rellenar los carbohidratos automáticamente.
+- **Carbohidratos**: Manuales o estimados por Smart Input.
+- **Insulina Activa (IOB)**: Para evitar acumulación.
+- **Rotación de Sitios**: Te muestra un avatar visual (Abdomen) y te sugiere dónde pincharte hoy para evitar repetir el mismo sitio.
 
 ### 4. 📉 Basal (Gestión de Insulina Lenta)
 Herramientas para optimizar tu dosis basal:
+- **Calculadora de Olvido**: ¿Se te pasó la hora? Pulsa en "¿Llegas tarde?" y la app calculará si debes ponerte la dosis competa o reducirla para no solapar con la de mañana.
+- **Mapa Corporal Basal**: Avatar visual (Muslos/Glúteos) para rotar los sitios de inyección lenta.
 - **Control al Despertar**: Registra tu glucosa matutina para evaluar si la basal de la noche anterior fue correcta.
 - **Analizar Noche**: Escanea automáticamente tu Nightscout (00:00 - 06:00) en busca de hipoglucemias desapercibidas.
-- **Filtro de Compresión**: El sistema incluye un algoritmo inteligente que detecta "falsas hipos" nocturnas. Si la glucosa baja bruscamente y sube igual de rápido sin haber comido, la app la identificará como una posible compresión del sensor (por dormir encima), evitando que una lectura errónea afecte a tus estadísticas de noche.
 - **Evaluación de Cambios**: Si cambias tu dosis basal, la app comparará los 7 días anteriores vs. los 7 posteriores para decirte si el cambio fue efectivo.
 
 ### 5. ☰ Menú (Avanzado)
 - **⏱️ Historial**: Registro completo de todos los tratamientos.
 - **📊 Patrones**: Análisis detallado de tendencias por franjas horarias.
-- **💡 Sugerencias**: Algoritmo de aprendizaje que sugiere mejores Ratios (CR) o Sensibilidades (ISF) basados en tus datos.
-- **⭐ Favoritos**: Guarda tus comidas frecuentes para no tener que escanearlas cada vez.
+- **📍 Mapa Corporal**: Vista completa del estado de tus sitios de inyección para corregir manualmente si te has equivocado al registrar.
+- **⭐ Favoritos**: Gestiona tus comidas guardadas para que el Smart Input funcione mejor.
 - **👤 Perfil**: Configura tus dosis máximas, ratios y tipo de insulina.
 - **⚙️ Ajustes**: Configuración técnica (Nightscout, modo oscuro, etc.).
 
@@ -76,11 +77,12 @@ El cálculo se divide en varias fases matemáticas:
 
 Tu seguridad es lo más importante. Bolus AI incluye:
 
-1.  **Límite de Bolo Máximo**: Configura en tu perfil una dosis máxima que la app nunca podrá superar por sí sola.
-2.  **Límite de Corrección**: Capacidad máxima de corrección por glucosa alta para evitar bajadas bruscas.
-3.  **Detección de Datos Caducados**: Si la glucosa de Nightscout tiene más de 10 minutos, la app **no realizará correcciones automáticas** y te pedirá una medición manual.
-4.  **Alerta de Hipoglucemia**: Si tu glucosa es inferior a 70 mg/dL, el sistema bloqueará las sugerencias de insulina y te advertirá del riesgo.
-5.  **Validación de IOB**: Antes de sugerir un micro-bolo en el Modo Restaurante, la app verifica si ya tienes insulina activa para evitar sobredosificaciones accidentales.
+1.  **Calculadora de Olvido Basal**: Impide sobredosificación accidental si te pones la lenta con muchas horas de retraso.
+2.  **Límite de Bolo Máximo**: Configura en tu perfil una dosis máxima que la app nunca podrá superar por sí sola.
+3.  **Límite de Corrección**: Capacidad máxima de corrección por glucosa alta para evitar bajadas bruscas.
+4.  **Detección de Datos Caducados**: Si la glucosa de Nightscout tiene más de 10 minutos, la app **no realizará correcciones automáticas** y te pedirá una medición manual.
+5.  **Alerta de Hipoglucemia**: Si tu glucosa es inferior a 70 mg/dL, el sistema bloqueará las sugerencias de insulina y te advertirá del riesgo.
+6.  **Validación de IOB**: Antes de sugerir un micro-bolo en el Modo Restaurante, la app verifica si ya tienes insulina activa para evitar sobredosificaciones accidentales.
 
 ---
 
