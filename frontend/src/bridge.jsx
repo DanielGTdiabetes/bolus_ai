@@ -20,6 +20,7 @@ import RestaurantPage from './pages/RestaurantPage';
 import MenuPage from './pages/MenuPage';
 import FoodDatabasePage from './pages/FoodDatabasePage';
 import ScalePage from './pages/ScalePage';
+import BodyMapPage from './pages/BodyMapPage';
 
 const PAGES = {
     'favorites': FavoritesPage,
@@ -38,6 +39,7 @@ const PAGES = {
     'menu': MenuPage,
     'scale': ScalePage,
     'food-db': FoodDatabasePage,
+    'bodymap': BodyMapPage,
 };
 
 if (RESTAURANT_MODE_ENABLED) {

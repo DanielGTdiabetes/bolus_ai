@@ -48,7 +48,8 @@ export default function MenuPage() {
                     { icon: '⏱️', label: 'Historial', sub: 'Registro de bolos y comidas', hash: '#/history', color: '#3b82f6', bg: '#eff6ff' },
                     { icon: '📊', label: 'Patrones', sub: 'Análisis de tendencias', hash: '#/patterns', color: '#8b5cf6', bg: '#f5f3ff' },
                     { icon: '💡', label: 'Sugerencias', sub: 'Recomendaciones IA', hash: '#/suggestions', color: '#f59e0b', bg: '#fffbeb' },
-                    { icon: '⭐', label: 'Favoritos', sub: 'Platos guardados', hash: '#/favorites', color: '#ec4899', bg: '#fdf2f8' }
+                    { icon: '⭐', label: 'Favoritos', sub: 'Platos guardados', hash: '#/favorites', color: '#ec4899', bg: '#fdf2f8' },
+                    { icon: '📍', label: 'Mapa Corporal', sub: 'Gestión de rotación', hash: '#/bodymap', color: '#f43f5e', bg: '#fff1f2' }
                 ]} />
 
                 <MenuSection title="Cuenta y Sistema" items={[

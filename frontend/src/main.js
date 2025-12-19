@@ -72,6 +72,9 @@ registerView('#/profile', () => {
 registerView('#/menu', () => {
   import('./bridge.jsx').then(({ mountReactPage }) => mountReactPage('menu'));
 });
+registerView('#/bodymap', () => {
+  import('./bridge.jsx').then(({ mountReactPage }) => mountReactPage('bodymap'));
+});
 
 // Hybrid React Pages
 registerView('#/favorites', () => {
