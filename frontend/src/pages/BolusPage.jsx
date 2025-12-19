@@ -23,10 +23,22 @@ function getFavorites() {
     } catch { return []; }
 }
 
-function saveToFavorites(name, carbs) {
+function saveToFavorites(name, carbs, strategy = null) {
     const favs = getFavorites();
-    if (favs.some(f => f.name.trim().toLowerCase() === name.trim().toLowerCase())) return; // Avoid dupes
-    favs.push({ id: Date.now(), name, carbs });
+    const existingIdx = favs.findIndex(f => f.name.trim().toLowerCase() === name.trim().toLowerCase());
+
+    const newEntry = {
+        id: Date.now(),
+        name: name.trim(),
+        carbs,
+        strategy // { type: 'dual', ... } or null
+    };
+
+    if (existingIdx >= 0) {
+        favs[existingIdx] = { ...favs[existingIdx], ...newEntry, id: favs[existingIdx].id };
+    } else {
+        favs.push(newEntry);
+    }
     localStorage.setItem(FAV_KEY, JSON.stringify(favs));
 }
 
@@ -35,6 +47,7 @@ export default function BolusPage() {
     const [glucose, setGlucose] = useState('');
     const [carbs, setCarbs] = useState('');
     const [foodName, setFoodName] = useState('');
+    const [suggestedStrategy, setSuggestedStrategy] = useState(null); // Strategy from favorites
     const [date, setDate] = useState(() => {
         const now = new Date();
         return new Date(now.getTime() - (now.getTimezoneOffset() * 60000)).toISOString().slice(0, 16);
@@ -123,6 +136,31 @@ export default function BolusPage() {
                 setIob(val);
             }
         } catch (e) { console.warn(e); }
+    };
+
+    // Strategy Suggestion Logic
+    useEffect(() => {
+        if (!foodName) {
+            setSuggestedStrategy(null);
+            return;
+        }
+        const favs = getFavorites();
+        const match = favs.find(f => f.name.toLowerCase() === foodName.trim().toLowerCase());
+        if (match && match.strategy && match.strategy.type === 'dual') {
+            // Only suggest if not already enabled
+            if (!dualEnabled) {
+                setSuggestedStrategy(match.strategy);
+            }
+        } else {
+            setSuggestedStrategy(null);
+        }
+    }, [foodName, dualEnabled]);
+
+    const applyStrategy = () => {
+        if (suggestedStrategy) {
+            setDualEnabled(true);
+            setSuggestedStrategy(null);
+        }
     };
 
     const toggleDual = () => setDualEnabled(!dualEnabled);
@@ -346,6 +384,23 @@ export default function BolusPage() {
                                     setCarbs(String(item.carbs));
                                 }}
                             />
+
+                            {/* Strategy Suggestion */}
+                            {suggestedStrategy && (
+                                <div className="fade-in" style={{
+                                    marginTop: '0.5rem', background: '#eff6ff',
+                                    border: '1px dashed #3b82f6', borderRadius: '8px',
+                                    padding: '0.8rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between'
+                                }}>
+                                    <div style={{ fontSize: '0.85rem', color: '#1e3a8a', paddingRight: '10px' }}>
+                                        💡 Con <strong>{foodName}</strong> sueles usar <strong>Bolo Dual</strong>.
+                                    </div>
+                                    <Button onClick={applyStrategy} style={{ fontSize: '0.75rem', padding: '5px 10px', height: 'auto' }}>
+                                        Aplicar
+                                    </Button>
+                                    <div onClick={() => setSuggestedStrategy(null)} style={{ cursor: 'pointer', marginLeft: '10px', fontSize: '1.2rem' }}>×</div>
+                                </div>
+                            )}
                         </div>
 
                         {/* Date */}
@@ -538,7 +593,18 @@ function ResultView({ result, onBack, onSave, saving, currentCarbs, foodName }) 
 
     const handleConfirm = () => {
         if (saveFav && isNewFav && foodName) {
-            saveToFavorites(foodName, currentCarbs);
+            let strategy = null;
+            if (result.kind === 'dual') {
+                strategy = {
+                    type: 'dual',
+                    duration: result.duration_min,
+                    // If we have access to original split params or calculate from result
+                    // For now, duration is most critical. Split % is less standard (user changes it).
+                    // But if available in plan:
+                    splitNow: result.plan?.dual?.percent_now || 70
+                };
+            }
+            saveToFavorites(foodName, currentCarbs, strategy);
         }
         onSave(finalDose, injectionSite);
     };

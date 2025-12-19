@@ -15,8 +15,7 @@ Este documento recoge las propuestas priorizadas por el usuario.
     *   **Autocompletado:** Busca en tus **Favoritos** y rellena automáticamente los carbohidratos. ✅ **(IMPLEMENTADO v1)**
     *   **Aprendizaje Rápido:** Al confirmar un bolo, pregunta: *"¿Guardar [Comida] como favorito?"*. ✅ **(IMPLEMENTADO v1)**
     *   **Carbohidratos Manuales:** Siempre permite sobrescribir la cantidad sugerida.
-*   **Próximo Paso (Fase 2):**
-    *   Sugerencias de Estrategia: *"Con [Pizza] sueles necesitar Bolo Dual (+10%)"*. ⏳
+*   **Aprendizaje de Estrategia:** Si detecta que con una comida usas **Bolo Dual**, te lo sugerirá la próxima vez que la anotes. ✅ **(IMPLEMENTADO v1)**
 
 ---
 
