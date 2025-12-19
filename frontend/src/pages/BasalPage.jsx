@@ -40,6 +40,12 @@ function BasalEntrySection({ onRefresh }) {
     const [loading, setLoading] = useState(false);
     const [injectionSite, setInjectionSite] = useState(null);
 
+    // Late Dose Calculator State
+    const [showLateCalc, setShowLateCalc] = useState(false);
+    const [usualTime, setUsualTime] = useState('22:00');
+    const [usualDose, setUsualDose] = useState('16'); // Default example or load from last history?
+    const [calcResult, setCalcResult] = useState(null);
+
     const saveDose = async (requireDose = true) => {
         const uVal = parseFloat(dose);
 
@@ -151,6 +157,59 @@ function BasalEntrySection({ onRefresh }) {
         }
     };
 
+    const calculateLateDose = () => {
+        // Current Time
+        const now = new Date();
+        const currentH = now.getHours() + (now.getMinutes() / 60);
+
+        // Usual Time
+        const [uH, uM] = usualTime.split(':').map(Number);
+        const usualH = uH + (uM / 60);
+
+        // Diff
+        let diff = currentH - usualH;
+        if (diff < 0) diff += 24; // e.g. Usual 22:00, Now 02:00 -> -20 -> +4.
+
+        // Logic check: Am I late today or early for tomorrow?
+        // Assuming "Late" means positive delay < 18h.
+
+        let reductionFactor = 1;
+        let advice = "";
+        let color = "var(--text)";
+
+        if (diff <= 0.5) {
+            setCalcResult({ u: Number(usualDose), msg: "Estás a tiempo (o muy poco retraso). Dosis completa." });
+            return;
+        }
+
+        if (diff > 12) {
+            setCalcResult({ u: 0, msg: `⚠️ Retraso de ${diff.toFixed(1)}h es excesivo (>12h). Riesgo de solapamiento mañana. Consultar médico o saltar dosis.`, isDanger: true });
+            return;
+        }
+
+        // Linear reduction: Cover remaining hours until next scheduled dose (24 - diff).
+        // Needed coverage = (24 - diff) hours.
+        // Full dose covers 24h.
+        // Adjusted = Usual * ( (24-diff)/24 )
+
+        const adjusted = Number(usualDose) * ((24 - diff) / 24);
+        const rounded = Math.round(adjusted * 2) / 2; // Round to 0.5
+
+        setCalcResult({
+            u: rounded,
+            diff: diff.toFixed(1),
+            msg: `Retraso de ${diff.toFixed(1)}h. Para no solapar con la dosis de mañana, cubre solo las ${Math.round(24 - diff)}h restantes.`
+        });
+    };
+
+    const applyCalc = () => {
+        if (calcResult && !calcResult.isDanger) {
+            setDose(String(calcResult.u));
+            setShowLateCalc(false);
+            setCalcResult(null);
+        }
+    };
+
     return (
         <Card className="stack" style={{ marginBottom: '1rem' }}>
             <h3 style={{ margin: '0 0 1rem 0', fontSize: '1.1rem' }}>Registrar / Check-in</h3>
@@ -173,52 +232,108 @@ function BasalEntrySection({ onRefresh }) {
                     />
                 </div>
             </div>
+        </div>
 
-            <div style={{ margin: '1rem 0' }}>
-                <InjectionSiteSelector
-                    type="basal"
-                    selected={injectionSite}
-                    onSelect={setInjectionSite}
-                />
-            </div>
+            {/* Late Calculator Popup */ }
+    {
+        showLateCalc && (
+            <div className="fade-in" style={{
+                marginBottom: '1rem', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '8px', padding: '1rem'
+            }}>
+                <div style={{ fontWeight: 700, color: '#1e40af', marginBottom: '0.5rem', display: 'flex', justifyContent: 'space-between' }}>
+                    <span>⏰ Calculadora de Olvido</span>
+                    <button onClick={() => setShowLateCalc(false)} style={{ border: 'none', background: 'transparent', cursor: 'pointer' }}>✖</button>
+                </div>
 
-            {showManualBg && (
-                <div className="fade-in" style={{ background: '#f8fafc', padding: '1rem', borderRadius: '8px', marginTop: '0.8rem', border: '1px solid #e2e8f0' }}>
-                    <label style={{ fontSize: '0.85rem', fontWeight: 700, color: '#475569', display: 'block', marginBottom: '0.5rem' }}>GLUCOSA MANUAL (mg/dL)</label>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem' }}>
-                        <input
-                            type="number" placeholder="Ej: 110"
-                            value={manualBg} onChange={e => setManualBg(e.target.value)}
-                            style={{ width: '100%', padding: '0.8rem', fontSize: '1.2rem', border: '1px solid #cbd5e1', borderRadius: '8px', textAlign: 'center' }}
-                        />
-                        <Button onClick={handleManualCheckin} disabled={loading} style={{ width: '100%', padding: '0.8rem' }}>Guardar</Button>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '10px' }}>
+                    <div>
+                        <label style={{ fontSize: '0.75rem', color: '#64748b' }}>H. Habitual</label>
+                        <input type="time" value={usualTime} onChange={e => setUsualTime(e.target.value)} style={{ width: '100%', padding: '0.5rem', borderRadius: '6px', border: '1px solid #cbd5e1' }} />
+                    </div>
+                    <div>
+                        <label style={{ fontSize: '0.75rem', color: '#64748b' }}>Dosis Normal</label>
+                        <input type="number" value={usualDose} onChange={e => setUsualDose(e.target.value)} style={{ width: '100%', padding: '0.5rem', borderRadius: '6px', border: '1px solid #cbd5e1' }} />
                     </div>
                 </div>
-            )}
 
-            <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
-                <Button variant="ghost" onClick={handleSaveSimple} disabled={loading} style={{ border: '1px solid #e2e8f0', flex: 1 }}>
-                    {loading ? '...' : 'Solo Guardar'}
-                </Button>
-                <Button onClick={handleCheckinWake} disabled={loading} style={{ flex: 1.5 }}>
-                    {loading ? '...' : '☀️ Al Levantarme'}
-                </Button>
+                <Button onClick={calculateLateDose} style={{ width: '100%', padding: '0.5rem', fontSize: '0.9rem', marginBottom: '10px' }}>Calcular Ajuste</Button>
+
+                {calcResult && (
+                    <div style={{ background: '#fff', padding: '0.8rem', borderRadius: '6px', border: calcResult.isDanger ? '1px solid #fca5a5' : '1px solid #cbd5e1' }}>
+                        <div style={{ fontSize: '0.9rem', color: calcResult.isDanger ? '#dc2626' : '#334155', marginBottom: '5px' }}>
+                            {calcResult.msg}
+                        </div>
+                        {!calcResult.isDanger && (
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '0.5rem' }}>
+                                <span style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--primary)' }}>{calcResult.u} U</span>
+                                <Button size="sm" onClick={applyCalc}>Usar esta dosis</Button>
+                            </div>
+                        )}
+                    </div>
+                )}
             </div>
+        )
+    }
 
-            <Button variant="secondary" onClick={handleScanNight} disabled={loading} style={{ width: '100%' }}>
-                🌙 Analizar Noche (00h-06h)
-            </Button>
+    {
+        !showLateCalc && (
+            <div style={{ textAlign: 'right', marginBottom: '0.5rem' }}>
+                <button onClick={() => setShowLateCalc(true)} style={{ fontSize: '0.75rem', color: 'var(--primary)', textDecoration: 'underline', background: 'none', border: 'none', cursor: 'pointer' }}>
+                    ⏰ ¿Llegas tarde? Calcular ajuste
+                </button>
+            </div>
+        )
+    }
 
-            {msg && (
-                <div style={{
-                    marginTop: '0.5rem', padding: '0.5rem', borderRadius: '6px', fontSize: '0.85rem', textAlign: 'center',
-                    background: msg.type === 'error' ? '#fee2e2' : (msg.type === 'warning' ? '#fef3c7' : '#dcfce7'),
-                    color: msg.type === 'error' ? '#991b1b' : (msg.type === 'warning' ? '#92400e' : '#166534')
-                }}>
-                    {msg.text}
+    <div style={{ margin: '1rem 0' }}>
+        <InjectionSiteSelector
+            type="basal"
+            selected={injectionSite}
+            onSelect={setInjectionSite}
+        />
+    </div>
+
+    {
+        showManualBg && (
+            <div className="fade-in" style={{ background: '#f8fafc', padding: '1rem', borderRadius: '8px', marginTop: '0.8rem', border: '1px solid #e2e8f0' }}>
+                <label style={{ fontSize: '0.85rem', fontWeight: 700, color: '#475569', display: 'block', marginBottom: '0.5rem' }}>GLUCOSA MANUAL (mg/dL)</label>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem' }}>
+                    <input
+                        type="number" placeholder="Ej: 110"
+                        value={manualBg} onChange={e => setManualBg(e.target.value)}
+                        style={{ width: '100%', padding: '0.8rem', fontSize: '1.2rem', border: '1px solid #cbd5e1', borderRadius: '8px', textAlign: 'center' }}
+                    />
+                    <Button onClick={handleManualCheckin} disabled={loading} style={{ width: '100%', padding: '0.8rem' }}>Guardar</Button>
                 </div>
-            )}
-        </Card>
+            </div>
+        )
+    }
+
+                <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
+                    <Button variant="ghost" onClick={handleSaveSimple} disabled={loading} style={{ border: '1px solid #e2e8f0', flex: 1 }}>
+                        {loading ? '...' : 'Solo Guardar'}
+                    </Button>
+                    <Button onClick={handleCheckinWake} disabled={loading} style={{ flex: 1.5 }}>
+                        {loading ? '...' : '☀️ Al Levantarme'}
+                    </Button>
+                </div>
+
+                <Button variant="secondary" onClick={handleScanNight} disabled={loading} style={{ width: '100%' }}>
+                    🌙 Analizar Noche (00h-06h)
+                </Button>
+
+    {
+        msg && (
+            <div style={{
+                marginTop: '0.5rem', padding: '0.5rem', borderRadius: '6px', fontSize: '0.85rem', textAlign: 'center',
+                background: msg.type === 'error' ? '#fee2e2' : (msg.type === 'warning' ? '#fef3c7' : '#dcfce7'),
+                color: msg.type === 'error' ? '#991b1b' : (msg.type === 'warning' ? '#92400e' : '#166534')
+            }}>
+                {msg.text}
+            </div>
+        )
+    }
+        </Card >
     );
 }
 
