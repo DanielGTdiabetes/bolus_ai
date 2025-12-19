@@ -7,6 +7,7 @@ import {
     getBasalAdvice, getBasalTimeline, evaluateBasalChange,
     getLocalNsConfig
 } from '../lib/api';
+import { InjectionSiteSelector, saveInjectionSite } from '../components/injection/InjectionSiteSelector';
 
 export default function BasalPage() {
     const [refreshTick, setRefreshTick] = useState(0);
@@ -37,6 +38,7 @@ function BasalEntrySection({ onRefresh }) {
     const [showManualBg, setShowManualBg] = useState(false);
     const [msg, setMsg] = useState(null);
     const [loading, setLoading] = useState(false);
+    const [injectionSite, setInjectionSite] = useState(null);
 
     const saveDose = async (requireDose = true) => {
         const uVal = parseFloat(dose);
@@ -54,6 +56,11 @@ function BasalEntrySection({ onRefresh }) {
                     created_at: dateObj.toISOString(),
                     effective_from: dateObj.toISOString().split('T')[0]
                 });
+
+                if (injectionSite) {
+                    saveInjectionSite('basal', injectionSite);
+                }
+
                 return true;
             } catch (e) {
                 setMsg({ text: "Error guardando dosis: " + e.message, type: 'error' });
@@ -165,6 +172,14 @@ function BasalEntrySection({ onRefresh }) {
                         style={{ width: '100%', padding: '0.7rem', fontSize: '0.9rem', border: '1px solid #cbd5e1', borderRadius: '8px' }}
                     />
                 </div>
+            </div>
+
+            <div style={{ margin: '1rem 0' }}>
+                <InjectionSiteSelector
+                    type="basal"
+                    selected={injectionSite}
+                    onSelect={setInjectionSite}
+                />
             </div>
 
             {showManualBg && (

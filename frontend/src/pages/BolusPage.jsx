@@ -13,6 +13,7 @@ import {
 import { startRestaurantSession } from '../lib/restaurantApi';
 import { navigate } from '../modules/core/router';
 import { useStore } from '../hooks/useStore';
+import { InjectionSiteSelector, saveInjectionSite, getSiteLabel } from '../components/injection/InjectionSiteSelector';
 
 export default function BolusPage() {
     // State
@@ -152,7 +153,7 @@ export default function BolusPage() {
         }
     };
 
-    const handleSave = async (confirmedDose) => {
+    const handleSave = async (confirmedDose, siteId) => {
         setSaving(true);
         try {
             const finalInsulin = parseFloat(confirmedDose);
@@ -194,9 +195,13 @@ export default function BolusPage() {
                 // Update global state for HomePage tracking
                 state.lastBolusPlan = result.plan;
                 state.lastBolusPlan.created_at_ts = Date.now(); // Fix NaN issue
-                // If the user modified the immediate dose, we update the 'now' part of the plan
-                state.lastBolusPlan.now_u = finalInsulin;
                 import('../modules/core/store').then(({ saveDualPlan }) => saveDualPlan(state.lastBolusPlan));
+            }
+
+            // Save Injection Site History
+            if (siteId) {
+                saveInjectionSite('rapid', siteId);
+                treatment.notes += ` [Sitio: ${getSiteLabel('rapid', siteId)}]`;
             }
 
             const apiRes = await saveTreatment(treatment);
@@ -458,6 +463,7 @@ export default function BolusPage() {
 function ResultView({ result, onBack, onSave, saving }) {
     // Local state for edit before confirm
     const [finalDose, setFinalDose] = useState(result.upfront_u);
+    const [injectionSite, setInjectionSite] = useState(null);
 
     const later = parseFloat(result.later_u || 0);
     const upfront = parseFloat(finalDose || 0);
@@ -536,8 +542,16 @@ function ResultView({ result, onBack, onSave, saving }) {
                 </div>
             )}
 
+            <div style={{ margin: '1rem 0' }}>
+                <InjectionSiteSelector
+                    type="rapid"
+                    selected={injectionSite}
+                    onSelect={setInjectionSite}
+                />
+            </div>
+
             <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1.5rem' }}>
-                <Button onClick={() => onSave(finalDose)} disabled={saving} style={{ flex: 1, background: 'var(--success)', padding: '1rem', fontSize: '1.1rem' }}>
+                <Button onClick={() => onSave(finalDose, injectionSite)} disabled={saving} style={{ flex: 1, background: 'var(--success)', padding: '1rem', fontSize: '1.1rem' }}>
                     {saving ? 'Guardando...' : '✅ Confirmar'}
                 </Button>
                 <Button variant="ghost" onClick={onBack} disabled={saving} style={{ flex: 1 }}>
