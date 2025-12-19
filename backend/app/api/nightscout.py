@@ -407,6 +407,7 @@ async def get_treatments_server(
                      created_iso += "Z"
                 
                 db_treatments.append({
+                    "_id": row.id,
                     "eventType": row.event_type,
                     "created_at": created_iso,
                     "date": row.created_at.replace(tzinfo=timezone.utc).timestamp() * 1000,
@@ -594,3 +595,130 @@ async def get_entries(
         import logging
         logging.getLogger(__name__).error(f"Entries fetch failed: {e}")
         raise HTTPException(status_code=502, detail=str(e))
+
+
+class TreatmentUpdate(BaseModel):
+    insulin: Optional[float] = None
+    carbs: Optional[float] = None
+    created_at: Optional[str] = None # ISO format
+    notes: Optional[str] = None
+
+@router.put("/treatments/{id}", summary="Update treatment (Local DB / Nightscout)")
+async def update_treatment(
+    id: str,
+    payload: TreatmentUpdate,
+    user: CurrentUser = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db_session),
+):
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    from app.models.treatment import Treatment
+    from sqlalchemy import select
+    
+    updated_in_db = False
+    
+    # 1. Local DB
+    try:
+        stmt = select(Treatment).where(Treatment.id == id, Treatment.user_id == user.username)
+        res = await session.execute(stmt)
+        db_item = res.scalar_one_or_none()
+        
+        if db_item:
+             if payload.insulin is not None: db_item.insulin = payload.insulin
+             if payload.carbs is not None: db_item.carbs = payload.carbs
+             if payload.notes is not None: db_item.notes = payload.notes
+             if payload.created_at:
+                 try:
+                     dt = datetime.fromisoformat(payload.created_at.replace("Z", "+00:00"))
+                     db_item.created_at = dt.astimezone(timezone.utc).replace(tzinfo=None)
+                 except:
+                     pass
+             
+             db_item.is_uploaded = False
+             await session.commit()
+             updated_in_db = True
+             
+    except Exception as e:
+        logger.error(f"Error updating local DB treatment: {e}")
+        
+    # 2. Nightscout (Propagate or Primary)
+    ns_updated = False
+    
+    is_uuid = len(id) == 36
+    
+    if not updated_in_db and not is_uuid:
+         ns = await get_ns_config(session, user.username)
+         if ns and ns.enabled and ns.url:
+             try:
+                 client = NightscoutClient(ns.url, ns.api_secret)
+                 ns_payload = {}
+                 if payload.insulin is not None: ns_payload["insulin"] = payload.insulin
+                 if payload.carbs is not None: ns_payload["carbs"] = payload.carbs
+                 if payload.notes is not None: ns_payload["notes"] = payload.notes
+                 if payload.created_at: ns_payload["created_at"] = payload.created_at
+                 
+                 await client.update_treatment(id, ns_payload)
+                 await client.aclose()
+                 ns_updated = True
+             except Exception as e:
+                 logger.error(f"Error updating NS treatment: {e}")
+                 if not updated_in_db:
+                     raise HTTPException(status_code=500, detail=f"Failed to update treatment: {str(e)}")
+
+    if not updated_in_db:
+        if is_uuid:
+             raise HTTPException(status_code=404, detail="Treatment not found in Local DB")
+        elif not ns_updated:
+             pass
+
+    return {"success": True, "updated_db": updated_in_db, "updated_ns": ns_updated}
+
+
+@router.delete("/treatments/{id}", summary="Delete treatment")
+async def delete_treatment(
+    id: str,
+    user: CurrentUser = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db_session),
+):
+    from app.models.treatment import Treatment
+    from sqlalchemy import select
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    deleted_in_db = False
+    
+    # 1. Local DB
+    try:
+        stmt = select(Treatment).where(Treatment.id == id, Treatment.user_id == user.username)
+        res = await session.execute(stmt)
+        db_item = res.scalar_one_or_none()
+        if db_item:
+            await session.delete(db_item)
+            await session.commit()
+            deleted_in_db = True
+    except Exception as e:
+         logger.error(f"Error deleting from DB: {e}")
+         
+    # 2. Nightscout
+    is_uuid = len(id) == 36
+    ns_deleted = False
+    
+    if not deleted_in_db and not is_uuid:
+         ns = await get_ns_config(session, user.username)
+         if ns and ns.enabled and ns.url:
+             try:
+                 client = NightscoutClient(ns.url, ns.api_secret)
+                 await client.delete_treatment(id)
+                 await client.aclose()
+                 ns_deleted = True
+             except Exception as e:
+                 logger.error(f"Error deleting from NS: {e}")
+                 if not deleted_in_db:
+                     raise HTTPException(status_code=500, detail=f"Failed to delete: {str(e)}")
+
+    if not deleted_in_db:
+         if is_uuid:
+             raise HTTPException(status_code=404, detail="Treatment not found")
+         
+    return {"success": True, "deleted_db": deleted_in_db, "deleted_ns": ns_deleted}

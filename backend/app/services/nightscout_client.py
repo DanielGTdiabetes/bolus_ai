@@ -310,5 +310,14 @@ class NightscoutClient:
             
         return response.json()
 
+    async def update_treatment(self, treatment_id: str, updates: dict) -> Any:
+        response = await self.client.put(f"/api/v1/treatments/{treatment_id}", json=updates)
+        return await self._handle_response(response)
+
+    async def delete_treatment(self, treatment_id: str) -> None:
+        response = await self.client.delete(f"/api/v1/treatments/{treatment_id}")
+        if response.status_code not in (200, 204):
+             response.raise_for_status()
+
     async def aclose(self) -> None:
         await self.client.aclose()
