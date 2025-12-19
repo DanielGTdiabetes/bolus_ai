@@ -17,29 +17,102 @@ export default function ProfilePage() {
                 <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.5rem' }}>
                     <TabButton active={tab === 'general'} onClick={() => setTab('general')}>General</TabButton>
                     <TabButton active={tab === 'security'} onClick={() => setTab('security')}>Seguridad</TabButton>
+                    <TabButton active={tab === 'sick'} onClick={() => setTab('sick')} danger={true}>Enfermedad</TabButton>
                 </div>
 
                 {tab === 'general' && <GeneralSection user={user} />}
                 {tab === 'security' && <SecuritySection />}
+                {tab === 'sick' && <SickModeSection />}
 
             </main>
         </>
     );
 }
 
-function TabButton({ active, onClick, children }) {
+function TabButton({ active, onClick, children, danger }) {
+    const bg = active
+        ? (danger ? '#ef4444' : 'var(--primary)')
+        : (danger ? '#fee2e2' : '#e2e8f0');
+
+    const color = active
+        ? 'white'
+        : (danger ? '#ef4444' : '#64748b');
+
     return (
         <button
             onClick={onClick}
             style={{
                 flex: 1, padding: '10px', borderRadius: '8px', border: 'none',
-                background: active ? 'var(--primary)' : '#e2e8f0',
-                color: active ? 'white' : '#64748b',
-                fontWeight: 600
+                background: bg,
+                color: color,
+                fontWeight: 600,
+                fontSize: '0.85rem'
             }}
         >
             {children}
         </button>
+    );
+}
+
+function SickModeSection() {
+    // Logic for Sick Mode
+    // Key: 'sick_mode_enabled' (true/false)
+    const [enabled, setEnabled] = useState(() => {
+        return localStorage.getItem('sick_mode_enabled') === 'true';
+    });
+
+    const toggle = () => {
+        const newVal = !enabled;
+        setEnabled(newVal);
+        localStorage.setItem('sick_mode_enabled', newVal.toString());
+        // Force refresh of layout maybe? Or utilize a global store?
+        // Ideally we should use the store, but for v1 localStorage is fine.
+        // Other components reading this need to know.
+        // We will make BolusPage read from localStorage on mount/interaction.
+
+        // Notify user
+        if (newVal) alert("⚠️ MODO ENFERMEDAD ACTIVADO\n\n- Se aumentarán los ratios de insulina un 20%.\n- Se sugerirá medir cetonas si la glucosa es alta.\n- Revisa tu basal (considera un +20%).");
+    };
+
+    return (
+        <Card style={{ border: enabled ? '2px solid #ef4444' : 'none' }}>
+            <h3 className="text-lg font-bold mb-4" style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                🤒 Modo Enfermedad
+                {enabled && <span style={{ fontSize: '0.8rem', background: '#ef4444', color: 'white', padding: '2px 8px', borderRadius: '10px' }}>ACTIVO</span>}
+            </h3>
+
+            <p style={{ marginBottom: '1.5rem', fontSize: '0.9rem', color: '#64748b', lineHeight: 1.5 }}>
+                Activa este modo cuando tengas fiebre, infección o enfermedad. El estrés físico aumenta la resistencia a la insulina.
+            </p>
+
+            <div style={{ background: enabled ? '#fef2f2' : '#f8fafc', padding: '1.5rem', borderRadius: '12px', textAlign: 'center', marginBottom: '1.5rem', border: enabled ? '1px solid #fecaca' : '1px solid #e2e8f0' }}>
+                <div style={{ fontSize: '3rem', marginBottom: '0.5rem' }}>{enabled ? '🔥' : '❄️'}</div>
+                <div style={{ fontWeight: 800, fontSize: '1.2rem', color: enabled ? '#ef4444' : '#64748b', marginBottom: '1rem' }}>
+                    {enabled ? 'ESTÁS EN MODO ENFERMEDAD' : 'Modo Normal'}
+                </div>
+                <Button
+                    onClick={toggle}
+                    style={{
+                        background: enabled ? 'white' : '#ef4444',
+                        color: enabled ? '#ef4444' : 'white',
+                        border: enabled ? '2px solid #ef4444' : 'none',
+                        width: '100%',
+                        fontWeight: 700
+                    }}
+                >
+                    {enabled ? 'Desactivar' : 'ACTIVAR MODO ENFERMEDAD'}
+                </Button>
+            </div>
+
+            <div style={{ fontSize: '0.85rem' }}>
+                <strong>Efectos automáticos:</strong>
+                <ul style={{ paddingLeft: '1.2rem', color: '#475569', marginTop: '0.5rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                    <li>📈 <strong>Bolos más agresivos:</strong> Ratios (ICR/ISF) aumentados un 20%.</li>
+                    <li>🧪 <strong>Alerta de Cetonas:</strong> Recordatorio si Glucosa > 250 mg/dL.</li>
+                    <li>💉 <strong>Basal:</strong> Se sugiere aumentar la dosis manual un 20-30%.</li>
+                </ul>
+            </div>
+        </Card>
     );
 }
 

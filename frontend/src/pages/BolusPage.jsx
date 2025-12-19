@@ -146,13 +146,25 @@ export default function BolusPage() {
                 throw new Error(`Faltan datos para el horario '${slot}'.`);
             }
 
+            // Sick Mode Logic
+            const isSick = localStorage.getItem('sick_mode_enabled') === 'true';
+            let finalIcr = slotParams.icr;
+            let finalIsf = slotParams.isf;
+
+            if (isSick) {
+                // Increase aggressiveness by ~20% means requiring less carbs/mgdl per unit.
+                // Factor = 1 / 1.2 ~= 0.83
+                finalIcr = finalIcr * 0.83;
+                finalIsf = finalIsf * 0.83;
+            }
+
             const payload = {
                 carbs_g: correctionOnly ? 0 : carbsVal,
                 bg_mgdl: isNaN(bgVal) ? null : bgVal,
                 meal_slot: slot,
                 target_mgdl: slotParams.target,
-                cr_g_per_u: slotParams.icr,
-                isf_mgdl_per_u: slotParams.isf,
+                cr_g_per_u: finalIcr,
+                isf_mgdl_per_u: finalIsf,
                 dia_hours: mealParams.dia_hours || 4.0,
                 round_step_u: mealParams.round_step_u || 0.5,
                 max_bolus_u: mealParams.max_bolus_u || 15,
@@ -164,6 +176,15 @@ export default function BolusPage() {
 
             const useSplit = (dualEnabled && !correctionOnly && carbsVal > 0);
             const res = await calculateBolusWithOptionalSplit(payload, useSplit ? splitSettings : null);
+
+            // Inject Sick Mode Warnings
+            if (isSick) {
+                res.warnings = res.warnings || [];
+                res.warnings.push("⚠️ Modo Enfermedad: Dosis aumentada un 20%.");
+                if (bgVal > 250) {
+                    res.warnings.push("🧪 ALERTA: Glucosa alta. Revisa CETONAS.");
+                }
+            }
 
             setResult(res);
         } catch (e) {
