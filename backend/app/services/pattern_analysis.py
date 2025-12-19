@@ -182,7 +182,7 @@ async def get_summary_service(user_id: str, days: int, db: AsyncSession, setting
 
     # Optimization: If settings were updated recently, only analyze SINCE that update
     # to avoid advising changes based on old data that might already be fixed.
-    if settings and settings.updated_at:
+    if settings and getattr(settings, "updated_at", None):
         # settings.updated_at is timezone aware (UTC) usually
         # If the user updated settings 2 days ago, we should only look at last 2 days
         # even if they asked for 30.
