@@ -87,7 +87,7 @@ export function InjectionSiteSelector({ type, onSelect, selected }) {
     return (
         <div className="injection-selector fade-in" style={{ textAlign: 'center' }}>
             <div style={{ fontSize: '0.85rem', fontWeight: 600, color: '#64748b', marginBottom: '1rem' }}>
-                📍 Rotación Piernas/Gluesto
+                📍 Rotación Piernas/Glúteos
             </div>
             <LegsImageVisual
                 selected={selected}
@@ -199,8 +199,9 @@ function LegsImageVisual({ selected, recommended, lastUsed, onPointClick }) {
     const POINTS = {
         'glute_left:1': { x: 32, y: 38 },
         'glute_right:1': { x: 68, y: 38 },
-        'leg_left:1': { x: 28, y: 75 },
-        'leg_right:1': { x: 72, y: 75 }
+        // Thighs: Higher and more lateral (exterior)
+        'leg_left:1': { x: 15, y: 60 },
+        'leg_right:1': { x: 85, y: 60 }
     };
 
     return (
