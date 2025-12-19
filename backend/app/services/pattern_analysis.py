@@ -41,7 +41,7 @@ async def run_analysis_service(
     # Then NS (for older history if needed, though DB should mirror it eventually)
     
     hours = (days * 24) + 24 # +24h buffer
-    start_cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+    start_cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=days)
     
     logger.info(f"Analysis: Fetching treatments for user {user_id} (last {days} days)")
     
@@ -81,6 +81,9 @@ async def run_analysis_service(
     
     for b in boluses:
         b_time = b.created_at
+        if b_time.tzinfo is None:
+            b_time = b_time.replace(tzinfo=timezone.utc)
+        
         meal_slot = get_meal_slot(b_time)
         
         # Target: user settings active? 
