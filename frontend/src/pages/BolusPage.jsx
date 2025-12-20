@@ -10,8 +10,9 @@ import {
     getCurrentGlucose, calculateBolusWithOptionalSplit,
     saveTreatment, getLocalNsConfig, getIOBData,
     getSupplies, updateSupply,
-    getFavorites, addFavorite
+    getFavorites, addFavorite, simulateForecast
 } from '../lib/api';
+import { MainGlucoseChart } from '../components/charts/MainGlucoseChart';
 import { startRestaurantSession } from '../lib/restaurantApi';
 import { navigate } from '../modules/core/router';
 import { useStore } from '../hooks/useStore';
@@ -34,6 +35,11 @@ export default function BolusPage() {
     const [correctionOnly, setCorrectionOnly] = useState(false);
     const [dualEnabled, setDualEnabled] = useState(false);
     const [plateItems, setPlateItems] = useState([]);
+
+    // Simulation State
+    const [simulationMode, setSimulationMode] = useState(false);
+    const [predictionData, setPredictionData] = useState(null);
+    const [simulating, setSimulating] = useState(false);
 
     // Favorites State
     const [favorites, setFavorites] = useState([]);
@@ -141,6 +147,69 @@ export default function BolusPage() {
             setSuggestedStrategy(null);
         }
     }, [foodName, dualEnabled, favorites]);
+
+    // Simulation Effect (Debounced)
+    useEffect(() => {
+        if (!simulationMode) {
+            setPredictionData(null);
+            return;
+        }
+
+        const runSim = async () => {
+            const bgVal = parseFloat(glucose);
+            // If no BG, we can't really simulate well, but maybe with just carbs?
+            // Loop needs a starting BG.
+            if (isNaN(bgVal)) return;
+
+            setSimulating(true);
+            try {
+                const currentCarbs = parseFloat(carbs) || 0;
+
+                // Get params
+                const mealParams = getCalcParams();
+                // If not loaded, retry later or defaults
+                const slotParams = mealParams ? mealParams[slot] : { icr: 10, isf: 30 };
+
+                const payload = {
+                    start_bg: bgVal,
+                    horizon_minutes: 360,
+                    params: {
+                        isf: slotParams.isf || 30,
+                        icr: slotParams.icr || 10,
+                        dia_minutes: (mealParams?.dia_hours || 4) * 60,
+                        carb_absorption_minutes: 180
+                    },
+                    events: {
+                        boluses: [], // We simulate "What if I take this dose?"
+                        // Actually, we don't know the dose yet unless user confirms?
+                        // Loop usually simulates "What if I do nothing" vs "What if I take Rec. Dose".
+                        // For now, let's simulate "Net Effect of Carbs" (User hasn't entered insulin yet).
+                        // OR maybe we can estimate insulin? 
+                        // Let's sim Carbs Only first, as that's the input we have.
+                        // Usage: User enters 50g carbs -> Graph shoots up.
+                        // Then User enters "Insulin" manually?
+                        // The UI doesn't have an "Insulin Input" field in the first stage (Calculadora). 
+                        // It calculates it for you.
+                        // So we should simulate "Carbs Only" to show the spike risk.
+                        carbs: currentCarbs > 0 ? [{
+                            time_offset_min: 0,
+                            grams: currentCarbs
+                        }] : []
+                    }
+                };
+
+                const res = await simulateForecast(payload);
+                setPredictionData(res);
+            } catch (err) {
+                console.warn("Forecast failed", err);
+            } finally {
+                setSimulating(false);
+            }
+        };
+
+        const timer = setTimeout(runSim, 800);
+        return () => clearTimeout(timer);
+    }, [simulationMode, glucose, carbs, slot]);
 
     const applyStrategy = () => {
         if (suggestedStrategy) {
@@ -349,6 +418,33 @@ export default function BolusPage() {
                 {/* INPUT SECTION */}
                 {!result && (
                     <div className="stack fade-in">
+
+                        {/* Simulation Toggle & Chart */}
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '0.5rem' }}>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '0.8rem', color: '#64748b', cursor: 'pointer' }}>
+                                <input
+                                    type="checkbox"
+                                    checked={simulationMode}
+                                    onChange={e => setSimulationMode(e.target.checked)}
+                                />
+                                🔮 Modo Futuro (Beta)
+                            </label>
+                        </div>
+
+                        {simulationMode && (
+                            <div className="card" style={{ padding: '0.5rem', marginBottom: '1rem', border: '1px solid #8b5cf6', background: '#f5f3ff' }}>
+                                <div style={{ fontSize: '0.8rem', fontWeight: 700, color: '#7c3aed', marginBottom: '4px', textAlign: 'center' }}>
+                                    SIMULACIÓN ESTIMADA
+                                </div>
+                                <MainGlucoseChart predictionData={predictionData} />
+                                {predictionData?.warnings?.length > 0 && (
+                                    <div style={{ fontSize: '0.7rem', color: '#c2410c', marginTop: '4px' }}>
+                                        ⚠️ {predictionData.warnings.join(', ')}
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
                         {/* Glucose */}
                         <div className="form-group">
                             <div className="label-row" style={{ display: 'flex', justifyContent: 'space-between' }}>

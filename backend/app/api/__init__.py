@@ -39,4 +39,7 @@ api_router.include_router(user_data_router, prefix="/user", tags=["user_data"])
 from .isf import router as isf_router
 api_router.include_router(isf_router, prefix="/isf", tags=["isf"])
 
+from .forecast import router as forecast_router
+api_router.include_router(forecast_router, prefix="/forecast", tags=["forecast"])
+
 __all__ = ["api_router"]

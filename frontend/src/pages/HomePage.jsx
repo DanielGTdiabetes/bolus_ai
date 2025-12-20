@@ -4,7 +4,7 @@ import { BottomNav } from '../components/layout/BottomNav';
 import { Card, Button } from '../components/ui/Atoms';
 import { useInterval } from '../hooks/useInterval';
 import {
-    getCurrentGlucose, getIOBData, fetchTreatments, getLocalNsConfig, getGlucoseEntries
+    getCurrentGlucose, getIOBData, fetchTreatments, getLocalNsConfig, getGlucoseEntries, apiFetch, toJson
 } from '../lib/api';
 import { formatTrend } from '../modules/core/utils';
 import { navigate } from '../modules/core/router';
@@ -17,6 +17,7 @@ import { MainGlucoseChart } from '../components/charts/MainGlucoseChart';
 function GlucoseHero({ onRefresh }) {
     const [data, setData] = useState(null);
     const [loading, setLoading] = useState(false);
+    const [prediction, setPrediction] = useState(null);
 
     // Auto-refresh config (hook requires interval in ms or null)
     useInterval(() => load(), 60000);
@@ -28,6 +29,18 @@ function GlucoseHero({ onRefresh }) {
             // Fetch only current for the big number
             const current = await getCurrentGlucose(config);
             setData(current);
+
+            // Ambient Forecast (try catch to not block main UI)
+            try {
+                const predRes = await apiFetch("/api/forecast/current");
+                if (predRes.ok) {
+                    const predData = await toJson(predRes);
+                    setPrediction(predData);
+                }
+            } catch (err) {
+                console.warn("Forecast fetch error", err);
+            }
+
         } catch (e) {
             console.warn("BG Fetch Error", e);
         } finally {
@@ -81,8 +94,8 @@ function GlucoseHero({ onRefresh }) {
                 </span>
             </div>
 
-            {/* Advanced Graph */}
-            <MainGlucoseChart isLow={isLow} />
+            {/* Advanced Graph with Ambient Prediction */}
+            <MainGlucoseChart isLow={isLow} predictionData={prediction} />
         </section>
     );
 }

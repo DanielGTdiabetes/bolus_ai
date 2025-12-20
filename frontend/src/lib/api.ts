@@ -60,7 +60,7 @@ export function isAuthenticated() {
   return Boolean(getStoredToken());
 }
 
-async function toJson(response) {
+export async function toJson(response) {
   try {
     return await response.json();
   } catch (error) {
@@ -773,3 +773,13 @@ export async function fetchIsfAnalysis(days = 14) {
   return data;
 }
 
+
+export async function simulateForecast(payload) {
+  const response = await apiFetch("/api/forecast/simulate", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+  const data = await toJson(response);
+  if (!response.ok) throw new Error(data.detail || "Error al simular pronóstico");
+  return data;
+}
