@@ -23,7 +23,7 @@ const ZONES = {
     ]
 };
 
-export function InjectionSiteSelector({ type, onSelect, selected }) {
+export function InjectionSiteSelector({ type, onSelect, selected, autoSelect = true }) {
     const [lastUsed, setLastUsed] = useState(null);
     const [recommended, setRecommended] = useState(null);
 
@@ -56,10 +56,10 @@ export function InjectionSiteSelector({ type, onSelect, selected }) {
     }, [type]);
 
     useEffect(() => {
-        if (recommended && !selected && onSelect) {
+        if (autoSelect && recommended && !selected && onSelect) {
             onSelect(recommended);
         }
-    }, [recommended]);
+    }, [recommended, autoSelect]);
 
     const handlePointClick = (fullId) => {
         if (onSelect) onSelect(fullId);

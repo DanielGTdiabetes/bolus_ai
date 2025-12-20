@@ -54,6 +54,7 @@ export default function BodyMapPage() {
                             type="rapid"
                             selected={selectedRapid}
                             onSelect={handleRapidChange}
+                            autoSelect={false}
                         />
                     </div>
 
@@ -63,6 +64,7 @@ export default function BodyMapPage() {
                             type="basal"
                             selected={selectedBasal}
                             onSelect={handleBasalChange}
+                            autoSelect={false}
                         />
                     </div>
                 </Card>
