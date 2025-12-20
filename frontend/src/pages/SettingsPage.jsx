@@ -275,6 +275,20 @@ function CalcParamsPanel() {
                 <Input label="Duración Insulina (DIA - Horas)" type="number" value={params.dia_hours} onChange={e => handleChange('dia_hours', e.target.value)} />
                 <Input label="Máximo Bolo (Seguridad - U)" type="number" value={params.max_bolus_u} onChange={e => handleChange('max_bolus_u', e.target.value)} />
 
+                <h4 style={{ margin: '0.5rem 0', color: '#475569', fontSize: '1rem' }}>Tiempos de Espera (Insulina)</h4>
+                <div style={{ background: '#f8fafc', padding: '1rem', borderRadius: '8px', border: '1px solid #e2e8f0', marginBottom: '1rem' }}>
+                    <Input
+                        label="Espera Pre-comida (Min)"
+                        type="number"
+                        value={params.insulin?.pre_bolus_min ?? 15}
+                        onChange={e => setParams(prev => ({ ...prev, insulin: { ...prev.insulin, pre_bolus_min: parseFloat(e.target.value) } }))}
+                        placeholder="Ej: 15 (Rápida), 5 (Ultra)"
+                    />
+                    <p className="text-sm text-muted" style={{ marginTop: '-0.5rem' }}>
+                        Tiempo recomendado entre inyección e ingesta.
+                    </p>
+                </div>
+
                 <label style={{ fontWeight: 600, fontSize: '0.9rem', color: '#475569' }}>Paso de redondeo</label>
                 <select
                     style={{ width: '100%', padding: '0.6rem', borderRadius: '8px', border: '1px solid #cbd5e1' }}

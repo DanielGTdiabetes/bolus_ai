@@ -629,6 +629,9 @@ function ResultView({ result, onBack, onSave, saving, currentCarbs, foodName, fa
                     </div>
                 )}
 
+                {/* Pre-Bolus Timer / Advisory */}
+                <PreBolusTimer />
+
                 {/* Immediate Input */}
                 <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'baseline', gap: '8px' }}>
                     {result.kind === 'dual' && <span style={{ fontSize: '1rem', fontWeight: 600, color: '#64748b' }}>Ahora:</span>}
@@ -860,6 +863,47 @@ function FoodSmartAutocomplete({ value, onChange, onSelect, favorites = [] }) {
                     })}
                 </div>
             )}
+        </div>
+    );
+}
+
+function PreBolusTimer() {
+    const [waitMin, setWaitMin] = useState(0);
+    const [eatTime, setEatTime] = useState(null);
+
+    useEffect(() => {
+        import('../modules/core/store').then(({ getCalcParams }) => {
+            const p = getCalcParams();
+            const min = p?.insulin?.pre_bolus_min || 0;
+            setWaitMin(min);
+
+            if (min > 0) {
+                const now = new Date();
+                const eatAt = new Date(now.getTime() + min * 60000);
+                setEatTime(eatAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+            }
+        });
+    }, []);
+
+    if (waitMin <= 0) return null;
+
+    return (
+        <div style={{ textAlign: 'center', marginBottom: '1rem' }}>
+            <div style={{
+                background: '#e0f2fe',
+                color: '#0369a1',
+                padding: '0.6rem 1rem',
+                borderRadius: '20px',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '8px',
+                fontSize: '0.9rem',
+                fontWeight: 600,
+                border: '1px solid #bae6fd'
+            }}>
+                <span>⏳ Espera {waitMin} min</span>
+                {eatTime && <span style={{ opacity: 0.8, fontWeight: 400 }}>→ Comer a las {eatTime}</span>}
+            </div>
         </div>
     );
 }

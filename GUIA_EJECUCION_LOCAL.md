@@ -12,7 +12,7 @@ Este es el "cerebro" de la aplicación. Debe estar corriendo para que la web fun
    ```
 3. Ejecuta el servidor:
    ```powershell
-   python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+  añade tambien, de insulina Novorapid 
    ```
    _(Si tienes un entorno virtual activo, asegúrate de usarlo, pero si `python` funciona directo, adelante)._
 

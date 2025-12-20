@@ -105,6 +105,26 @@ class UserSettings(BaseModel):
     learning: LearningConfig = Field(default_factory=LearningConfig)
     adaptive: AdaptiveConfig = Field(default_factory=AdaptiveConfig)
     nightscout: NightscoutConfig = Field(default_factory=NightscoutConfig)
+class InsulinSettings(BaseModel):
+    sensor_delay_min: int = Field(default=15, description="Delay in minutes for glucose sensor readings")
+    pre_bolus_min: int = Field(default=15, description="Recommended wait time before eating after bolus")
+
+
+class UserSettings(BaseModel):
+    schema_version: int = 1
+    units: Literal["mg/dL"] = "mg/dL"
+    targets: TargetRange = Field(default_factory=TargetRange)
+    cf: MealFactors = Field(default_factory=lambda: MealFactors(breakfast=30, lunch=30, dinner=30, snack=30)) # Default CF 30
+    cr: MealFactors = Field(default_factory=MealFactors)
+    max_bolus_u: float = 10.0
+    max_correction_u: float = 5.0
+    round_step_u: float = 0.05
+    tdd_u: Optional[float] = Field(default=None, ge=1.0, description="Total Daily Dose typical (U)")
+    iob: IOBConfig = Field(default_factory=IOBConfig)
+    insulin: InsulinSettings = Field(default_factory=InsulinSettings)
+    learning: LearningConfig = Field(default_factory=LearningConfig)
+    adaptive: AdaptiveConfig = Field(default_factory=AdaptiveConfig)
+    nightscout: NightscoutConfig = Field(default_factory=NightscoutConfig)
     techne: TechneRoundingConfig = Field(default_factory=TechneRoundingConfig)
     
     # Internal field to track update time from DB, not part of user input JSON usually
