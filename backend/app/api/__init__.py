@@ -36,4 +36,7 @@ api_router.include_router(restaurant_router, prefix="/restaurant", tags=["restau
 from .user_data import router as user_data_router
 api_router.include_router(user_data_router, prefix="/user", tags=["user_data"])
 
+from .isf import router as isf_router
+api_router.include_router(isf_router, prefix="/isf", tags=["isf"])
+
 __all__ = ["api_router"]

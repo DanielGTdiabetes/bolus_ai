@@ -11,9 +11,10 @@ import {
     getNightscoutSecretStatus, saveNightscoutSecret, testNightscout,
     fetchHealth, exportUserData
 } from '../lib/api';
+import { IsfAnalyzer } from '../components/settings/IsfAnalyzer';
 
 export default function SettingsPage() {
-    const [activeTab, setActiveTab] = useState('ns'); // 'ns' | 'calc' | 'data'
+    const [activeTab, setActiveTab] = useState('ns'); // 'ns' | 'calc' | 'data' | 'analysis'
 
     return (
         <>
@@ -23,6 +24,7 @@ export default function SettingsPage() {
                     <div className="tabs" style={{ display: 'flex', borderBottom: '1px solid #e2e8f0', marginBottom: '1rem' }}>
                         <TabButton label="Nightscout" active={activeTab === 'ns'} onClick={() => setActiveTab('ns')} />
                         <TabButton label="Cálculo" active={activeTab === 'calc'} onClick={() => setActiveTab('calc')} />
+                        <TabButton label="Análisis" active={activeTab === 'analysis'} onClick={() => setActiveTab('analysis')} />
                         <TabButton label="Datos" active={activeTab === 'data'} onClick={() => setActiveTab('data')} />
                     </div>
 
@@ -31,6 +33,9 @@ export default function SettingsPage() {
                     </div>
                     <div style={{ display: activeTab === 'calc' ? 'block' : 'none' }}>
                         <CalcParamsPanel />
+                    </div>
+                    <div style={{ display: activeTab === 'analysis' ? 'block' : 'none' }}>
+                        <IsfAnalyzer />
                     </div>
                     <div style={{ display: activeTab === 'data' ? 'block' : 'none' }}>
                         <DataPanel />

@@ -765,3 +765,11 @@ export async function updateSupply(key, quantity) {
   if (!response.ok) throw new Error(data.detail || "Error actualizando suministro");
   return data;
 }
+
+export async function fetchIsfAnalysis(days = 14) {
+  const response = await apiFetch(`/api/isf/analysis?days=${days}`);
+  const data = await toJson(response);
+  if (!response.ok) throw new Error(data.detail || "Error al analizar ISF");
+  return data;
+}
+

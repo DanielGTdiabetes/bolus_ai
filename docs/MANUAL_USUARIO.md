@@ -91,5 +91,25 @@ Tu seguridad es lo más importante. Bolus AI incluye:
 
 ---
 
+## 🔍 Análisis ISF Inteligente (Ajustes)
+
+El factor de sensibilidad (ISF) determina cuánto baja tu glucosa con 1 unidad de insulina. Este valor cambia con el tiempo y es difícil de calcular manualmente.
+
+La nueva herramienta de **Análisis ISF** (en `Ajustes` -> `Análisis`) utiliza inteligencia artificial para auditar tu historial:
+
+1.  **Detección de "Correcciones Limpias"**: Identifica momentos donde te pusiste insulina correcona (sin comida) y analiza qué pasó en las siguientes 4 horas, filtrando interferencias (comidas posteriores, ejercicio, etc).
+2.  **Cálculo Real**: Mide cuánto bajó realmente tu glucosa por cada unidad.
+3.  **Análisis por Franjas**: Te da resultados específicos para:
+    - Madrugada (00-06h)
+    - Mañana (06-12h)
+    - Tarde (12-18h)
+    - Noche (18-24h)
+4.  **Sugerencias**:
+    - Si detecta que tu ISF es **demasiado fuerte** (>15% de desvío), te sugerirá subir el número (para corregir menos agresivamente).
+    - Si detecta que es **demasiado débil**, te sugerirá bajarlo.
+    - Puedes ver la **evidencia** detallada de cada evento analizado para confiar en el resultado.
+
+---
+
 ## ⚠️ Descargo de Responsabilidad Médico
 Esta aplicación es una **herramienta de apoyo** a la decisión. Los cálculos son estimaciones basadas en algoritmos de IA y no deben sustituir el criterio clínico. **Verifica siempre los datos antes de administrarte insulina.**
