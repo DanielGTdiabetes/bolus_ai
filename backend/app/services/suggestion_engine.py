@@ -10,14 +10,17 @@ from app.services.pattern_analysis import get_summary_service
 
 logger = logging.getLogger(__name__)
 
+from app.models.settings import UserSettings
+
 async def generate_suggestions_service(
     user_id: str,
     days: int,
-    db: AsyncSession
+    db: AsyncSession,
+    settings: UserSettings = None
 ) -> dict:
     
     # 1. Get Pattern Summary
-    summary = await get_summary_service(user_id, days, db)
+    summary = await get_summary_service(user_id, days, db, settings=settings)
     by_meal = summary.get("by_meal", {})
     
     created_count = 0

@@ -60,7 +60,20 @@ async def generate_suggestions(
     db: AsyncSession = Depends(get_db_session)
 ):
     valid_payload = payload or GenerateRequest()
-    result = await generate_suggestions_service(user.id, valid_payload.days, db)
+    
+    # Fetch settings context
+    from app.services.settings_service import get_user_settings_service
+    from app.models.settings import UserSettings
+    
+    data = await get_user_settings_service(user.id, db)
+    settings_obj = None
+    if data and data.get("settings"):
+         settings_obj = UserSettings.migrate(data["settings"])
+         dt = data.get("updated_at")
+         if dt:
+             settings_obj.updated_at = dt
+             
+    result = await generate_suggestions_service(user.id, valid_payload.days, db, settings=settings_obj)
     return result
 
 @router.get("", response_model=List[SuggestionResponse])
