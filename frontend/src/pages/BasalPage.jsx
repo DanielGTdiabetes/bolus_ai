@@ -9,6 +9,8 @@ import {
 } from '../lib/api';
 import { InjectionSiteSelector, saveInjectionSite } from '../components/injection/InjectionSiteSelector';
 
+import { BasalGlucoseChart } from '../components/charts/BasalGlucoseChart';
+
 export default function BasalPage() {
     const [refreshTick, setRefreshTick] = useState(0);
     const handleRefresh = () => setRefreshTick(t => t + 1);
@@ -19,6 +21,7 @@ export default function BasalPage() {
             <main className="page" style={{ paddingBottom: '90px' }}>
                 <BasalEntrySection onRefresh={handleRefresh} />
                 <BasalAdviceSection key={`advice-${refreshTick}`} />
+                <BasalGlucoseChart key={`chart-${refreshTick}`} />
                 <BasalImpactSection />
                 <BasalTimelineSection key={`timeline-${refreshTick}`} />
             </main>
