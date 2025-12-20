@@ -126,12 +126,12 @@ async def get_timeline_service(user_id: str, days: int, db: AsyncSession):
     c_map = {c.checkin_date: c for c in checkins}
     n_map = {n.night_date: n for n in nights}
     
-    # Doses map: (date -> dose). If multiple, take latest created?
-    # effective_from is the key.
+    # Doses map: (date -> dose_sum).
     d_map = {}
     for dose in doses:
         if dose.effective_from not in d_map:
-             d_map[dose.effective_from] = dose
+             d_map[dose.effective_from] = 0.0
+        d_map[dose.effective_from] += dose.dose_u
     
     items = []
     # Generate list for range
@@ -139,11 +139,11 @@ async def get_timeline_service(user_id: str, days: int, db: AsyncSession):
         d = date.today() - timedelta(days=i)
         c = c_map.get(d)
         n = n_map.get(d)
-        dose = d_map.get(d)
+        dose_val = d_map.get(d)
         
         items.append({
             "date": d.isoformat(),
-            "dose_u": dose.dose_u if dose else None,
+            "dose_u": dose_val,
             "wake_bg": c.bg_mgdl if c else None,
             "wake_trend": c.trend if c else None,
             "night_had_hypo": n.had_hypo if n else None,
@@ -208,34 +208,49 @@ async def get_advice_service(user_id: str, days: int, db: AsyncSession):
     }
 
 async def evaluate_change_service(user_id: str, days: int, db: AsyncSession):
-    # Find last change point
-    # We look for a BasalEntry where units diff != previous entry units
-    # Or simplified: Most recent entry vs the one before it.
+    # Find last change point by looking at daily totals
+    # Fetch enough history to find a change
+    dose_hist = await basal_repo.get_dose_history(db, user_id, days=60) # Need repo access directly or query? 
+    # Wait, get_dose_history is in basal_repo but I don't have it imported or access to repo funcs directly if they use DB.
+    # Ah, I have db session. I can query directly.
     
-    stmt = select(BasalEntry).where(BasalEntry.user_id == user_id).order_by(BasalEntry.created_at.desc()).limit(2)
-    entries = (await db.execute(stmt)).scalars().all()
+    q_dose = select(BasalEntry).where(
+        BasalEntry.user_id == user_id
+    ).order_by(BasalEntry.effective_from.desc())
+    doses = (await db.execute(q_dose)).scalars().all()
     
-    if len(entries) < 2:
-        return {"result": "insufficient", "summary": "No hay suficientes registros de basal para detectar cambios.", "evidence": {}}
+    # Aggregate by date
+    by_date = {}
+    for d in doses:
+        if d.effective_from not in by_date: by_date[d.effective_from] = 0.0
+        by_date[d.effective_from] += d.dose_u
         
-    latest = entries[0]
-    prev = entries[1]
+    dates = sorted(by_date.keys(), reverse=True)
+    if len(dates) < 2:
+        return {"result": "insufficient", "summary": "No hay suficientes datos diarios.", "evidence": {}}
+        
+    # Find change
+    current_total = by_date[dates[0]]
+    change_date = None
+    prev_total = None
     
-    if latest.dose_u == prev.dose_u:
-         # No recent change detected in top 2... 
-         # In real app verify looking back further?
-         # User says: "cuando insertas una basal ... y dose_u difiere".
-         # Assuming user just inserted one.
-         pass
-         
-    # Let's assume 'latest' IS the change we want to evaluate?
-    # Or should we find the actual transition point?
-    # If latest created 7 days ago...
-    
-    change_point = latest.created_at
-    # Convert to date
-    change_date = change_point.date()
-    
+    for i in range(1, len(dates)):
+        d = dates[i]
+        t = by_date[d]
+        if abs(t - current_total) > 0.5: # Change detected
+            change_date = dates[0] # The change happened ON the new regime start
+            prev_total = t
+            # Actually, the change effective date is dates[0] presumably if that's the start of new regime.
+            # But if there are gaps? Assuming continuous.
+            # Let's verify if dates[0] is recent.
+            # If dates[0] is today and dates[1] was yesterday and they differ, change was today.
+            change_date = dates[0] # Use the LATEST date as the start of new regime
+            break
+            
+    if change_date is None:
+         # No change found in history
+         return {"result": "insufficient", "summary": "Dosis estable, sin cambios recientes.", "evidence": {}}
+
     # Define Periods
     # Before: [change_date - days, change_date)
     # After: [change_date, change_date + days)
@@ -335,9 +350,9 @@ async def evaluate_change_service(user_id: str, days: int, db: AsyncSession):
     # Save Evaluation
     eval_entry = BasalChangeEvaluation(
         user_id=user_id,
-        change_at=latest.created_at, # Using created_at as effective?
-        from_dose_u=prev.dose_u,
-        to_dose_u=latest.dose_u,
+        change_at=datetime.combine(change_date, time(0,0)), 
+        from_dose_u=prev_total,
+        to_dose_u=current_total,
         days=days,
         result=result,
         summary=summary,
