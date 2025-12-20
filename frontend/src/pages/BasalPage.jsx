@@ -324,7 +324,7 @@ function BasalEntrySection({ onRefresh }) {
             }
 
             <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
-                <Button variant="ghost" onClick={handleSaveSimple} disabled={loading} style={{ border: '1px solid #e2e8f0', flex: 1 }}>
+                <Button variant="secondary" onClick={handleSaveSimple} disabled={loading} style={{ flex: 1 }}>
                     {loading ? '...' : 'Solo Guardar'}
                 </Button>
                 <Button onClick={handleCheckinWake} disabled={loading} style={{ flex: 1.5 }}>
@@ -437,7 +437,7 @@ function BasalImpactSection() {
 
             <div style={{ display: 'flex', gap: '0.5rem' }}>
                 <Button variant="secondary" onClick={() => evalImpact(7)} disabled={loading} style={{ flex: 1, fontSize: '0.85rem' }}>📊 Evaluar (7 días)</Button>
-                <Button variant="ghost" onClick={() => evalImpact(14)} disabled={loading} style={{ flex: 1, fontSize: '0.85rem' }}>14 días</Button>
+                <Button variant="secondary" onClick={() => evalImpact(14)} disabled={loading} style={{ flex: 1, fontSize: '0.85rem' }}>Evaluar (14 días)</Button>
             </div>
         </Card>
     );

@@ -210,9 +210,6 @@ async def get_advice_service(user_id: str, days: int, db: AsyncSession):
 async def evaluate_change_service(user_id: str, days: int, db: AsyncSession):
     # Find last change point by looking at daily totals
     # Fetch enough history to find a change
-    dose_hist = await basal_repo.get_dose_history(db, user_id, days=60) # Need repo access directly or query? 
-    # Wait, get_dose_history is in basal_repo but I don't have it imported or access to repo funcs directly if they use DB.
-    # Ah, I have db session. I can query directly.
     
     q_dose = select(BasalEntry).where(
         BasalEntry.user_id == user_id
