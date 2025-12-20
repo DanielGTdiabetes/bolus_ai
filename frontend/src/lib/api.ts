@@ -625,6 +625,15 @@ export async function evaluateBasalChange(days = 7) {
   return data;
 }
 
+export async function deleteHistoryEntry(dateStr) {
+  const response = await apiFetch(`/api/basal/history/${dateStr}`, {
+    method: "DELETE"
+  });
+  const data = await toJson(response);
+  if (!response.ok) throw new Error(data.detail || "Error al eliminar entrada");
+  return data;
+}
+
 export async function getNotificationsSummary() {
   const response = await apiFetch("/api/notifications/summary");
   const data = await toJson(response);

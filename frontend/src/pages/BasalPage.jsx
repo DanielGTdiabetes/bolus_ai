@@ -533,7 +533,25 @@ function BasalTimelineSection() {
 
                                 return (
                                     <tr key={idx} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                                        <td style={{ padding: '0.75rem', color: '#334155' }}>{dateStr}</td>
+                                        <td style={{ padding: '0.75rem', color: '#334155' }}>
+                                            {dateStr}
+                                            <button
+                                                onClick={async (e) => {
+                                                    e.stopPropagation();
+                                                    if (confirm(`¿Borrar registro del ${dateStr}?`)) {
+                                                        try {
+                                                            const { deleteHistoryEntry } = await import('../lib/api');
+                                                            await deleteHistoryEntry(item.date);
+                                                            load();
+                                                        } catch (err) { alert(err.message); }
+                                                    }
+                                                }}
+                                                style={{ border: 'none', background: 'transparent', cursor: 'pointer', marginLeft: '8px', color: '#cbd5e1', fontSize: '0.9rem' }}
+                                                title="Borrar entrada"
+                                            >
+                                                🗑️
+                                            </button>
+                                        </td>
                                         <td style={{ padding: '0.75rem', fontWeight: 700, color: '#3b82f6' }}>
                                             {item.dose_u ? item.dose_u + ' U' : '-'}
                                         </td>

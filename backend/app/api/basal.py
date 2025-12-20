@@ -492,3 +492,37 @@ async def evaluate_change(
     res = await basal_engine.evaluate_change_service(username, payload.days, db)
     return res
 
+@router.delete("/history/{date_str}")
+async def delete_history_entry(
+    date_str: str,
+    username: str = Depends(auth_required),
+    db: AsyncSession = Depends(get_db_session)
+):
+    """
+    Elimina checkin y resumen nocturno de una fecha específica.
+    Formato: YYYY-MM-DD
+    """
+    try:
+        target_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Formato de fecha inválido. Usar YYYY-MM-DD")
+
+    from sqlalchemy import delete
+    from app.models.basal import BasalCheckin, BasalNightSummary
+
+    # Delete Checkin
+    stmt1 = delete(BasalCheckin).where(
+        BasalCheckin.user_id == username,
+        BasalCheckin.checkin_date == target_date
+    )
+    await db.execute(stmt1)
+
+    # Delete Night Summary
+    stmt2 = delete(BasalNightSummary).where(
+        BasalNightSummary.user_id == username,
+        BasalNightSummary.night_date == target_date
+    )
+    await db.execute(stmt2)
+
+    await db.commit()
+    return {"status": "deleted", "date": date_str}
