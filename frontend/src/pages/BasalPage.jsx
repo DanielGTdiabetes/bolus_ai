@@ -5,7 +5,7 @@ import { Card, Button, Input } from '../components/ui/Atoms';
 import {
     createBasalEntry, createBasalCheckin, runNightScan,
     getBasalAdvice, getBasalTimeline, evaluateBasalChange,
-    getLocalNsConfig
+    getLocalNsConfig, getSupplies, updateSupply
 } from '../lib/api';
 import { InjectionSiteSelector, saveInjectionSite } from '../components/injection/InjectionSiteSelector';
 
@@ -67,10 +67,15 @@ function BasalEntrySection({ onRefresh }) {
                     saveInjectionSite('basal', injectionSite);
                 }
 
-                // Decrement needle stock
-                const currentStock = parseInt(localStorage.getItem('supplies_needles') || '0', 10);
-                if (currentStock > 0) {
-                    localStorage.setItem('supplies_needles', String(currentStock - 1));
+                // Decrement needle stock (API)
+                try {
+                    const supplies = await getSupplies();
+                    const needles = supplies.find(s => s.key === 'supplies_needles');
+                    if (needles && needles.quantity > 0) {
+                        await updateSupply('supplies_needles', needles.quantity - 1);
+                    }
+                } catch (err) {
+                    console.warn("Stock update failed", err);
                 }
 
                 return true;

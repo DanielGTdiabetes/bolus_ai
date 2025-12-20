@@ -8,7 +8,8 @@ import {
 import { formatTrend } from '../modules/core/utils';
 import {
     getCurrentGlucose, calculateBolusWithOptionalSplit,
-    saveTreatment, getLocalNsConfig, getIOBData
+    saveTreatment, getLocalNsConfig, getIOBData,
+    getSupplies, updateSupply
 } from '../lib/api';
 import { startRestaurantSession } from '../lib/restaurantApi';
 import { navigate } from '../modules/core/router';
@@ -284,6 +285,17 @@ export default function BolusPage() {
             }
 
             const apiRes = await saveTreatment(treatment);
+
+            // Decrement Needle Stock
+            try {
+                const supplies = await getSupplies();
+                const needles = supplies.find(s => s.key === 'supplies_needles');
+                if (needles && needles.quantity > 0) {
+                    await updateSupply('supplies_needles', needles.quantity - 1);
+                }
+            } catch (err) {
+                console.warn("Failed to update stock:", err);
+            }
 
             // SPECIAL: Start Restaurant Session if flagged
             // SPECIAL: Start Restaurant Session if flagged
