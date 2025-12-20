@@ -37,10 +37,7 @@ async def run_analysis_endpoint(
             # Inject updated_at for analysis optimization
             dt = data.get("updated_at")
             if dt:
-                 try:
-                     s_obj.updated_at = dt
-                 except:
-                     pass
+                 s_obj.updated_at = dt
         
         if not s_obj:
             # Fallback to file Store
@@ -73,7 +70,6 @@ async def run_analysis_endpoint(
     client = None
     if final_url:
         client = NightscoutClient(base_url=final_url, token=final_token)
-        client = NightscoutClient(base_url=final_url, token=final_token)
     elif not final_url:
          # If truly no config found anywhere, warn but proceed with DB-only analysis
          pass
@@ -96,7 +92,6 @@ async def run_analysis_endpoint(
             await client.aclose()
 
 @router.get("/bolus/summary", summary="Get post-bolus analysis summary")
-@router.get("/bolus/summary", summary="Get post-bolus analysis summary")
 async def get_summary_endpoint(
     days: int = 30,
     current_user: Any = Depends(get_current_user),
@@ -113,10 +108,7 @@ async def get_summary_endpoint(
             s_obj = UserSettings.migrate(data["settings"])
             dt = data.get("updated_at")
             if dt:
-                 try:
-                     s_obj.updated_at = dt
-                 except:
-                     pass
+                 s_obj.updated_at = dt
         if not s_obj:
             s_obj = store.load_settings()
         return s_obj

@@ -1,6 +1,6 @@
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
@@ -52,8 +52,8 @@ async def update_user_settings_service(user_id: str, new_settings: dict, client_
             user_id=user_id,
             settings=new_settings,
             version=1,
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow()
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc)
         )
         db.add(new_row)
         await db.commit()
@@ -67,7 +67,7 @@ async def update_user_settings_service(user_id: str, new_settings: dict, client_
         # Match. Update.
         row.settings = new_settings
         row.version = row.version + 1
-        row.updated_at = datetime.utcnow()
+        row.updated_at = datetime.now(timezone.utc)
         
         await db.commit()
         return {"settings": row.settings, "version": row.version, "updated_at": row.updated_at}
@@ -90,8 +90,8 @@ async def import_user_settings_service(user_id: str, settings: dict, db: AsyncSe
             user_id=user_id,
             settings=settings,
             version=1,
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow()
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc)
         )
         db.add(new_row)
         await db.commit()

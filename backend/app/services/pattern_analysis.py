@@ -196,8 +196,12 @@ async def get_summary_service(user_id: str, days: int, db: AsyncSession, setting
         # settings.updated_at is timezone aware (UTC) usually
         # If the user updated settings 2 days ago, we should only look at last 2 days
         # even if they asked for 30.
-        if settings.updated_at > since:
-            since = settings.updated_at
+        ua = settings.updated_at
+        if ua.tzinfo is None:
+            ua = ua.replace(tzinfo=timezone.utc)
+            
+        if ua > since:
+            since = ua
 
     query = select(BolusPostAnalysis).where(
         BolusPostAnalysis.user_id == user_id,

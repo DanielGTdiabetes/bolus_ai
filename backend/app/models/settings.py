@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Literal, Optional
+from datetime import datetime
 
 from pydantic import BaseModel, Field
 
@@ -105,6 +106,9 @@ class UserSettings(BaseModel):
     adaptive: AdaptiveConfig = Field(default_factory=AdaptiveConfig)
     nightscout: NightscoutConfig = Field(default_factory=NightscoutConfig)
     techne: TechneRoundingConfig = Field(default_factory=TechneRoundingConfig)
+    
+    # Internal field to track update time from DB, not part of user input JSON usually
+    updated_at: Optional[datetime] = None
 
     @classmethod
     def migrate(cls, data: dict) -> "UserSettings":
