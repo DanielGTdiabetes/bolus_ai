@@ -25,9 +25,32 @@ async def run_analysis_endpoint(
     store: DataStore = Depends(_data_store),
     db: AsyncSession = Depends(get_db_session)
 ):
+    from app.services.settings_service import get_user_settings_service
+    
+    # Helper to load settings from DB with fallback
+    async def _load_settings() -> UserSettings:
+        # DB first
+        data = await get_user_settings_service(current_user.username, db)
+        s_obj = None
+        if data and data.get("settings"):
+            s_obj = UserSettings.migrate(data["settings"])
+            # Inject updated_at for analysis optimization
+            dt = data.get("updated_at")
+            if dt:
+                 try:
+                     s_obj.updated_at = dt
+                 except:
+                     pass
+        
+        if not s_obj:
+            # Fallback to file Store
+            s_obj = store.load_settings()
+        return s_obj
+
     days = payload.get("days", 30)
     
-    settings = store.load_settings()
+    settings = await _load_settings()
+
     # Resolve Nightscout Credentials (DB Priority)
     from app.services.nightscout_secrets_service import get_ns_config
     
@@ -80,6 +103,24 @@ async def get_summary_endpoint(
     store: DataStore = Depends(_data_store),
     db: AsyncSession = Depends(get_db_session)
 ):
+    from app.services.settings_service import get_user_settings_service
+    
+    # Helper (duplicated locally for now or we could move it, but this is simple enough)
+    async def _load_settings_summary() -> UserSettings:
+        data = await get_user_settings_service(current_user.username, db)
+        s_obj = None
+        if data and data.get("settings"):
+            s_obj = UserSettings.migrate(data["settings"])
+            dt = data.get("updated_at")
+            if dt:
+                 try:
+                     s_obj.updated_at = dt
+                 except:
+                     pass
+        if not s_obj:
+            s_obj = store.load_settings()
+        return s_obj
+
     user_id = current_user.username
-    settings = store.load_settings()
+    settings = await _load_settings_summary()
     return await get_summary_service(user_id=user_id, days=days, db=db, settings=settings)

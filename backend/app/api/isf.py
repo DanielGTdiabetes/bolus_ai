@@ -33,12 +33,16 @@ async def analyze_isf(
         final_token = db_ns_config.api_secret
     else:
         # Fallback local settings (just in case)
+        from app.services.settings_service import get_user_settings_service
         try:
-            local_settings = store.load_settings()
-            ns = local_settings.get("nightscout", {})
-            if ns.get("url"):
-                 final_url = ns.get("url")
-                 final_token = ns.get("token")
+             # Try DB again for safety if get_ns_config failed or returned empty but maybe settings has something? 
+             # Actually get_ns_config already checks DB. 
+             # So we check Store as last resort.
+             local_settings = store.load_settings()
+             ns = local_settings.get("nightscout", {})
+             if ns.get("url"):
+                  final_url = ns.get("url")
+                  final_token = ns.get("token")
         except Exception:
             pass
     
@@ -48,10 +52,17 @@ async def analyze_isf(
     client = NightscoutClient(base_url=final_url, token=final_token)
     
     # 2. Get User Profile Settings (ISF, IOB)
+    from app.services.settings_service import get_user_settings_service
+    
     try:
-        raw_settings = store.load_settings()
-        user_settings = UserSettings.migrate(raw_settings)
-        
+        data = await get_user_settings_service(user_id, db)
+        user_settings = None
+        if data and data.get("settings"):
+            user_settings = UserSettings.migrate(data["settings"])
+        else:
+            raw_settings = store.load_settings()
+            user_settings = UserSettings.migrate(raw_settings)
+
         current_cf = {
             "breakfast": user_settings.cf.breakfast,
             "lunch": user_settings.cf.lunch,

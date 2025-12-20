@@ -138,8 +138,20 @@ async def calculate_bolus_stateless(
         )
 
     else:
-        # Legacy: Load from DB
-        user_settings = store.load_settings()
+        # Legacy: Load from DB if available, fallback to Store
+        from app.services.settings_service import get_user_settings_service
+        
+        user_settings = None
+        if session:
+            try:
+                data = await get_user_settings_service(user.username, session)
+                if data and data.get("settings"):
+                    user_settings = UserSettings.migrate(data["settings"])
+            except Exception as e:
+                logger.warning(f"Failed to load settings from DB for bolus: {e}")
+                
+        if not user_settings:
+            user_settings = store.load_settings()
 
 
     # 2. Resolve Nightscout Client
@@ -422,7 +434,17 @@ async def get_current_iob(
     session: AsyncSession = Depends(get_db_session),
 ):
     # Construct settings or load
-    settings = store.load_settings()
+    from app.services.settings_service import get_user_settings_service
+    settings = None
+    if session:
+        try:
+             data = await get_user_settings_service(user.username, session)
+             if data and data.get("settings"):
+                 settings = UserSettings.migrate(data["settings"])
+        except:
+             pass
+    if not settings:
+        settings = store.load_settings()
     
     # NS Client
     ns_client = None
