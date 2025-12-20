@@ -16,6 +16,7 @@ class MealFactors(BaseModel):
     breakfast: float = Field(default=10.0, description="Ratio CR (g/U)")
     lunch: float = Field(default=10.0, description="Ratio CR (g/U)")
     dinner: float = Field(default=10.0, description="Ratio CR (g/U)")
+    snack: float = Field(default=10.0, description="Ratio CR (g/U)")
 
 
 class AdaptiveFatConfig(BaseModel):
@@ -93,7 +94,7 @@ class UserSettings(BaseModel):
     schema_version: int = 1
     units: Literal["mg/dL"] = "mg/dL"
     targets: TargetRange = Field(default_factory=TargetRange)
-    cf: MealFactors = Field(default_factory=lambda: MealFactors(breakfast=30, lunch=30, dinner=30)) # Default CF 30
+    cf: MealFactors = Field(default_factory=lambda: MealFactors(breakfast=30, lunch=30, dinner=30, snack=30)) # Default CF 30
     cr: MealFactors = Field(default_factory=MealFactors)
     max_bolus_u: float = 10.0
     max_correction_u: float = 5.0
@@ -107,25 +108,56 @@ class UserSettings(BaseModel):
 
     @classmethod
     def migrate(cls, data: dict) -> "UserSettings":
-        # Migration: Detect inverted CR (CR < 2.0 implies U/g instead of g/U)
-        # We assume values < 2.0 are wrong for g/U (very resistant people might be 3-4, but <2 is extreme)
-        # If found, flip them.
+        # 1. Frontend Legacy Format Support (Grouped by Slot)
+        # Frontend sends: { "lunch": { "icr": 10, "isf": 50 }, ... }
+        # Backend expects: { "cr": { "lunch": 10 }, "cf": { "lunch": 50 } }
+        
+        # Detect legacy format by checking for common slots
+        if "lunch" in data and isinstance(data["lunch"], dict) and ("icr" in data["lunch"] or "isf" in data["lunch"]):
+            new_cr = data.get("cr", {})
+            new_cf = data.get("cf", {})
+            
+            # Normalize to dicts if they are objects/models
+            if hasattr(new_cr, "model_dump"): new_cr = new_cr.model_dump()
+            if hasattr(new_cf, "model_dump"): new_cf = new_cf.model_dump()
+            if not isinstance(new_cr, dict): new_cr = {}
+            if not isinstance(new_cf, dict): new_cf = {}
+
+            # Map slots
+            for slot in ["breakfast", "lunch", "dinner", "snack"]:
+                if slot in data and isinstance(data[slot], dict):
+                    # Map ICR -> CR
+                    if "icr" in data[slot]:
+                        try:
+                            val = float(data[slot]["icr"])
+                            if val > 0: new_cr[slot] = val
+                        except: pass
+                    
+                    # Map ISF -> CF
+                    if "isf" in data[slot]:
+                        try:
+                            val = float(data[slot]["isf"])
+                            if val > 0: new_cf[slot] = val
+                        except: pass
+            
+            data["cr"] = new_cr
+            data["cf"] = new_cf
+
+
+        # 2. Logic Correction: Detect inverted CR or unsafe defaults
         cr_data = data.get("cr", {})
+        # If cr_data is a dict (it should be now), iterate keys
         if isinstance(cr_data, dict):
-            for slot in ["breakfast", "lunch", "dinner"]:
+            for slot in ["breakfast", "lunch", "dinner", "snack"]:
                 val = float(cr_data.get(slot, 0))
                 if 0 < val < 2.0:
                     # Inverted logic detected? Or just unsafe default.
                     # Convert: new = 1 / val? 
                     # If val=1.0 (old default), 1/1=1. No change.
                     # If val=0.1 (user entered 0.1 U/g), 1/0.1=10. Good.
-                    # We also should force at least a sane minimum?
-                    # Let's flip only if it results in something reasonable (>2).
-                    # Actually, if it's strictly < 2, assume user entered U/g.
                     new_val = 1.0 / val
                     if new_val >= 2.0:
                         cr_data[slot] = round(new_val, 1)
-                        # We can't log easily here without logger, but it modifies the dict before validation
                     else:
                         # If flipping doesn't help (e.g. 1.0 -> 1.0), force default safety?
                         if val == 1.0:
