@@ -199,15 +199,27 @@ function ActivityList({ onRefresh }) {
                 const diffHours = (now - basalDate) / (1000 * 60 * 60);
 
                 if (diffHours < 48) {
-                    combined.push({
-                        insulin: latestBasal.dose_u,
-                        carbs: 0,
-                        created_at: latestBasal.created_at,
-                        dateObj: basalDate,
-                        notes: 'Basal Manual',
-                        enteredBy: 'BolusAI',
-                        type: 'basal'
+                    // Deduplication: Check if already in Nightscout list
+                    const isDuplicate = combined.some(t => {
+                        const tTime = t.dateObj.getTime();
+                        const bTime = basalDate.getTime();
+                        const timeDiffMin = Math.abs(tTime - bTime) / 60000;
+                        const sameDose = Math.abs((parseFloat(t.insulin) || 0) - latestBasal.dose_u) < 0.1;
+                        // If same dose and within 15 min, assume duplicate
+                        return sameDose && timeDiffMin < 15;
                     });
+
+                    if (!isDuplicate) {
+                        combined.push({
+                            insulin: latestBasal.dose_u,
+                            carbs: 0,
+                            created_at: latestBasal.created_at,
+                            dateObj: basalDate,
+                            notes: 'Basal Manual',
+                            enteredBy: 'BolusAI',
+                            type: 'basal'
+                        });
+                    }
                 }
             }
 
