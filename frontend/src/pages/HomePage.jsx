@@ -111,7 +111,9 @@ function GlucoseHero({ onRefresh }) {
             </div>
 
             {/* Advanced Graph with Ambient Prediction */}
-            <MainGlucoseChart isLow={isLow} predictionData={prediction} />
+            <div style={{ width: '100%', height: '160px', marginTop: '1rem' }}>
+                <MainGlucoseChart isLow={isLow} predictionData={prediction} />
+            </div>
 
             {/* Prediction Alerts */}
             {prediction && prediction.summary && (prediction.summary.min_bg < 70 || prediction.summary.max_bg > 250) && (
