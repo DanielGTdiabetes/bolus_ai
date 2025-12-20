@@ -277,6 +277,30 @@ function AcceptedView() {
                 const resolvedDate = new Date(s.resolved_at);
                 const diffDays = Math.ceil(Math.abs(new Date() - resolvedDate) / (1000 * 60 * 60 * 24));
 
+                // Parse resolution note to be cleaner
+                let noteDisplay = s.resolution_note || "Sin nota";
+                let changeDetails = null;
+
+                if (noteDisplay.includes("Proposal:")) {
+                    try {
+                        const parts = noteDisplay.split("Proposal:");
+                        const mainNote = parts[0].replace(/\($/, '').trim();
+                        // Try to extract JSON
+                        const jsonStr = parts[1].trim().replace(/\)$/, '').replace(/'/g, '"'); // Simple python dict to json attempt
+                        const json = JSON.parse(jsonStr);
+
+                        noteDisplay = mainNote;
+                        changeDetails = (
+                            <span style={{ fontSize: '0.8rem', fontFamily: 'monospace', background: '#f1f5f9', padding: '2px 4px', borderRadius: '4px' }}>
+                                {json.old_value} ➔ {json.new_value}
+                            </span>
+                        );
+                    } catch (e) {
+                        // Fallback: just truncate
+                        noteDisplay = noteDisplay.split("(")[0].trim();
+                    }
+                }
+
                 return (
                     <Card key={s.id} style={{ borderLeft: '4px solid #cbd5e1' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between' }}>
@@ -286,7 +310,9 @@ function AcceptedView() {
                             </div>
                             <small style={{ color: '#94a3b8' }}>{resolvedDate.toLocaleDateString()}</small>
                         </div>
-                        <p style={{ fontSize: '0.9rem', color: '#334155', margin: '0.5rem 0' }}>{s.resolution_note || "Sin nota"}</p>
+                        <div style={{ fontSize: '0.9rem', color: '#334155', margin: '0.5rem 0' }}>
+                            {noteDisplay} {changeDetails}
+                        </div>
 
                         {ev ? (
                             <div style={{

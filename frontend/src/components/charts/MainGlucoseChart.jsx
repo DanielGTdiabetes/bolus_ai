@@ -42,21 +42,49 @@ export function MainGlucoseChart({ isLow }) {
                 })).filter(t => t.time >= startTime && t.time <= endTime + 1000 * 60 * 10); // slightly wider window
 
                 // Merge Data
-                // We create a unified timeline based on glucose points
-                // For each glucose point, we check if there's a treatment within +/- 2.5 mins
+                // Prevent duplication: Map each treatment to the single closest glucose point
 
-                const merged = sortedG.map(g => {
-                    // Find treatments close to this point
-                    const match = treatments.find(t => Math.abs(t.time - g.date) < 2.5 * 60 * 1000); // 2.5 min window
-
-                    return {
-                        timeLabel: new Date(g.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                // 1. Create a map of glucose point timestamp -> data object
+                const mergedMap = new Map();
+                sortedG.forEach(g => {
+                    const t = new Date(g.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                    mergedMap.set(g.date, {
+                        timeLabel: t,
                         bg: g.sgv,
-                        insulin: match ? match.insulin : 0,
-                        carbs: match ? match.carbs : 0,
-                        hasTreatment: !!match
-                    };
+                        insulin: 0,
+                        carbs: 0,
+                        hasTreatment: false,
+                        originalDate: g.date
+                    });
                 });
+
+                // 2. Assign each treatment to the closest glucose point
+                treatments.forEach(t => {
+                    let closestDate = null;
+                    let minDiff = Infinity;
+
+                    // Find closest glucose point
+                    // Optimization: We could binary search if sortedG is large, but for 36 items iteration is fine.
+                    sortedG.forEach(g => {
+                        const diff = Math.abs(g.date - t.time);
+                        if (diff < minDiff) {
+                            minDiff = diff;
+                            closestDate = g.date;
+                        }
+                    });
+
+                    // Only attach if within reasonable window (e.g. 7 mins)
+                    if (closestDate && minDiff < 7 * 60 * 1000) {
+                        const point = mergedMap.get(closestDate);
+                        if (point) {
+                            point.insulin += t.insulin;
+                            point.carbs += t.carbs;
+                            point.hasTreatment = true;
+                        }
+                    }
+                });
+
+                const merged = Array.from(mergedMap.values());
 
                 setData(merged);
             } catch (err) {

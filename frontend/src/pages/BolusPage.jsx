@@ -734,30 +734,6 @@ function FoodSmartAutocomplete({ value, onChange, onSelect }) {
     const [suggestions, setSuggestions] = useState([]);
     const [bestMatch, setBestMatch] = useState('');
 
-    // Suggest based on input
-    useEffect(() => {
-        if (!value || value.length < 1) {
-            setSuggestions([]);
-            setBestMatch('');
-            return;
-        }
-
-        const favs = getFavorites();
-        const lowerVal = value.trim().toLowerCase();
-
-        // 1. Ghost Match: Must start with input
-        const prefixMatch = favs.find(f => f.name.toLowerCase().startsWith(lowerVal));
-        if (prefixMatch) {
-            setBestMatch(prefixMatch.name);
-        } else {
-            setBestMatch('');
-        }
-
-        // 2. Dropdown Match: Contains input
-        const matches = favs.filter(f => f.name.toLowerCase().includes(lowerVal));
-        setSuggestions(matches.slice(0, 3));
-    }, [value]);
-
     const acceptMatch = () => {
         if (!bestMatch) return;
         const favs = getFavorites();
@@ -768,6 +744,33 @@ function FoodSmartAutocomplete({ value, onChange, onSelect }) {
             setSuggestions([]);
         }
     };
+
+    // Helper for accent-insensitive comparison
+    const normalize = (str) => str.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+
+    // Suggest based on input
+    useEffect(() => {
+        if (!value || value.length < 1) {
+            setSuggestions([]);
+            setBestMatch('');
+            return;
+        }
+
+        const favs = getFavorites();
+        const normVal = normalize(value.trim());
+
+        // 1. Ghost Match: Must start with input (accent-insensitive)
+        const prefixMatch = favs.find(f => normalize(f.name).startsWith(normVal));
+        if (prefixMatch) {
+            setBestMatch(prefixMatch.name);
+        } else {
+            setBestMatch('');
+        }
+
+        // 2. Dropdown Match: Contains input (accent-insensitive)
+        const matches = favs.filter(f => normalize(f.name).includes(normVal));
+        setSuggestions(matches.slice(0, 5)); // Increased limit to 5
+    }, [value]);
 
     const handleKeyDown = (e) => {
         if ((e.key === 'Enter' || e.key === 'Tab') && bestMatch) {
