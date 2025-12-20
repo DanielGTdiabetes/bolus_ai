@@ -126,7 +126,10 @@ function GlucoseHero({ onRefresh }) {
                 </div>
             )}
 
-            <div style={{ textAlign: 'center', marginTop: '0.5rem', fontSize: '0.75rem', color: '#94a3b8' }}>
+            <div
+                style={{ textAlign: 'center', marginTop: '0.5rem', fontSize: '0.75rem', color: '#94a3b8', textDecoration: 'underline', cursor: 'pointer', padding: '10px' }}
+                onClick={(e) => { e.stopPropagation(); navigate('#/forecast'); }}
+            >
                 Toca para ver predicción detallada
             </div>
         </section>

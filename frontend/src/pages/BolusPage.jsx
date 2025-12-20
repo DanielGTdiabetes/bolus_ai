@@ -427,7 +427,7 @@ export default function BolusPage() {
                                     checked={simulationMode}
                                     onChange={e => setSimulationMode(e.target.checked)}
                                 />
-                                🔮 Modo Futuro (Beta)
+                                🔮 Modo Predicción
                             </label>
                         </div>
 
