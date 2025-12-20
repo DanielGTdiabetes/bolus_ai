@@ -9,39 +9,16 @@ import { formatTrend } from '../modules/core/utils';
 import {
     getCurrentGlucose, calculateBolusWithOptionalSplit,
     saveTreatment, getLocalNsConfig, getIOBData,
-    getSupplies, updateSupply
+    getSupplies, updateSupply,
+    getFavorites, addFavorite
 } from '../lib/api';
 import { startRestaurantSession } from '../lib/restaurantApi';
 import { navigate } from '../modules/core/router';
 import { useStore } from '../hooks/useStore';
 import { InjectionSiteSelector, saveInjectionSite, getSiteLabel } from '../components/injection/InjectionSiteSelector';
 
-const FAV_KEY = "bolusai_favorites";
+// Removed local FAV_KEY and helper functions
 
-function getFavorites() {
-    try {
-        return JSON.parse(localStorage.getItem(FAV_KEY) || "[]");
-    } catch { return []; }
-}
-
-function saveToFavorites(name, carbs, strategy = null) {
-    const favs = getFavorites();
-    const existingIdx = favs.findIndex(f => f.name.trim().toLowerCase() === name.trim().toLowerCase());
-
-    const newEntry = {
-        id: Date.now(),
-        name: name.trim(),
-        carbs,
-        strategy // { type: 'dual', ... } or null
-    };
-
-    if (existingIdx >= 0) {
-        favs[existingIdx] = { ...favs[existingIdx], ...newEntry, id: favs[existingIdx].id };
-    } else {
-        favs.push(newEntry);
-    }
-    localStorage.setItem(FAV_KEY, JSON.stringify(favs));
-}
 
 export default function BolusPage() {
     // State
@@ -57,6 +34,9 @@ export default function BolusPage() {
     const [correctionOnly, setCorrectionOnly] = useState(false);
     const [dualEnabled, setDualEnabled] = useState(false);
     const [plateItems, setPlateItems] = useState([]);
+
+    // Favorites State
+    const [favorites, setFavorites] = useState([]);
 
     // Result State
     const [result, setResult] = useState(null); // The raw API response
@@ -136,6 +116,11 @@ export default function BolusPage() {
                 const val = iobData.iob_u ?? iobData.iob_total ?? 0;
                 setIob(val);
             }
+
+            // Favorites
+            const favs = await getFavorites();
+            if (favs) setFavorites(favs);
+
         } catch (e) { console.warn(e); }
     };
 
@@ -145,8 +130,8 @@ export default function BolusPage() {
             setSuggestedStrategy(null);
             return;
         }
-        const favs = getFavorites();
-        const match = favs.find(f => f.name.toLowerCase() === foodName.trim().toLowerCase());
+        // Match from loaded API favorites
+        const match = favorites.find(f => f.name.toLowerCase() === foodName.trim().toLowerCase());
         if (match && match.strategy && match.strategy.type === 'dual') {
             // Only suggest if not already enabled
             if (!dualEnabled) {
@@ -155,7 +140,7 @@ export default function BolusPage() {
         } else {
             setSuggestedStrategy(null);
         }
-    }, [foodName, dualEnabled]);
+    }, [foodName, dualEnabled, favorites]);
 
     const applyStrategy = () => {
         if (suggestedStrategy) {
@@ -391,6 +376,7 @@ export default function BolusPage() {
                             <FoodSmartAutocomplete
                                 value={foodName}
                                 onChange={setFoodName}
+                                favorites={favorites} // Pass API favorites
                                 onSelect={(item) => {
                                     setFoodName(item.name);
                                     setCarbs(String(item.carbs));
@@ -574,6 +560,8 @@ export default function BolusPage() {
                         saving={saving}
                         currentCarbs={carbs}
                         foodName={foodName}
+                        favorites={favorites} // Pass favorites for checking existence
+                        onFavoriteAdded={(newFav) => setFavorites(prev => [...prev, newFav])} // Optimistic update or reload
                     />
                 )}
 
@@ -583,7 +571,7 @@ export default function BolusPage() {
     );
 }
 
-function ResultView({ result, onBack, onSave, saving, currentCarbs, foodName }) {
+function ResultView({ result, onBack, onSave, saving, currentCarbs, foodName, favorites, onFavoriteAdded }) {
     // Local state for edit before confirm
     const [finalDose, setFinalDose] = useState(result.upfront_u);
     const [injectionSite, setInjectionSite] = useState(null);
@@ -594,29 +582,24 @@ function ResultView({ result, onBack, onSave, saving, currentCarbs, foodName }) 
 
     useEffect(() => {
         if (foodName && foodName.trim().length > 2) {
-            const favs = getFavorites();
-            const exists = favs.some(f => f.name.toLowerCase() === foodName.toLowerCase());
+            const exists = favorites.some(f => f.name.toLowerCase() === foodName.toLowerCase());
             if (!exists) {
                 setIsNewFav(true);
-                setSaveFav(true); // Default to true for convenience? Or false? Let's say true to encourage learning.
+                setSaveFav(true);
             }
         }
-    }, [foodName]);
+    }, [foodName, favorites]);
 
-    const handleConfirm = () => {
+    const handleConfirm = async () => {
         if (saveFav && isNewFav && foodName) {
-            let strategy = null;
-            if (result.kind === 'dual') {
-                strategy = {
-                    type: 'dual',
-                    duration: result.duration_min,
-                    // If we have access to original split params or calculate from result
-                    // For now, duration is most critical. Split % is less standard (user changes it).
-                    // But if available in plan:
-                    splitNow: result.plan?.dual?.percent_now || 70
-                };
+            try {
+                // Save to API
+                const newFav = await addFavorite(foodName, parseFloat(currentCarbs));
+                if (onFavoriteAdded) onFavoriteAdded(newFav);
+            } catch (err) {
+                console.error("Error saving favorite:", err);
+                alert("No se pudo guardar el favorito, pero el bolo continuará.");
             }
-            saveToFavorites(foodName, currentCarbs, strategy);
         }
         onSave(finalDose, injectionSite);
     };
@@ -730,14 +713,13 @@ function ResultView({ result, onBack, onSave, saving, currentCarbs, foodName }) 
     );
 }
 
-function FoodSmartAutocomplete({ value, onChange, onSelect }) {
+function FoodSmartAutocomplete({ value, onChange, onSelect, favorites = [] }) {
     const [suggestions, setSuggestions] = useState([]);
     const [bestMatch, setBestMatch] = useState('');
 
     const acceptMatch = () => {
         if (!bestMatch) return;
-        const favs = getFavorites();
-        const item = favs.find(f => f.name === bestMatch);
+        const item = favorites.find(f => f.name === bestMatch);
         if (item) {
             onSelect(item);
             setBestMatch('');
@@ -756,11 +738,10 @@ function FoodSmartAutocomplete({ value, onChange, onSelect }) {
             return;
         }
 
-        const favs = getFavorites();
         const normVal = normalize(value.trim());
 
         // 1. Ghost Match: Must start with input (accent-insensitive)
-        const prefixMatch = favs.find(f => normalize(f.name).startsWith(normVal));
+        const prefixMatch = favorites.find(f => normalize(f.name).startsWith(normVal));
         if (prefixMatch) {
             setBestMatch(prefixMatch.name);
         } else {
@@ -768,9 +749,9 @@ function FoodSmartAutocomplete({ value, onChange, onSelect }) {
         }
 
         // 2. Dropdown Match: Contains input (accent-insensitive)
-        const matches = favs.filter(f => normalize(f.name).includes(normVal));
+        const matches = favorites.filter(f => normalize(f.name).includes(normVal));
         setSuggestions(matches.slice(0, 5)); // Increased limit to 5
-    }, [value]);
+    }, [value, favorites]);
 
     const handleKeyDown = (e) => {
         if ((e.key === 'Enter' || e.key === 'Tab') && bestMatch) {
