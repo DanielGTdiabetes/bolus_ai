@@ -870,12 +870,14 @@ function FoodSmartAutocomplete({ value, onChange, onSelect, favorites = [] }) {
 function PreBolusTimer() {
     const [waitMin, setWaitMin] = useState(0);
     const [eatTime, setEatTime] = useState(null);
+    const [name, setName] = useState("");
 
     useEffect(() => {
         import('../modules/core/store').then(({ getCalcParams }) => {
             const p = getCalcParams();
             const min = p?.insulin?.pre_bolus_min || 0;
             setWaitMin(min);
+            setName(p?.insulin?.name || "");
 
             if (min > 0) {
                 const now = new Date();
@@ -901,7 +903,7 @@ function PreBolusTimer() {
                 fontWeight: 600,
                 border: '1px solid #bae6fd'
             }}>
-                <span>⏳ Espera {waitMin} min</span>
+                <span>⏳ Espera {waitMin} min {name ? `(${name})` : ''}</span>
                 {eatTime && <span style={{ opacity: 0.8, fontWeight: 400 }}>→ Comer a las {eatTime}</span>}
             </div>
         </div>

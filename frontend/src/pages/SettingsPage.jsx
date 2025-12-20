@@ -275,8 +275,14 @@ function CalcParamsPanel() {
                 <Input label="Duración Insulina (DIA - Horas)" type="number" value={params.dia_hours} onChange={e => handleChange('dia_hours', e.target.value)} />
                 <Input label="Máximo Bolo (Seguridad - U)" type="number" value={params.max_bolus_u} onChange={e => handleChange('max_bolus_u', e.target.value)} />
 
-                <h4 style={{ margin: '0.5rem 0', color: '#475569', fontSize: '1rem' }}>Tiempos de Espera (Insulina)</h4>
+                <h4 style={{ margin: '0.5rem 0', color: '#475569', fontSize: '1rem' }}>Configuración de Insulina</h4>
                 <div style={{ background: '#f8fafc', padding: '1rem', borderRadius: '8px', border: '1px solid #e2e8f0', marginBottom: '1rem' }}>
+                    <Input
+                        label="Nombre (Marca)"
+                        value={params.insulin?.name ?? "Novorapid"}
+                        onChange={e => setParams(prev => ({ ...prev, insulin: { ...prev.insulin, name: e.target.value } }))}
+                        placeholder="Ej: Novorapid, Fiasp, Humalog"
+                    />
                     <Input
                         label="Espera Pre-comida (Min)"
                         type="number"

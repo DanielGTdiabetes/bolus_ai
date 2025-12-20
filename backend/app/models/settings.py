@@ -106,6 +106,7 @@ class UserSettings(BaseModel):
     adaptive: AdaptiveConfig = Field(default_factory=AdaptiveConfig)
     nightscout: NightscoutConfig = Field(default_factory=NightscoutConfig)
 class InsulinSettings(BaseModel):
+    name: str = Field(default="Novorapid", description="Name of the insulin used")
     sensor_delay_min: int = Field(default=15, description="Delay in minutes for glucose sensor readings")
     pre_bolus_min: int = Field(default=15, description="Recommended wait time before eating after bolus")
 
