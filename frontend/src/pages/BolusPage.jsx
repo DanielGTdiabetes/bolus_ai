@@ -720,48 +720,148 @@ function ResultView({ result, onBack, onSave, saving, currentCarbs, foodName }) 
 
 function FoodSmartAutocomplete({ value, onChange, onSelect }) {
     const [suggestions, setSuggestions] = useState([]);
+    const [bestMatch, setBestMatch] = useState('');
 
     // Suggest based on input
     useEffect(() => {
-        if (!value || value.length < 2) {
+        if (!value || value.length < 1) {
             setSuggestions([]);
+            setBestMatch('');
             return;
         }
+
         const favs = getFavorites();
-        const matches = favs.filter(f => f.name.toLowerCase().includes(value.toLowerCase()));
-        setSuggestions(matches.slice(0, 3)); // Limit to 3
+        const lowerVal = value.trim().toLowerCase();
+
+        // 1. Ghost Match: Must start with input
+        const prefixMatch = favs.find(f => f.name.toLowerCase().startsWith(lowerVal));
+        if (prefixMatch) {
+            setBestMatch(prefixMatch.name);
+        } else {
+            setBestMatch('');
+        }
+
+        // 2. Dropdown Match: Contains input
+        const matches = favs.filter(f => f.name.toLowerCase().includes(lowerVal));
+        setSuggestions(matches.slice(0, 3));
     }, [value]);
+
+    const acceptMatch = () => {
+        if (!bestMatch) return;
+        const favs = getFavorites();
+        const item = favs.find(f => f.name === bestMatch);
+        if (item) {
+            onSelect(item);
+            setBestMatch('');
+            setSuggestions([]);
+        }
+    };
+
+    const handleKeyDown = (e) => {
+        if ((e.key === 'Enter' || e.key === 'Tab') && bestMatch) {
+            e.preventDefault();
+            acceptMatch();
+        }
+    };
 
     return (
         <div style={{ position: 'relative' }}>
-            <Input
-                placeholder="Ej: Pizza, Manzana..."
-                value={value}
-                onChange={e => onChange(e.target.value)}
-                style={{ width: '100%' }}
-            />
+            <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                {/* Ghost Input Layer */}
+                <input
+                    type="text"
+                    readOnly
+                    value={bestMatch}
+                    style={{
+                        position: 'absolute', top: 0, left: 0, width: '100%', height: '100%',
+                        color: '#94a3b8',
+                        background: 'transparent',
+                        border: '1px solid transparent',
+                        borderRadius: '8px',
+                        padding: '0.5rem',
+                        fontSize: '1rem',
+                        pointerEvents: 'none',
+                        zIndex: 1
+                    }}
+                    tabIndex={-1}
+                />
+
+                {/* Real Input Layer */}
+                <input
+                    type="text"
+                    placeholder={bestMatch ? "" : "Ej: Pizza, Manzana..."}
+                    value={value}
+                    onChange={e => onChange(e.target.value)}
+                    onKeyDown={handleKeyDown}
+                    style={{
+                        width: '100%',
+                        position: 'relative',
+                        zIndex: 2,
+                        background: 'transparent',
+                        border: '1px solid #cbd5e1',
+                        borderRadius: '8px',
+                        padding: '0.5rem',
+                        fontSize: '1rem',
+                        color: 'var(--text)'
+                    }}
+                    autoComplete="off"
+                />
+
+                {/* Mobile 'Use' Button */}
+                {bestMatch && bestMatch.toLowerCase() !== value.toLowerCase() && (
+                    <div
+                        onClick={acceptMatch}
+                        style={{
+                            position: 'absolute',
+                            right: '10px',
+                            zIndex: 3,
+                            color: 'var(--primary)',
+                            cursor: 'pointer',
+                            fontWeight: 'bold',
+                            background: '#eff6ff',
+                            padding: '2px 8px',
+                            borderRadius: '4px',
+                            border: '1px solid #bfdbfe',
+                            fontSize: '0.8rem'
+                        }}
+                    >
+                        ↲ Usar
+                    </div>
+                )}
+            </div>
+
+            {/* Dropdown Suggestions */}
             {suggestions.length > 0 && (
                 <div style={{
-                    position: 'absolute', top: '100%', left: 0, right: 0,
+                    position: 'absolute', top: '105%', left: 0, right: 0,
                     background: '#fff', border: '1px solid #cbd5e1',
                     borderRadius: '8px', zIndex: 10, boxShadow: '0 4px 6px rgba(0,0,0,0.1)'
                 }}>
-                    {suggestions.map(s => (
-                        <div
-                            key={s.id}
-                            onClick={() => {
-                                onSelect(s);
-                                setSuggestions([]);
-                            }}
-                            style={{
-                                padding: '0.8rem', borderBottom: '1px solid #f1f5f9',
-                                cursor: 'pointer', display: 'flex', justifyContent: 'space-between'
-                            }}
-                        >
-                            <span>{s.name}</span>
-                            <span style={{ fontWeight: 700, color: 'var(--primary)' }}>{s.carbs}g</span>
-                        </div>
-                    ))}
+                    {suggestions.map(s => {
+                        const matchIndex = s.name.toLowerCase().indexOf(value.toLowerCase());
+                        const before = matchIndex >= 0 ? s.name.slice(0, matchIndex) : s.name;
+                        const match = matchIndex >= 0 ? s.name.slice(matchIndex, matchIndex + value.length) : "";
+                        const after = matchIndex >= 0 ? s.name.slice(matchIndex + value.length) : "";
+
+                        return (
+                            <div
+                                key={s.id}
+                                onClick={() => {
+                                    onSelect(s);
+                                    setSuggestions([]);
+                                    setBestMatch('');
+                                }}
+                                style={{
+                                    padding: '0.8rem', borderBottom: '1px solid #f1f5f9',
+                                    cursor: 'pointer', display: 'flex', justifyContent: 'space-between',
+                                    background: bestMatch === s.name ? '#f0f9ff' : 'transparent'
+                                }}
+                            >
+                                <span>{before}<strong>{match}</strong>{after}</span>
+                                <span style={{ fontWeight: 700, color: 'var(--primary)' }}>{s.carbs}g</span>
+                            </div>
+                        );
+                    })}
                 </div>
             )}
         </div>
