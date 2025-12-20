@@ -13,6 +13,7 @@ export function ScaleSection({ onWeightUsed, onDataReceived }) {
             if (typeof data.grams === 'number') state.scale.grams = data.grams;
             if (typeof data.stable === 'boolean') state.scale.stable = data.stable;
             if (typeof data.connected === 'boolean') state.scale.connected = data.connected;
+            if (typeof data.battery === 'number') state.scale.battery = data.battery;
 
             // Update local
             setScale({ ...state.scale });
@@ -62,11 +63,18 @@ export function ScaleSection({ onWeightUsed, onDataReceived }) {
         <Card className="scale-card" style={{ marginTop: '1.5rem' }}>
             <h3 style={{ margin: '0 0 1rem 0' }}>⚖️ Báscula Bluetooth</h3>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div className={`status-badge ${scale.connected ? 'success' : ''}`} style={{
-                    padding: '0.25rem 0.75rem', borderRadius: '99px', fontSize: '0.75rem', fontWeight: 600,
-                    background: scale.connected ? '#dcfce7' : '#f1f5f9', color: scale.connected ? '#166534' : '#64748b'
-                }}>
-                    {scale.connected ? 'Conectado' : 'Desconectado'}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <div className={`status-badge ${scale.connected ? 'success' : ''}`} style={{
+                        padding: '0.25rem 0.75rem', borderRadius: '99px', fontSize: '0.75rem', fontWeight: 600,
+                        background: scale.connected ? '#dcfce7' : '#f1f5f9', color: scale.connected ? '#166534' : '#64748b'
+                    }}>
+                        {scale.connected ? 'Conectado' : 'Desconectado'}
+                    </div>
+                    {scale.connected && scale.battery !== undefined && (
+                        <div style={{ fontSize: '0.8rem', color: '#64748b', fontWeight: 600 }}>
+                            🔋 {scale.battery}%
+                        </div>
+                    )}
                 </div>
                 <div style={{ textAlign: 'right' }}>
                     <div style={{ fontSize: '2rem', fontWeight: 800, color: 'var(--primary)' }}>
