@@ -4,6 +4,7 @@ services:
     env: python
     region: frankfurt
     plan: starter
+    autoDeploy: false
     buildCommand: chmod +x build_render.sh && ./build_render.sh
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /api/health
