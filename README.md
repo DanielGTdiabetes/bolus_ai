@@ -24,6 +24,12 @@ Para una explicación completa de cómo funciona la aplicación, consulta nuestr
 - **📊 Gestión de Basal**: Registro de glucosa al despertar, escaneo nocturno de hipos y evaluación de efectividad de cambios de dosis.
 
 ---
+## 💻 Ejecución Local (Recomendado Desarrollo)
+Para trabajar en el proyecto sin consumir minutos de Render, usa nuestra guía de ejecución local con Backend (Python) y Frontend (Vite) separados.
+
+👉 **[GUÍA DE EJECUCIÓN LOCAL](./GUIA_EJECUCION_LOCAL.md)**
+
+---
 
 ## 🚀 Despliegue Rápido (Render)
 

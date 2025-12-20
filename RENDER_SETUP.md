@@ -18,7 +18,14 @@ Bolus AI está configurado para ejecutarse como un único servicio que sirve tan
    - **Root Directory**: Dejar vacío (raíz del proyecto).
    - **Build Command**: `chmod +x build_render.sh && ./build_render.sh`
    - **Start Command**: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
-   - **Plan**: `Starter` (recomendado para tener persistsencia de datos). El plan `Free` funciona pero **borrará tus datos** cada vez que el servidor se duerma.
+   - **Plan**: `Starter`.
+   - **AutoDeploy**: `No` (o desactívalo en Settings después).
+
+> **⚠️ IMPORTANTE: AHORRO DE COSTES**
+> Hemos configurado el archivo `render.yaml` con `autoDeploy: false`.
+> Esto significa que tus cambios **NO** se subirán automáticamente.
+> Cuando quieras actualizar la versión pública, debes ir a tu Dashboard en Render y pulsar **"Manual Deploy"**.
+> Esto evita que gastes tus 500 minutos gratuitos con pequeños cambios de desarrollo.
 
 ## 3. Variables de Entorno (Environment Variables)
 Estas son las "instrucciones" secretas que necesita la app para funcionar. En Render, ve a la pestaña **Environment** y añade las siguientes:

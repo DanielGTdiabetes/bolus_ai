@@ -10,9 +10,9 @@ La aplicación se organiza en 5 secciones principales accesibles desde la barra 
 
 ### 1. 🏠 Inicio (Dashboard)
 Es el centro de control. Aquí puedes ver:
-- **Glucosa en tiempo real**: Valor actual y flecha de tendencia (conectado a Nightscout).
+- **Glucosa en tiempo real**: Valor actual, flecha de tendencia y una **Gráfica Avanzada** que superpone tu curva de glucosa con los bolos de insulina (azul) y carbohidratos (naranja) para ver el efecto post-prandial.
 - **Insulina Activa (IOB)**: Cuánta insulina queda trabajando en tu cuerpo.
-- **Acciones Rápidas**: Acceso directo a la Báscula Bluetooth, Registro de Glucosa o Modo Restaurante.
+- **Acciones Rápidas**: Acceso directo a favoritos, calculadora, báscula y alimentos.
 - **Actividad Reciente**: Listado de las últimas dosis e ingestas.
 
 ### 2. 📷 Escanear (Análisis de Comida)
@@ -29,6 +29,8 @@ El cerebro de la app. Calcula la dosis necesaria basándose en:
 
 ### 4. 📉 Basal (Gestión de Insulina Lenta)
 Herramientas para optimizar tu dosis basal:
+- **Gráfica 24h con Cobertura**: Visualiza tu curva de glucosa sobre tu nivel de basal estimado para detectar huecos de cobertura.
+- **Soporte Dosis Partida**: Si te inyectas basal dos veces al día (mañana y noche), la app suma automáticamente las dosis del día para el historial y análisis.
 - **Calculadora de Olvido**: ¿Se te pasó la hora? Pulsa en "¿Llegas tarde?" y la app calculará si debes ponerte la dosis competa o reducirla para no solapar con la de mañana.
 - **Mapa Corporal Basal**: Avatar visual (Muslos/Glúteos) para rotar los sitios de inyección lenta.
 - **Control al Despertar**: Registra tu glucosa matutina para evaluar si la basal de la noche anterior fue correcta.
