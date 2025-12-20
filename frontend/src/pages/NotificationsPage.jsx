@@ -54,8 +54,40 @@ export default function NotificationsPage() {
             });
         }
 
+        // Check Forecast Warning
+        const forecastWarn = localStorage.getItem('forecast_warning') === 'true';
+        // Check if user dismissed it temporarily (optional logic, for now just show if active)
+        if (forecastWarn) {
+            list.push({
+                id: 'forecast-alert',
+                type: 'warning',
+                title: 'Tendencia Riesgosa Detectada',
+                msg: 'El modelo de predicción indica un posible riesgo de hipo/hiperglucemia en las próximas horas.',
+                action: () => navigate('#/forecast'),
+                btn: 'Ver Análisis',
+                dismissable: true
+            });
+        }
+
         setAlerts(list);
     }, []);
+
+    const dismissAlert = (id) => {
+        if (id === 'forecast-alert') {
+            // Logic to mute alert for some time? Or just clear for this session?
+            // User requested "dismiss once read".
+            // We can set a flag 'forecast_warning_dismissed_until' or just toggle warning off if that makes sense.
+            // But 'forecast_warning' stored by HomePage updates on every fetch. 
+            // So we need a side-flag.
+
+            // Simple approach: Store timestamp of dismissal
+            localStorage.setItem('forecast_warning_dismissed_at', Date.now().toString());
+            // Remove from local state
+            setAlerts(prev => prev.filter(a => a.id !== id));
+            // Force header update
+            window.dispatchEvent(new Event('forecast-update'));
+        }
+    };
 
     return (
         <>
@@ -83,9 +115,17 @@ export default function NotificationsPage() {
                                 {alert.title}
                             </div>
                             <p style={{ fontSize: '0.9rem', color: '#475569', marginBottom: '1rem' }}>{alert.msg}</p>
-                            <Button onClick={alert.action} size="sm" style={{ width: '100%', background: '#f1f5f9', color: '#334155', border: '1px solid #cbd5e1' }}>
-                                {alert.btn}
-                            </Button>
+
+                            <div style={{ display: 'flex', gap: '0.5rem' }}>
+                                <Button onClick={alert.action} size="sm" style={{ flex: 1, background: '#f1f5f9', color: '#334155', border: '1px solid #cbd5e1' }}>
+                                    {alert.btn}
+                                </Button>
+                                {alert.dismissable && (
+                                    <Button onClick={() => dismissAlert(alert.id)} size="sm" style={{ background: '#fff', color: '#94a3b8', border: '1px solid #e2e8f0' }}>
+                                        ✕
+                                    </Button>
+                                )}
+                            </div>
                         </div>
                     ))}
                 </div>

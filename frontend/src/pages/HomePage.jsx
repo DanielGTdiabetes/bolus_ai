@@ -60,15 +60,31 @@ function GlucoseHero({ onRefresh }) {
     const borderColor = isLow ? '#ef4444' : '#fff';
     const boxShadow = isLow ? '0 0 0 2px #fecaca' : '0 4px 6px -1px rgba(0, 0, 0, 0.05)';
 
+    // Check for prediction alerts
+    useEffect(() => {
+        if (prediction && prediction.summary) {
+            const min = prediction.summary.min_bg;
+            const max = prediction.summary.max_bg;
+            let warn = false;
+            // Warn if predicted low < 70 or high > 250
+            if (min < 70 || max > 250) {
+                warn = true;
+            }
+            localStorage.setItem('forecast_warning', warn ? 'true' : 'false');
+            // Trigger update in Header
+            window.dispatchEvent(new Event('forecast-update'));
+        }
+    }, [prediction]);
+
     return (
         <section className="card glucose-hero" style={{
             marginBottom: '1rem', padding: '1.5rem', borderRadius: '16px',
             background: bgColor, border: isLow ? `1px solid ${borderColor}` : 'none',
-            boxShadow: boxShadow, transition: 'all 0.3s ease'
-        }}>
+            boxShadow: boxShadow, transition: 'all 0.3s ease', cursor: 'pointer'
+        }} onClick={() => navigate('#/forecast')}>
             <div className="gh-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
                 <div style={{ fontSize: '0.9rem', fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Glucosa Actual</div>
-                <button onClick={load} style={{ background: 'none', border: 'none', fontSize: '1.2rem', cursor: 'pointer', color: loading ? '#cbd5e1' : '#3b82f6' }}>
+                <button onClick={(e) => { e.stopPropagation(); load(); }} style={{ background: 'none', border: 'none', fontSize: '1.2rem', cursor: 'pointer', color: loading ? '#cbd5e1' : '#3b82f6' }}>
                     {loading ? '...' : '↻'}
                 </button>
             </div>
@@ -96,6 +112,23 @@ function GlucoseHero({ onRefresh }) {
 
             {/* Advanced Graph with Ambient Prediction */}
             <MainGlucoseChart isLow={isLow} predictionData={prediction} />
+
+            {/* Prediction Alerts */}
+            {prediction && prediction.summary && (prediction.summary.min_bg < 70 || prediction.summary.max_bg > 250) && (
+                <div style={{ marginTop: '0.8rem', padding: '0.5rem', background: prediction.summary.min_bg < 70 ? '#fef2f2' : '#fffbeb', border: `1px solid ${prediction.summary.min_bg < 70 ? '#fecaca' : '#fcd34d'}`, borderRadius: '8px', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.8rem', color: '#1e293b' }}>
+                    <span style={{ fontSize: '1.2rem' }}>{prediction.summary.min_bg < 70 ? '📉' : '📈'}</span>
+                    <div>
+                        <strong>{prediction.summary.min_bg < 70 ? 'Riesgo de Hipoglucemia' : 'Tendencia Alta'}</strong>
+                        <div style={{ fontSize: '0.75rem', color: '#64748b' }}>
+                            {prediction.summary.min_bg < 70 ? `Mínimo estimado: ${prediction.summary.min_bg} mg/dL` : `Máximo estimado: ${prediction.summary.max_bg} mg/dL`}
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            <div style={{ textAlign: 'center', marginTop: '0.5rem', fontSize: '0.75rem', color: '#94a3b8' }}>
+                Toca para ver predicción detallada
+            </div>
         </section>
     );
 }

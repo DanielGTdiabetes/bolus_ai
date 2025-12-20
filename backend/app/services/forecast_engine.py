@@ -177,7 +177,7 @@ class ForecastEngine:
             # Recalculate analytical impact at t
             dt_eff = min(t, momentum_duration)
             mom_val_at_t = 0
-            if req.momentum.enabled and momentum_slope != 0 and dt_eff > 0:
+            if req.momentum and req.momentum.enabled and momentum_slope != 0 and dt_eff > 0:
                  mom_val_at_t = momentum_slope * dt_eff - (momentum_slope * (dt_eff**2) / (2 * momentum_duration))
             
             # 4. Basal Impact (Drift)

@@ -24,6 +24,8 @@ import BodyMapPage from './pages/BodyMapPage';
 import SuppliesPage from './pages/SuppliesPage';
 import NotificationsPage from './pages/NotificationsPage';
 
+import ForecastPage from './pages/ForecastPage';
+
 const PAGES = {
     'favorites': FavoritesPage,
     'history': HistoryPage,
@@ -44,6 +46,7 @@ const PAGES = {
     'bodymap': BodyMapPage,
     'supplies': SuppliesPage,
     'notifications': NotificationsPage,
+    'forecast': ForecastPage,
 };
 
 if (RESTAURANT_MODE_ENABLED) {

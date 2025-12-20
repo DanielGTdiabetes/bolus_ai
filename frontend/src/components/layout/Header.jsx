@@ -20,10 +20,32 @@ export function Header({ title = "Bolus AI", showBack = false, notificationActiv
                 const sick = localStorage.getItem('sick_mode_enabled') === 'true';
                 if (sick) return true;
 
+                // Check Forecast Warning
+                const forecastWarn = localStorage.getItem('forecast_warning') === 'true';
+                if (forecastWarn) {
+                    // Check if dismissed recently (e.g., within last 30 mins)
+                    const dismissedAt = parseInt(localStorage.getItem('forecast_warning_dismissed_at') || '0');
+                    // If dismissed less than 30 mins ago, don't show red dot
+                    if (Date.now() - dismissedAt > 30 * 60 * 1000) {
+                        return true;
+                    }
+                }
+
                 return false;
             } catch { return false; }
         };
         setHasSupplyWarning(check());
+
+        // Listen for storage events to update immediately if forecast changes
+        const handleStorage = () => setHasSupplyWarning(check());
+        window.addEventListener('storage', handleStorage);
+        // Custom event for same-window updates
+        window.addEventListener('forecast-update', handleStorage);
+
+        return () => {
+            window.removeEventListener('storage', handleStorage);
+            window.removeEventListener('forecast-update', handleStorage);
+        };
     }, []);
 
     const handleNotifClick = () => {

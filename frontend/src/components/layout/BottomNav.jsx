@@ -7,6 +7,7 @@ export function BottomNav({ activeTab = 'home' }) {
         { id: 'scan', icon: '📷', label: 'Escanear', hash: '#/scan' },
         { id: 'bolus', icon: '💉', label: 'Bolo', hash: '#/bolus' },
         { id: 'basal', icon: '📉', label: 'Basal', hash: '#/basal' },
+        { id: 'forecast', icon: '🔮', label: 'Futuro', hash: '#/forecast' },
         { id: 'menu', icon: '☰', label: 'Menú', hash: '#/menu' }
     ];
 
