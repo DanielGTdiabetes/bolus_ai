@@ -8,6 +8,9 @@ from app.services.settings_service import get_user_settings_service
 from app.models.settings import UserSettings
 from app.services.nightscout_secrets_service import get_ns_config
 from app.services.nightscout_client import NightscoutClient
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -33,6 +36,8 @@ async def get_current_forecast(
         
     if not user_settings:
         raise HTTPException(status_code=400, detail="Settings not found")
+
+    logger.info(f"FORECAST_DEBUG: User {user.username} Settings Loaded (CR): B={user_settings.cr.breakfast}, L={user_settings.cr.lunch}, D={user_settings.cr.dinner}")
 
     # 2. Fetch Current BG (NS)
     ns_config = await get_ns_config(session, user.username)
@@ -125,6 +130,8 @@ async def get_current_forecast(
             # Resolve ICR for this SPECIFIC event time
             evt_icr, _ = get_slot_params(user_hour, user_settings)
             
+            logger.info(f"FORECAST_DEBUG: Event {created_at} Carbs={row.carbs}g (Hour {user_hour}, Offset {offset:.1f}m) -> Assigned ICR: {evt_icr}")
+
             carbs.append(ForecastEventCarbs(
                 time_offset_min=int(offset), 
                 grams=row.carbs,
