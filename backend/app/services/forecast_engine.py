@@ -159,18 +159,25 @@ class ForecastEngine:
             accum_insulin_impact -= step_insulin_drop
             
             # 2. Carb Rate (mg/dL per minute RISE)
-            total_carb_activity = 0.0 # g/min
+            step_carb_impact_rate = 0.0 # mg/dL / min
+            
             for c in req.events.carbs:
                 t_since_meal = t_mid - c.time_offset_min
                 dur = c.absorption_minutes or req.params.carb_absorption_minutes
                 # Linear absorption (trapezoidal in future?)
-                # rate = CarbCurves.linear_absorption(t_since_meal, dur)
                 # Let's use variable/triangle for better realism?
-                rate = CarbCurves.variable_absorption(t_since_meal, dur, peak_min=dur/2) # Peak at middle
-                total_carb_activity += rate * c.grams
+                rate = CarbCurves.variable_absorption(t_since_meal, dur, peak_min=dur/2) # Fraction / min
                 
-            carb_rise_rate = total_carb_activity * cs
-            step_carb_rise = carb_rise_rate * dt
+                # Determine CS (Carb Sensitivity) for this specific carb event
+                # Use event-specific ICR if available, otherwise global simulation param
+                this_icr = c.icr if c.icr and c.icr > 0 else req.params.icr
+                
+                # CS = ISF / ICR
+                this_cs = (req.params.isf / this_icr) if this_icr > 0 else 0.0
+                
+                step_carb_impact_rate += rate * c.grams * this_cs
+                
+            step_carb_rise = step_carb_impact_rate * dt
             accum_carb_impact += step_carb_rise
             
             # 3. Momentum

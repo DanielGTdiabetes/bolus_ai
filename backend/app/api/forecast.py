@@ -71,6 +71,38 @@ async def get_current_forecast(
     
     now_utc = datetime.now(timezone.utc)
     
+    # Helper to resolve slot
+    def get_slot_params(h: int, settings: UserSettings):
+        # Default to Lunch if unknown
+        icr = settings.cr.lunch
+        isf = settings.cf.lunch
+        
+        # Simple Logic (assuming User Time)
+        # Breakfast: 05:00 - 11:00
+        # Lunch: 11:00 - 17:00
+        # Dinner: 17:00 - 23:00 (or later)
+        
+        if 5 <= h < 11:
+            icr = settings.cr.breakfast
+            isf = settings.cf.breakfast
+        elif 11 <= h < 17:
+             icr = settings.cr.lunch
+             isf = settings.cf.lunch
+        elif 17 <= h < 23:
+             icr = settings.cr.dinner
+             isf = settings.cf.dinner
+        
+        # Fallback for night owls (23-05) -> Dinner or specific?
+        # Usually dinner settings persist, or we wrap to breakfast.
+        # Let's assume Dinner for late night snacking for now.
+        else:
+             icr = settings.cr.dinner
+             isf = settings.cf.dinner
+             
+        return float(icr), float(isf)
+
+    now_utc = datetime.now(timezone.utc)
+    
     for row in rows:
         # Calculate offset in minutes
         # created_at is naive UTC in DB usually
@@ -82,38 +114,27 @@ async def get_current_forecast(
         # offset must be negative for past events
         offset = -1 * diff_min
         
+        # Determine Hour in User Time (Approx UTC+1 for Daniel/Spain)
+        # Ideally we store timezone in user settings
+        user_hour = (created_at.hour + 1) % 24 
+        
         if row.insulin and row.insulin > 0:
             boluses.append(ForecastEventBolus(time_offset_min=int(offset), units=row.insulin))
             
         if row.carbs and row.carbs > 0:
-            carbs.append(ForecastEventCarbs(time_offset_min=int(offset), grams=row.carbs))
+            # Resolve ICR for this SPECIFIC event time
+            evt_icr, _ = get_slot_params(user_hour, user_settings)
+            
+            carbs.append(ForecastEventCarbs(
+                time_offset_min=int(offset), 
+                grams=row.carbs,
+                icr=evt_icr
+            ))
 
     # 4. Construct Request
-    # Use generic settings (Breakfast? Lunch? Or Current Time?)
-    # Simple: Average or hardcode logic for now, or detect time.
-    # Let's detect time slot quickly.
-    
-    hour = datetime.now().hour
-    # Very rough slot logic
-    slot_settings = user_settings.cr.lunch # Default
-    isf_val = user_settings.cf.lunch
-    
-    if 5 <= hour < 11:
-        slot_settings = user_settings.cr.breakfast
-        isf_val = user_settings.cf.breakfast
-    elif 11 <= hour < 17:
-        slot_settings = user_settings.cr.lunch
-        isf_val = user_settings.cf.lunch
-    elif 17 <= hour < 23:
-        slot_settings = user_settings.cr.dinner # Assuming 'dinner' exists in MealFactors
-        isf_val = user_settings.cf.dinner
-        
-    # Note: MealFactors is named tuple usually: breakfast, lunch, dinner
-    # But UserSettings object access might differ if pydantic model.
-    # Let's assume standard access.
-    
-    # Extract numeric values (MealFactors might be objects or floats depending on version)
-    # Assuming float based on bolus.py usage.
+    # Current params
+    now_user_hour = (now_utc.hour + 1) % 24
+    curr_icr, curr_isf = get_slot_params(now_user_hour, user_settings)
     
     # Calculate dynamic absorption based on recent carbs quantity
     total_recent_carbs = 0
@@ -133,8 +154,8 @@ async def get_current_forecast(
              dynamic_absorption = 210 # Slow for big meals
 
     sim_params = SimulationParams(
-        isf=float(isf_val) if isf_val else 30,
-        icr=float(slot_settings), 
+        isf=curr_isf,
+        icr=curr_icr, 
         dia_minutes=int(user_settings.iob.dia_hours * 60),
         carb_absorption_minutes=dynamic_absorption,
         insulin_peak_minutes=user_settings.iob.peak_minutes
