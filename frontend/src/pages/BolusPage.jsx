@@ -652,6 +652,7 @@ export default function BolusPage() {
                 {result && (
                     <ResultView
                         result={result}
+                        slot={slot} // Pass slot for fallback
                         onBack={() => setResult(null)}
                         onSave={handleSave}
                         saving={saving}
@@ -668,7 +669,7 @@ export default function BolusPage() {
     );
 }
 
-function ResultView({ result, onBack, onSave, saving, currentCarbs, foodName, favorites, onFavoriteAdded }) {
+function ResultView({ result, slot, onBack, onSave, saving, currentCarbs, foodName, favorites, onFavoriteAdded }) {
     // Local state for edit before confirm
     const [finalDose, setFinalDose] = useState(result.upfront_u);
     const [injectionSite, setInjectionSite] = useState(null);
@@ -715,7 +716,28 @@ function ResultView({ result, onBack, onSave, saving, currentCarbs, foodName, fa
                 bgVal = result.used_params?.target_mgdl || 100;
             }
 
-            const params = result.used_params;
+            console.log("DEBUG RESULT OBJ:", result);
+            let params = result.used_params || result.usedParams;
+
+            if (!params) {
+                console.warn("Params missing in result, trying fallback from store...");
+                const allParams = getCalcParams();
+                if (allParams && slot) {
+                    params = allParams[slot];
+                    // Normalise store format to expected format if needed, or rely on loose access below
+                    // Store has { icr, isf, target ... }
+                    // Code below expects { isf_mgdl_per_u, ... }
+                    // We need to map it if we use fallback.
+                    if (params) {
+                        params = {
+                            isf_mgdl_per_u: params.isf,
+                            cr_g_per_u: params.icr,
+                            dia_hours: allParams.dia_hours || 4
+                        };
+                    }
+                }
+            }
+
             if (!params) throw new Error("Parámetros de cálculo no disponibles.");
 
             const isf = params.isf_mgdl_per_u || params.isfMgdlPerU || 30;
