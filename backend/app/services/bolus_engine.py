@@ -192,7 +192,9 @@ def calculate_bolus_v2(
                 explain.append(f"   Resta solo de corrección: {corr_u:.2f} -> {corr_after_iob:.2f} U")
             else:
                 explain.append("   Ignorado para comida (Estrategia Postre/Segundo Plato).")
+            
             explain.append(f"   Neto = {meal_u:.2f} (Comida) + {corr_after_iob:.2f} (Corr. Ajustada) = {total_after_iob:.2f} U")
+            explain.append("   ⚠️ Consejo: Si tu bolo anterior fue hace < 2h, considera esperar 15-20 min antes de inyectar este bolo (Retraso por Vaciado Gástrico).")
         else:
             explain.append("C) IOB: 0 U")
             
