@@ -784,3 +784,12 @@ export async function simulateForecast(payload) {
   if (!response.ok) throw new Error(data.detail || "Error al simular pronóstico");
   return data;
 }
+
+export async function toggleSickMode(enabled: boolean) {
+  const response = await apiFetch(`/api/events/sick-mode?enabled=${enabled}`, {
+    method: "POST"
+  });
+  const data = await toJson(response);
+  if (!response.ok) throw new Error(data.detail || "Error al cambiar modo enfermedad");
+  return data;
+}

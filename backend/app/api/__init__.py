@@ -42,4 +42,7 @@ api_router.include_router(isf_router, prefix="/isf", tags=["isf"])
 from .forecast import router as forecast_router
 api_router.include_router(forecast_router, prefix="/forecast", tags=["forecast"])
 
+from .events import router as events_router
+api_router.include_router(events_router, prefix="/events", tags=["events"])
+
 __all__ = ["api_router"]

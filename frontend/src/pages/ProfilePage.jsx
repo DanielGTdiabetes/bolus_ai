@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Header } from '../components/layout/Header';
-import { changePassword, updateProfile } from '../lib/api';
+import { changePassword, updateProfile, toggleSickMode } from '../lib/api';
 import { useStore } from '../hooks/useStore';
 import { navigate } from '../modules/core/router';
 import { Card, Button } from '../components/ui/Atoms';
@@ -61,17 +61,21 @@ function SickModeSection() {
         return localStorage.getItem('sick_mode_enabled') === 'true';
     });
 
-    const toggle = () => {
+    const toggle = async () => {
         const newVal = !enabled;
+
+        // Optimistic UI update
         setEnabled(newVal);
         localStorage.setItem('sick_mode_enabled', newVal.toString());
-        // Force refresh of layout maybe? Or utilize a global store?
-        // Ideally we should use the store, but for v1 localStorage is fine.
-        // Other components reading this need to know.
-        // We will make BolusPage read from localStorage on mount/interaction.
 
-        // Notify user
-        if (newVal) alert("⚠️ MODO ENFERMEDAD ACTIVADO\n\n- Se aumentarán los ratios de insulina un 20%.\n- Se sugerirá medir cetonas si la glucosa es alta.\n- Revisa tu basal (considera un +20%).");
+        try {
+            await toggleSickMode(newVal);
+            // Notify user
+            if (newVal) alert("⚠️ MODO ENFERMEDAD ACTIVADO\n\n- Se aumentarán los ratios de insulina un 20%.\n- Se sugerirá medir cetonas si la glucosa es alta.\n- Revisa tu basal (considera un +20%).\n- Se ha registrado el evento para el historial.");
+        } catch (e) {
+            console.error(e);
+            alert("Error registrando evento en historial (aunque se activó localmente).");
+        }
     };
 
     return (
@@ -108,7 +112,7 @@ function SickModeSection() {
                 <strong>Efectos automáticos:</strong>
                 <ul style={{ paddingLeft: '1.2rem', color: '#475569', marginTop: '0.5rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                     <li>📈 <strong>Bolos más agresivos:</strong> Ratios (ICR/ISF) aumentados un 20%.</li>
-                    <li>🧪 <strong>Alerta de Cetonas:</strong> Recordatorio si Glucosa > 250 mg/dL.</li>
+                    <li>🧪 <strong>Alerta de Cetonas:</strong> Recordatorio si Glucosa &gt; 250 mg/dL.</li>
                     <li>💉 <strong>Basal:</strong> Se sugiere aumentar la dosis manual un 20-30%.</li>
                 </ul>
             </div>
