@@ -59,20 +59,40 @@ export function MainGlucoseChart({ isLow, predictionData }) {
 
         // Determine start time for prediction
         let lastTime = Date.now();
+        let startBg = 120; // fallback
+
         if (baseData.length > 0) {
-            lastTime = baseData[baseData.length - 1].timestamp;
+            const lastPoint = baseData[baseData.length - 1];
+            lastTime = lastPoint.timestamp;
+            startBg = lastPoint.bg;
+        } else if (predictionData.summary && predictionData.summary.bg_now) {
+            startBg = predictionData.summary.bg_now;
         }
 
         // Map prediction series
         const predPoints = predictionData.series.map(p => {
             // p.t_min is relative minutes from "now" (or start of sim)
             const t = lastTime + (p.t_min * 60000);
+
+            // Resolve components if available
+            let cCurve = null;
+            let iCurve = null;
+
+            if (predictionData.components) {
+                const comp = predictionData.components.find(c => c.t_min === p.t_min);
+                if (comp) {
+                    // StartBG + Impact shows "what if only this existed" relative to start
+                    cCurve = startBg + (comp.carb_impact || 0);
+                    iCurve = startBg + (comp.insulin_impact || 0);
+                }
+            }
+
             return {
                 timeLabel: new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
                 prediction: p.bg,
                 bg: null,
-                iob: null, // p.iob could be mapped if backend provides it in series
-                cob: null, // p.cob could be mapped
+                carbCurve: cCurve,
+                insulinCurve: iCurve,
                 timestamp: t
             };
         });
@@ -83,6 +103,8 @@ export function MainGlucoseChart({ isLow, predictionData }) {
             predPoints.unshift({
                 ...lastReal,
                 prediction: lastReal.bg, // Start prediction curve at actual BG
+                carbCurve: lastReal.bg, // Start component curves at actual BG
+                insulinCurve: lastReal.bg,
                 bg: null // Don't duplicate the 'Area' point, just start the 'Line'
             });
         }
@@ -180,6 +202,34 @@ export function MainGlucoseChart({ isLow, predictionData }) {
                         activeDot={{ r: 4, fill: '#8b5cf6' }}
                         animationDuration={500}
                     />
+
+                    {/* Component Curves (Optional) */}
+                    {chartData.some(d => d.carbCurve) && (
+                        <Line
+                            yAxisId="bg"
+                            type="monotone"
+                            dataKey="carbCurve"
+                            stroke="#f59e0b" // Amber/Orange for Carbs
+                            strokeWidth={2}
+                            strokeDasharray="3 3"
+                            dot={false}
+                            animationDuration={500}
+                            name="Carbohidratos"
+                        />
+                    )}
+                    {chartData.some(d => d.insulinCurve) && (
+                        <Line
+                            yAxisId="bg"
+                            type="monotone"
+                            dataKey="insulinCurve"
+                            stroke="#06b6d4" // Cyan for Insulin
+                            strokeWidth={2}
+                            strokeDasharray="3 3"
+                            dot={false}
+                            animationDuration={500}
+                            name="Insulina"
+                        />
+                    )}
                 </ComposedChart>
             </ResponsiveContainer>
         </div>
