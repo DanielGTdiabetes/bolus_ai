@@ -707,14 +707,12 @@ function ResultView({ result, onBack, onSave, saving, currentCarbs, foodName, fa
         try {
             // Get glucose from result (calculated context) OR manual fallback if needed?
             // Usually result.glucose has the used glucose.
+            // If missing (e.g. user entered carbs only without BG), default to Target or 100 to show "Relative" effect.
             let bgVal = result.glucose?.mgdl;
 
-            if (!bgVal) {
-                // Try parsing from result input if manually edited? No prop for that.
-                // Just alert user.
-                alert("⚠️ No se puede simular: Falta dato de Glucosa actual.");
-                setSimulating(false);
-                return;
+            if (!bgVal || bgVal <= 0) {
+                // Fallback to target for simulation baseline
+                bgVal = result.used_params?.target_mgdl || 100;
             }
 
             const params = result.used_params;
