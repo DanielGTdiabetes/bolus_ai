@@ -219,7 +219,8 @@ export async function getCurrentGlucose(config) {
 }
 
 export async function getGlucoseEntries(count = 36) { // 36 * 5 min = 3 hours
-  const response = await apiFetch(`/api/nightscout/entries?count=${count}`);
+  const safeCount = count || 36;
+  const response = await apiFetch(`/api/nightscout/entries?count=${safeCount}`);
   const data = await toJson(response);
   if (!response.ok) throw new Error(data.detail || "Error al obtener historial glucosa");
   return data;
