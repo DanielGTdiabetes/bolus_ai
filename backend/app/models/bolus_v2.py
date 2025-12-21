@@ -83,6 +83,8 @@ class BolusSuggestions(BaseModel):
     isf_mgdl_per_u: Optional[float] = None
 
 
+from app.models.iob import IOBInfo
+
 class BolusResponseV2(BaseModel):
     ok: bool = True
     total_u: float = 0.0 # Renamed for clarity but keeping total_u as alias if needed
@@ -106,7 +108,7 @@ class BolusResponseV2(BaseModel):
     explain: list[str]
     warnings: list[str] = []
     
-    iob: Optional[dict] = None # Added for IOB info injection
+    iob: Optional[IOBInfo] = None # Correctly typed to avoid warnings
     
     clamped: bool = False
 

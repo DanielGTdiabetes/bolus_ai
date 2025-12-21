@@ -692,27 +692,35 @@ function ResultView({ result, onBack, onSave, saving, currentCarbs, foodName, fa
 
     const runSimulation = async (doseNow, doseLater, carbsVal) => {
         setSimulating(true);
+        setPredictionData(null);
         try {
-            const bgVal = result.glucose?.mgdl || 120; // fallback
+            const bgVal = result.glucose?.mgdl;
+            if (!bgVal) {
+                alert("Se necesita glucosa inicial para simular.");
+                return;
+            }
+
             const params = result.used_params;
 
             // Build events
             const boluses = [];
-            if (doseNow > 0) boluses.push({ time_offset_min: 0, units: doseNow });
-            // TODO: Handle extended part (doseLater) correctly in simulation (as multiple boluses or extended type?)
-            // For now let's just add it as immediate for safety checking or delayed?
-            // ForecastEngine supports "boluses", usually immediate.
-            // Let's calculate equivalent impact or just ignore later part for the "dip" check.
-            // Ideally we simulate it. Let's add it with delay if we had delay info.
-            // Result has `duration_min` for extended.
-            // We can approximate extended as multiple small boluses? 
-            // Or just simplified: Add it at t=0 for "worst case" low check? 
-            // Or better: Add it at t=duration/2?
-            // Let's stick to immediate part for now to be safe on the "Drop".
 
+            // Immediate
+            const nowU = isNaN(doseNow) ? 0 : doseNow;
+            if (nowU > 0) boluses.push({ time_offset_min: 0, units: nowU });
+
+            // Delayed (Simple approximation: add it at duration/2 to check for dips?)
+            // Or better: ForecastEngine supports "boluses" list. 
+            // We can add the later part as a second bolus? NO, ForecastEngine 'boluses' model is standard immediate bolus.
+            // But we can trick it by adding it with 'time_offset_min' = 0 ?
+            // No, spread is key.
+            // Let's just simulate the UPFRONT part + CARBS to see if we crash early.
+            // This is the most critical check.
+
+            const cVal = isNaN(carbsVal) ? 0 : carbsVal;
             const events = {
                 boluses: boluses,
-                carbs: carbsVal > 0 ? [{ time_offset_min: 0, grams: carbsVal }] : []
+                carbs: cVal > 0 ? [{ time_offset_min: 0, grams: cVal }] : []
             };
 
             const payload = {
@@ -722,17 +730,27 @@ function ResultView({ result, onBack, onSave, saving, currentCarbs, foodName, fa
                     isf: params.isf_mgdl_per_u,
                     icr: params.cr_g_per_u,
                     dia_minutes: (params.dia_hours || 4) * 60,
-                    carb_absorption_minutes: 180, // Default or from user settings if we had access
+                    carb_absorption_minutes: 180,
                 },
                 events: events
             };
-            // Note: Validation of params passed from Result (used_params)
 
             const res = await simulateForecast(payload);
             setPredictionData(res);
+
+            // Notification logic requested by user
+            if (res && res.summary) {
+                const min = Math.round(res.summary.min_bg);
+                if (min < 70) {
+                    showToast(`⚠️ RIESGO: Mínimo previsto ${min} mg/dL`, "warning", 4000);
+                } else {
+                    showToast(`✅ Predicción estable. Mínimo: ${min}`, "success");
+                }
+            }
+
         } catch (e) {
             console.warn(e);
-            alert("Error simulando");
+            showToast("Error en simulación", "error");
         } finally {
             setSimulating(false);
         }
@@ -799,41 +817,37 @@ function ResultView({ result, onBack, onSave, saving, currentCarbs, foodName, fa
                     <span style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--primary)' }}>U</span>
                 </div>
 
-                <div style={{ textAlign: "center", marginBottom: "1rem" }}>
+                <div style={{ textAlign: "center", marginBottom: "1rem", marginTop: "1rem" }}>
                     <Button
                         onClick={() => runSimulation(parseFloat(finalDose), later, parseFloat(currentCarbs))}
-                        style={{ fontSize: "0.8rem", background: "#f5f3ff", color: "#7c3aed", border: "1px solid #8b5cf6", padding: "5px 10px" }}
-                        disabled={simulating}
+                        style={{ fontSize: "0.85rem", background: "#f0f9ff", color: "#0369a1", border: "1px solid #bae6fd", padding: "8px 16px", width: "auto" }}
+                        disabled={simulating || !result.glucose?.mgdl}
                     >
-                        {simulating ? "Simulando..." : "🔮 Ver Futuro (Insulina + Carbs)"}
+                        {simulating ? "⏳ Calculando Riesgos..." : "🎲 Simular Resultado (Solo Texto)"}
                     </Button>
                 </div>
 
-                {predictionData && (
-                    <div className="card fade-in" style={{ padding: '0.5rem', marginBottom: '1rem', border: '1px solid #8b5cf6', background: '#f5f3ff' }}>
-                        <div style={{ fontSize: '0.8rem', fontWeight: 700, color: '#7c3aed', marginBottom: '4px', textAlign: 'center' }}>
-                            RESULTADO PREVISTO
-                        </div>
-                        {predictionData.summary && (
-                            <div style={{ display: 'flex', justifyContent: 'space-around', margin: '0.5rem 0', fontSize: '0.9rem' }}>
-                                <div style={{ textAlign: 'center' }}>
-                                    <div style={{ fontSize: '0.7rem', color: '#64748b' }}>Mínimo</div>
-                                    <strong style={{ color: predictionData.summary.min_bg < 70 ? '#ef4444' : '#334155' }}>
-                                        {Math.round(predictionData.summary.min_bg)}
-                                    </strong>
-                                </div>
-                                <div style={{ textAlign: 'center' }}>
-                                    <div style={{ fontSize: '0.7rem', color: '#64748b' }}>Máximo</div>
-                                    <strong>{Math.round(predictionData.summary.max_bg)}</strong>
-                                </div>
-                                <div style={{ textAlign: 'center' }}>
-                                    <div style={{ fontSize: '0.7rem', color: '#64748b' }}>Final (6h)</div>
-                                    <strong>{Math.round(predictionData.summary.ending_bg)}</strong>
-                                </div>
+                {predictionData && predictionData.summary && (
+                    <div className="fade-in" style={{
+                        padding: '1rem',
+                        marginBottom: '1.5rem',
+                        borderRadius: '12px',
+                        background: predictionData.summary.min_bg < 70 ? '#fef2f2' : '#f0fdf4',
+                        border: predictionData.summary.min_bg < 70 ? '1px solid #fecaca' : '1px solid #bbf7d0',
+                        display: 'flex', justifyContent: 'space-around', alignItems: 'center'
+                    }}>
+                        <div style={{ textAlign: "center" }}>
+                            <div style={{ fontSize: "0.75rem", color: "#64748b", textTransform: 'uppercase', letterSpacing: '0.5px' }}>Mínimo</div>
+                            <div style={{ fontSize: "1.2rem", fontWeight: 800, color: predictionData.summary.min_bg < 70 ? '#dc2626' : '#166534' }}>
+                                {Math.round(predictionData.summary.min_bg)}
                             </div>
-                        )}
-                        <div style={{ width: '100%', height: '200px' }}>
-                            <MainGlucoseChart predictionData={predictionData} />
+                        </div>
+                        <div style={{ height: '30px', width: '1px', background: '#cbd5e1' }}></div>
+                        <div style={{ textAlign: "center" }}>
+                            <div style={{ fontSize: "0.75rem", color: "#64748b", textTransform: 'uppercase', letterSpacing: '0.5px' }}>Final (6h)</div>
+                            <div style={{ fontSize: "1.2rem", fontWeight: 800, color: "#334155" }}>
+                                {Math.round(predictionData.summary.ending_bg)}
+                            </div>
                         </div>
                     </div>
                 )}
