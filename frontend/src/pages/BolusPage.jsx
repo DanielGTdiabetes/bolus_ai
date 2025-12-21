@@ -655,7 +655,7 @@ export default function BolusPage() {
                                 <div>
                                     <div style={{ fontWeight: 600, color: exerciseEnabled ? '#047857' : '#0f172a' }}>🏃‍♂️ Actividad Física</div>
                                     <div style={{ fontSize: '0.8rem', color: exerciseEnabled ? '#059669' : '#64748b' }}>
-                                        {exerciseEnabled ? 'Se reducirá el bolo' : 'Previa o Planeada'}
+                                        {exerciseEnabled ? 'Se reducirá el bolo' : 'Ajuste por Ejercicio'}
                                     </div>
                                 </div>
                                 <input
