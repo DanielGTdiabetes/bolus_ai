@@ -80,11 +80,12 @@ El cálculo se divide en varias fases matemáticas:
     - Si la flecha de glucosa es **Ascendente**, la app redondea hacia arriba (ej: 2.3U -> 2.5U).
     - Si la flecha es **Descendente**, redondea hacia abajo (ej: 2.3U -> 2.0U).
 5.  **Estrategia Dual/Cuadrada**: Para comidas con mucha grasa o proteína, puedes dividir el bolo en una parte inmediata y otra extendida en el tiempo.
-    - Si la flecha es **Descendente**, redondea hacia abajo (ej: 2.3U -> 2.0U).
-5.  **Estrategia Dual/Cuadrada**: Para comidas con mucha grasa o proteína, puedes dividir el bolo en una parte inmediata y otra extendida en el tiempo.
 6.  **Modo Postre (Ignorar IOB)**: Si decides comer un segundo plato o postre poco después de tu comida principal, puedes activar esta casilla.
     - Esto le dice a la app que NO reste la insulina activa (IOB) del primer plato.
     - **⚠️ Importante**: Si tu bolo anterior fue hace menos de 2 horas, la app te sugerirá esperar **15-20 minutos** antes de inyectar este segundo bolo para dar tiempo al vaciado gástrico y evitar una hipoglucemia por solapamiento.
+7.  **Ajuste por Ejercicio**:
+    - Si indicas actividad física (previa o planeada), el sistema reducirá el bolo total para prevenir hipoglucemias.
+    - La reducción depende de la intensidad (Suave, Moderada, Intensa) y la duración, pudiendo llegar hasta un -75% en ejercicios intensos y prolongados.
 
 ---
 

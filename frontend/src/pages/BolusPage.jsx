@@ -38,6 +38,11 @@ export default function BolusPage() {
     const [dualEnabled, setDualEnabled] = useState(false);
     const [plateItems, setPlateItems] = useState([]);
 
+    // Exercise / Activity State
+    const [exerciseEnabled, setExerciseEnabled] = useState(false);
+    const [exerciseIntensity, setExerciseIntensity] = useState('moderate');
+    const [exerciseMinutes, setExerciseMinutes] = useState(60);
+
     // Simulation State
     const [simulationMode, setSimulationMode] = useState(false);
     const [predictionData, setPredictionData] = useState(null);
@@ -267,6 +272,11 @@ export default function BolusPage() {
                 round_step_u: mealParams.round_step_u || 0.5,
                 max_bolus_u: mealParams.max_bolus_u || 15,
                 ignore_iob_for_meal: dessertMode,
+                exercise: {
+                    planned: exerciseEnabled,
+                    minutes: exerciseEnabled ? (parseInt(exerciseMinutes) || 0) : 0,
+                    intensity: exerciseIntensity
+                },
             };
 
             let splitSettings = getSplitSettings() || {};
@@ -632,6 +642,79 @@ export default function BolusPage() {
                                 onChange={toggleDual}
                                 style={{ transform: 'scale(1.5)', cursor: 'pointer' }}
                             />
+                        </div>
+
+                        {/* Exercise Card */}
+                        <div className="card" style={{
+                            display: 'flex', flexDirection: 'column', gap: '0.8rem', padding: '1rem',
+                            border: exerciseEnabled ? '2px solid #10b981' : '1px solid #e2e8f0',
+                            background: exerciseEnabled ? '#ecfdf5' : '#fff',
+                            marginTop: '1rem'
+                        }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <div>
+                                    <div style={{ fontWeight: 600, color: exerciseEnabled ? '#047857' : '#0f172a' }}>🏃‍♂️ Actividad Física</div>
+                                    <div style={{ fontSize: '0.8rem', color: exerciseEnabled ? '#059669' : '#64748b' }}>
+                                        {exerciseEnabled ? 'Se reducirá el bolo' : 'Previa o Planeada'}
+                                    </div>
+                                </div>
+                                <input
+                                    type="checkbox"
+                                    checked={exerciseEnabled}
+                                    onChange={() => setExerciseEnabled(!exerciseEnabled)}
+                                    style={{ transform: 'scale(1.5)', cursor: 'pointer' }}
+                                />
+                            </div>
+
+                            {exerciseEnabled && (
+                                <div className="fade-in" style={{ borderTop: '1px dashed #6ee7b7', paddingTop: '0.8rem' }}>
+                                    <div style={{ fontSize: '0.85rem', marginBottom: '0.4rem', color: '#065f46' }}>Intensidad</div>
+                                    <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
+                                        {['low', 'moderate', 'high'].map(lvl => (
+                                            <button
+                                                key={lvl}
+                                                onClick={() => setExerciseIntensity(lvl)}
+                                                style={{
+                                                    flex: 1, padding: '0.4rem', borderRadius: '8px',
+                                                    border: '1px solid',
+                                                    borderColor: exerciseIntensity === lvl ? '#059669' : '#d1fae5',
+                                                    background: exerciseIntensity === lvl ? '#059669' : '#fff',
+                                                    color: exerciseIntensity === lvl ? '#fff' : '#047857',
+                                                    fontSize: '0.85rem', textTransform: 'capitalize'
+                                                }}
+                                            >
+                                                {lvl === 'low' ? 'Suave' : lvl === 'moderate' ? 'Moderada' : 'Intensa'}
+                                            </button>
+                                        ))}
+                                    </div>
+
+                                    <div style={{ fontSize: '0.85rem', marginBottom: '0.4rem', color: '#065f46' }}>Duración (min)</div>
+                                    <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                                        {[30, 60, 90, 120].map(m => (
+                                            <button
+                                                key={m}
+                                                onClick={() => setExerciseMinutes(m)}
+                                                style={{
+                                                    padding: '0.3rem 0.6rem', borderRadius: '8px',
+                                                    border: '1px solid',
+                                                    borderColor: exerciseMinutes === m ? '#059669' : '#d1fae5',
+                                                    background: exerciseMinutes === m ? '#10b981' : '#fff',
+                                                    color: exerciseMinutes === m ? '#fff' : '#047857',
+                                                    fontSize: '0.85rem'
+                                                }}
+                                            >
+                                                {m}
+                                            </button>
+                                        ))}
+                                        <input
+                                            type="number"
+                                            value={exerciseMinutes}
+                                            onChange={(e) => setExerciseMinutes(parseInt(e.target.value) || 0)}
+                                            style={{ width: '60px', padding: '0.3rem', borderRadius: '8px', border: '1px solid #d1fae5', textAlign: 'center' }}
+                                        />
+                                    </div>
+                                </div>
+                            )}
                         </div>
 
                         {/* IOB Banner */}
