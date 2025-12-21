@@ -115,11 +115,28 @@ async def get_current_forecast(
     # Extract numeric values (MealFactors might be objects or floats depending on version)
     # Assuming float based on bolus.py usage.
     
+    # Calculate dynamic absorption based on recent carbs quantity
+    total_recent_carbs = 0
+    for c in carbs:
+        # Check if carb is recent (e.g. last 90 mins)
+        # c.time_offset_min is negative (e.g. -10)
+        if c.time_offset_min > -90:
+            total_recent_carbs += c.grams
+            
+    dynamic_absorption = 180 # Default fallback
+    if total_recent_carbs > 0:
+        if total_recent_carbs < 20: 
+            dynamic_absorption = 100 # Fast for snacks
+        elif total_recent_carbs < 50:
+            dynamic_absorption = 150 # Medium
+        else:
+             dynamic_absorption = 210 # Slow for big meals
+
     sim_params = SimulationParams(
         isf=float(isf_val) if isf_val else 30,
         icr=float(slot_settings), 
         dia_minutes=int(user_settings.iob.dia_hours * 60),
-        carb_absorption_minutes=180, # Standard
+        carb_absorption_minutes=dynamic_absorption,
         insulin_peak_minutes=user_settings.iob.peak_minutes
     )
     
