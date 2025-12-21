@@ -179,13 +179,32 @@ def calculate_bolus_v2(
 
     # 4. IOB
     total_base = meal_u + corr_u
-    total_after_iob = max(0.0, total_base - iob_u)
     
-    if iob_u > 0:
-        explain.append(f"C) IOB: {iob_u:.2f} U activos.")
-        explain.append(f"   Neto = ({meal_u:.2f} + {corr_u:.2f}) - {iob_u:.2f} = {total_after_iob:.2f} U")
+    if request.ignore_iob_for_meal:
+        # "Wizard" Logic: IOB only offsets correction, never meal.
+        remaining_iob = max(0.0, iob_u)
+        corr_after_iob = max(0.0, corr_u - remaining_iob)
+        total_after_iob = meal_u + corr_after_iob
+        
+        if iob_u > 0:
+            explain.append(f"C) IOB (Postre): {iob_u:.2f} U activos.")
+            if corr_u > 0:
+                explain.append(f"   Resta solo de corrección: {corr_u:.2f} -> {corr_after_iob:.2f} U")
+            else:
+                explain.append("   Ignorado para comida (Estrategia Postre/Segundo Plato).")
+            explain.append(f"   Neto = {meal_u:.2f} (Comida) + {corr_after_iob:.2f} (Corr. Ajustada) = {total_after_iob:.2f} U")
+        else:
+            explain.append("C) IOB: 0 U")
+            
     else:
-        explain.append("C) IOB: 0 U")
+        # Standard "Loop" Logic: IOB offsets everything.
+        total_after_iob = max(0.0, total_base - iob_u)
+        
+        if iob_u > 0:
+            explain.append(f"C) IOB: {iob_u:.2f} U activos.")
+            explain.append(f"   Neto = ({meal_u:.2f} + {corr_u:.2f}) - {iob_u:.2f} = {total_after_iob:.2f} U")
+        else:
+            explain.append("C) IOB: 0 U")
     
     # 5. Ejercicio
     total_after_exercise = total_after_iob

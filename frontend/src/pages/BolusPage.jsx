@@ -34,6 +34,7 @@ export default function BolusPage() {
     });
     const [slot, setSlot] = useState('lunch');
     const [correctionOnly, setCorrectionOnly] = useState(false);
+    const [dessertMode, setDessertMode] = useState(false);
     const [dualEnabled, setDualEnabled] = useState(false);
     const [plateItems, setPlateItems] = useState([]);
 
@@ -265,6 +266,7 @@ export default function BolusPage() {
                 dia_hours: mealParams.dia_hours || 4.0,
                 round_step_u: mealParams.round_step_u || 0.5,
                 max_bolus_u: mealParams.max_bolus_u || 15,
+                ignore_iob_for_meal: dessertMode,
             };
 
             let splitSettings = getSplitSettings() || {};
@@ -502,9 +504,19 @@ export default function BolusPage() {
                             <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.9rem' }}>
                                 <input type="checkbox" checked={correctionOnly} onChange={e => {
                                     setCorrectionOnly(e.target.checked);
-                                    if (e.target.checked) setCarbs("0");
+                                    if (e.target.checked) {
+                                        setCarbs("0");
+                                        setDessertMode(false);
+                                    }
                                 }} />
                                 Solo Corrección
+                            </label>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.9rem' }}>
+                                <input type="checkbox" checked={dessertMode} onChange={e => {
+                                    setDessertMode(e.target.checked);
+                                    if (e.target.checked) setCorrectionOnly(false);
+                                }} />
+                                Postre (Ignorar IOB)
                             </label>
                         </div>
 

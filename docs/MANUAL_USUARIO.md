@@ -80,6 +80,7 @@ El cálculo se divide en varias fases matemáticas:
     - Si la flecha de glucosa es **Ascendente**, la app redondea hacia arriba (ej: 2.3U -> 2.5U).
     - Si la flecha es **Descendente**, redondea hacia abajo (ej: 2.3U -> 2.0U).
 5.  **Estrategia Dual/Cuadrada**: Para comidas con mucha grasa o proteína, puedes dividir el bolo en una parte inmediata y otra extendida en el tiempo.
+6.  **Modo Postre (Ignorar IOB)**: Si decides comer un segundo plato o postre poco después de tu comida principal, puedes activar esta casilla. Esto le dice a la app que NO reste la insulina activa (IOB) del primer plato al calcular la dosis para estos nuevos carbohidratos, evitando que te recomiende 0 unidades erróneamente.
 
 ---
 

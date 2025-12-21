@@ -57,6 +57,7 @@ class BolusRequestV2(BaseModel):
     # New flags
     exercise: ExerciseParams = Field(default_factory=ExerciseParams)
     slow_meal: SlowMealParams = Field(default_factory=SlowMealParams)
+    ignore_iob_for_meal: bool = Field(default=False, description="Techne: If true, IOB is only subtracted from correction, not meal.")
 
     model_config = ConfigDict(populate_by_name=True, extra="ignore")
 
