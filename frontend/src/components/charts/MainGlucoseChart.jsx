@@ -138,7 +138,7 @@ export function MainGlucoseChart({ isLow, predictionData }) {
     return (
         <div style={{ width: '100%', height: '100%', minHeight: '160px', marginTop: '0.5rem', position: 'relative' }}>
             <ResponsiveContainer width="100%" height="100%">
-                <ComposedChart data={chartData} margin={{ top: 10, right: 0, left: -10, bottom: 0 }}>
+                <ComposedChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
                     <defs>
                         <linearGradient id="splitColor" x1="0" y1="0" x2="0" y2="1">
                             <stop offset={offHigh} stopColor="#ef4444" stopOpacity={1} />
@@ -170,7 +170,7 @@ export function MainGlucoseChart({ isLow, predictionData }) {
                             max => Math.max(200, Math.ceil((maxVal ?? 180) / 10) * 10)
                         ]}
                         tick={{ fontSize: 10, fill: '#94a3b8' }}
-                        width={30}
+                        width={40}
                     />
 
                     <Tooltip content={<CustomTooltip />} />
