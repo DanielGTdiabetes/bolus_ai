@@ -690,13 +690,30 @@ function ResultView({ result, onBack, onSave, saving, currentCarbs, foodName, fa
     const [predictionData, setPredictionData] = useState(null);
     const [simulating, setSimulating] = useState(false);
 
+    // Auto-Simulation Debounced
+    useEffect(() => {
+        const timer = setTimeout(() => {
+            const dose = parseFloat(finalDose);
+            if (!isNaN(dose) && dose >= 0) {
+                runSimulation(dose, later, parseFloat(currentCarbs));
+            }
+        }, 800);
+        return () => clearTimeout(timer);
+    }, [finalDose]);
+
     const runSimulation = async (doseNow, doseLater, carbsVal) => {
         setSimulating(true);
         setPredictionData(null);
         try {
-            const bgVal = result.glucose?.mgdl;
+            // Get glucose from result (calculated context) OR manual fallback if needed?
+            // Usually result.glucose has the used glucose.
+            let bgVal = result.glucose?.mgdl;
+
             if (!bgVal) {
-                alert("Se necesita glucosa inicial para simular.");
+                // Try parsing from result input if manually edited? No prop for that.
+                // Just alert user.
+                alert("⚠️ No se puede simular: Falta dato de Glucosa actual.");
+                setSimulating(false);
                 return;
             }
 
@@ -817,38 +834,35 @@ function ResultView({ result, onBack, onSave, saving, currentCarbs, foodName, fa
                     <span style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--primary)' }}>U</span>
                 </div>
 
-                <div style={{ textAlign: "center", marginBottom: "1rem", marginTop: "1rem" }}>
-                    <Button
-                        onClick={() => runSimulation(parseFloat(finalDose), later, parseFloat(currentCarbs))}
-                        style={{ fontSize: "0.85rem", background: "#f0f9ff", color: "#0369a1", border: "1px solid #bae6fd", padding: "8px 16px", width: "auto" }}
-                        disabled={simulating || !result.glucose?.mgdl}
-                    >
-                        {simulating ? "⏳ Calculando Riesgos..." : "🎲 Simular Resultado (Solo Texto)"}
-                    </Button>
-                </div>
 
-                {predictionData && predictionData.summary && (
+                {(predictionData || simulating) && (
                     <div className="fade-in" style={{
-                        padding: '1rem',
+                        padding: '0.8rem',
                         marginBottom: '1.5rem',
                         borderRadius: '12px',
-                        background: predictionData.summary.min_bg < 70 ? '#fef2f2' : '#f0fdf4',
-                        border: predictionData.summary.min_bg < 70 ? '1px solid #fecaca' : '1px solid #bbf7d0',
-                        display: 'flex', justifyContent: 'space-around', alignItems: 'center'
+                        background: (!predictionData || simulating) ? '#f8fafc' : (predictionData.summary.min_bg < 70 ? '#fef2f2' : '#f0fdf4'),
+                        border: (!predictionData || simulating) ? '1px dashed #cbd5e1' : (predictionData.summary.min_bg < 70 ? '1px solid #fecaca' : '1px solid #bbf7d0'),
+                        display: 'flex', justifyContent: 'space-around', alignItems: 'center', transition: 'all 0.3s ease'
                     }}>
-                        <div style={{ textAlign: "center" }}>
-                            <div style={{ fontSize: "0.75rem", color: "#64748b", textTransform: 'uppercase', letterSpacing: '0.5px' }}>Mínimo</div>
-                            <div style={{ fontSize: "1.2rem", fontWeight: 800, color: predictionData.summary.min_bg < 70 ? '#dc2626' : '#166534' }}>
-                                {Math.round(predictionData.summary.min_bg)}
-                            </div>
-                        </div>
-                        <div style={{ height: '30px', width: '1px', background: '#cbd5e1' }}></div>
-                        <div style={{ textAlign: "center" }}>
-                            <div style={{ fontSize: "0.75rem", color: "#64748b", textTransform: 'uppercase', letterSpacing: '0.5px' }}>Final (6h)</div>
-                            <div style={{ fontSize: "1.2rem", fontWeight: 800, color: "#334155" }}>
-                                {Math.round(predictionData.summary.ending_bg)}
-                            </div>
-                        </div>
+                        {simulating ? (
+                            <div style={{ color: '#64748b', fontSize: '0.9rem', fontStyle: 'italic' }}>🔮 Calculando futuro...</div>
+                        ) : (
+                            <>
+                                <div style={{ textAlign: "center" }}>
+                                    <div style={{ fontSize: "0.75rem", color: "#64748b", textTransform: 'uppercase', letterSpacing: '0.5px' }}>Mínimo</div>
+                                    <div style={{ fontSize: "1.2rem", fontWeight: 800, color: predictionData.summary.min_bg < 70 ? '#dc2626' : '#166534' }}>
+                                        {Math.round(predictionData.summary.min_bg)}
+                                    </div>
+                                </div>
+                                <div style={{ height: '30px', width: '1px', background: '#cbd5e1' }}></div>
+                                <div style={{ textAlign: "center" }}>
+                                    <div style={{ fontSize: "0.75rem", color: "#64748b", textTransform: 'uppercase', letterSpacing: '0.5px' }}>Final (6h)</div>
+                                    <div style={{ fontSize: "1.2rem", fontWeight: 800, color: "#334155" }}>
+                                        {Math.round(predictionData.summary.ending_bg)}
+                                    </div>
+                                </div>
+                            </>
+                        )}
                     </div>
                 )}
 
