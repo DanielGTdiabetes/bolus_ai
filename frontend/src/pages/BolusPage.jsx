@@ -332,23 +332,25 @@ export default function BolusPage() {
                 import('../modules/core/store').then(({ saveDualPlan }) => saveDualPlan(state.lastBolusPlan));
             }
 
-            // Save Injection Site History
-            if (siteId) {
+            // Save Injection Site History (ONLY if insulin > 0)
+            if (siteId && finalInsulin > 0) {
                 saveInjectionSite('rapid', siteId);
                 treatment.notes += ` [Sitio: ${getSiteLabel('rapid', siteId)}]`;
             }
 
             const apiRes = await saveTreatment(treatment);
 
-            // Decrement Needle Stock
-            try {
-                const supplies = await getSupplies();
-                const needles = supplies.find(s => s.key === 'supplies_needles');
-                if (needles && needles.quantity > 0) {
-                    await updateSupply('supplies_needles', needles.quantity - 1);
+            // Decrement Needle Stock (ONLY if insulin > 0)
+            if (finalInsulin > 0) {
+                try {
+                    const supplies = await getSupplies();
+                    const needles = supplies.find(s => s.key === 'supplies_needles');
+                    if (needles && needles.quantity > 0) {
+                        await updateSupply('supplies_needles', needles.quantity - 1);
+                    }
+                } catch (err) {
+                    console.warn("Failed to update stock:", err);
                 }
-            } catch (err) {
-                console.warn("Failed to update stock:", err);
             }
 
             // SPECIAL: Start Restaurant Session if flagged
