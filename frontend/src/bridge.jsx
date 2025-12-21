@@ -1,6 +1,7 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import NightscoutSettingsPage from './pages/NightscoutSettingsPage';
+import { ToastContainer } from './components/ui/Toast';
 
 // Registry of React Pages
 import FavoritesPage from './pages/FavoritesPage';
@@ -93,6 +94,7 @@ export function mountReactPage(pageName, containerId = 'app') {
         reactRoot.render(
             <React.StrictMode>
                 <Component />
+                <ToastContainer />
             </React.StrictMode>
         );
     } catch (e) {

@@ -12,6 +12,7 @@ import {
     getSupplies, updateSupply,
     getFavorites, addFavorite, simulateForecast
 } from '../lib/api';
+import { showToast } from '../components/ui/Toast';
 import { MainGlucoseChart } from '../components/charts/MainGlucoseChart';
 import { startRestaurantSession } from '../lib/restaurantApi';
 import { navigate } from '../modules/core/router';
@@ -389,8 +390,8 @@ export default function BolusPage() {
                 localStorage.setItem('restaurant_session_v1', JSON.stringify(session));
                 state.tempRestaurantSession = null;
 
-                alert("✅ Bolo guardado. Iniciando sesión de restaurante...");
-                navigate('#/restaurant');
+                showToast("✅ Bolo guardado. Iniciando sesión de restaurante...", "success");
+                setTimeout(() => navigate('#/restaurant'), 1000);
                 return;
             }
 
@@ -398,12 +399,16 @@ export default function BolusPage() {
             if (apiRes && apiRes.nightscout) {
                 if (apiRes.nightscout.uploaded) {
                     msg = "✅ Bolo guardado (Local + Nightscout).";
+                    showToast(msg, "success");
                 } else {
-                    msg = "⚠️ Guardado SOLO local.\nError Nightscout: " + (apiRes.nightscout.error || "Desconocido");
+                    msg = "⚠️ Guardado SOLO local. NS Error: " + (apiRes.nightscout.error || "?");
+                    showToast(msg, "warning", 5000);
                 }
+            } else {
+                showToast(msg, "success");
             }
-            alert(msg);
-            navigate('#/');
+
+            setTimeout(() => navigate('#/'), 1000);
 
         } catch (e) {
             alert("Error guardando: " + e.message);
