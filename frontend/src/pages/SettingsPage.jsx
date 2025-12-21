@@ -21,25 +21,19 @@ export default function SettingsPage() {
             <Header title="Ajustes" showBack={true} />
             <main className="page" style={{ paddingBottom: '80px' }}>
                 <Card>
-                    <div className="tabs" style={{ display: 'flex', borderBottom: '1px solid #e2e8f0', marginBottom: '1rem' }}>
+                    <div className="tabs" style={{ display: 'flex', borderBottom: '1px solid #e2e8f0', marginBottom: '1rem', overflowX: 'auto' }}>
                         <TabButton label="Nightscout" active={activeTab === 'ns'} onClick={() => setActiveTab('ns')} />
                         <TabButton label="Cálculo" active={activeTab === 'calc'} onClick={() => setActiveTab('calc')} />
+                        <TabButton label="IA / Visión" active={activeTab === 'vision'} onClick={() => setActiveTab('vision')} />
                         <TabButton label="Análisis" active={activeTab === 'analysis'} onClick={() => setActiveTab('analysis')} />
                         <TabButton label="Datos" active={activeTab === 'data'} onClick={() => setActiveTab('data')} />
                     </div>
 
-                    <div style={{ display: activeTab === 'ns' ? 'block' : 'none' }}>
-                        <NightscoutPanel />
-                    </div>
-                    <div style={{ display: activeTab === 'calc' ? 'block' : 'none' }}>
-                        <CalcParamsPanel />
-                    </div>
-                    <div style={{ display: activeTab === 'analysis' ? 'block' : 'none' }}>
-                        <IsfAnalyzer />
-                    </div>
-                    <div style={{ display: activeTab === 'data' ? 'block' : 'none' }}>
-                        <DataPanel />
-                    </div>
+                    {activeTab === 'ns' && <NightscoutPanel />}
+                    {activeTab === 'calc' && <CalcParamsPanel />}
+                    {activeTab === 'vision' && <VisionPanel />}
+                    {activeTab === 'analysis' && <IsfAnalyzer />}
+                    {activeTab === 'data' && <DataPanel />}
                 </Card>
 
                 {activeTab === 'data' && (
@@ -413,6 +407,134 @@ function HealthCheck() {
             <pre style={{ background: '#0f172a', color: '#22d3ee', padding: '0.5rem', borderRadius: '6px', overflowX: 'auto', fontSize: '0.75rem' }}>
                 {status}
             </pre>
+        </div>
+    );
+}
+
+function VisionPanel() {
+    const [config, setConfig] = useState({
+        provider: 'gemini',
+        gemini_key: '',
+        gemini_model: 'gemini-2.0-flash-exp',
+        openai_key: '',
+        openai_model: 'gpt-4o'
+    });
+    const [loading, setLoading] = useState(true);
+    const [status, setStatus] = useState(null);
+
+    useEffect(() => {
+        const params = getCalcParams() || {};
+        if (params.vision) {
+            setConfig(prev => ({ ...prev, ...params.vision }));
+        }
+        setLoading(false);
+    }, []);
+
+    const handleChange = (field, value) => {
+        setConfig(prev => ({ ...prev, [field]: value }));
+    };
+
+    const handleSave = () => {
+        const current = getCalcParams() || {};
+        const newParams = {
+            ...current,
+            vision: config
+        };
+        saveCalcParams(newParams);
+        setStatus('✅ Configuración de Visión guardada.');
+        setTimeout(() => setStatus(null), 3000);
+    };
+
+    if (loading) return <div className="p-4 text-center">Cargando...</div>;
+
+    return (
+        <div className="stack">
+            <h3 style={{ marginTop: 0 }}>Inteligencia Artificial (Visión)</h3>
+            <p className="text-muted text-sm">
+                Configura el proveedor de IA para el reconocimiento de alimentos.
+            </p>
+
+            <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600 }}>Proveedor Activo</label>
+            <div style={{ display: 'flex', gap: '1rem', marginBottom: '1.5rem' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', padding: '0.5rem', background: config.provider === 'gemini' ? '#eff6ff' : 'transparent', borderRadius: '6px', border: config.provider === 'gemini' ? '1px solid #3b82f6' : '1px solid #e2e8f0' }}>
+                    <input
+                        type="radio"
+                        name="vision_provider"
+                        value="gemini"
+                        checked={config.provider === 'gemini'}
+                        onChange={() => handleChange('provider', 'gemini')}
+                    />
+                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                        <span style={{ fontWeight: 600 }}>Google Gemini</span>
+                        <span style={{ fontSize: '0.75rem', color: '#64748b' }}>Recomendado (Rápido)</span>
+                    </div>
+                </label>
+
+                <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', padding: '0.5rem', background: config.provider === 'openai' ? '#eff6ff' : 'transparent', borderRadius: '6px', border: config.provider === 'openai' ? '1px solid #3b82f6' : '1px solid #e2e8f0' }}>
+                    <input
+                        type="radio"
+                        name="vision_provider"
+                        value="openai"
+                        checked={config.provider === 'openai'}
+                        onChange={() => handleChange('provider', 'openai')}
+                    />
+                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                        <span style={{ fontWeight: 600 }}>OpenAI GPT-4o</span>
+                        <span style={{ fontSize: '0.75rem', color: '#64748b' }}>Alta precisión</span>
+                    </div>
+                </label>
+            </div>
+
+            {config.provider === 'gemini' && (
+                <div className="stack" style={{ background: '#f8fafc', padding: '1rem', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                    <h4 style={{ margin: '0 0 1rem 0', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <span style={{ fontSize: '1.2rem' }}>✨</span> Configuración Gemini
+                    </h4>
+                    <Input
+                        label="Google API Key"
+                        type="password"
+                        placeholder="AIza..."
+                        value={config.gemini_key}
+                        onChange={e => handleChange('gemini_key', e.target.value)}
+                    />
+                    <p className="text-xs text-muted" style={{ marginTop: '-0.5rem' }}>Dejar en blanco para usar la clave del servidor.</p>
+
+                    <Input
+                        label="Modelo (Gemini Model)"
+                        placeholder="gemini-2.0-flash-exp"
+                        value={config.gemini_model}
+                        onChange={e => handleChange('gemini_model', e.target.value)}
+                    />
+                </div>
+            )}
+
+            {config.provider === 'openai' && (
+                <div className="stack" style={{ background: '#f8fafc', padding: '1rem', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                    <h4 style={{ margin: '0 0 1rem 0', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <span style={{ fontSize: '1.2rem' }}>🤖</span> Configuración OpenAI
+                    </h4>
+                    <Input
+                        label="OpenAI API Key"
+                        type="password"
+                        placeholder="sk-..."
+                        value={config.openai_key}
+                        onChange={e => handleChange('openai_key', e.target.value)}
+                    />
+                    <p className="text-xs text-muted" style={{ marginTop: '-0.5rem' }}>Dejar en blanco para usar la clave del servidor.</p>
+
+                    <Input
+                        label="Modelo (GPT Model)"
+                        placeholder="gpt-4o"
+                        value={config.openai_model}
+                        onChange={e => handleChange('openai_model', e.target.value)}
+                    />
+                </div>
+            )}
+
+            <div style={{ marginTop: '1rem' }}>
+                <Button onClick={handleSave}>Guardar Cambios</Button>
+            </div>
+            {status && <div className="text-teal text-center text-sm" style={{ marginTop: '1rem' }}>{status}</div>}
         </div>
     );
 }

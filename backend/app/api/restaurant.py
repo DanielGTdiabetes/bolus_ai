@@ -32,12 +32,52 @@ def _ensure_gemini_enabled(settings: Settings):
         raise HTTPException(status_code=501, detail="missing_google_api_key: Gemini API Key not configured")
 
 
+from app.core.db import get_db_session
+from sqlalchemy.ext.asyncio import AsyncSession
+from app.services.settings_service import get_user_settings_service
+from app.models.settings import UserSettings
+
+async def _resolve_settings(base_settings: Settings, user: CurrentUser, session: AsyncSession) -> Settings:
+    # Attempt to load user settings and overlay vision config
+    try:
+        data = await get_user_settings_service(user.username, session)
+        if data and data.get("settings"):
+            user_conf = UserSettings.migrate(data["settings"])
+            
+            # If user has vision config, override base settings (copy)
+            # Only if they have provided keys or specific provider overrides
+            if user_conf.vision.provider:
+                # Clone
+                base_settings = base_settings.model_copy(deep=True)
+                
+                # Overlay
+                base_settings.vision.provider = user_conf.vision.provider
+                
+                if user_conf.vision.gemini_key:
+                    base_settings.vision.google_api_key = user_conf.vision.gemini_key
+                
+                if user_conf.vision.gemini_model:
+                     base_settings.vision.gemini_model = user_conf.vision.gemini_model
+
+                if user_conf.vision.openai_key:
+                    base_settings.vision.openai_api_key = user_conf.vision.openai_key
+                    
+                if user_conf.vision.openai_model:
+                     base_settings.vision.openai_model = user_conf.vision.openai_model
+                     
+    except Exception as e:
+        logger.warning(f"Failed to resolve user vision settings: {e}")
+        
+    return base_settings
+
 @router.post("/analyze_menu", response_model=RestaurantMenuResult, summary="Analyze restaurant menu")
 async def analyze_menu(
     image: UploadFile = File(...),
     current_user: CurrentUser = Depends(get_current_user),
-    settings: Settings = Depends(get_settings),
+    base_settings: Settings = Depends(get_settings),
+    session: AsyncSession = Depends(get_db_session),
 ):
+    settings = await _resolve_settings(base_settings, current_user, session)
     _ensure_gemini_enabled(settings)
     _validate_image(image, settings)
 
@@ -59,8 +99,10 @@ async def analyze_menu(
 async def analyze_menu_text(
     description: str = Form(...),
     current_user: CurrentUser = Depends(get_current_user),
-    settings: Settings = Depends(get_settings),
+    base_settings: Settings = Depends(get_settings),
+    session: AsyncSession = Depends(get_db_session),
 ):
+    settings = await _resolve_settings(base_settings, current_user, session)
     _ensure_gemini_enabled(settings)
     logger.info("Restaurant analyze_menu_text user=%s length=%d", current_user.username, len(description))
 
@@ -81,8 +123,10 @@ async def analyze_menu_text(
 async def analyze_plate(
     image: UploadFile = File(...),
     current_user: CurrentUser = Depends(get_current_user),
-    settings: Settings = Depends(get_settings),
+    base_settings: Settings = Depends(get_settings),
+    session: AsyncSession = Depends(get_db_session),
 ):
+    settings = await _resolve_settings(base_settings, current_user, session)
     _ensure_gemini_enabled(settings)
     _validate_image(image, settings)
 
@@ -107,8 +151,10 @@ async def compare_plate(
     actual_carbs: float | None = Form(None, alias="actualCarbs"),
     confidence: float | None = Form(None),
     current_user: CurrentUser = Depends(get_current_user),
-    settings: Settings = Depends(get_settings),
+    base_settings: Settings = Depends(get_settings),
+    session: AsyncSession = Depends(get_db_session),
 ):
+    settings = await _resolve_settings(base_settings, current_user, session)
     if image is None and actual_carbs is None:
         raise HTTPException(status_code=400, detail="image_or_actual_required")
 

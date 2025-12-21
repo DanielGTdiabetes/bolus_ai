@@ -90,6 +90,18 @@ class TechneRoundingConfig(BaseModel):
     safety_iob_threshold: float = 1.5  # If IOB > this, disable Techne rounding (avoid stacking)
 
 
+class VisionConfig(BaseModel):
+    provider: Literal["gemini", "openai"] = "gemini"
+    
+    # Gemini Config
+    gemini_key: Optional[str] = None
+    gemini_model: str = "gemini-2.0-flash-exp" # Default recommended
+    
+    # OpenAI Config
+    openai_key: Optional[str] = None
+    openai_model: str = "gpt-4o"
+
+
 
 class UserSettings(BaseModel):
     schema_version: int = 1
@@ -127,6 +139,7 @@ class UserSettings(BaseModel):
     adaptive: AdaptiveConfig = Field(default_factory=AdaptiveConfig)
     nightscout: NightscoutConfig = Field(default_factory=NightscoutConfig)
     techne: TechneRoundingConfig = Field(default_factory=TechneRoundingConfig)
+    vision: VisionConfig = Field(default_factory=VisionConfig)
     
     # Internal field to track update time from DB, not part of user input JSON usually
     updated_at: Optional[datetime] = None

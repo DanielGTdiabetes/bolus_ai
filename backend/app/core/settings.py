@@ -46,6 +46,8 @@ class VisionConfig(BaseModel):
     provider: str = Field(default="openai") # "openai" or "gemini"
     openai_api_key: Optional[str] = Field(default=None)
     google_api_key: Optional[str] = Field(default=None)
+    gemini_model: Optional[str] = Field(default=None)
+    openai_model: Optional[str] = Field(default="gpt-4o")
     max_image_mb: int = Field(default=6, ge=1, le=20)
     timeout_seconds: int = Field(default=15, ge=5, le=60)
 

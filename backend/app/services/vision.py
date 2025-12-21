@@ -150,7 +150,7 @@ async def _estimate_with_openai(image_bytes: bytes, mime_type: str, hints: dict,
 
     try:
         response = await client.chat.completions.create(
-            model="gpt-4o",
+            model=settings.vision.openai_model or "gpt-4o",
             messages=[
                 {"role": "system", "content": PROMPT_SYSTEM},
                 {
@@ -194,7 +194,7 @@ async def _estimate_with_gemini(image_bytes: bytes, mime_type: str, hints: dict,
         HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_ONLY_HIGH,
     }
 
-    model_name = get_gemini_model()
+    model_name = settings.vision.gemini_model or get_gemini_model()
     model = genai.GenerativeModel(model_name, generation_config=generation_config, safety_settings=safety_settings)
 
     user_prompt = _build_user_prompt(hints)
