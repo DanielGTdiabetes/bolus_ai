@@ -428,39 +428,7 @@ export default function BolusPage() {
 
 
 
-                        {false && (
-                            <div className="card" style={{ display: 'none' }}>
-                                <div style={{ fontSize: '0.8rem', fontWeight: 700, color: '#7c3aed', marginBottom: '4px', textAlign: 'center' }}>
-                                    SIMULACIÓN ESTIMADA
-                                </div>
-                                {predictionData?.summary && (
-                                    <div style={{ display: 'flex', justifyContent: 'space-around', margin: '0.5rem 0', fontSize: '0.9rem' }}>
-                                        <div style={{ textAlign: 'center' }}>
-                                            <div style={{ fontSize: '0.7rem', color: '#64748b' }}>Mínimo</div>
-                                            <strong style={{ color: predictionData.summary.min_bg < 70 ? '#ef4444' : '#334155' }}>
-                                                {Math.round(predictionData.summary.min_bg)}
-                                            </strong>
-                                        </div>
-                                        <div style={{ textAlign: 'center' }}>
-                                            <div style={{ fontSize: '0.7rem', color: '#64748b' }}>Máximo</div>
-                                            <strong>{Math.round(predictionData.summary.max_bg)}</strong>
-                                        </div>
-                                        <div style={{ textAlign: 'center' }}>
-                                            <div style={{ fontSize: '0.7rem', color: '#64748b' }}>Final (6h)</div>
-                                            <strong>{Math.round(predictionData.summary.ending_bg)}</strong>
-                                        </div>
-                                    </div>
-                                )}
-                                {predictionData?.warnings?.length > 0 && (
-                                    <div style={{ fontSize: '0.7rem', color: '#c2410c', marginTop: '4px', textAlign: 'center' }}>
-                                        ⚠️ {predictionData.warnings.join(', ')}
-                                    </div>
-                                )}
-                                <div style={{ width: '100%', height: '200px' }}>
-                                    <MainGlucoseChart predictionData={predictionData} />
-                                </div>
-                            </div>
-                        )}
+
 
                         {/* Glucose */}
                         <div className="form-group">
