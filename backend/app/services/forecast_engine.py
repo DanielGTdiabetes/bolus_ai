@@ -147,7 +147,7 @@ class ForecastEngine:
                 # Bolus was at b.time_offset_min (e.g. -10).
                 # So time since injection = t_mid - b.time_offset_min
                 t_since_inj = t_mid - b.time_offset_min
-                rate = InsulinCurves.exponential_activity(
+                rate = InsulinCurves.linear_activity(
                     t_since_inj, 
                     req.params.insulin_peak_minutes, 
                     req.params.dia_minutes
