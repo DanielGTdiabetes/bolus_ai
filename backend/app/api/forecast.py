@@ -76,6 +76,7 @@ async def get_current_forecast(
         # Default to Lunch if unknown
         icr = settings.cr.lunch
         isf = settings.cf.lunch
+        absorption = settings.absorption.lunch
         
         # Simple Logic (assuming User Time)
         # Breakfast: 05:00 - 11:00
@@ -85,12 +86,15 @@ async def get_current_forecast(
         if 5 <= h < 11:
             icr = settings.cr.breakfast
             isf = settings.cf.breakfast
+            absorption = settings.absorption.breakfast
         elif 11 <= h < 17:
              icr = settings.cr.lunch
              isf = settings.cf.lunch
+             absorption = settings.absorption.lunch
         elif 17 <= h < 23:
              icr = settings.cr.dinner
              isf = settings.cf.dinner
+             absorption = settings.absorption.dinner
         
         # Fallback for night owls (23-05) -> Dinner or specific?
         # Usually dinner settings persist, or we wrap to breakfast.
@@ -98,8 +102,9 @@ async def get_current_forecast(
         else:
              icr = settings.cr.dinner
              isf = settings.cf.dinner
+             absorption = settings.absorption.dinner # or snack? default to dinner/snack logic? Let's use dinner for consistency or snack if user prefers. Using dinner as late-night implies meal.
              
-        return float(icr), float(isf)
+        return float(icr), float(isf), int(absorption)
 
     now_utc = datetime.now(timezone.utc)
     
@@ -123,41 +128,30 @@ async def get_current_forecast(
             
         if row.carbs and row.carbs > 0:
             # Resolve ICR for this SPECIFIC event time
-            evt_icr, _ = get_slot_params(user_hour, user_settings)
+            evt_icr, _, evt_abs = get_slot_params(user_hour, user_settings)
             
             carbs.append(ForecastEventCarbs(
                 time_offset_min=int(offset), 
                 grams=row.carbs,
-                icr=evt_icr
+                icr=evt_icr,
+                absorption_minutes=evt_abs
             ))
 
     # 4. Construct Request
     # Current params
     now_user_hour = (now_utc.hour + 1) % 24
-    curr_icr, curr_isf = get_slot_params(now_user_hour, user_settings)
+    curr_icr, curr_isf, curr_abs = get_slot_params(now_user_hour, user_settings)
     
-    # Calculate dynamic absorption based on recent carbs quantity
-    total_recent_carbs = 0
-    for c in carbs:
-        # Check if carb is recent (e.g. last 90 mins)
-        # c.time_offset_min is negative (e.g. -10)
-        if c.time_offset_min > -90:
-            total_recent_carbs += c.grams
-            
-    dynamic_absorption = 180 # Default fallback
-    if total_recent_carbs > 0:
-        if total_recent_carbs < 20: 
-            dynamic_absorption = 100 # Fast for snacks
-        elif total_recent_carbs < 50:
-            dynamic_absorption = 150 # Medium
-        else:
-             dynamic_absorption = 210 # Slow for big meals
+    # NOTE: We removed the legacy "dynamic_absorption" based on carb amount (<20g).
+    # Now we strictly follow the user's per-slot absorption setting.
+    # If the user wants snacks to be faster, they should set "snack" absorption lower 
+    # and ensure snacks are logged in snack slots (or just accept meal absorption).
 
     sim_params = SimulationParams(
         isf=curr_isf,
         icr=curr_icr, 
         dia_minutes=int(user_settings.iob.dia_hours * 60),
-        carb_absorption_minutes=dynamic_absorption,
+        carb_absorption_minutes=curr_abs,
         insulin_peak_minutes=user_settings.iob.peak_minutes
     )
     

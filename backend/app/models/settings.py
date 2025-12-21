@@ -12,6 +12,13 @@ class TargetRange(BaseModel):
     high: int = 120
 
 
+class MealDuration(BaseModel):
+    breakfast: int = 180
+    lunch: int = 180
+    dinner: int = 240
+    snack: int = 120
+
+
 class MealFactors(BaseModel):
     # Default CR to 10.0 g/U (safer than 1.0)
     breakfast: float = Field(default=10.0, description="Ratio CR (g/U)")
@@ -140,6 +147,7 @@ class UserSettings(BaseModel):
     nightscout: NightscoutConfig = Field(default_factory=NightscoutConfig)
     techne: TechneRoundingConfig = Field(default_factory=TechneRoundingConfig)
     vision: VisionConfig = Field(default_factory=VisionConfig)
+    absorption: MealDuration = Field(default_factory=MealDuration)
     
     # Internal field to track update time from DB, not part of user input JSON usually
     updated_at: Optional[datetime] = None

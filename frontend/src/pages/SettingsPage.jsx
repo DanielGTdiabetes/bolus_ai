@@ -178,6 +178,7 @@ function CalcParamsPanel() {
         lunch: { icr: 10, isf: 50, target: 110 },
         dinner: { icr: 10, isf: 50, target: 110 },
         snack: { icr: 10, isf: 50, target: 110 },
+        absorption: { breakfast: 180, lunch: 180, dinner: 240, snack: 120 },
         dia_hours: 4,
         round_step_u: 0.5,
         max_bolus_u: 10,
@@ -215,6 +216,16 @@ function CalcParamsPanel() {
                 [field]: parseFloat(value)
             }));
         }
+    };
+
+    const handleAbsorptionChange = (val) => {
+        setParams(prev => ({
+            ...prev,
+            absorption: {
+                ...prev.absorption,
+                [slot]: parseInt(val)
+            }
+        }));
     };
 
     const handleSave = () => {
@@ -261,6 +272,7 @@ function CalcParamsPanel() {
                 <Input label="Ratio (ICR - g/U)" type="number" value={slotData.icr} onChange={e => handleChange('icr', e.target.value, true)} />
                 <Input label="Sensibilidad (ISF - mg/dL/U)" type="number" value={slotData.isf} onChange={e => handleChange('isf', e.target.value, true)} />
                 <Input label="Objetivo (Target - mg/dL)" type="number" value={slotData.target} onChange={e => handleChange('target', e.target.value, true)} />
+                <Input label="Absorción (min)" type="number" value={params.absorption?.[slot] ?? 180} onChange={e => handleAbsorptionChange(e.target.value)} />
             </div>
 
             <hr style={{ margin: '1rem 0', borderColor: '#f1f5f9' }} />
