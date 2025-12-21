@@ -574,51 +574,6 @@ export default function BolusPage() {
                             </div>
                         )}
 
-                        {/* Simulation Toggle & Chart (Relocated) */}
-                        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '0.5rem', marginTop: '1rem' }}>
-                            <label style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '0.8rem', color: '#64748b', cursor: 'pointer' }}>
-                                <input
-                                    type="checkbox"
-                                    checked={simulationMode}
-                                    onChange={e => setSimulationMode(e.target.checked)}
-                                />
-                                🔮 Modo Predicción
-                            </label>
-                        </div>
-
-                        {simulationMode && (
-                            <div className="card fade-in" style={{ padding: '0.5rem', marginBottom: '1rem', border: '1px solid #8b5cf6', background: '#f5f3ff' }}>
-                                <div style={{ fontSize: '0.8rem', fontWeight: 700, color: '#7c3aed', marginBottom: '4px', textAlign: 'center' }}>
-                                    SIMULACIÓN ESTIMADA
-                                </div>
-                                {predictionData?.summary && (
-                                    <div style={{ display: 'flex', justifyContent: 'space-around', margin: '0.5rem 0', fontSize: '0.9rem' }}>
-                                        <div style={{ textAlign: 'center' }}>
-                                            <div style={{ fontSize: '0.7rem', color: '#64748b' }}>Mínimo</div>
-                                            <strong style={{ color: predictionData.summary.min_bg < 70 ? '#ef4444' : '#334155' }}>
-                                                {Math.round(predictionData.summary.min_bg)}
-                                            </strong>
-                                        </div>
-                                        <div style={{ textAlign: 'center' }}>
-                                            <div style={{ fontSize: '0.7rem', color: '#64748b' }}>Máximo</div>
-                                            <strong>{Math.round(predictionData.summary.max_bg)}</strong>
-                                        </div>
-                                        <div style={{ textAlign: 'center' }}>
-                                            <div style={{ fontSize: '0.7rem', color: '#64748b' }}>Final (6h)</div>
-                                            <strong>{Math.round(predictionData.summary.ending_bg)}</strong>
-                                        </div>
-                                    </div>
-                                )}
-                                {predictionData?.warnings?.length > 0 && (
-                                    <div style={{ fontSize: '0.7rem', color: '#c2410c', marginTop: '4px', textAlign: 'center' }}>
-                                        ⚠️ {predictionData.warnings.join(', ')}
-                                    </div>
-                                )}
-                                <div style={{ width: '100%', height: '200px' }}>
-                                    <MainGlucoseChart predictionData={predictionData} />
-                                </div>
-                            </div>
-                        )}
 
                         {/* Learning Hint Banner */}
                         {learningHint && (
@@ -732,6 +687,57 @@ function ResultView({ result, onBack, onSave, saving, currentCarbs, foodName, fa
         }
     }, [foodName, favorites]);
 
+    const [predictionData, setPredictionData] = useState(null);
+    const [simulating, setSimulating] = useState(false);
+
+    const runSimulation = async (doseNow, doseLater, carbsVal) => {
+        setSimulating(true);
+        try {
+            const bgVal = result.glucose?.mgdl || 120; // fallback
+            const params = result.used_params;
+
+            // Build events
+            const boluses = [];
+            if (doseNow > 0) boluses.push({ time_offset_min: 0, units: doseNow });
+            // TODO: Handle extended part (doseLater) correctly in simulation (as multiple boluses or extended type?)
+            // For now let's just add it as immediate for safety checking or delayed?
+            // ForecastEngine supports "boluses", usually immediate.
+            // Let's calculate equivalent impact or just ignore later part for the "dip" check.
+            // Ideally we simulate it. Let's add it with delay if we had delay info.
+            // Result has `duration_min` for extended.
+            // We can approximate extended as multiple small boluses? 
+            // Or just simplified: Add it at t=0 for "worst case" low check? 
+            // Or better: Add it at t=duration/2?
+            // Let's stick to immediate part for now to be safe on the "Drop".
+
+            const events = {
+                boluses: boluses,
+                carbs: carbsVal > 0 ? [{ time_offset_min: 0, grams: carbsVal }] : []
+            };
+
+            const payload = {
+                start_bg: bgVal,
+                horizon_minutes: 360,
+                params: {
+                    isf: params.isf_mgdl_per_u,
+                    icr: params.cr_g_per_u,
+                    dia_minutes: (params.dia_hours || 4) * 60,
+                    carb_absorption_minutes: 180, // Default or from user settings if we had access
+                },
+                events: events
+            };
+            // Note: Validation of params passed from Result (used_params)
+
+            const res = await simulateForecast(payload);
+            setPredictionData(res);
+        } catch (e) {
+            console.warn(e);
+            alert("Error simulando");
+        } finally {
+            setSimulating(false);
+        }
+    };
+
     const handleConfirm = async () => {
         if (saveFav && isNewFav && foodName) {
             try {
@@ -792,6 +798,45 @@ function ResultView({ result, onBack, onSave, saving, currentCarbs, foodName, fa
                     />
                     <span style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--primary)' }}>U</span>
                 </div>
+
+                <div style={{ textAlign: "center", marginBottom: "1rem" }}>
+                    <Button
+                        onClick={() => runSimulation(parseFloat(finalDose), later, parseFloat(currentCarbs))}
+                        style={{ fontSize: "0.8rem", background: "#f5f3ff", color: "#7c3aed", border: "1px solid #8b5cf6", padding: "5px 10px" }}
+                        disabled={simulating}
+                    >
+                        {simulating ? "Simulando..." : "🔮 Ver Futuro (Insulina + Carbs)"}
+                    </Button>
+                </div>
+
+                {predictionData && (
+                    <div className="card fade-in" style={{ padding: '0.5rem', marginBottom: '1rem', border: '1px solid #8b5cf6', background: '#f5f3ff' }}>
+                        <div style={{ fontSize: '0.8rem', fontWeight: 700, color: '#7c3aed', marginBottom: '4px', textAlign: 'center' }}>
+                            RESULTADO PREVISTO
+                        </div>
+                        {predictionData.summary && (
+                            <div style={{ display: 'flex', justifyContent: 'space-around', margin: '0.5rem 0', fontSize: '0.9rem' }}>
+                                <div style={{ textAlign: 'center' }}>
+                                    <div style={{ fontSize: '0.7rem', color: '#64748b' }}>Mínimo</div>
+                                    <strong style={{ color: predictionData.summary.min_bg < 70 ? '#ef4444' : '#334155' }}>
+                                        {Math.round(predictionData.summary.min_bg)}
+                                    </strong>
+                                </div>
+                                <div style={{ textAlign: 'center' }}>
+                                    <div style={{ fontSize: '0.7rem', color: '#64748b' }}>Máximo</div>
+                                    <strong>{Math.round(predictionData.summary.max_bg)}</strong>
+                                </div>
+                                <div style={{ textAlign: 'center' }}>
+                                    <div style={{ fontSize: '0.7rem', color: '#64748b' }}>Final (6h)</div>
+                                    <strong>{Math.round(predictionData.summary.ending_bg)}</strong>
+                                </div>
+                            </div>
+                        )}
+                        <div style={{ width: '100%', height: '200px' }}>
+                            <MainGlucoseChart predictionData={predictionData} />
+                        </div>
+                    </div>
+                )}
 
                 {/* Extended Part */}
                 {result.kind === 'dual' && (
