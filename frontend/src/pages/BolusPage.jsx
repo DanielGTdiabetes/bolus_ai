@@ -716,6 +716,11 @@ function ResultView({ result, onBack, onSave, saving, currentCarbs, foodName, fa
             }
 
             const params = result.used_params;
+            if (!params) throw new Error("Parámetros de cálculo no disponibles.");
+
+            const isf = params.isf_mgdl_per_u || params.isfMgdlPerU || 30;
+            const icr = params.cr_g_per_u || params.crGPerU || 10;
+            const dia = params.dia_hours || params.diaHours || 4;
 
             // Build events
             const boluses = [];
@@ -742,15 +747,18 @@ function ResultView({ result, onBack, onSave, saving, currentCarbs, foodName, fa
                 start_bg: bgVal,
                 horizon_minutes: 360,
                 params: {
-                    isf: params.isf_mgdl_per_u,
-                    icr: params.cr_g_per_u,
-                    dia_minutes: (params.dia_hours || 4) * 60,
+                    isf: isf,
+                    icr: icr,
+                    dia_minutes: dia * 60,
                     carb_absorption_minutes: 180,
                 },
                 events: events
             };
 
+            console.log("🚀 Simulation Payload:", JSON.stringify(payload, null, 2));
+
             const res = await simulateForecast(payload);
+            console.log("✅ Simulation Result:", res);
             setPredictionData(res);
 
             // Notification logic requested by user
@@ -764,8 +772,8 @@ function ResultView({ result, onBack, onSave, saving, currentCarbs, foodName, fa
             }
 
         } catch (e) {
-            console.warn(e);
-            showToast("Error en simulación", "error");
+            console.error("❌ Simulation Error:", e);
+            showToast(`Error simulando: ${e.message}`, "error");
         } finally {
             setSimulating(false);
         }
