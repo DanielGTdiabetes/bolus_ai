@@ -62,8 +62,16 @@ class LearningService:
         # We fetch recent entries and filter dynamically for now (assuming low volume).
         # Optimization: Use Postgres Array intersection if we change schema to Arrays vs JSONB.
         
-        # Fetch last 100 entries with outcomes
-        stmt = select(MealEntry).where(MealEntry.outcome != None).order_by(MealEntry.created_at.desc()).limit(100)
+        # Fetch last 100 entries with outcomes, filtering out tiny snacks (<10g)
+        stmt = (
+            select(MealEntry)
+            .where(
+                MealEntry.outcome != None,
+                MealEntry.carbs_g >= 10 
+            )
+            .order_by(MealEntry.created_at.desc())
+            .limit(100)
+        )
         result = await self.session.execute(stmt)
         candidates = result.scalars().all()
         
