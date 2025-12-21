@@ -11,6 +11,7 @@ La aplicación se organiza en 5 secciones principales accesibles desde la barra 
 ### 1. 🏠 Inicio (Dashboard)
 Es el centro de control. Aquí puedes ver:
 - **Glucosa en tiempo real**: Valor actual, flecha de tendencia y una **Gráfica Avanzada** que superpone tu curva de glucosa con los bolos de insulina (azul) y carbohidratos (naranja) para ver el efecto post-prandial.
+- **Feedback Visual (Toasts)**: Las confirmaciones de acciones aparecen como burbujas suaves en la parte inferior, mejorando la experiencia frente a las alertas antiguas.
 - **Insulina Activa (IOB)**: Cuánta insulina queda trabajando en tu cuerpo.
 - **Acciones Rápidas**: Acceso directo a favoritos, calculadora, báscula y alimentos.
 - **Actividad Reciente**: Listado de las últimas dosis e ingestas.
@@ -23,9 +24,13 @@ Usa la cámara para identificar alimentos y estimar carbohidratos.
 ### 3. 💉 Bolo (Calculadora Inteligente)
 El cerebro de la app. Calcula la dosis necesaria basándose en:
 - **Smart Input**: Escribe qué vas a comer (ej: "Pizza") y el sistema buscará en tus favoritos para rellenar los carbohidratos automáticamente.
-- **Carbohidratos**: Manuales o estimados por Smart Input.
+- **Simulación Predictiva**: Antes de confirmar, verás una **gráfica de futuro a 6 horas** que desglosa:
+    - 🟣 **Curva Final**: Tu glucosa estimada.
+    - 🟠 **Impacto Carbohidratos**: Cuánto subiría si no te pusieras insulina.
+    - 🔵 **Impacto Insulina**: Cuánto bajaría solo por el efecto de la insulina y basal.
 - **Insulina Activa (IOB)**: Para evitar acumulación.
-- **Rotación de Sitios**: Te muestra un avatar visual (Abdomen) y te sugiere dónde pincharte hoy para evitar repetir el mismo sitio.
+- **Gestión Inteligente de Stock**: Si registras solo carbohidratos (sin insulina, ej: corrección de hipo), el sistema **NO** descontará agujas ni rotará el sitio de inyección.
+- **Rotación de Sitios**: Te muestra un avatar visual (Abdomen) y te sugiere dónde pincharte hoy para evitar repetir el mismo sitio (lipodistrofia).
 
 ### 4. 📉 Basal (Gestión de Insulina Lenta)
 Herramientas para optimizar tu dosis basal:
