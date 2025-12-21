@@ -106,24 +106,64 @@ export default function NotificationsPage() {
                     {alerts.map((alert, idx) => (
                         <div key={idx} className="card fade-in" style={{
                             borderLeft: `5px solid ${alert.type === 'danger' ? '#ef4444' : (alert.type === 'warning' ? '#f59e0b' : '#3b82f6')}`,
-                            padding: '1rem'
+                            padding: '1rem',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: '0.8rem'
                         }}>
-                            <div style={{ fontWeight: 700, marginBottom: '0.5rem', color: '#1e293b' }}>
-                                {alert.type === 'danger' && '⚠️ '}
-                                {alert.type === 'warning' && '⚠️ '}
-                                {alert.type === 'info' && 'ℹ️ '}
-                                {alert.title}
+                            <div>
+                                <div style={{ fontWeight: 700, fontSize: '1rem', color: '#1e293b', marginBottom: '4px' }}>
+                                    {alert.type === 'danger' && '🚨 '}
+                                    {alert.type === 'warning' && '⚠️ '}
+                                    {alert.type === 'info' && 'ℹ️ '}
+                                    {alert.title}
+                                </div>
+                                <p style={{ fontSize: '0.9rem', color: '#64748b', margin: 0, lineHeight: 1.4 }}>
+                                    {alert.msg}
+                                </p>
                             </div>
-                            <p style={{ fontSize: '0.9rem', color: '#475569', marginBottom: '1rem' }}>{alert.msg}</p>
 
-                            <div style={{ display: 'flex', gap: '0.5rem' }}>
-                                <Button onClick={alert.action} size="sm" style={{ flex: 1, background: '#f1f5f9', color: '#334155', border: '1px solid #cbd5e1' }}>
-                                    {alert.btn}
+                            <div style={{ display: 'flex', gap: '0.8rem', marginTop: '0.2rem' }}>
+                                {/* Primary Action Button */}
+                                <Button
+                                    onClick={alert.action}
+                                    style={{
+                                        flex: 1,
+                                        background: alert.type === 'danger' ? '#fee2e2' : '#eff6ff',
+                                        color: alert.type === 'danger' ? '#b91c1c' : '#1d4ed8',
+                                        border: 'none',
+                                        fontWeight: 600,
+                                        display: 'flex',
+                                        justifyContent: 'center',
+                                        alignItems: 'center',
+                                        gap: '6px'
+                                    }}
+                                >
+                                    {alert.btn} <span>→</span>
                                 </Button>
+
+                                {/* Dismiss Button */}
                                 {alert.dismissable && (
-                                    <Button onClick={() => dismissAlert(alert.id)} size="sm" style={{ background: '#fff', color: '#94a3b8', border: '1px solid #e2e8f0' }}>
+                                    <button
+                                        onClick={() => dismissAlert(alert.id)}
+                                        style={{
+                                            width: '42px',
+                                            height: '42px',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            borderRadius: '12px',
+                                            border: '1px solid #fecaca',
+                                            background: '#fff',
+                                            color: '#ef4444',
+                                            fontSize: '1.2rem',
+                                            cursor: 'pointer',
+                                            transition: 'all 0.2s'
+                                        }}
+                                        aria-label="Ignorar"
+                                    >
                                         ✕
-                                    </Button>
+                                    </button>
                                 )}
                             </div>
                         </div>
