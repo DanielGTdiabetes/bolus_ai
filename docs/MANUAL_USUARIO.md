@@ -80,7 +80,11 @@ El cálculo se divide en varias fases matemáticas:
     - Si la flecha de glucosa es **Ascendente**, la app redondea hacia arriba (ej: 2.3U -> 2.5U).
     - Si la flecha es **Descendente**, redondea hacia abajo (ej: 2.3U -> 2.0U).
 5.  **Estrategia Dual/Cuadrada**: Para comidas con mucha grasa o proteína, puedes dividir el bolo en una parte inmediata y otra extendida en el tiempo.
-6.  **Modo Postre (Ignorar IOB)**: Si decides comer un segundo plato o postre poco después de tu comida principal, puedes activar esta casilla. Esto le dice a la app que NO reste la insulina activa (IOB) del primer plato al calcular la dosis para estos nuevos carbohidratos, evitando que te recomiende 0 unidades erróneamente.
+    - Si la flecha es **Descendente**, redondea hacia abajo (ej: 2.3U -> 2.0U).
+5.  **Estrategia Dual/Cuadrada**: Para comidas con mucha grasa o proteína, puedes dividir el bolo en una parte inmediata y otra extendida en el tiempo.
+6.  **Modo Postre (Ignorar IOB)**: Si decides comer un segundo plato o postre poco después de tu comida principal, puedes activar esta casilla.
+    - Esto le dice a la app que NO reste la insulina activa (IOB) del primer plato.
+    - **⚠️ Importante**: Si tu bolo anterior fue hace menos de 2 horas, la app te sugerirá esperar **15-20 minutos** antes de inyectar este segundo bolo para dar tiempo al vaciado gástrico y evitar una hipoglucemia por solapamiento.
 
 ---
 
@@ -115,7 +119,19 @@ La nueva herramienta de **Análisis ISF** (en `Ajustes` -> `Análisis`) utiliza 
     - Si detecta que es **demasiado débil**, te sugerirá bajarlo.
     - Puedes ver la **evidencia** detallada de cada evento analizado para confiar en el resultado.
 
+    - Puedes ver la **evidencia** detallada de cada evento analizado para confiar en el resultado.
+
 ---
 
-## ⚠️ Descargo de Responsabilidad Médico
+## 9. 🤖 Sistema de Aprendizaje (Patrones)
+
+Bolus AI aprende de tus datos históricos para sugerir cambios en tus Ratios (ICR/ISF). Ten en cuenta:
+
+1.  **Periodo de Calentamiento**: El sistema necesita entre **7 y 14 días** de datos fiables para empezar a generar sugerencias precisas. Ignora las alertas de "Patrón detectado" durante la primera semana de uso.
+2.  **Validación Capilar**: Ante cualquier sugerencia de cambio de Ratio, o si el sistema predice una hipoglucemia que no te cuadra, realiza siempre una **prueba de glucosa capilar** para confirmar. No te fíes ciegamente del sensor o del algoritmo al principio.
+3.  **Modo Enfermedad**: Si estás enfermo, activa el "Modo Enfermedad" en tu Perfil. Esto evitará que el sistema aprenda datos "erróneos" (resistencia temporal a la insulina) que luego estropearían tus predicciones cuando te cures.
+
+---
+
+## 10. ⚠️ Descargo de Responsabilidad Médico
 Esta aplicación es una **herramienta de apoyo** a la decisión. Los cálculos son estimaciones basadas en algoritmos de IA y no deben sustituir el criterio clínico. **Verifica siempre los datos antes de administrarte insulina.**
