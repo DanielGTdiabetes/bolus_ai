@@ -331,10 +331,13 @@ export default function BolusPage() {
             }
 
             if (result.kind === 'dual') {
-                treatment.notes += ` (Split: ${result.upfront_u} now + ${result.later_u} over ${result.duration_min}m)`;
+                treatment.notes += ` (Split: ${finalInsulin} now + ${result.later_u} delayed ${result.duration_min}m)`;
                 // Update global state for HomePage tracking
-                state.lastBolusPlan = result.plan;
-                state.lastBolusPlan.created_at_ts = Date.now(); // Fix NaN issue
+                state.lastBolusPlan = {
+                    ...result.plan,
+                    upfront_u: finalInsulin, // Update plan with edited value
+                    created_at_ts: Date.now()
+                };
                 import('../modules/core/store').then(({ saveDualPlan }) => saveDualPlan(state.lastBolusPlan));
             }
 
@@ -751,12 +754,6 @@ function ResultView({ result, slot, onBack, onSave, saving, currentCarbs, foodNa
             const nowU = isNaN(doseNow) ? 0 : doseNow;
             if (nowU > 0) boluses.push({ time_offset_min: 0, units: nowU });
 
-            // Delayed (Simple approximation: add it at duration/2 to check for dips?)
-            // Or better: ForecastEngine supports "boluses" list. 
-            // We can add the later part as a second bolus? NO, ForecastEngine 'boluses' model is standard immediate bolus.
-            // But we can trick it by adding it with 'time_offset_min' = 0 ?
-            // No, spread is key.
-            // Let's just simulate the UPFRONT part + CARBS to see if we crash early.
             // This is the most critical check.
 
             const cVal = isNaN(carbsVal) ? 0 : carbsVal;
