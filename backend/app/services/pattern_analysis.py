@@ -57,6 +57,31 @@ async def run_analysis_service(
     )
     await db.execute(stmt_cleanup)
     
+    # Fetch Sick Mode events to exclude
+    stmt_sick = select(Treatment).where(
+        Treatment.user_id == user_id,
+        Treatment.event_type == "Note",
+        Treatment.notes.ilike("%Sick Mode%")
+    ).order_by(Treatment.created_at.asc())
+    
+    res_sick = await db.execute(stmt_sick)
+    sick_notes = res_sick.scalars().all()
+    
+    # Build exclusion windows
+    sick_windows = []
+    current_start = None
+    for note in sick_notes:
+        if "Start" in note.notes:
+            if current_start is None: current_start = note.created_at
+        elif "End" in note.notes:
+            if current_start:
+                sick_windows.append((current_start, note.created_at))
+                current_start = None
+    
+    # If still open (started but never ended), assume until now
+    if current_start:
+         sick_windows.append((current_start, datetime.now(timezone.utc).replace(tzinfo=None)))
+
     # DB Query
     stmt = (
         select(Treatment)
@@ -95,6 +120,17 @@ async def run_analysis_service(
             b_time = b_time.replace(tzinfo=timezone.utc)
         
         meal_slot = get_meal_slot(b_time)
+        
+        # Sick Mode Check
+        is_sick = False
+        b_time_naive = b_time.replace(tzinfo=None)
+        for (start, end) in sick_windows:
+            if start <= b_time_naive <= end:
+                is_sick = True
+                break
+        
+        if is_sick:
+            continue # Skip analysis for sick days
         
         # Target: user settings active? 
         # Using global target for now as per previous investigation
