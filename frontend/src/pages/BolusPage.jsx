@@ -231,6 +231,9 @@ export default function BolusPage() {
             if (correctionOnly && isNaN(bgVal)) {
                 throw new Error("Para corrección se requiere glucosa.");
             }
+            if (bgVal < 0 || carbsVal < 0) {
+                throw new Error("Los valores no pueden ser negativos.");
+            }
 
             const mealParams = getCalcParams();
             if (!mealParams) throw new Error("No hay configuración de ratios.");

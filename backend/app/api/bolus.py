@@ -289,8 +289,8 @@ async def calculate_bolus_stateless(
 
 
 class BolusAcceptRequest(BaseModel):
-    insulin: float
-    carbs: float = 0
+    insulin: float = Field(ge=0)
+    carbs: float = Field(default=0, ge=0)
     created_at: str
     notes: Optional[str] = ""
     enteredBy: str = "BolusAI"
