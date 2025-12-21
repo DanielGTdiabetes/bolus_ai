@@ -193,10 +193,10 @@ async def get_advice_service(user_id: str, days: int, db: AsyncSession):
         if n_checks >= 2:
             avg_wake = sum(i["wake_bg"] for i in valid_checks) / n_checks
             if avg_wake > 130:
-                 message = "Revisa tu basal: tendencia al alza al despertar."
-            elif avg_wake < 100:
+                 message = "Revisa tu basal: glucosa en ayunas alta (>130 mg/dL)."
+            elif avg_wake < 80:
                  # Check if dropping
-                 message = "Revisa tu basal: tendencia a la baja (<100)."
+                 message = "Revisa tu basal: glucosa en ayunas baja (<80 mg/dL)."
                  
     return {
         "message": message,
@@ -279,7 +279,7 @@ async def evaluate_change_service(user_id: str, days: int, db: AsyncSession):
             
         mean_wake = sum(c.bg_mgdl for c in checks) / n_c
         over_130 = sum(1 for c in checks if c.bg_mgdl > 130) / n_c
-        under_100 = sum(1 for c in checks if c.bg_mgdl < 100) / n_c
+        under_80 = sum(1 for c in checks if c.bg_mgdl < 80) / n_c
         
         n_map = {n.night_date: n for n in nights}
         # Check hypos for dates covered by checkins or all dates in range?
@@ -290,7 +290,7 @@ async def evaluate_change_service(user_id: str, days: int, db: AsyncSession):
             "n": n_c,
             "mean_wake": mean_wake,
             "pct_over_130": over_130,
-            "pct_under_100": under_100,
+            "pct_under_80": under_80,
             "night_hypos": hypos
         }
 
@@ -314,7 +314,7 @@ async def evaluate_change_service(user_id: str, days: int, db: AsyncSession):
     
     def calc_score(s):
         flag = 1.0 if s["night_hypos"] >= 2 else 0.0
-        return s["pct_over_130"] + s["pct_under_100"] + flag
+        return s["pct_over_130"] + s["pct_under_80"] + flag
         
     s_before = calc_score(before)
     s_after = calc_score(after)
