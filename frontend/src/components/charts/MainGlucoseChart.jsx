@@ -169,6 +169,7 @@ export function MainGlucoseChart({ isLow, predictionData }) {
                             min => Math.min(60, Math.floor((minVal ?? 70) / 10) * 10),
                             max => Math.max(200, Math.ceil((maxVal ?? 180) / 10) * 10)
                         ]}
+                        allowDataOverflow={true}
                         tick={{ fontSize: 10, fill: '#94a3b8' }}
                         width={40}
                     />
