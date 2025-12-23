@@ -44,10 +44,13 @@ async def get_current_forecast(
             client = NightscoutClient(ns_config.url, ns_config.api_secret)
             
             # Fetch last 45 minutes to calculate momentum
+            # We buffer the "now" (end search) by +20 mins to account for clock skew where
+            # the uploader device is ahead of the server, otherwise we miss the "latest" point.
             now_utc = datetime.now(timezone.utc)
             start_search = now_utc - timedelta(minutes=45)
+            end_search = now_utc + timedelta(minutes=20)
             
-            history_sgvs = await client.get_sgv_range(start_search, now_utc, count=20)
+            history_sgvs = await client.get_sgv_range(start_search, end_search, count=20)
             
             if history_sgvs:
                 # Sort by date descending (latest first) to find current easily
@@ -60,16 +63,13 @@ async def get_current_forecast(
                 # ForecastEngine expects: [{'minutes_ago': 0, 'value': 120}, ...]
                 for entry in history_sgvs:
                     # Calculate minutes ago
-                    # Entry date is usually milliseconds epoch -> convert to datetime aware
-                    # But NightscoutSGV model likely parses it. Use `dateString` or check model?
-                    # NightscoutSGV usually has `date` as int (epoch ms) or similar.
-                    # Let's check schema. schemas.py is not open, but forecast.py uses existing client methods.
-                    # client.get_sgv_range returns NightscoutSGV objects.
-                    # Assuming .date is epoch ms (standard NS)
-                    
                     entry_ts = entry.date / 1000.0
                     mins_ago = (now_utc.timestamp() - entry_ts) / 60.0
                     
+                    # Clamp future points (skew) to 0 to avoid logic errors in Engine
+                    if mins_ago < 0:
+                        mins_ago = 0.0
+
                     if 0 <= mins_ago <= 60: # Sanity check
                         recent_bg_series.append({
                             "minutes_ago": -1 * mins_ago, # Engine expects negative for past?
@@ -236,8 +236,9 @@ async def simulate_forecast(
                     
                     now_utc = datetime.now(timezone.utc)
                     start_search = now_utc - timedelta(minutes=45)
+                    end_search = now_utc + timedelta(minutes=20)
                     
-                    history_sgvs = await client.get_sgv_range(start_search, now_utc, count=20)
+                    history_sgvs = await client.get_sgv_range(start_search, end_search, count=20)
                     if history_sgvs:
                         recent_series = []
                         history_sgvs.sort(key=lambda x: x.date, reverse=True)
@@ -249,6 +250,10 @@ async def simulate_forecast(
                         for entry in history_sgvs:
                             entry_ts = entry.date / 1000.0
                             mins_ago = (now_utc.timestamp() - entry_ts) / 60.0
+                            
+                            if mins_ago < 0:
+                                mins_ago = 0.0
+
                             if 0 <= mins_ago <= 60:
                                 recent_series.append({
                                     "minutes_ago": mins_ago,
