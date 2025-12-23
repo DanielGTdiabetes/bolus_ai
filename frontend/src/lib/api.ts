@@ -374,6 +374,12 @@ export async function fetchTreatments(config) {
   if (config && config.count) {
     params.append("count", String(config.count));
   }
+  if (config && config.from_date) {
+    params.append("from_date", config.from_date);
+  }
+  if (config && config.to_date) {
+    params.append("to_date", config.to_date);
+  }
   // We purposefully ignore config.url/token here to avoid leaking secrets in URL.
   // The backend must rely on its stored configuration.
 

@@ -12,11 +12,29 @@ export default function HistoryPage() {
     const [stats, setStats] = useState({ insulin: 0, carbs: 0 });
     const [editingTx, setEditingTx] = useState(null);
 
+    // Search State
+    const [rangeMode, setRangeMode] = useState('7days'); // '7days' | 'custom'
+    const [dateFrom, setDateFrom] = useState('');
+    const [dateTo, setDateTo] = useState('');
+
     const load = async () => {
         setLoading(true);
         try {
             const config = getLocalNsConfig() || {};
-            const data = await fetchTreatments({ ...config, count: 50 });
+            const params = { ...config, count: 50 };
+
+            if (rangeMode === '7days') {
+                const d = new Date();
+                d.setDate(d.getDate() - 7);
+                params.from_date = d.toISOString();
+                params.count = 500; // Load ample for week
+            } else if (rangeMode === 'custom' && dateFrom) {
+                params.from_date = new Date(dateFrom).toISOString();
+                if (dateTo) params.to_date = new Date(dateTo).toISOString();
+                params.count = 1000;
+            }
+
+            const data = await fetchTreatments(params);
 
             // Process Stats
             const today = new Date().toDateString();
@@ -48,7 +66,7 @@ export default function HistoryPage() {
 
     useEffect(() => {
         load();
-    }, []);
+    }, [rangeMode]); // Auto-load when mode switches. Custom search triggered by Button.
 
     const handleSaveEdit = async (id, payload) => {
         try {
@@ -76,7 +94,57 @@ export default function HistoryPage() {
                     </div>
                 </div>
 
-                <h4 style={{ marginBottom: '1rem', color: 'var(--text-muted)' }}>Últimas Transacciones</h4>
+                <div style={{ marginBottom: '1.5rem', background: '#fff', padding: '1rem', borderRadius: '12px', boxShadow: '0 1px 2px rgba(0,0,0,0.05)' }}>
+                    <div style={{ display: 'flex', gap: '0.5rem', marginBottom: rangeMode === 'custom' ? '1rem' : 0 }}>
+                        <Button
+                            variant={rangeMode === '7days' ? 'primary' : 'secondary'}
+                            onClick={() => setRangeMode('7days')}
+                            style={{ flex: 1, fontSize: '0.9rem' }}
+                        >
+                            📅 Últimos 7 días
+                        </Button>
+                        <Button
+                            variant={rangeMode === 'custom' ? 'primary' : 'secondary'}
+                            onClick={() => setRangeMode('custom')}
+                            style={{ flex: 1, fontSize: '0.9rem' }}
+                        >
+                            🔎 Buscar Fecha
+                        </Button>
+                    </div>
+
+                    {rangeMode === 'custom' && (
+                        <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem' }}>
+                            <div style={{ display: 'flex', gap: '0.5rem' }}>
+                                <div style={{ flex: 1 }}>
+                                    <label style={{ fontSize: '0.75rem', fontWeight: 600, color: '#64748b' }}>Desde</label>
+                                    <Input
+                                        type="date"
+                                        value={dateFrom}
+                                        onChange={e => setDateFrom(e.target.value)}
+                                    />
+                                </div>
+                                <div style={{ flex: 1 }}>
+                                    <label style={{ fontSize: '0.75rem', fontWeight: 600, color: '#64748b' }}>Hasta</label>
+                                    <Input
+                                        type="date"
+                                        value={dateTo}
+                                        onChange={e => setDateTo(e.target.value)}
+                                    />
+                                </div>
+                            </div>
+                            <Button onClick={load} disabled={loading || !dateFrom}>
+                                {loading ? 'Buscando...' : '🔍 Buscar'}
+                            </Button>
+                        </div>
+                    )}
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                    <h4 style={{ margin: 0, color: 'var(--text-muted)' }}>Lista de Transacciones</h4>
+                    <span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>
+                        {treatments.length} registradas
+                    </span>
+                </div>
 
                 <div className="activity-list">
                     {loading && <div className="spinner">Cargando...</div>}

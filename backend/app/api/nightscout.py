@@ -329,7 +329,9 @@ async def update_config_legacy(
 
 @router.get("/treatments", summary="Get recent treatments (Hybrid: Local + Nightscout)")
 async def get_treatments_server(
-    count: int = 20,
+    count: int = 50,
+    from_date: Optional[str] = None,
+    to_date: Optional[str] = None,
     user: CurrentUser = Depends(get_current_user),
     session: AsyncSession = Depends(get_db_session),
     store: DataStore = Depends(_data_store)
@@ -341,6 +343,34 @@ async def get_treatments_server(
     """
     import logging
     logger = logging.getLogger(__name__)
+
+    # Parse Dates
+    start_dt = None
+    end_dt = None
+    ns_hours = 48 # Default if no date
+    
+    if from_date:
+        try:
+            # handle 'YYYY-MM-DD' or ISO
+            start_dt = datetime.fromisoformat(from_date.replace("Z", "+00:00"))
+            if start_dt.tzinfo: start_dt = start_dt.astimezone(timezone.utc).replace(tzinfo=None)
+            
+            # Calculate hours for NS (since it uses hours=X)
+            diff = datetime.utcnow() - start_dt
+            ns_hours = int(diff.total_seconds() / 3600) + 2 # +2 buffer
+            if ns_hours < 0: ns_hours = 24 # Fallback
+            
+            # If explicit range, boost count limit
+            if count < 1000: count = 1000 
+        except:
+             pass
+
+    if to_date:
+        try:
+            end_dt = datetime.fromisoformat(to_date.replace("Z", "+00:00"))
+            if end_dt.tzinfo: end_dt = end_dt.astimezone(timezone.utc).replace(tzinfo=None)
+        except:
+            pass
 
     # --- 1. Load from all sources ---
 
@@ -367,7 +397,7 @@ async def get_treatments_server(
             client = NightscoutClient(base_url=ns.url, token=ns.api_secret, timeout_seconds=5)
             try:
                 # get_recent_treatments returns Pydantic models
-                models = await client.get_recent_treatments(hours=48, limit=count)
+                models = await client.get_recent_treatments(hours=ns_hours, limit=count)
                 for m in models:
                     d = m.model_dump()
                     # Ensure _id is present for frontend
@@ -393,12 +423,16 @@ async def get_treatments_server(
             from sqlalchemy import select
             
             # Simple query: last N treatments for this user
-            stmt = (
-                select(DBTreatment)
-                .where(DBTreatment.user_id == user.username)
-                .order_by(DBTreatment.created_at.desc())
-                .limit(count)
-            )
+            stmt = select(DBTreatment).where(DBTreatment.user_id == user.username)
+            
+            if start_dt:
+                stmt = stmt.where(DBTreatment.created_at >= start_dt)
+            
+            if end_dt:
+                stmt = stmt.where(DBTreatment.created_at <= end_dt)
+
+            stmt = stmt.order_by(DBTreatment.created_at.desc()).limit(count)
+            
             result = await session.execute(stmt)
             rows = result.scalars().all()
             
