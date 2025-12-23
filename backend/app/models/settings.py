@@ -110,20 +110,10 @@ class VisionConfig(BaseModel):
 
 
 
-class UserSettings(BaseModel):
-    schema_version: int = 1
-    units: Literal["mg/dL"] = "mg/dL"
-    targets: TargetRange = Field(default_factory=TargetRange)
-    cf: MealFactors = Field(default_factory=lambda: MealFactors(breakfast=30, lunch=30, dinner=30, snack=30)) # Default CF 30
-    cr: MealFactors = Field(default_factory=MealFactors)
-    max_bolus_u: float = 10.0
-    max_correction_u: float = 5.0
-    round_step_u: float = 0.05
-    tdd_u: Optional[float] = Field(default=None, ge=1.0, description="Total Daily Dose typical (U)")
-    iob: IOBConfig = Field(default_factory=IOBConfig)
-    learning: LearningConfig = Field(default_factory=LearningConfig)
-    adaptive: AdaptiveConfig = Field(default_factory=AdaptiveConfig)
-    nightscout: NightscoutConfig = Field(default_factory=NightscoutConfig)
+class LabsConfig(BaseModel):
+    shadow_mode_enabled: bool = False
+
+
 class InsulinSettings(BaseModel):
     name: str = Field(default="Novorapid", description="Name of the insulin used")
     sensor_delay_min: int = Field(default=15, description="Delay in minutes for glucose sensor readings")
