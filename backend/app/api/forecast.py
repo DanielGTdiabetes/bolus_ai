@@ -211,16 +211,57 @@ async def get_current_forecast(
 
 
 @router.post("/simulate", response_model=ForecastResponse, summary="Simulate future glucose (Forecast)")
-
 async def simulate_forecast(
     payload: ForecastSimulateRequest,
-    user = Depends(get_current_user) # Require auth
+    user = Depends(get_current_user), # Require auth
+    session: AsyncSession = Depends(get_db_session)
 ):
     """
     Run the Forecast Engine to predict glucose values over a horizon (defaults to 360m).
     Consider factors: IOB, COB, Basal Drift, Momentum.
     """
     try:
+        # Auto-enrich with momentum if not provided and not explicitly disabled
+        # We only do this if the user hasn't provided their own series
+        if not payload.recent_bg_series and (not payload.momentum or payload.momentum.enabled):
+             ns_config = await get_ns_config(session, user.username)
+             if ns_config and ns_config.enabled and ns_config.url:
+                try:
+                    # Default/Ensure Momentum Config is ON
+                    if not payload.momentum:
+                        from app.models.forecast import MomentumConfig
+                        payload.momentum = MomentumConfig(enabled=True, lookback_points=5)
+
+                    client = NightscoutClient(ns_config.url, ns_config.api_secret)
+                    
+                    now_utc = datetime.now(timezone.utc)
+                    start_search = now_utc - timedelta(minutes=45)
+                    
+                    history_sgvs = await client.get_sgv_range(start_search, now_utc, count=20)
+                    if history_sgvs:
+                        recent_series = []
+                        history_sgvs.sort(key=lambda x: x.date, reverse=True)
+                        
+                        # Note: We do NOT override payload.start_bg here. 
+                        # The user might be simulating a hypothetical start BG (e.g. "What if I was 100?").
+                        # We just provide the "Trend Context" (Slope) from real history.
+                        
+                        for entry in history_sgvs:
+                            entry_ts = entry.date / 1000.0
+                            mins_ago = (now_utc.timestamp() - entry_ts) / 60.0
+                            if 0 <= mins_ago <= 60:
+                                recent_series.append({
+                                    "minutes_ago": mins_ago,
+                                    "value": float(entry.sgv)
+                                })
+                        
+                        payload.recent_bg_series = recent_series
+                        
+                    await client.aclose()
+                except Exception as e:
+                    print(f"Simulate NS Fetch warning: {e}")
+                    # Continue without momentum
+        
         # Validate logic? (Pydantic does structure, Engine does math)
         response = ForecastEngine.calculate_forecast(payload)
         return response
