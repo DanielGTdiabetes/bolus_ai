@@ -46,6 +46,9 @@ export default function NotificationsPage() {
                             uiItem.btn = 'Revisar';
                         } else if (item.type === 'basal_review_today') {
                             uiItem.type = 'warning';
+                        } else if (item.type === 'post_prandial_warning') {
+                            uiItem.type = 'danger'; // High importance
+                            uiItem.btn = 'Corregir';
                         }
 
                         list.push(uiItem);

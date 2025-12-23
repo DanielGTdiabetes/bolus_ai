@@ -189,9 +189,87 @@ async def get_notification_summary_service(user_id: str, db: AsyncSession):
                             "title": "⚡ Labs: Auto-Absorción",
                             "message": f"Tu análisis de sombra es seguro (0 fallos en 20 test) y fiable ({int(conf)}%). Actívalo en Ajustes.",
                             "route": "#/settings",
-                            "unread": True
-                        })
+                        "unread": True
+                    })
             
+    # --- Check 5: Smart Post-Prandial Guardian (Pen Friendly) ---
+    # Trigger: Meal ~2h ago AND High BG AND No Recent bolus (last 45m)
+    # 1. Find Meal Bolus in [Now-2.5h, Now-1.5h]
+    from app.models.treatment import Treatment
+    from datetime import timedelta
+    
+    # DB timestamps are naive UTC usually
+    window_start = datetime.utcnow() - timedelta(minutes=150) # 2.5h ago
+    window_end = datetime.utcnow() - timedelta(minutes=90)    # 1.5h ago
+    
+    q_meal = (
+        select(Treatment)
+        .where(
+            Treatment.user_id == user_id,
+            Treatment.created_at >= window_start,
+            Treatment.created_at <= window_end,
+            Treatment.carbs > 20 # Only significant meals
+        )
+        .order_by(Treatment.created_at.desc())
+        .limit(1)
+    )
+    last_meal = (await db.execute(q_meal)).scalars().first()
+    
+    if last_meal:
+        # User ate ~2 hours ago. Check BG.
+        # We need Nightscout Client. Resolve config.
+        from app.services.nightscout_secrets_service import get_ns_config
+        ns_config = await get_ns_config(db, user_id)
+        
+        if ns_config and ns_config.enabled and ns_config.url:
+            current_bg = None
+            trend = None
+            try:
+                # Quick fetch
+                from app.services.nightscout_client import NightscoutClient
+                async with NightscoutClient(ns_config.url, ns_config.api_secret, timeout_seconds=4) as client:
+                    sgv = await client.get_latest_sgv()
+                    if sgv:
+                        current_bg = float(sgv.sgv)
+                        trend = sgv.direction
+            except Exception: pass
+            
+            if current_bg and current_bg > 180:
+                # High Post Meal. 
+                # INTELLIGENCE CHECKS:
+                
+                # 1. Trend Filter: If dropping fast, don't annoy.
+                is_dropping = trend in ['DoubleDown', 'SingleDown', 'FortyFiveDown']
+                if not is_dropping:
+                    
+                    # 2. "Recent Coverage" Filter (The Dual Bolus / Correction Detector)
+                    # Check for ANY bolus in the last 60 mins.
+                    recent_limit = datetime.utcnow() - timedelta(minutes=60)
+                    q_recent = (
+                        select(Treatment)
+                        .where(
+                            Treatment.user_id == user_id,
+                            Treatment.created_at >= recent_limit,
+                            Treatment.insulin > 0.5 # Minimal threshold
+                        )
+                    )
+                    recent_bolus = (await db.execute(q_recent)).scalars().first()
+                    
+                    if not recent_bolus:
+                        # CONDITION MET: High, Meal was long ago, No recent insulin.
+                        # Unique Key for this alert (per meal id or per hour?)
+                        key_alert = f"post_meal_alert_{last_meal.id}"
+                        
+                        if key_alert not in state_map:
+                            items.append({
+                                "type": "post_prandial_warning",
+                                "count": 1,
+                                "title": "⚠️ Revisión Post-Comida",
+                                "message": f"Glucosa alta ({int(current_bg)}) 2h después de comer. ¿Olvidaste corregir o la 2ª dosis?",
+                                "route": "#/bolus",
+                                "unread": True
+                            })
+
     # Summary
     has_unread = any(i.get("unread") for i in items)
     
