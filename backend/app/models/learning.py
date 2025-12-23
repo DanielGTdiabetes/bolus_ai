@@ -68,3 +68,25 @@ class MealOutcome(Base):
 
     def __repr__(self):
         return f"<MealOutcome {self.id} - Score: {self.score}>"
+
+
+class ShadowLog(Base):
+    __tablename__ = "shadow_logs"
+    
+    id = Column(String, primary_key=True, default=lambda: str(uuid4()))
+    user_id = Column(String, index=True, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    
+    meal_entry_id = Column(String, ForeignKey("meal_entries.id"), nullable=True)
+    
+    # Details
+    meal_name = Column(String, nullable=True) # Snapshot name for UI
+    scenario = Column(String, nullable=False) # e.g. "Absorción +20%"
+    suggestion = Column(String, nullable=True) # Human readable text
+    
+    # Result comparison
+    is_better = Column(Boolean, default=False)
+    improvement_pct = Column(Float, nullable=True)
+    
+    status = Column(String, default="pending") # pending, success, neutral, failed
+

@@ -147,6 +147,7 @@ class UserSettings(BaseModel):
     nightscout: NightscoutConfig = Field(default_factory=NightscoutConfig)
     techne: TechneRoundingConfig = Field(default_factory=TechneRoundingConfig)
     vision: VisionConfig = Field(default_factory=VisionConfig)
+    labs: LabsConfig = Field(default_factory=LabsConfig)
     absorption: MealDuration = Field(default_factory=MealDuration)
     
     # Internal field to track update time from DB, not part of user input JSON usually

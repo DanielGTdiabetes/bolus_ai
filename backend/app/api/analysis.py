@@ -116,3 +116,23 @@ async def get_summary_endpoint(
     user_id = current_user.username
     settings = await _load_settings_summary()
     return await get_summary_service(user_id=user_id, days=days, db=db, settings=settings)
+
+
+@router.get("/shadow/logs", summary="Get Shadow Mode logs")
+async def get_shadow_logs(
+    limit: int = 50,
+    current_user: Any = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session)
+):
+    from app.models.learning import ShadowLog
+    from sqlalchemy import select
+    
+    stmt = (
+        select(ShadowLog)
+        .where(ShadowLog.user_id == current_user.username)
+        .order_by(ShadowLog.created_at.desc())
+        .limit(limit)
+    )
+    result = await db.execute(stmt)
+    logs = result.scalars().all()
+    return logs

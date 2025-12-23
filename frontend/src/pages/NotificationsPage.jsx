@@ -8,85 +8,136 @@ export default function NotificationsPage() {
     const [alerts, setAlerts] = useState([]);
 
     useEffect(() => {
-        const list = [];
+        async function load() {
+            const list = [];
 
-        // Check Needles
-        const needles = parseInt(localStorage.getItem('supplies_needles') || '100');
-        if (needles < 20) {
-            list.push({
-                type: 'danger',
-                title: 'Stock de Agujas muy bajo',
-                msg: `Solo quedan ${needles} agujas. Reponer urgentemente.`,
-                action: () => navigate('#/supplies'),
-                btn: 'Gestionar Stock'
-            });
-        } else if (needles < 50) {
-            list.push({
-                type: 'warning',
-                title: 'Stock de Agujas bajo',
-                msg: `Quedan ${needles} agujas. Considera comprar pronto.`,
-                action: () => navigate('#/supplies'),
-                btn: 'Ver Stock'
-            });
+            // 1. Backend Notifications (Async)
+            try {
+                const { getNotificationsSummary, markNotificationsSeen } = await import('../lib/api');
+                const summary = await getNotificationsSummary();
+
+                if (summary && summary.items) {
+                    // Mark as seen automatically? Or only on interaction?
+                    // Usually opening the center marks "New" as seen (removes badge), but keeps actionable items in list.
+                    // But our backend logic for some items (Shadow) hides them if seen.
+                    // For now, let's NOT auto-mark everything. Let the user dismiss or act.
+                    // We only mark "unread" items as "read" to clear the badge count?
+                    // We'll calculate IDs to mark seen if that's the desired behavior.
+                    // Let's just map them for now.
+
+                    summary.items.forEach(item => {
+                        let uiItem = {
+                            id: item.type, // distinct key
+                            type: 'info',
+                            title: item.title,
+                            msg: item.message,
+                            action: () => navigate(item.route),
+                            btn: 'Ver',
+                            dismissable: true,
+                            backendType: item.type // keep track for marking seen
+                        };
+
+                        if (item.type === 'shadow_labs_ready') {
+                            uiItem.type = 'success'; // Green/Special
+                            uiItem.btn = 'Activar Ahora';
+                            uiItem.title = '✨ ' + item.title;
+                        } else if (item.type === 'suggestion_pending') {
+                            uiItem.type = 'info';
+                            uiItem.btn = 'Revisar';
+                        } else if (item.type === 'basal_review_today') {
+                            uiItem.type = 'warning';
+                        }
+
+                        list.push(uiItem);
+                    });
+                }
+            } catch (e) {
+                console.warn("Error fetching notifications", e);
+            }
+
+            // 2. Local Checks (Sync)
+            // Check Needles
+            const needles = parseInt(localStorage.getItem('supplies_needles') || '100');
+            if (needles < 20) {
+                list.push({
+                    type: 'danger',
+                    title: 'Stock de Agujas muy bajo',
+                    msg: `Solo quedan ${needles} agujas. Reponer urgentemente.`,
+                    action: () => navigate('#/supplies'),
+                    btn: 'Gestionar Stock'
+                });
+            } else if (needles < 50) {
+                list.push({
+                    type: 'warning',
+                    title: 'Stock de Agujas bajo',
+                    msg: `Quedan ${needles} agujas. Considera comprar pronto.`,
+                    action: () => navigate('#/supplies'),
+                    btn: 'Ver Stock'
+                });
+            }
+
+            // Check Sensors
+            const sensors = parseInt(localStorage.getItem('supplies_sensors') || '10');
+            if (sensors < 4) {
+                list.push({
+                    type: 'warning',
+                    title: 'Stock de Sensores bajo',
+                    msg: `Quedan ${sensors} sensores.`,
+                    action: () => navigate('#/supplies'),
+                    btn: 'Ver Stock'
+                });
+            }
+
+            // Check Sick Mode
+            const sick = localStorage.getItem('sick_mode_enabled') === 'true';
+            if (sick) {
+                list.push({
+                    type: 'info',
+                    title: 'Modo Enfermedad Activo',
+                    msg: 'Tus ratios están aumentados un 20%. Recuerda desactivarlo cuando mejores.',
+                    action: () => navigate('#/profile'),
+                    btn: 'Configurar'
+                });
+            }
+
+            // Check Forecast Warning
+            const forecastWarn = localStorage.getItem('forecast_warning') === 'true';
+            if (forecastWarn) {
+                list.push({
+                    id: 'forecast-alert',
+                    type: 'warning',
+                    title: 'Tendencia Riesgosa Detectada',
+                    msg: 'El modelo de predicción indica un posible riesgo de hipo/hiperglucemia en las próximas horas.',
+                    action: () => navigate('#/forecast'),
+                    btn: 'Ver Análisis',
+                    dismissable: true
+                });
+            }
+
+            setAlerts(list);
+
+            // Auto-clear badge count (optional)
+            // import('../lib/api').then(({ markNotificationsSeen }) => markNotificationsSeen(['generic_read']));
         }
 
-        // Check Sensors
-        const sensors = parseInt(localStorage.getItem('supplies_sensors') || '10');
-        if (sensors < 4) {
-            list.push({
-                type: 'warning',
-                title: 'Stock de Sensores bajo',
-                msg: `Quedan ${sensors} sensores.`,
-                action: () => navigate('#/supplies'),
-                btn: 'Ver Stock'
-            });
-        }
-
-        // Check Sick Mode
-        const sick = localStorage.getItem('sick_mode_enabled') === 'true';
-        if (sick) {
-            list.push({
-                type: 'info',
-                title: 'Modo Enfermedad Activo',
-                msg: 'Tus ratios están aumentados un 20%. Recuerda desactivarlo cuando mejores.',
-                action: () => navigate('#/profile'),
-                btn: 'Configurar'
-            });
-        }
-
-        // Check Forecast Warning
-        const forecastWarn = localStorage.getItem('forecast_warning') === 'true';
-        // Check if user dismissed it temporarily (optional logic, for now just show if active)
-        if (forecastWarn) {
-            list.push({
-                id: 'forecast-alert',
-                type: 'warning',
-                title: 'Tendencia Riesgosa Detectada',
-                msg: 'El modelo de predicción indica un posible riesgo de hipo/hiperglucemia en las próximas horas.',
-                action: () => navigate('#/forecast'),
-                btn: 'Ver Análisis',
-                dismissable: true
-            });
-        }
-
-        setAlerts(list);
+        load();
     }, []);
 
-    const dismissAlert = (id) => {
-        if (id === 'forecast-alert') {
-            // Logic to mute alert for some time? Or just clear for this session?
-            // User requested "dismiss once read".
-            // We can set a flag 'forecast_warning_dismissed_until' or just toggle warning off if that makes sense.
-            // But 'forecast_warning' stored by HomePage updates on every fetch. 
-            // So we need a side-flag.
+    const dismissAlert = async (id, backendType) => {
+        if (backendType) {
+            // Call backend to mark as seen (persists dismissal)
+            try {
+                const { markNotificationsSeen } = await import('../lib/api');
+                await markNotificationsSeen([backendType]);
+            } catch (e) { console.error(e); }
+        }
 
-            // Simple approach: Store timestamp of dismissal
+        if (id === 'forecast-alert') {
             localStorage.setItem('forecast_warning_dismissed_at', Date.now().toString());
-            // Remove from local state
-            setAlerts(prev => prev.filter(a => a.id !== id));
-            // Force header update
             window.dispatchEvent(new Event('forecast-update'));
         }
+
+        setAlerts(prev => prev.filter(a => a.id !== id && a.backendType !== backendType));
     };
 
     return (
@@ -145,7 +196,7 @@ export default function NotificationsPage() {
                                 {/* Dismiss Button */}
                                 {alert.dismissable && (
                                     <button
-                                        onClick={() => dismissAlert(alert.id)}
+                                        onClick={() => dismissAlert(alert.id, alert.backendType)}
                                         style={{
                                             width: '42px',
                                             height: '42px',
