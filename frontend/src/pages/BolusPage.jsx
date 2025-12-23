@@ -354,7 +354,7 @@ export default function BolusPage() {
             // Save Injection Site History (ONLY if insulin > 0)
             if (siteId && finalInsulin > 0) {
                 saveInjectionSite('rapid', siteId);
-                treatment.notes += ` [Sitio: ${getSiteLabel('rapid', siteId)}]`;
+                treatment.notes += ` - Sitio: ${getSiteLabel('rapid', siteId)}`;
             }
 
             const apiRes = await saveTreatment(treatment);

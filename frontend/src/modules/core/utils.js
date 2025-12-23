@@ -50,3 +50,9 @@ export function getDualPlanTiming(plan) {
     const remaining_min = Math.max(0, duration - elapsed_min);
     return { elapsed_min, remaining_min };
 }
+
+export function formatNotes(notes) {
+    if (!notes) return "";
+    // Remove brackets around "Sitio: ..." and replace with neat bullet
+    return notes.replace(/\[Sitio: (.*?)\]/g, "• Sitio: $1");
+}

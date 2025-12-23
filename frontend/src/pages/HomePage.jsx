@@ -6,7 +6,7 @@ import { useInterval } from '../hooks/useInterval';
 import {
     getCurrentGlucose, getIOBData, fetchTreatments, getLocalNsConfig, getGlucoseEntries, apiFetch, toJson
 } from '../lib/api';
-import { formatTrend } from '../modules/core/utils';
+import { formatTrend, formatNotes } from '../modules/core/utils';
 import { navigate } from '../modules/core/router';
 import { useStore } from '../hooks/useStore';
 import { getDualPlan, getDualPlanTiming } from '../modules/core/store';
@@ -315,7 +315,7 @@ function ActivityList({ onRefresh }) {
                                 <div style={{ fontWeight: 700, fontSize: '0.9rem', color: '#334155' }}>
                                     {u > 0 && `${u} U `} {c > 0 && `${c} g`}
                                 </div>
-                                <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>{t.notes || t.enteredBy || 'Entrada'}</div>
+                                <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>{formatNotes(t.notes) || t.enteredBy || 'Entrada'}</div>
                             </div>
                             <div style={{ fontSize: '0.75rem', color: '#cbd5e1', fontWeight: 500 }}>
                                 {date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}

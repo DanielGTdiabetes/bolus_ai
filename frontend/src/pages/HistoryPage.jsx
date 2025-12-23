@@ -4,6 +4,7 @@ import { BottomNav } from '../components/layout/BottomNav';
 import { fetchTreatments, getLocalNsConfig, updateTreatment } from '../lib/api';
 import { Button, Input, Card } from '../components/ui/Atoms';
 
+import { formatTrend, formatNotes } from '../modules/core/utils';
 export default function HistoryPage() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
@@ -116,7 +117,7 @@ export default function HistoryPage() {
                                         </div>
                                     )}
                                     <div className="act-sub" style={{ fontSize: '0.75rem', color: '#94a3b8', lineHeight: 1.2 }}>
-                                        {t.notes || t.enteredBy || 'Entrada'}
+                                        {formatNotes(t.notes) || t.enteredBy || 'Entrada'}
                                     </div>
                                 </div>
                                 <div className="act-time" style={{ marginTop: '4px' }}>{timeStr}</div>
