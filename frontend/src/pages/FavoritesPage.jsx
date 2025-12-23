@@ -6,6 +6,7 @@ import { getFavorites, addFavorite, deleteFavorite } from '../lib/api';
 
 export default function FavoritesPage({ navigate }) {
     const [favorites, setFavorites] = useState([]);
+    const [searchQuery, setSearchQuery] = useState("");
     const [isAdding, setIsAdding] = useState(false);
     const [newFav, setNewFav] = useState({ name: "", carbs: "" });
     const [loading, setLoading] = useState(true);
@@ -60,6 +61,11 @@ export default function FavoritesPage({ navigate }) {
         });
     };
 
+
+
+    const normalize = (str) => str.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+    const filteredFavorites = favorites.filter(f => normalize(f.name).includes(normalize(searchQuery)));
+
     return (
         <>
             <Header title="Favoritos" showBack={true} />
@@ -68,16 +74,25 @@ export default function FavoritesPage({ navigate }) {
 
                 {error && <div className="error">{error}</div>}
 
+                <div style={{ marginBottom: '1rem' }}>
+                    <Input
+                        placeholder="🔍 Buscar en favoritos..."
+                        value={searchQuery}
+                        onChange={e => setSearchQuery(e.target.value)}
+                        style={{ padding: '0.8rem', fontSize: '1rem', borderRadius: '12px', border: '1px solid #cbd5e1' }}
+                    />
+                </div>
+
                 <div style={{ marginBottom: '1.5rem' }}>
                     {loading && favorites.length === 0 ? (
                         <div className="spinner">Cargando...</div>
-                    ) : favorites.length === 0 ? (
+                    ) : filteredFavorites.length === 0 ? (
                         <div className="text-muted text-center" style={{ padding: '2rem' }}>
-                            No tienes favoritos guardados.
+                            {searchQuery ? "No se encontraron coincidencias." : "No tienes favoritos guardados."}
                         </div>
                     ) : (
                         <div className="stack">
-                            {favorites.map(fav => (
+                            {filteredFavorites.map(fav => (
                                 <Card key={fav.id} className="summary-row" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '1rem' }}>
                                     <div>
                                         <div style={{ fontWeight: 700, fontSize: '1.1rem' }}>{fav.name}</div>

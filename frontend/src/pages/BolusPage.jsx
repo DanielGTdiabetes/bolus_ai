@@ -803,7 +803,7 @@ function ResultView({ result, slot, onBack, onSave, saving, currentCarbs, foodNa
             }
 
             console.log("DEBUG RESULT OBJ:", result);
-            let params = result.used_params || result.usedParams;
+            let params = result.calc?.used_params || result.calc?.usedParams || result.used_params || result.usedParams;
 
             if (!params) {
                 console.warn("Params missing in result, trying fallback from store...");
@@ -826,9 +826,14 @@ function ResultView({ result, slot, onBack, onSave, saving, currentCarbs, foodNa
 
             if (!params) throw new Error("Parámetros de cálculo no disponibles.");
 
-            const isf = params.isf_mgdl_per_u || params.isfMgdlPerU || 30;
-            const icr = params.cr_g_per_u || params.crGPerU || 10;
+            // Robust extraction with fallbacks for legacy/alternative naming
+            // The simulation crashing to LOW usually implies Default ICR (10) was used instead of Custom (e.g. 2.5)
+            // causing the insulin (calculated for 2.5) to crush the carbs (simulated for 10).
+            const isf = params.isf_mgdl_per_u || params.isfMgdlPerU || params.isf || 30;
+            const icr = params.cr_g_per_u || params.crGPerU || params.icr || 10;
             const dia = params.dia_hours || params.diaHours || 4;
+
+            console.log("Input Params for Sim:", { isf, icr, dia });
 
             // Build events
             const boluses = [];
@@ -868,8 +873,15 @@ function ResultView({ result, slot, onBack, onSave, saving, currentCarbs, foodNa
                 const min = Math.round(res.summary.min_bg);
                 if (min < 70) {
                     showToast(`⚠️ RIESGO: Mínimo previsto ${min} mg/dL`, "warning", 4000);
+                    // TRIGGER HEADER ALARM
+                    localStorage.setItem('forecast_warning', 'true');
+                    localStorage.setItem('forecast_warning_dismissed_at', '0');
+                    window.dispatchEvent(new Event('forecast-update'));
                 } else {
                     showToast(`✅ Predicción estable. Mínimo: ${min}`, "success");
+                    // CLEAR ALARM if safe
+                    localStorage.removeItem('forecast_warning');
+                    window.dispatchEvent(new Event('forecast-update'));
                 }
             }
 
@@ -950,27 +962,40 @@ function ResultView({ result, slot, onBack, onSave, saving, currentCarbs, foodNa
                         borderRadius: '12px',
                         background: (!predictionData || simulating) ? '#f8fafc' : (predictionData.summary.min_bg < 70 ? '#fef2f2' : '#f0fdf4'),
                         border: (!predictionData || simulating) ? '1px dashed #cbd5e1' : (predictionData.summary.min_bg < 70 ? '1px solid #fecaca' : '1px solid #bbf7d0'),
-                        display: 'flex', justifyContent: 'space-around', alignItems: 'center', transition: 'all 0.3s ease'
+                        display: 'flex', flexDirection: 'column', alignItems: 'center', transition: 'all 0.3s ease'
                     }}>
-                        {simulating ? (
-                            <div style={{ color: '#64748b', fontSize: '0.9rem', fontStyle: 'italic' }}>🔮 Calculando futuro...</div>
-                        ) : (
-                            <>
-                                <div style={{ textAlign: "center" }}>
-                                    <div style={{ fontSize: "0.75rem", color: "#64748b", textTransform: 'uppercase', letterSpacing: '0.5px' }}>Mínimo</div>
-                                    <div style={{ fontSize: "1.2rem", fontWeight: 800, color: predictionData.summary.min_bg < 70 ? '#dc2626' : '#166534' }}>
-                                        {Math.round(predictionData.summary.min_bg)}
-                                    </div>
-                                </div>
-                                <div style={{ height: '30px', width: '1px', background: '#cbd5e1' }}></div>
-                                <div style={{ textAlign: "center" }}>
-                                    <div style={{ fontSize: "0.75rem", color: "#64748b", textTransform: 'uppercase', letterSpacing: '0.5px' }}>Final (6h)</div>
-                                    <div style={{ fontSize: "1.2rem", fontWeight: 800, color: "#334155" }}>
-                                        {Math.round(predictionData.summary.ending_bg)}
-                                    </div>
-                                </div>
-                            </>
+                        {!simulating && predictionData && predictionData.summary.min_bg < 70 && (
+                            <div style={{
+                                color: '#b91c1c', fontWeight: 800, fontSize: '0.85rem',
+                                marginBottom: '0.8rem', width: '100%', textAlign: 'center',
+                                background: 'rgba(254, 202, 202, 0.3)', padding: '6px',
+                                borderRadius: '6px', border: '1px solid #fecaca'
+                            }}>
+                                ⚠️ SE ESPERA BAJA
+                            </div>
                         )}
+
+                        <div style={{ display: 'flex', justifyContent: 'space-around', alignItems: 'center', width: '100%' }}>
+                            {simulating ? (
+                                <div style={{ color: '#64748b', fontSize: '0.9rem', fontStyle: 'italic' }}>🔮 Calculando futuro...</div>
+                            ) : (
+                                <>
+                                    <div style={{ textAlign: "center" }}>
+                                        <div style={{ fontSize: "0.75rem", color: "#64748b", textTransform: 'uppercase', letterSpacing: '0.5px' }}>Mínimo</div>
+                                        <div style={{ fontSize: "1.2rem", fontWeight: 800, color: predictionData.summary.min_bg < 70 ? '#dc2626' : '#166534' }}>
+                                            {Math.round(predictionData.summary.min_bg)}
+                                        </div>
+                                    </div>
+                                    <div style={{ height: '30px', width: '1px', background: '#cbd5e1' }}></div>
+                                    <div style={{ textAlign: "center" }}>
+                                        <div style={{ fontSize: "0.75rem", color: "#64748b", textTransform: 'uppercase', letterSpacing: '0.5px' }}>Final (6h)</div>
+                                        <div style={{ fontSize: "1.2rem", fontWeight: 800, color: "#334155" }}>
+                                            {Math.round(predictionData.summary.ending_bg)}
+                                        </div>
+                                    </div>
+                                </>
+                            )}
+                        </div>
                     </div>
                 )}
 
