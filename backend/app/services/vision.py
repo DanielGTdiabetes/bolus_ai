@@ -25,6 +25,9 @@ If you detect a **RED INSULIN PEN** (NovoPen Echo Plus style, cylindrical, dark 
 - Use this precise length to calculate the real world dimensions (diameter/volume) of the plates and food portions.
 - If present, explicitly mention in the "assumptions" field that you used the insulin pen for scale calibration.
 
+**HOLIDAY/SEASONAL CONTEXT:**
+If you detect typical Spanish Christmas sweets (Turrón, Polvorón, Mazapán, Roscón), assume HIGH carbohydrate density (typically 50-60g carbs/100g) and high fat content. Do not underestimate their density.
+
 Output STRICT JSON (RFC 8259 compliant).
 - NO comments // or /* */
 - NO trailing commas
