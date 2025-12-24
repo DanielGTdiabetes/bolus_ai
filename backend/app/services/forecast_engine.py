@@ -47,204 +47,135 @@ class ForecastEngine:
         # We will decay it linearly to 0 over 30 mins to avoid long-term drift errors.
         momentum_duration = 30 
         
-        # 3. Main Simulation Loop
+        # 3. Main Simulation Loop - Hybrid Deviation Approach
         
-        # We simulate "Changes" from t=0.
-        # Forecast[t] = StartBG + Sum(Deltas)
-        # Delta sources: 
-        #   - Insulin (Drop)
-        #   - Carbs (Rise)
-        #   - Basal (Drift specific to MDI models)
-        #   - Momentum (Initial drift)
+        # A. Calculate Model "Zero-Time" Slope (What physics says should be happening NOW)
+        # We need this to correct the Momentum. 
+        # If Model says "Drop -2" and Reality is "Drop -2", deviation is 0. 
+        # Old logic added them to get "-4", causing double counting.
         
-        # To do this efficiently, we calculate absolute impact at time T rather than integrating steps?
-        # Actually, curves return "Activity" (rate) or "Fraction Consumed"?
-        # Our curves return "Activity Rate" (%/min) or "Absorbed/min".
-        # So Delta_BG_per_min = Rate * Sensitivity.
+        model_slope_0 = 0.0
         
-        # Pre-calc totals
-        icr = req.params.icr # g/U
-        isf = req.params.isf # mg/dL/U
+        # Insulin Slope at t=0
+        ins_rate_0 = 0.0
+        for b in req.events.boluses:
+             t_since = 0 - b.time_offset_min
+             # Linear activity returns activity fraction per minute (approx) or relative intensity
+             # We rely on the curves matching the loop units.
+             r = InsulinCurves.linear_activity(t_since, req.params.insulin_peak_minutes, req.params.dia_minutes)
+             ins_rate_0 += r * b.units
         
-        # Convert ISF/ICR to useful factors
-        # Carb Sensitivity (CS) = ISF / ICR  (mg/dL per gram)
-        cs = isf / icr if icr > 0 else 0
+        # Carb Slope at t=0
+        carb_rate_0 = 0.0
+        for c in req.events.carbs:
+             t_since = 0 - c.time_offset_min
+             dur = c.absorption_minutes or req.params.carb_absorption_minutes
+             r = CarbCurves.variable_absorption(t_since, dur, peak_min=dur/2)
+             # Resolve CS
+             this_icr = c.icr if c.icr and c.icr > 0 else req.params.icr
+             this_cs = (req.params.isf / this_icr) if this_icr > 0 else 0.0
+             carb_rate_0 += r * c.grams * this_cs
+             
+        # Net Model Slope (mg/dL per min)
+        # Insulin drops (negative), Carbs rise (positive)
+        # ins_rate_0 is U/min. Mult by ISF -> mg/dL/min.
+        model_slope_0 = carb_rate_0 - (ins_rate_0 * isf)
         
-        # 4. Iterate
-        
-        for t in time_points:
+        # B. Calculate Deviation Slope (The "Unknown Force")
+        # Deviation = Observed - Model
+        # If Observed=-5, Model=-1 (just starting), Deviation = -4 (Resistance/Error or Momentum)
+        deviation_slope = 0.0
+        if req.momentum and req.momentum.enabled and momentum_slope != 0:
+            deviation_slope = momentum_slope - model_slope_0
             
-            # --- A. Momentum Impact ---
-            # Integrated slope up to time t
-            # If slope is M (mg/dL/min), impact at time t is Integral(M(t)).
-            # If we decay M linearly from M_0 to 0 over 30 min:
-            # Impact[t] = Area under triangle/trapezoid up to t.
-            mom_impact = 0.0
-            if momentum_slope != 0:
-                dt_eff = min(t, momentum_duration)
-                if dt_eff > 0:
-                    # Average slope over [0, dt_eff]
-                    # Slope at 0 = M
-                    # Slope at 30 = 0
-                    # Slope at t = M * (1 - t/30)
-                    
-                    # Integral of linear function: M*t - M*t^2/(2*D)
-                    mom_impact = momentum_slope * dt_eff - (momentum_slope * (dt_eff**2) / (2 * momentum_duration))
-                    
-            # --- B. Insulin Impact (Bolus) ---
-            # Sum of all boluses active at t
-            # Impact = Units * ISF * fraction_absorbed(t)
-            # Wait, curves.exponential_activity returns RATE (/min).
-            # We need Cumulative Fraction for impact calculation?
-            # Or we sum rates and integrate?
-            # Easier: Calculate Cumulative Activity explicitly or sum up rates step-by-step.
-            # Let's sum rates step-by-step to be safe and allow dynamic changes.
-            # Actually, for performance and robustness, Cumulative Fraction is better.
-            # But our `curves.py` returned activity rate.
-            # Let's integrate numerically since step is small (5 min).
-            pass
-            
-            # RE-DESIGN: Better to accumulate changes step-by-step
+            # Dampening: If deviation is huge (>3), cap it to avoid panic loops
+            if abs(deviation_slope) > 3.0:
+                 warnings.append(f"Desviación masiva detectada ({deviation_slope:.1f}), amortiguada.")
+                 deviation_slope = 3.0 if deviation_slope > 0 else -3.0
+                 quality = "medium"
+
+        # Increase momentum influence duration for smoother blending (~45 mins)
+        momentum_duration = 45 
+
+        # C. Simulation Loop
         
-        # RE-START LOOP with State Accumulation approach
         current_sim_bg = current_bg
         
         # Initial State
         series.append(ForecastPoint(t_min=0, bg=current_sim_bg))
-        components.append(ComponentImpact(t_min=0))
-        
-        prev_t = 0
-        
-        # We need to track cumulative absorption to avoid recalculating everything
-        # Actually, stateless calculation at each T is more robust against drift errors *if* we have analytical integrals.
-        # But step-wise integration is easier to debug.
-        # Let's do Step-wise (Riemann sum).
-        
-        sim_bg = current_bg + mom_impact # Start with instant momentum shift? No, momentum builds up.
-        
-        # Let's iterate steps 1..N
-        # Value at t is Value at t-1 + Rate * dt
+        components.append(ComponentImpact(
+            t_min=0, 
+            momentum_impact=round(deviation_slope, 2) # Just for debug visibility
+        ))
         
         accum_insulin_impact = 0.0
         accum_carb_impact = 0.0
         accum_basal_impact = 0.0
         
-        # For momentum, we already have analytical formula above (mom_impact).
-        
         for i in range(1, len(time_points)):
             t = time_points[i]
             prev_t = time_points[i-1]
             dt = t - prev_t
-            
-            # Midpoint for better accuracy?
             t_mid = (t + prev_t) / 2.0
             
-            # 1. Insulin Rate (mg/dL per minute DROP)
-            # Sum of all boluses
-            total_insulin_activity = 0.0 # U/min
+            # --- 1. Physics Model (Standard) ---
+            
+            # Insulin
+            total_insulin_activity = 0.0
             for b in req.events.boluses:
-                # Time relative to bolus start
-                # t_mid is minutes from NOW. 
-                # Bolus was at b.time_offset_min (e.g. -10).
-                # So time since injection = t_mid - b.time_offset_min
                 t_since_inj = t_mid - b.time_offset_min
-                rate = InsulinCurves.linear_activity(
-                    t_since_inj, 
-                    req.params.insulin_peak_minutes, 
-                    req.params.dia_minutes
-                )
+                rate = InsulinCurves.linear_activity(t_since_inj, req.params.insulin_peak_minutes, req.params.dia_minutes)
                 total_insulin_activity += rate * b.units
-                
-            insulin_drop_rate = total_insulin_activity * isf
-            step_insulin_drop = insulin_drop_rate * dt
+            
+            step_insulin_drop = total_insulin_activity * isf * dt
             accum_insulin_impact -= step_insulin_drop
             
-            # 2. Carb Rate (mg/dL per minute RISE)
-            step_carb_impact_rate = 0.0 # mg/dL / min
-            
+            # Carbs
+            step_carb_impact_rate = 0.0
             for c in req.events.carbs:
                 t_since_meal = t_mid - c.time_offset_min
                 dur = c.absorption_minutes or req.params.carb_absorption_minutes
-                # Linear absorption (trapezoidal in future?)
-                # Let's use variable/triangle for better realism?
-                rate = CarbCurves.variable_absorption(t_since_meal, dur, peak_min=dur/2) # Fraction / min
-                
-                # Determine CS (Carb Sensitivity) for this specific carb event
-                # Use event-specific ICR if available, otherwise global simulation param
+                rate = CarbCurves.variable_absorption(t_since_meal, dur, peak_min=dur/2)
                 this_icr = c.icr if c.icr and c.icr > 0 else req.params.icr
-                
-                # CS = ISF / ICR
                 this_cs = (req.params.isf / this_icr) if this_icr > 0 else 0.0
-                
                 step_carb_impact_rate += rate * c.grams * this_cs
                 
             step_carb_rise = step_carb_impact_rate * dt
             accum_carb_impact += step_carb_rise
             
-            # 3. Momentum
-            # Recalculate analytical impact at t
-            dt_eff = min(t, momentum_duration)
-            mom_val_at_t = 0
-            if req.momentum and req.momentum.enabled and momentum_slope != 0 and dt_eff > 0:
-                 mom_val_at_t = momentum_slope * dt_eff - (momentum_slope * (dt_eff**2) / (2 * momentum_duration))
-            
-            # 4. Basal Impact (Drift)
-            # Calculate deviation from "neutral" (if we assume basal keeps you flat)
-            # If user provides Basal Injections, we model their activity.
-            # But what is the baseline? 
-            # Usually: "Basal covers liver output".
-            # So effectively, Basal Activity should cancel Liver Output.
-            # If we model Basal Activity, we must also model Liver Output (positive drift).
-            # This is complex.
-            # ALTERNATIVE: MDI Basal Injections are usually to check for "Stacking" or "Running out".
-            # Loop assumes Basal = Scheduled Basal returns NET ZERO.
-            # For MDI, if we inject specific basal, maybe we assume the User wants to see its curve?
-            # Or maybe we assume Liver Output is constant = Total Daily Basal / 24 * ISF ?
-            # Let's assume:
-            # Baseline Drift = (Total Daily Basal / 1440) * ISF (Positive constant rise).
-            # Basal Injection = Curve (Negative drop).
-            # Net = Baseline - Injection.
-            # Ideally they cancel out.
-            
+            # Basal Drift (Checking for injections)
             accum_basal_val = 0.0
-            # Only calculate if basal injections are provided, otherwise assume flat
             if req.events.basal_injections:
-                # Estimate Liver/Baseline requirement
-                # Sum total daily basal from injections? Or just assume current profile?
-                # Let's keep it simple: Just show the Insulin Drop from the injection.
-                # The user mentally knows they have liver output.
-                # OR: Be smart. Calculate average rate around t=0 (now) and normalize to 0?
-                # "Relative Basal Effect".
-                # If at t=0, basal is delivering 1U/hr, and at t=100 it delivers 0.5U/hr.
-                # Then user is missing 0.5U/hr -> Glucose rises.
-                # This is the "Basal IOB" concept.
-                
-                # Let's implement "Relative to t=0".
-                # Calculate Basal Rate at t=0.
                 rate_at_0 = 0.0
                 for b in req.events.basal_injections:
                     t_since = 0 - b.time_offset_min
                     rate_at_0 += BasalModels.get_activity(t_since, b.duration_minutes or 1440, b.type, b.units)
                 
-                # Calculate Rate at t
                 rate_at_t = 0.0
                 for b in req.events.basal_injections:
                     t_since = t_mid - b.time_offset_min
                     rate_at_t += BasalModels.get_activity(t_since, b.duration_minutes or 1440, b.type, b.units)
                 
-                # Net Drift Rate = (Rate_at_0 - Rate_at_t) * ISF
-                # If rate drops (old insulin fading), term is positive -> Glucose Rises.
-                # If rate rises (new insulin acting), term is negative -> Glucose Drops.
-                
                 basal_drift_rate = (rate_at_0 - rate_at_t) * isf
                 accum_basal_impact += basal_drift_rate * dt
 
+            # --- 2. Deviation Impact (Hybrid Correction) ---
+            # We integrate the DEVIATION slope, not the absolute slope.
+            # This effectively "rotates" the physics curve to match reality at t=0, 
+            # and fades the rotation out over 'momentum_duration'.
             
+            dev_val_at_t = 0.0
+            if deviation_slope != 0:
+                dt_eff = min(t, momentum_duration)
+                if dt_eff > 0:
+                    # Integral of decaying slope
+                    dev_val_at_t = deviation_slope * dt_eff - (deviation_slope * (dt_eff**2) / (2 * momentum_duration))
+
             # Combine
-            net_bg = current_bg + mom_val_at_t + accum_insulin_impact + accum_carb_impact + accum_basal_impact
+            net_bg = current_bg + dev_val_at_t + accum_insulin_impact + accum_carb_impact + accum_basal_impact
             
             # Sanity Limits
-            net_bg = max(20, min(600, net_bg)) # Clamp to survive chart
+            net_bg = max(20, min(600, net_bg))
             
             series.append(ForecastPoint(t_min=t, bg=round(net_bg, 1)))
             components.append(ComponentImpact(
@@ -252,7 +183,7 @@ class ForecastEngine:
                 insulin_impact=round(accum_insulin_impact, 1),
                 carb_impact=round(accum_carb_impact, 1),
                 basal_impact=round(accum_basal_impact, 1),
-                momentum_impact=round(mom_val_at_t, 1)
+                momentum_impact=round(dev_val_at_t, 1) # This is now "Deviation Impact"
             ))
             
         
