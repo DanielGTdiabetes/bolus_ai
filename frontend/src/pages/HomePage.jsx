@@ -32,7 +32,11 @@ function GlucoseHero({ onRefresh }) {
 
             // Ambient Forecast (try catch to not block main UI)
             try {
-                const predRes = await apiFetch("/api/forecast/current");
+                let query = "";
+                if (current && current.bg_mgdl) {
+                    query = `?start_bg=${current.bg_mgdl}`;
+                }
+                const predRes = await apiFetch("/api/forecast/current" + query);
                 if (predRes.ok) {
                     const predData = await toJson(predRes);
                     setPrediction(predData);
