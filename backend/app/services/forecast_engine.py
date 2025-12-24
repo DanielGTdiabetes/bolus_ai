@@ -79,6 +79,7 @@ class ForecastEngine:
         # Net Model Slope (mg/dL per min)
         # Insulin drops (negative), Carbs rise (positive)
         # ins_rate_0 is U/min. Mult by ISF -> mg/dL/min.
+        isf = req.params.isf
         model_slope_0 = carb_rate_0 - (ins_rate_0 * isf)
         
         # B. Calculate Deviation Slope (The "Unknown Force")
