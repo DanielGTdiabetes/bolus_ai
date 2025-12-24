@@ -39,6 +39,10 @@ Toca el número de glucosa o la pequeña curva debajo para ver el gráfico detal
 *   **Línea Punteada:** Predicción a 30-60 minutos. La app calcula tu velocidad actual + insulina activa.
 *   **Sombra (Cono de Incertidumbre):** El margen de error. Sombra ancha = predicción menos segura.
 *   **Avisos:** Si la línea futura toca la zona roja (<70), aparecerá un aviso de **"Riesgo Inminente"** para que comas antes de tener la hipoglucemia.
+*   **Datos Clave (Debajo de la gráfica):**
+    *   **Mínimo Estimado:** El valor más bajo calculadopor la IA.
+    *   **Tiempo al Mínimo:** Cuántos minutos faltan para llegar a ese punto más bajo. (Vital para saber si tienes prisa por comer o si puedes esperar).
+    *   **Glucosa Final:** Dónde acabarás dentro de 6 horas si no haces nada.
 
 ### B. Métricas Clave
 Debajo de la glucosa verás 3 tarjetas:
