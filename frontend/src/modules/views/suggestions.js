@@ -217,7 +217,10 @@ export async function renderSuggestions() {
                            <span class="chip" style="background:#f1f5f9; color:#475569; text-transform:capitalize;">${s.meal_slot}</span>
                            <span class="chip" style="background:#f1f5f9; color:#475569; text-transform:uppercase;">${s.parameter}</span>
                          </div>
-                         <small style="color:#94a3b8">${resolvedDate.toLocaleDateString()}</small>
+                         <small style="color:#94a3b8">
+                             ${resolvedDate.toLocaleDateString()}
+                             <span onclick="handleDeleteHistory('${s.id}')" style="cursor:pointer; margin-left:8px; color:#cbd5e1;" title="Borrar del historial">🗑️</span>
+                         </small>
                     </div>
                     <p style="font-size:0.9rem; color:#334155; margin:0.5rem 0;">${s.resolution_note || "Sin nota"}</p>
                     ${impactHtml}
@@ -233,6 +236,32 @@ export async function renderSuggestions() {
     // GLOBAL HANDLERS for inline onclicks. 
     // We need to expose them on window or bind them differently.
     // We'll expose them on window for now to match HTML string behavior.
+
+    window.handleDeleteHistory = async (id) => {
+        if (!confirm("¿Borrar esta sugerencia del historial?")) return;
+        try {
+            const token = localStorage.getItem('bolusai_token') || localStorage.getItem('token');
+            // Ensure we use the correct relative API path or absolute if needed. 
+            // Better to use the same hostname logic as the rest of the app.
+            // If we are serving from frontend, we likely proxy to backend.
+            const res = await fetch(`/api/suggestions/${id}`, {
+                method: 'DELETE',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            if (res.ok) {
+                document.getElementById('tab-accepted').click(); // Reload list
+            } else {
+                alert("No se pudo borrar. (Verifica si el backend soporta DELETE /api/suggestions/:id)");
+            }
+        } catch (e) {
+            console.error(e);
+            alert("Error de conexión");
+        }
+    };
 
     window.handleEvaluate = async (id) => {
         try {
