@@ -371,7 +371,7 @@ export async function renderHome() {
     }
 
     app.innerHTML = `
-    ${renderHeader("Bolus AI")}
+    ${renderHeader("Bolus AI", false, false, "navigate('#/notifications')")}
     <main class="page">
       <!-- Glucose Hero -->
       <section class="card glucose-hero">

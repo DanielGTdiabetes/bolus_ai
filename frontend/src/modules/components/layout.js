@@ -2,6 +2,9 @@ import { state } from '../core/store.js';
 import { navigate } from '../core/router.js';
 import { logout } from '../../lib/api.js';
 
+// Ensure navigate is global for inline onclicks
+window.navigate = navigate;
+
 // Global Handler for Profile Menu (usually attached to window in main, but we can manage it here via inline onclicks if possible, or bind globally)
 // The HTML string uses 'toggleProfileMenu()'. We need to expose it.
 window.toggleProfileMenu = function () {
@@ -20,7 +23,7 @@ window.addEventListener('click', (e) => {
   }
 });
 
-export function renderHeader(title = "Bolus AI", showBack = false) {
+export function renderHeader(title = "Bolus AI", showBack = false, _notifActive = false, notifAction = "navigate('#/notifications')") {
   if (!state.user) return "";
   let warningHtml = "";
   if (state.dbMode === "memory") {
@@ -53,7 +56,7 @@ export function renderHeader(title = "Bolus AI", showBack = false) {
           ${!showBack ? `<div class="header-subtitle">Tu asistente de diabetes</div>` : ''}
         </div>
         <div class="header-action">
-          <button id="notifications-btn" class="ghost">🔔</button>
+          <button id="notifications-btn" class="ghost" onclick="${notifAction}">🔔</button>
         </div>
       </header>
     `;
