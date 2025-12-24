@@ -38,7 +38,8 @@ class ForecastEngine:
                 req.momentum.lookback_points
             )
             warnings.extend(m_warnings)
-            if "insufficient_data" in str(m_warnings) or "gap" in str(m_warnings):
+            # Downgrade quality if momentum failed
+            if m_warnings:
                 quality = "medium"
         
         # Decay momentum over time (linear 30 mins or exponential?)
@@ -314,7 +315,7 @@ class ForecastEngine:
         # Guardrails
         if len(points) < lookback_points:
             # Not enough points
-            return 0.0, ["puntos_insuficientes_inercia"]
+            return 0.0, ["Datos insuficientes para calcular tendencia (se requieren más datos recientes)"]
             
         # Sort by time
         points.sort(key=lambda x: x[0])
@@ -322,7 +323,7 @@ class ForecastEngine:
         # Check gaps
         for i in range(1, len(points)):
             if (points[i][0] - points[i-1][0]) > 15: # Gap > 15 min
-                return 0.0, ["hueco_detectado_inercia_desactivada"]
+                return 0.0, ["Se detectó un hueco en los datos de glucosa (tendencia desactivada)"]
                 
         # Use last N points
         use_points = points[-lookback_points:]
@@ -336,14 +337,14 @@ class ForecastEngine:
         
         denominator = (n * sum_xx - sum_x**2)
         if denominator == 0:
-            return 0.0, ["error_matematico_inercia"]
+            return 0.0, ["Error matemático al calcular tendencia (denominador cero)"]
             
         slope = (n * sum_xy - sum_x * sum_y) / denominator
         
         # Cap slope
         MAX_SLOPE = 3.0 # mg/dL per min
         if abs(slope) > MAX_SLOPE:
-            warnings.append(f"Inercia limitada (era {slope:.2f})")
+            warnings.append(f"Inercia limitada por seguridad (era {slope:.2f})")
             slope = MAX_SLOPE if slope > 0 else -MAX_SLOPE
             
         return slope, warnings
