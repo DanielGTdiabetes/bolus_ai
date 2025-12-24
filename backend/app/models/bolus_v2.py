@@ -27,6 +27,7 @@ class CalcSettings(BaseModel):
     breakfast: MealSlotProfile
     lunch: MealSlotProfile
     dinner: MealSlotProfile
+    snack: Optional[MealSlotProfile] = None
     dia_hours: float = Field(default=4.0, ge=2, le=8)
     round_step_u: float = Field(default=0.1, gt=0)
     max_bolus_u: float = 15.0 # Global safety limit
@@ -39,7 +40,7 @@ class NightscoutConfigSimple(BaseModel):
 class BolusRequestV2(BaseModel):
     carbs_g: float = Field(ge=0)
     bg_mgdl: Optional[float] = Field(default=None, ge=0)
-    meal_slot: Literal["breakfast", "lunch", "dinner"] = "lunch"
+    meal_slot: Literal["breakfast", "lunch", "dinner", "snack"] = "lunch"
     target_mgdl: Optional[float] = Field(default=None, ge=60)
     
     # Stateless configuration injection

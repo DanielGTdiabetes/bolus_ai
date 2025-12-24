@@ -63,12 +63,14 @@ async def calculate_bolus_stateless(
         cr_settings = MealFactors(
             breakfast=payload.settings.breakfast.icr,
             lunch=payload.settings.lunch.icr,
-            dinner=payload.settings.dinner.icr
+            dinner=payload.settings.dinner.icr,
+            snack=payload.settings.snack.icr if payload.settings.snack else 10.0
         )
         isf_settings = MealFactors(
             breakfast=payload.settings.breakfast.isf,
             lunch=payload.settings.lunch.isf,
-            dinner=payload.settings.dinner.isf
+            dinner=payload.settings.dinner.isf,
+            snack=payload.settings.snack.isf if payload.settings.snack else 30.0
         )
         
         target_settings = TargetRange(low=70, mid=100, high=180)

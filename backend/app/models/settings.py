@@ -52,6 +52,7 @@ class AdaptiveConfig(BaseModel):
             "breakfast": AdaptiveFatConfig(),
             "lunch": AdaptiveFatConfig(),
             "dinner": AdaptiveFatConfig(),
+            "snack": AdaptiveFatConfig(),
         }
     )
     exercise: dict[str, ExerciseRatios] = Field(
@@ -59,6 +60,7 @@ class AdaptiveConfig(BaseModel):
             "breakfast": ExerciseRatios(),
             "lunch": ExerciseRatios(),
             "dinner": ExerciseRatios(),
+            "snack": ExerciseRatios(),
         }
     )
 
