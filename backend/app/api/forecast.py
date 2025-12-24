@@ -1,4 +1,5 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
+from typing import Optional, List
 from app.models.forecast import ForecastSimulateRequest, ForecastResponse, ForecastEvents, ForecastEventBolus, ForecastEventCarbs, SimulationParams
 from app.services.forecast_engine import ForecastEngine
 from app.core.security import get_current_user, CurrentUser
@@ -14,7 +15,8 @@ router = APIRouter()
 @router.get("/current", response_model=ForecastResponse, summary="Get ambient forecast based on current status")
 async def get_current_forecast(
     user: CurrentUser = Depends(get_current_user),
-    session: AsyncSession = Depends(get_db_session)
+    session: AsyncSession = Depends(get_db_session),
+    start_bg_param: Optional[float] = Query(None, alias="start_bg", description="Override start BG if known by client")
 ):
     """
     Auto-generates a forecast based on:
@@ -36,7 +38,9 @@ async def get_current_forecast(
 
     # 2. Fetch Current BG & History (NS)
     ns_config = await get_ns_config(session, user.username)
-    start_bg = 120.0 # Default fallback
+    # Default fallback or explicit override
+    start_bg = start_bg_param if start_bg_param is not None else 120.0
+    
     recent_bg_series = []
     
     if ns_config and ns_config.enabled and ns_config.url:
@@ -56,8 +60,9 @@ async def get_current_forecast(
                 # Sort by date descending (latest first) to find current easily
                 history_sgvs.sort(key=lambda x: x.date, reverse=True)
                 
-                # Use the very latest as start_bg
-                start_bg = float(history_sgvs[0].sgv)
+                # Use the very latest as start_bg IF not overridden
+                if start_bg_param is None:
+                    start_bg = float(history_sgvs[0].sgv)
                 
                 # Build series for momentum
                 # ForecastEngine expects: [{'minutes_ago': 0, 'value': 120}, ...]

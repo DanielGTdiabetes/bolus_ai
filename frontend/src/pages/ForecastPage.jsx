@@ -15,7 +15,21 @@ export default function ForecastPage() {
         setLoading(true);
         setError(null);
         try {
-            const res = await apiFetch("/api/forecast/current");
+            // Attempt to get current BG to seed the forecast (avoid backend default mismatch)
+            let query = "";
+            try {
+                const bgData = await getCurrentGlucose();
+                let bgVal = null;
+                // Handle different potential return shapes (array or object)
+                if (Array.isArray(bgData) && bgData.length > 0) bgVal = bgData[0].sgv;
+                else if (bgData && bgData.sgv) bgVal = bgData.sgv;
+
+                if (bgVal) query = `?start_bg=${bgVal}`;
+            } catch (bgErr) {
+                console.warn("Could not fetch local BG for forecast seed", bgErr);
+            }
+
+            const res = await apiFetch("/api/forecast/current" + query);
             if (!res.ok) throw new Error("Error cargando predicción");
             const data = await toJson(res);
             setPrediction(data);
