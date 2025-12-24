@@ -21,8 +21,15 @@ export default function ForecastPage() {
                 const bgData = await getCurrentGlucose();
                 let bgVal = null;
                 // Handle different potential return shapes (array or object)
-                if (Array.isArray(bgData) && bgData.length > 0) bgVal = bgData[0].sgv;
-                else if (bgData && bgData.sgv) bgVal = bgData.sgv;
+                if (bgData) {
+                    if (bgData.bg_mgdl) bgVal = bgData.bg_mgdl; // /api/nightscout/current returns this (stateless/server)
+                    else if (bgData.sgv) bgVal = bgData.sgv;    // Raw NS entry or fallback
+                    // If array (raw entries)
+                    else if (Array.isArray(bgData) && bgData.length > 0) {
+                        if (bgData[0].sgv) bgVal = bgData[0].sgv;
+                        else if (bgData[0].bg_mgdl) bgVal = bgData[0].bg_mgdl;
+                    }
+                }
 
                 if (bgVal) query = `?start_bg=${bgVal}`;
             } catch (bgErr) {
