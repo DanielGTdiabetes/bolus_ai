@@ -538,10 +538,11 @@ export default function HomePage() {
     const handleNotificationClick = () => {
         if (activePlan && dualHidden) {
             setDualHidden(false);
-            alert("Bolo Dividido visible de nuevo.");
-        } else {
-            // Standard notification drawer logic if we had one
+            // alert("Bolo Dividido visible de nuevo.");
         }
+        // Always navigate to notifications. 
+        // If dual bolus was hidden, it is now visible on Home when they return.
+        navigate('#/notifications');
     };
 
     return (

@@ -147,27 +147,26 @@ async def delete_suggestion(
     from app.models.suggestion import ParameterSuggestion
     from app.models.evaluation import SuggestionEvaluation
     
-    # 1. Delete linked evaluation first (cascade normally handles this but explicit safe)
+    # 1. Delete linked evaluation
     stmt_eval = delete(SuggestionEvaluation).where(
         SuggestionEvaluation.suggestion_id == id
-        # We should check ownership but suggestion_id link implies it.
-        # Safe way: proper cascade or check valid suggestion first.
     )
     await db.execute(stmt_eval)
     
-    # 2. Delete suggestion with simple ownership check in WHERE
+    # 2. Delete suggestion with ownership check
+    # Ensure user.id is string for comparison with String column
+    user_id_str = str(user.id)
+    
     stmt = delete(ParameterSuggestion).where(
         ParameterSuggestion.id == id,
-        ParameterSuggestion.user_id == user.id
+        ParameterSuggestion.user_id == user_id_str
     )
     res = await db.execute(stmt)
     
-    if res.rowcount == 0:
-        # Check if it existed but wrong user? Or just didn't exist.
-        # We can return 404 or just 200 OK (idempotent for user UI).
-        # Let's return 200 OK.
-        pass
-        
     await db.commit()
+    
+    if res.rowcount == 0:
+        raise HTTPException(status_code=404, detail="Suggestion not found or access denied")
+        
     return {"status": "deleted", "id": id}
 
