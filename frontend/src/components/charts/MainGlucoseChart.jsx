@@ -135,6 +135,12 @@ export function MainGlucoseChart({ isLow, predictionData }) {
     offHigh = Math.min(Math.max(offHigh, 0), 1);
     offLow = Math.min(Math.max(offLow, 0), 1);
 
+    // FIX: If values are strictly within safe range, avoid gradient to prevent glitches
+    // This solves the issue of red dots appearing when the line is perfectly fine but gradient math is unstable
+    const isSafe = minVal >= LOW && maxVal <= HIGH;
+    const strokeColor = isSafe ? '#3b82f6' : 'url(#splitColor)';
+    const fillColor = isSafe ? 'rgba(59, 130, 246, 0.2)' : 'url(#splitFill)';
+
     return (
         <div style={{ width: '100%', height: '100%', minHeight: '160px', marginTop: '0.5rem', position: 'relative' }}>
             <ResponsiveContainer width="100%" height="100%">
@@ -187,9 +193,9 @@ export function MainGlucoseChart({ isLow, predictionData }) {
                         yAxisId="bg"
                         type="monotone"
                         dataKey="bg"
-                        stroke="url(#splitColor)"
+                        stroke={strokeColor}
                         strokeWidth={3}
-                        fill="url(#splitFill)"
+                        fill={fillColor}
                         activeDot={{ r: 6, strokeWidth: 0, fill: '#1e293b' }}
                         animationDuration={1000}
                     />
