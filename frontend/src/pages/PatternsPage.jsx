@@ -7,7 +7,7 @@ import { runAnalysis, getAnalysisSummary } from '../lib/api';
 export default function PatternsPage() {
     return (
         <>
-            <Header title="Patrones" showBack={false} />
+            <Header title="Patrones" showBack={true} />
             <main className="page" style={{ paddingBottom: '90px' }}>
                 <PatternsContent />
             </main>

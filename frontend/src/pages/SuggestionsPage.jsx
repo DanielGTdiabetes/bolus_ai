@@ -13,7 +13,7 @@ export default function SuggestionsPage() {
 
     return (
         <>
-            <Header title="Sugerencias" showBack={false} />
+            <Header title="Sugerencias" showBack={true} />
             <main className="page" style={{ paddingBottom: '90px' }}>
                 <div style={{ display: 'flex', marginBottom: '1.5rem', background: 'white', padding: '4px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
                     <button
@@ -267,6 +267,28 @@ function AcceptedView() {
         } catch (e) { alert(e.message); }
     };
 
+    const handleDelete = async (id) => {
+        if (!confirm("¿Seguro que quieres borrar esta sugerencia y su historial?")) return;
+        try {
+            const token = localStorage.getItem('bolusai_token') || localStorage.getItem('token');
+            const res = await fetch(`/api/suggestions/${id}`, {
+                method: 'DELETE',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+            if (res.ok) {
+                load();
+            } else {
+                alert("No se pudo borrar. El backend podría no soportarlo.");
+            }
+        } catch (e) {
+            console.error(e);
+            alert("Error de conexión");
+        }
+    };
+
     if (loading) return <div className="spinner">Cargando historial...</div>;
     if (!items.length) return <div style={{ textAlign: 'center', padding: '3rem', color: '#94a3b8', fontStyle: 'italic' }}>No hay historial de cambios aceptados.</div>;
 
@@ -308,7 +330,16 @@ function AcceptedView() {
                                 <span className="chip" style={{ background: '#f1f5f9', color: '#475569', textTransform: 'capitalize', marginRight: '4px' }}>{s.meal_slot}</span>
                                 <span className="chip" style={{ background: '#f1f5f9', color: '#475569', textTransform: 'uppercase' }}>{s.parameter}</span>
                             </div>
-                            <small style={{ color: '#94a3b8' }}>{resolvedDate.toLocaleDateString()}</small>
+                            <div style={{ display: 'flex', alignItems: 'center' }}>
+                                <small style={{ color: '#94a3b8', marginRight: '8px' }}>{resolvedDate.toLocaleDateString()}</small>
+                                <button
+                                    onClick={() => handleDelete(s.id)}
+                                    style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: '1rem', padding: '0 4px', opacity: 0.6 }}
+                                    title="Borrar del historial"
+                                >
+                                    🗑️
+                                </button>
+                            </div>
                         </div>
                         <div style={{ fontSize: '0.9rem', color: '#334155', margin: '0.5rem 0' }}>
                             {noteDisplay} {changeDetails}
