@@ -32,7 +32,13 @@ export default function BolusPage() {
         const now = new Date();
         return new Date(now.getTime() - (now.getTimezoneOffset() * 60000)).toISOString().slice(0, 16);
     });
-    const [slot, setSlot] = useState('lunch');
+    const [slot, setSlot] = useState(() => {
+        const h = new Date().getHours();
+        if (h >= 6 && h < 12) return 'breakfast';
+        if (h >= 12 && h < 16) return 'lunch';
+        if (h >= 16 && h < 19) return 'snack';
+        return 'dinner';
+    });
     const [correctionOnly, setCorrectionOnly] = useState(false);
     const [dessertMode, setDessertMode] = useState(false);
     const [dualEnabled, setDualEnabled] = useState(false);
