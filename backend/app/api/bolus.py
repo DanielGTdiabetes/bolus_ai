@@ -310,7 +310,10 @@ async def calculate_bolus_stateless(
             response.warnings.append(iob_warning)
         
         if breakdown:
-             response.explain.append(f"   (IOB basado en {len(breakdown)} tratamientos recientes)")
+             response.explain.append(f"   (IOB basado en {len(breakdown)} tratamientos):")
+             for b in breakdown:
+                 ts_str = b['ts'][11:16] # HH:MM
+                 response.explain.append(f"    - {ts_str}: {b['units']} U -> quedan {b['iob']:.2f} U")
         
         return response
 

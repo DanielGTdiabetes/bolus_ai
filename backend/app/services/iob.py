@@ -83,7 +83,11 @@ def _boluses_from_treatments(treatments) -> list[dict[str, float]]:
         ts = getattr(treatment, "created_at", None)
         if units is None or ts is None:
             continue
-        boluses.append({"ts": ts.isoformat(), "units": float(units)})
+        boluses.append({
+            "ts": ts.isoformat(), 
+            "units": float(units),
+            "duration": float(getattr(treatment, "duration", 0) or 0)
+        })
     return boluses
 
 
@@ -178,8 +182,24 @@ async def compute_iob_from_sources(
                 
             # Check time (within 15 minutes tolerance for clock skew/format diffs)
             diff_seconds = abs((c_ts - ex_ts).total_seconds())
+            
+            # 1. Standard close proximity (15 min)
             if diff_seconds < 900: 
                 return True
+                
+            # 2. Timezone Glitch Guard
+            # Often local time is parsed as UTC, creating 1h (CET) or 2h (CEST) offsets.
+            # If units are identical and time difference is exactly ~1h or ~2h, treat as dupe.
+            # Tolerance 5 min around the hour mark.
+            
+            # Check 1 hour (3600s)
+            if abs(diff_seconds - 3600) < 300:
+                return True
+                
+            # Check 2 hours (7200s)
+            if abs(diff_seconds - 7200) < 300:
+                return True
+                
         return False
         
     # Merge DB into Unique
@@ -220,9 +240,54 @@ async def compute_iob_from_sources(
         if not ts or units <= 0:
             continue
         
+        # Square Wave Support
+        duration = float(bolus.get("duration", 0.0))
+        
         elapsed = (now - ts).total_seconds() / 60
-        fraction = insulin_activity_fraction(elapsed, profile)
-        contribution = max(units * fraction, 0.0)
+        
+        contribution = 0.0
+        
+        if duration > 10:
+             # Square wave simulation: split into chunks
+             # Same logic as forecast engine generally, but simpler integration
+             # Fraction of insulin "delivered" so far? No, IOB is "remaining action".
+             # For a square wave, we have insulin NOT YET DELIVERED + insulin delivered but interacting.
+             
+             # Actually, standard IOB calculation for Extended Bolus is tricky.
+             # Loop/OpenAPS usually model it as:
+             # IOB = (Scheduled - Delivered) + Decay(Delivered)
+             # If "duration" is passed, we assume valid delivery over time.
+             
+             # Let's simplify: discretized chunks.
+             chunk_step = 5.0
+             n_chunks = math.ceil(duration / chunk_step)
+             u_per_chunk = units / n_chunks
+             
+             for k in range(n_chunks):
+                 t_chunk_offset = k * chunk_step
+                 
+                 # If chunk is in future (not delivered yet)
+                 # It counts as IOB in the sense of "Active" or "On Board" (Total Future Insulin)?
+                 # "Insulin On Board" usually implies "Active in body".
+                 # Undelivered insulin is technically "On Board" in many contexts (pump IOB includes it).
+                 # Let's count it.
+                 
+                 t_since_chunk = elapsed - t_chunk_offset
+                 
+                 if t_since_chunk < 0:
+                     # Future delivery. It is fully "on board" (pending).
+                     # Counts as 1.0 (100% remaining).
+                     chunk_contribution = u_per_chunk
+                 else:
+                     # Delivered, decaying
+                     f = insulin_activity_fraction(t_since_chunk, profile)
+                     chunk_contribution = u_per_chunk * f
+                 
+                 contribution += chunk_contribution
+        else:
+             fraction = insulin_activity_fraction(elapsed, profile)
+             contribution = max(units * fraction, 0.0)
+             
         total += contribution
         if contribution > 0.01: # Only include significant in breakdown
             breakdown.append({"ts": ts.isoformat(), "units": units, "iob": contribution})
