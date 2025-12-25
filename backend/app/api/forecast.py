@@ -131,6 +131,13 @@ async def get_current_forecast(
                     same_carbs = (row.carbs == last_row.carbs)
                     if same_ins and same_carbs:
                         is_dup = True
+                
+                # Timezone Glitch Guard (1h or 2h offset with IDENTICAL values)
+                elif abs(dt_diff - 3600) < 120 or abs(dt_diff - 7200) < 120:
+                    same_ins = (row.insulin == last_row.insulin)
+                    same_carbs = (row.carbs == last_row.carbs)
+                    if same_ins and same_carbs:
+                        is_dup = True
             
             if not is_dup:
                 unique_rows.append(row)
