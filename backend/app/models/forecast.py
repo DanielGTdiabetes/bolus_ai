@@ -81,6 +81,8 @@ class ForecastSummary(BaseModel):
 
 class ForecastResponse(BaseModel):
     series: List[ForecastPoint]
+    baseline_series: Optional[List[ForecastPoint]] = None # Comparison series (e.g., without future bolus)
+    components: Optional[List[ComponentImpact]] = None
     components: Optional[List[ComponentImpact]] = None
     summary: ForecastSummary
     

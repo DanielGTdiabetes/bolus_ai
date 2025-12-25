@@ -16,7 +16,9 @@ router = APIRouter()
 async def get_current_forecast(
     user: CurrentUser = Depends(get_current_user),
     session: AsyncSession = Depends(get_db_session),
-    start_bg_param: Optional[float] = Query(None, alias="start_bg", description="Override start BG if known by client")
+    start_bg_param: Optional[float] = Query(None, alias="start_bg", description="Override start BG if known by client"),
+    future_insulin_u: Optional[float] = Query(None, description="Future planned insulin units (e.g. dual bolus remainder)"),
+    future_insulin_delay_min: Optional[int] = Query(0, description="Delay in minutes for future insulin")
 ):
     """
     Auto-generates a forecast based on:
@@ -182,10 +184,34 @@ async def get_current_forecast(
                 absorption_minutes=evt_abs
             ))
 
+    # 3.5. Add Future Planned Insulin (Dual Bolus Remainder)
+    if future_insulin_u and future_insulin_u > 0:
+        boluses.append(ForecastEventBolus(time_offset_min=future_insulin_delay_min, units=future_insulin_u))
+
     # 4. Construct Request
     # Current params
     now_user_hour = (now_utc.hour + 1) % 24
     curr_icr, curr_isf, curr_abs = get_slot_params(now_user_hour, user_settings)
+    
+    # Check Sick Mode (Resistance)
+    try:
+        sick_stmt = (
+            select(Treatment)
+            .where(Treatment.user_id == user.username)
+            .where(Treatment.event_type == 'Note')
+            .where(Treatment.notes.like('Sick Mode%'))
+            .order_by(Treatment.created_at.desc())
+            .limit(1)
+        )
+        sick_res = await session.execute(sick_stmt)
+        last_sick = sick_res.scalars().first()
+        if last_sick and "Start" in last_sick.notes:
+            # Apply 30% resistance (requires ~1.3x more insulin, so ISF/ICR decrease)
+            factor = 1.3
+            curr_icr = curr_icr / factor
+            curr_isf = curr_isf / factor
+    except Exception:
+        pass
     
     # NOTE: We removed the legacy "dynamic_absorption" based on carb amount (<20g).
     # Now we strictly follow the user's per-slot absorption setting.
@@ -212,7 +238,22 @@ async def get_current_forecast(
         recent_bg_series=recent_bg_series if recent_bg_series else None
     )
     
-    return ForecastEngine.calculate_forecast(payload)
+    response = ForecastEngine.calculate_forecast(payload)
+    
+    # If we added future insulin, run a baseline simulation (without it) for comparison
+    if future_insulin_u and future_insulin_u > 0:
+        # Remove the last bolus (which is the future one we added)
+        # We need a deep copy or just modify the list if we don't reuse payload.
+        # But payload is Pydantic.
+        from copy import deepcopy
+        payload_base = deepcopy(payload)
+        if payload_base.events.boluses:
+             payload_base.events.boluses.pop() # Remove the last one
+        
+        response_base = ForecastEngine.calculate_forecast(payload_base)
+        response.baseline_series = response_base.series
+        
+    return response
 
 
 @router.post("/simulate", response_model=ForecastResponse, summary="Simulate future glucose (Forecast)")

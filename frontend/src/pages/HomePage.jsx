@@ -32,11 +32,24 @@ function GlucoseHero({ onRefresh }) {
 
             // Ambient Forecast (try catch to not block main UI)
             try {
-                let query = "";
+                // Build dynamic query params
+                const params = new URLSearchParams();
                 if (current && current.bg_mgdl) {
-                    query = `?start_bg=${current.bg_mgdl}`;
+                    params.append("start_bg", current.bg_mgdl);
                 }
-                const predRes = await apiFetch("/api/forecast/current" + query);
+
+                // Inject Dual Bolus Plan if active
+                const activePlan = getDualPlan();
+                if (activePlan && activePlan.later_u_planned > 0) {
+                    const timing = getDualPlanTiming(activePlan);
+                    if (timing && typeof timing.remaining_min === 'number') {
+                        params.append("future_insulin_u", activePlan.later_u_planned);
+                        params.append("future_insulin_delay_min", Math.max(0, Math.round(timing.remaining_min)));
+                    }
+                }
+
+                const qs = params.toString() ? "?" + params.toString() : "";
+                const predRes = await apiFetch("/api/forecast/current" + qs);
                 if (predRes.ok) {
                     const predData = await toJson(predRes);
                     setPrediction(predData);

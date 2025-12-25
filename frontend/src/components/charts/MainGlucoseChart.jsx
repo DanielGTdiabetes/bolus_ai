@@ -87,9 +87,18 @@ export function MainGlucoseChart({ isLow, predictionData }) {
                 }
             }
 
+            // Resolve baseline (ghost) curve if available
+            let bVal = null;
+            if (predictionData.baseline_series) {
+                // Find matching point by t_min. Usually index matches but safe find is better.
+                const bPoint = predictionData.baseline_series.find(b => b.t_min === p.t_min);
+                if (bPoint) bVal = bPoint.bg;
+            }
+
             return {
                 timeLabel: new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
                 prediction: p.bg,
+                baselinePrediction: bVal,
                 bg: null,
                 carbCurve: cCurve,
                 insulinCurve: iCurve,
@@ -103,6 +112,7 @@ export function MainGlucoseChart({ isLow, predictionData }) {
             predPoints.unshift({
                 ...lastReal,
                 prediction: lastReal.bg, // Start prediction curve at actual BG
+                baselinePrediction: lastReal.bg, // Start ghost curve at actual BG
                 carbCurve: lastReal.bg, // Start component curves at actual BG
                 insulinCurve: lastReal.bg,
                 bg: null // Don't duplicate the 'Area' point, just start the 'Line'
@@ -199,6 +209,22 @@ export function MainGlucoseChart({ isLow, predictionData }) {
                         activeDot={{ r: 6, strokeWidth: 0, fill: '#1e293b' }}
                         animationDuration={1000}
                     />
+
+                    {/* Baseline / Risk Curve (Ghost) */}
+                    {chartData.some(d => d.baselinePrediction) && (
+                        <Line
+                            yAxisId="bg"
+                            type="monotone"
+                            dataKey="baselinePrediction"
+                            stroke="#94a3b8" // Slate-400 (Ghost)
+                            strokeWidth={2}
+                            strokeDasharray="2 2"
+                            opacity={0.7}
+                            dot={false}
+                            animationDuration={0}
+                            name="Sin acción"
+                        />
+                    )}
 
                     {/* Prediction Curve */}
                     <Line
