@@ -209,6 +209,18 @@ async def get_current_forecast(
     # 3.5. Add Future Planned Insulin (Dual Bolus Remainder)
     if future_insulin_u and future_insulin_u > 0:
         boluses.append(ForecastEventBolus(time_offset_min=future_insulin_delay_min, units=future_insulin_u))
+        
+        # SMART ADJUSTMENT:
+        # If there is a dual bolus active, it implies the meal is slow/complex (Pizza/Fat).
+        # Standard absorption (e.g. 3h) will predict a massive spike because only 70% insulin was given.
+        # We must extend the consumption curve of the recent meal to match the "Dual" strategy.
+        # Strategy: Find the recent large meal and force its absorption to 6 hours (360 min).
+        for c in carbs:
+            # If carbs > 20g and happened in the last 60 mins
+            if c.grams > 20 and c.time_offset_min > -60:
+                c.absorption_minutes = 360 # 6 hours for Pizza/Dual
+                # Also, maybe adjust the ICR slightly? No, absorption is the key.
+                # This ensures the carbs "wait" for the second dose.
 
     # 4. Construct Request
     # Current params
