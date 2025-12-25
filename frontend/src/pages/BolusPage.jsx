@@ -290,6 +290,13 @@ export default function BolusPage() {
             if (dualEnabled) splitSettings.enabled = true;
             else splitSettings.enabled = false;
 
+            // SAFETY OVERRIDE FOR ALCOHOL
+            if (alcoholEnabled && dualEnabled) {
+                splitSettings.duration_min = 240; // 4 hours
+                splitSettings.later_after_min = 240;
+                showToast("🍷 Alcohol: Segunda dosis retrasada a 4h por seguridad.", "info", 4000);
+            }
+
             const useSplit = (dualEnabled && !correctionOnly && carbsVal > 0);
             const res = await calculateBolusWithOptionalSplit(payload, useSplit ? splitSettings : null);
 
@@ -774,6 +781,7 @@ export default function BolusPage() {
                         foodName={foodName}
                         favorites={favorites} // Pass favorites for checking existence
                         onFavoriteAdded={(newFav) => setFavorites(prev => [...prev, newFav])} // Optimistic update or reload
+                        alcoholEnabled={alcoholEnabled}
                     />
                 )}
 
@@ -783,7 +791,7 @@ export default function BolusPage() {
     );
 }
 
-function ResultView({ result, slot, onBack, onSave, saving, currentCarbs, foodName, favorites, onFavoriteAdded }) {
+function ResultView({ result, slot, onBack, onSave, saving, currentCarbs, foodName, favorites, onFavoriteAdded, alcoholEnabled }) {
     // Local state for edit before confirm
     const [finalDose, setFinalDose] = useState(result.upfront_u);
     const [injectionSite, setInjectionSite] = useState(null);
@@ -791,6 +799,9 @@ function ResultView({ result, slot, onBack, onSave, saving, currentCarbs, foodNa
     // Check if entered food is new
     const [isNewFav, setIsNewFav] = useState(false);
     const [saveFav, setSaveFav] = useState(false);
+
+    // SAFETY CHECK FOR ALCOHOL SIMPLE BOLUS
+    const showAlcoholWarning = alcoholEnabled && result.kind === 'normal';
 
     useEffect(() => {
         if (foodName && foodName.trim().length > 2) {
@@ -908,16 +919,14 @@ function ResultView({ result, slot, onBack, onSave, saving, currentCarbs, foodNa
                     localStorage.setItem('forecast_warning_dismissed_at', '0');
                     window.dispatchEvent(new Event('forecast-update'));
                 } else {
-                    showToast(`✅ Predicción estable. Mínimo: ${min}`, "success");
                     // CLEAR ALARM if safe
                     localStorage.removeItem('forecast_warning');
                     window.dispatchEvent(new Event('forecast-update'));
                 }
             }
 
-        } catch (e) {
-            console.error("❌ Simulation Error:", e);
-            showToast(`Error simulando: ${e.message}`, "error");
+        } catch (err) {
+            console.warn("Forecast Sim error", err);
         } finally {
             setSimulating(false);
         }
@@ -943,6 +952,23 @@ function ResultView({ result, slot, onBack, onSave, saving, currentCarbs, foodNa
 
     return (
         <div className="card result-card fade-in" style={{ border: '2px solid var(--primary)', padding: '1.5rem' }}>
+            {showAlcoholWarning && (
+                <div style={{
+                    background: '#fff7ed', border: '1px solid #fdba74', borderRadius: '12px',
+                    padding: '1rem', marginBottom: '1rem', display: 'flex', gap: '10px'
+                }}>
+                    <div style={{ fontSize: '1.5rem' }}>🍷💡</div>
+                    <div>
+                        <div style={{ fontWeight: 700, color: '#c2410c' }}>Sugerencia: Usa Bolo Dividido</div>
+                        <div style={{ fontSize: '0.85rem', color: '#ea580c', marginTop: '4px' }}>
+                            Con alcohol, lo más seguro es <strong>dividir la dosis</strong> (menos insulina ahora, más luego).
+                            <br />
+                            Si prefieres bolo simple, <strong>espera 30 min</strong> antes de inyectar.
+                        </div>
+                    </div>
+                </div>
+            )}
+
             <div style={{ textAlign: 'center' }}>
                 <div className="text-muted" style={{ marginBottom: '0.5rem' }}>Bolo Recomendado</div>
 
