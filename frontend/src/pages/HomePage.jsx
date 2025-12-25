@@ -4,7 +4,7 @@ import { BottomNav } from '../components/layout/BottomNav';
 import { Card, Button } from '../components/ui/Atoms';
 import { useInterval } from '../hooks/useInterval';
 import {
-    getCurrentGlucose, getIOBData, fetchTreatments, getLocalNsConfig, getGlucoseEntries, apiFetch, toJson, saveTreatment
+    getCurrentGlucose, getIOBData, fetchTreatments, getLocalNsConfig, getGlucoseEntries, apiFetch, toJson, saveTreatment, recalcSecondBolus
 } from '../lib/api';
 import { formatTrend, formatNotes } from '../modules/core/utils';
 import { navigate } from '../modules/core/router';
@@ -456,7 +456,7 @@ function DualBolusPanel({ onHide, onCancel }) {
 
         try {
             // Dynamic import to avoid circular dependencies with store/api if strictly coupled
-            const { recalcSecondBolus, getLocalNsConfig } = await import('../lib/api');
+            // const { recalcSecondBolus } = await import('../lib/api'); // Removed dynamic import
             const { getCalcParams, getDefaultMealParams } = await import('../modules/core/store');
 
             const nsConfig = getLocalNsConfig();
@@ -522,15 +522,44 @@ function DualBolusPanel({ onHide, onCancel }) {
                     </div>
                 </div>
 
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                    <div style={{ flex: 1 }}>
-                        <label style={{ fontSize: '0.75rem', fontWeight: 600, color: '#475569' }}>Carbs Extra (g)</label>
-                        <input type="number" style={{ width: '100%', padding: '0.6rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '1.1rem' }}
-                            value={extraCarbs} onChange={e => setExtraCarbs(e.target.value)} />
+                <div style={{ background: '#f8fafc', padding: '1rem', borderRadius: '12px', marginTop: '1rem' }}>
+                    <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#475569', marginBottom: '0.5rem' }}>
+                        🍰 ¿Comiste algo más? (Carbs Extra)
+                    </label>
+                    <div style={{ display: 'flex', gap: '0.5rem' }}>
+                        <input
+                            type="number"
+                            inputMode="decimal"
+                            placeholder="0"
+                            style={{
+                                flex: 1,
+                                padding: '0.8rem',
+                                borderRadius: '12px',
+                                border: '2px solid #e2e8f0',
+                                fontSize: '1.4rem',
+                                fontWeight: 'bold',
+                                textAlign: 'center',
+                                outline: 'none',
+                                color: '#1e293b'
+                            }}
+                            value={extraCarbs}
+                            onChange={e => setExtraCarbs(e.target.value)}
+                        />
+                        <Button
+                            onClick={handleRecalc}
+                            disabled={loading}
+                            style={{
+                                padding: '0 1.5rem',
+                                background: '#f1f5f9',
+                                color: '#334155',
+                                border: '1px solid #cbd5e1',
+                                borderRadius: '12px',
+                                fontWeight: 600
+                            }}
+                        >
+                            {loading ? '...' : '🔄 Recalcular'}
+                        </Button>
                     </div>
-                    <Button onClick={handleRecalc} style={{ marginTop: '1.2rem' }} disabled={loading}>
-                        {loading ? '...' : 'Recalcular'}
-                    </Button>
                 </div>
 
                 {error && <div className="text-danger text-sm">{error}</div>}
