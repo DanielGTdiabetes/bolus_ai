@@ -105,10 +105,16 @@ async def calculate_bolus_stateless(
         
         target_settings = TargetRange(low=70, mid=100, high=180)
         
+        # Map insulin_model to curve
+        c_model = getattr(payload.settings, "insulin_model", "walsh")
+        # Ensure it is a valid curve string
+        if c_model not in ["walsh", "bilinear", "fiasp", "novorapid", "linear"]:
+             c_model = "walsh"
+             
         iob_settings = IOBConfig(
              dia_hours=payload.settings.dia_hours,
-             curve="bilinear", 
-             peak_minutes=75 
+             curve=c_model, 
+             peak_minutes=payload.settings.insulin_peak_minutes 
         )
         
         # NS from payload
@@ -147,7 +153,7 @@ async def calculate_bolus_stateless(
         
         iob_settings = IOBConfig(
              dia_hours=payload.dia_hours or 4.0,
-             curve="bilinear", 
+             curve="walsh", # Default to Walsh for overrides if not specified
              peak_minutes=75
         )
         
@@ -311,9 +317,18 @@ async def calculate_bolus_stateless(
         
         if breakdown:
              response.explain.append(f"   (IOB basado en {len(breakdown)} tratamientos):")
+             now_ts = datetime.now(timezone.utc)
              for b in breakdown:
-                 ts_str = b['ts'][11:16] # HH:MM
-                 response.explain.append(f"    - {ts_str}: {b['units']} U -> quedan {b['iob']:.2f} U")
+                 # b['ts'] is iso string
+                 try:
+                     ts_dt = datetime.fromisoformat(b['ts'])
+                     if ts_dt.tzinfo is None: ts_dt = ts_dt.replace(tzinfo=timezone.utc)
+                     diff_min = int((now_ts - ts_dt).total_seconds() / 60)
+                     time_label = f"Hace {diff_min} min" if diff_min < 120 else f"Hace {diff_min // 60}h {diff_min % 60}m"
+                 except:
+                     time_label = b['ts'][11:16] # Fallback
+                     
+                 response.explain.append(f"    - {time_label}: {b['units']} U -> quedan {b['iob']:.2f} U")
         
         return response
 
