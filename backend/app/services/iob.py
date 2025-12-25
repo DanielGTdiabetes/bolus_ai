@@ -8,6 +8,7 @@ from typing import Literal, Sequence
 
 from app.models.settings import UserSettings
 from app.services.store import DataStore
+from app.services.math.curves import InsulinCurves
 
 logger = logging.getLogger(__name__)
 
@@ -15,7 +16,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class InsulinActionProfile:
     dia_hours: float
-    curve: Literal["walsh", "bilinear"]
+    curve: Literal["walsh", "bilinear", "fiasp", "novorapid", "linear"]
     peak_minutes: int = 75
 
 
@@ -39,30 +40,14 @@ def _parse_timestamp(ts: str) -> datetime:
 
 def insulin_activity_fraction(t_minutes: float, profile: InsulinActionProfile) -> float:
     dia_minutes = profile.dia_hours * 60
-    if t_minutes <= 0:
-        return 1.0
-    if t_minutes >= dia_minutes:
-        return 0.0
-
-    if profile.curve == "bilinear":
-        peak = max(1, profile.peak_minutes)
-        if peak >= dia_minutes:
-            peak = dia_minutes / 2
-        # Linear decay to mid-point at the peak, then faster decay to DIA
-        slope1 = 0.5 / peak
-        slope2 = 0.5 / (dia_minutes - peak)
-        if t_minutes <= peak:
-            remaining = 1.0 - slope1 * t_minutes
-        else:
-            remaining = 0.5 - slope2 * (t_minutes - peak)
-        return _clamp(remaining)
-
-    # Smoothstep curve used as a stable approximation of the Walsh IOB model.
-    # It provides a smooth, monotonic decay from 1.0 at t=0 to 0.0 at DIA with
-    # zero slope at both ends, avoiding oscillations without external libs.
-    x = t_minutes / dia_minutes
-    smooth = 1 - (3 * x**2 - 2 * x**3)
-    return _clamp(smooth)
+    
+    # Use unified curve logic for consistent IOB
+    return InsulinCurves.get_iob(
+        t_minutes, 
+        dia_minutes, 
+        profile.peak_minutes, 
+        str(profile.curve)
+    )
 
 
 def compute_iob(now: datetime, boluses: Sequence[dict[str, float]], profile: InsulinActionProfile) -> float:

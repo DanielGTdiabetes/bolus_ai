@@ -8,38 +8,40 @@ class InsulinCurves:
     """
     
     @staticmethod
+    def _walsh_tau(peak_min, duration_min):
+        if duration_min <= 0: return 0
+        denom = 1 - 2 * peak_min / duration_min
+        if denom == 0: return 0
+        return peak_min * (1 - peak_min / duration_min) / denom
+
+    @staticmethod
+    def _walsh_F(t, duration, tau):
+        # Antiderivative of raw curve (1-t/D)*exp(-t/tau)
+        if tau == 0: return 0
+        term = (tau/duration) - 1 + (t/duration)
+        return tau * math.exp(-t/tau) * term
+
+    @staticmethod
     def exponential_activity(t_min: float, peak_min: float, duration_min: float) -> float:
         """
-        Calculates the instantaneous activity (percent of total dose / min)
-        Based on a simplified Dr. Walsh / Loop exponential model approximation.
-        This describes 'how strong' the insulin is working at time t.
-        Integration of this curve over [0, duration] should sum to ~1.0 (100% absorption).
+        Calculates the instantaneous activity (percent of total dose / min).
+        Normalized so that total area under curve equals 1.0.
         """
         if t_min <= 0 or t_min >= duration_min:
             return 0.0
             
-        # Time constants derived from Peak and Duration
-        # Model: A * t * exp(-t / tau) 
-        # But for simplicity/robustness without complex fitting, we use 
-        # a Walsh-style monophasic curve approximation.
-        
-        # Standard Walsh model:
-        # activity = scale * (t / tau) * (1 - t/T_end) / (1 + t/tau_2) ... 
-        # Let's use the simplest robust "Walsh" implementation found in open source Loop docs:
-        
-        tau = peak_min * (1 - peak_min / duration_min) / (1 - 2 * peak_min / duration_min)
-        a = 2 * tau / duration_min
-        S = 1 / (1 - a + (1 + a) * math.exp(-duration_min / tau))
-        
-        if tau <= 0: # Fallback if peak/duration parameters are invalid
-             # Linear fallback
-             if t_min < peak_min: 
-                 return (t_min / peak_min) * (2/duration_min) 
-             else:
-                 return ((duration_min - t_min) / (duration_min - peak_min)) * (2/duration_min)
+        tau = InsulinCurves._walsh_tau(peak_min, duration_min)
+        if tau <= 0:
+             return InsulinCurves.linear_activity(t_min, peak_min, duration_min)
 
-        activity = (S / tau) * (1 - t_min / duration_min) * math.exp(-t_min / tau)
-        return max(0.0, activity)
+        # Normalize by Area
+        F0 = InsulinCurves._walsh_F(0, duration_min, tau)
+        FD = InsulinCurves._walsh_F(duration_min, duration_min, tau)
+        area = FD - F0
+        if area == 0: return 0.0
+
+        raw = (1 - t_min / duration_min) * math.exp(-t_min / tau)
+        return raw / area
 
     @staticmethod
     def linear_activity(t_min: float, peak_min: float, duration_min: float) -> float:
@@ -67,22 +69,47 @@ class InsulinCurves:
         Uses standard Exponential / Walsh model for all types, varying parameters.
         """
         m = model_type.lower()
-        
-        # Fiasp: Standard model but faster peak (approx 55 min)
         if m == 'fiasp':
             return InsulinCurves.exponential_activity(t_min, 55, duration_min)
-            
-        # NovoRapid: Standard model with standard peak (approx 75 min)
         elif m == 'novorapid':
             return InsulinCurves.exponential_activity(t_min, 75, duration_min)
-            
-        # Exponential / Walsh: Use user-defined peak
         elif m == 'exponential' or m == 'walsh':
             return InsulinCurves.exponential_activity(t_min, peak_min, duration_min)
-            
         else:
-            # Linear Fallback
             return InsulinCurves.linear_activity(t_min, peak_min, duration_min)
+
+    @staticmethod
+    def exponential_iob(t_min: float, peak_min: float, duration_min: float) -> float:
+        """
+        Fraction of insulin remaining.
+        Calculated as (TotalArea - CumulativeArea) / TotalArea.
+        """
+        if t_min <= 0: return 1.0
+        if t_min >= duration_min: return 0.0
+        
+        tau = InsulinCurves._walsh_tau(peak_min, duration_min)
+        if tau <= 0:
+            return max(0.0, 1.0 - t_min / duration_min)
+            
+        F0 = InsulinCurves._walsh_F(0, duration_min, tau)
+        FD = InsulinCurves._walsh_F(duration_min, duration_min, tau)
+        Ft = InsulinCurves._walsh_F(t_min, duration_min, tau)
+        
+        denom = FD - F0
+        if denom == 0: return 0.0
+        return (FD - Ft) / denom
+
+    @staticmethod
+    def get_iob(t_min: float, duration_min: float, peak_min: float, model_type: str) -> float:
+        m = model_type.lower()
+        if m == 'fiasp':
+            return InsulinCurves.exponential_iob(t_min, 55, duration_min)
+        elif m == 'novorapid':
+            return InsulinCurves.exponential_iob(t_min, 75, duration_min)
+        elif m == 'exponential' or m == 'walsh':
+            return InsulinCurves.exponential_iob(t_min, peak_min, duration_min)
+        else:
+            return max(0.0, 1.0 - t_min / duration_min)
 
 class CarbCurves:
     """
