@@ -87,7 +87,7 @@ async def calculate_bolus_stateless(
     if payload.settings:
         # Construct UserSettings adaptor from payload
         # This allows reusing existing engine logic without rewriting it all
-        from app.models.settings import MealFactors, TargetRange, IOBConfig, NightscoutConfig
+        from app.models.settings import MealFactors, CorrectionFactors, TargetRange, IOBConfig, NightscoutConfig
         
         # We map meal slots to the structure UserSettings expects
         cr_settings = MealFactors(
@@ -96,7 +96,7 @@ async def calculate_bolus_stateless(
             dinner=payload.settings.dinner.icr,
             snack=payload.settings.snack.icr if payload.settings.snack else 10.0
         )
-        isf_settings = MealFactors(
+        isf_settings = CorrectionFactors(
             breakfast=payload.settings.breakfast.isf,
             lunch=payload.settings.lunch.isf,
             dinner=payload.settings.dinner.isf,
@@ -134,15 +134,14 @@ async def calculate_bolus_stateless(
              payload.target_mgdl = slot_profile.target
 
     elif payload.cr_g_per_u:
-        # Flat Overrides (Hybrid)
-        from app.models.settings import MealFactors, TargetRange, IOBConfig, NightscoutConfig
+        from app.models.settings import MealFactors, CorrectionFactors, TargetRange, IOBConfig, NightscoutConfig
         
         # Apply single CR/ISF to ALL slots for safety/simplicity in this stateless request
         cr_val = payload.cr_g_per_u
         isf_val = payload.isf_mgdl_per_u or 30.0
         
         cr_settings = MealFactors(breakfast=cr_val, lunch=cr_val, dinner=cr_val)
-        isf_settings = MealFactors(breakfast=isf_val, lunch=isf_val, dinner=isf_val)
+        isf_settings = CorrectionFactors(breakfast=isf_val, lunch=isf_val, dinner=isf_val)
         
         target_settings = TargetRange(low=70, mid=payload.target_mgdl or 100, high=180)
         
