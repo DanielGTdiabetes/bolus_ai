@@ -377,10 +377,16 @@ async def simulate_forecast(
                     print(f"Simulate NS Fetch warning: {e}")
                     # Continue without momentum
         
-        if not payload.events.boluses and not payload.events.carbs:
-             # Auto-enrich with History (IOB/COB) if payload events are empty (Stateless call)
-             # This ensures we account for IOB even if frontend didn't pass it.
-             # We fetch last 6 hours of treatments.
+        # Auto-enrich with History (IOB/COB) from DB
+        # We always do this to ensure IOB is accounted for, unless the client explicitly provided "history" events.
+        # How to detect "history"? If payload events have negative offsets.
+        # But even then, we might want to merge. 
+        # Strategy: Fetch DB events. If an event from DB is NOT in payload (by timestamp/match), add it.
+        # Since payload usually only contains the "Proposed" bolus (offset 0), we can just append past events.
+        
+        has_history = any(b.time_offset_min < -1 for b in payload.events.boluses)
+        
+        if not has_history:
              cutoff = datetime.now(timezone.utc) - timedelta(hours=6)
              
              # Need to import Treatment model
@@ -396,17 +402,34 @@ async def simulate_forecast(
              result = await session.execute(stmt)
              rows = result.scalars().all()
              
-             # Helper for Slot Params (We reuse the logic from get_current_forecast if possible, 
-             # but here we might just use current params for simplicity or simple defaults.
-             # Ideally we should pick params based on event time. 
-             # For robustness, we will simpler mapping or use the passed params as fallback.)
+             # Deduplicate rows logic (reused from get_current or simplified)
+             # We'll use the timezone-aware dedupe logic inline or reused.
+             # For simulation, slight duplications are less critical than missing IOB, 
+             # but we should try to avoid the "Double Phantom" issue.
              
-             # Actually, simpler: Load UserSettings once.
-             # We can't easily reuse get_slot_params without refactoring.
-             # We'll use the 'params' passed in payload as the "Current Profile" 
-             # and assume recent history follows roughly similar physics or just use ICR/ISF from payload.
-             # This is an approximation but better than 0 history.
-             
+             unique_rows = []
+             if rows:
+                 sorted_rows = sorted(rows, key=lambda x: x.created_at)
+                 last_row = None
+                 for row in sorted_rows:
+                     is_dup = False
+                     if last_row:
+                         dt_diff = abs((row.created_at - last_row.created_at).total_seconds())
+                         # Standard 2 min check
+                         if dt_diff < 120:
+                             if row.insulin == last_row.insulin and row.carbs == last_row.carbs:
+                                 is_dup = True
+                         # Timezone 1h check
+                         elif abs(dt_diff - 3600) < 120 or abs(dt_diff - 7200) < 120:
+                             if row.insulin == last_row.insulin and row.carbs == last_row.carbs:
+                                 is_dup = True
+                     
+                     if not is_dup:
+                         unique_rows.append(row)
+                         last_row = row
+                 rows = unique_rows
+
+             # Params for COB (Approximate from payload or defaults)
              p_icr = payload.params.icr
              p_absorption = payload.params.carb_absorption_minutes
              
@@ -418,15 +441,24 @@ async def simulate_forecast(
                 diff_min = (datetime.now(timezone.utc) - created_at).total_seconds() / 60.0
                 offset = -1 * diff_min # Negative for past
                 
+                # We skip future DB events (shouldn't happen) or very recent ones that might clash with "Proposed"?
+                # Actually proposed is usually "New". Using offset 0.
+                # If DB has something at offset -1 min, it's history.
+                
                 if row.insulin and row.insulin > 0:
-                    payload.events.boluses.append(ForecastEventBolus(time_offset_min=int(offset), units=row.insulin))
+                    dur = getattr(row, "duration", 0.0) or 0.0
+                    payload.events.boluses.append(ForecastEventBolus(
+                        time_offset_min=int(offset), 
+                        units=row.insulin, 
+                        duration_minutes=dur
+                    ))
                 
                 if row.carbs and row.carbs > 0:
                     payload.events.carbs.append(ForecastEventCarbs(
                         time_offset_min=int(offset), 
                         grams=row.carbs,
-                        icr=p_icr, # Approximate
-                        absorption_minutes=p_absorption # Approximate
+                        icr=p_icr, 
+                        absorption_minutes=p_absorption 
                     ))
 
         # Validate logic? (Pydantic does structure, Engine does math)
