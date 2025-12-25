@@ -313,6 +313,58 @@ async def simulate_forecast(
                     print(f"Simulate NS Fetch warning: {e}")
                     # Continue without momentum
         
+        if not payload.events.boluses and not payload.events.carbs:
+             # Auto-enrich with History (IOB/COB) if payload events are empty (Stateless call)
+             # This ensures we account for IOB even if frontend didn't pass it.
+             # We fetch last 6 hours of treatments.
+             cutoff = datetime.now(timezone.utc) - timedelta(hours=6)
+             
+             # Need to import Treatment model
+             from app.models.treatment import Treatment
+             from sqlalchemy import select
+             
+             stmt = (
+                select(Treatment)
+                .where(Treatment.user_id == user.username)
+                .where(Treatment.created_at >= cutoff.replace(tzinfo=None))
+                .order_by(Treatment.created_at.desc())
+             )
+             result = await session.execute(stmt)
+             rows = result.scalars().all()
+             
+             # Helper for Slot Params (We reuse the logic from get_current_forecast if possible, 
+             # but here we might just use current params for simplicity or simple defaults.
+             # Ideally we should pick params based on event time. 
+             # For robustness, we will simpler mapping or use the passed params as fallback.)
+             
+             # Actually, simpler: Load UserSettings once.
+             # We can't easily reuse get_slot_params without refactoring.
+             # We'll use the 'params' passed in payload as the "Current Profile" 
+             # and assume recent history follows roughly similar physics or just use ICR/ISF from payload.
+             # This is an approximation but better than 0 history.
+             
+             p_icr = payload.params.icr
+             p_absorption = payload.params.carb_absorption_minutes
+             
+             for row in rows:
+                created_at = row.created_at
+                if created_at.tzinfo is None:
+                    created_at = created_at.replace(tzinfo=timezone.utc)
+                
+                diff_min = (datetime.now(timezone.utc) - created_at).total_seconds() / 60.0
+                offset = -1 * diff_min # Negative for past
+                
+                if row.insulin and row.insulin > 0:
+                    payload.events.boluses.append(ForecastEventBolus(time_offset_min=int(offset), units=row.insulin))
+                
+                if row.carbs and row.carbs > 0:
+                    payload.events.carbs.append(ForecastEventCarbs(
+                        time_offset_min=int(offset), 
+                        grams=row.carbs,
+                        icr=p_icr, # Approximate
+                        absorption_minutes=p_absorption # Approximate
+                    ))
+
         # Validate logic? (Pydantic does structure, Engine does math)
         response = ForecastEngine.calculate_forecast(payload)
         return response
