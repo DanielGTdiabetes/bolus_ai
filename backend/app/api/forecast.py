@@ -218,13 +218,12 @@ async def get_current_forecast(
         # If there is a dual bolus active, it implies the meal is slow/complex (Pizza/Fat).
         # Standard absorption (e.g. 3h) will predict a massive spike because only 70% insulin was given.
         # We must extend the consumption curve of the recent meal to match the "Dual" strategy.
-        # Strategy: Find the recent large meal and force its absorption to 6 hours (360 min).
+        # Strategy: Find the recent large meal and force its absorption to at least 6 hours (360 min).
         for c in carbs:
             # If carbs > 20g and happened in the last 60 mins
             if c.grams > 20 and c.time_offset_min > -60:
-                c.absorption_minutes = 360 # 6 hours for Pizza/Dual
-                # Also, maybe adjust the ICR slightly? No, absorption is the key.
-                # This ensures the carbs "wait" for the second dose.
+                # Use MAX to avoid overwriting Alcohol (480) or other stronger settings
+                c.absorption_minutes = max(getattr(c, 'absorption_minutes', 0), 360)
 
     # 4. Construct Request
     # Current params
@@ -267,13 +266,21 @@ async def get_current_forecast(
     
     # Import locally if not at top, or ensure top imports are enough
     # MomentumConfig is in app.models.forecast
-    from app.models.forecast import MomentumConfig 
+    # 4. Construct Request
+    from app.models.forecast import MomentumConfig # Ensure imported
+
+    # Disable momentum if we are in a "Dual Bolus" / Futures scenario
+    # This prevents noise/artifacts (like compression recovery) from projecting a massive spike
+    # on top of the already complex carb/insulin interaction. We trust the "Physics" (Carbs vs Insulin) more here.
+    use_momentum = True
+    if future_insulin_u and future_insulin_u > 0:
+        use_momentum = False
 
     payload = ForecastSimulateRequest(
         start_bg=start_bg,
         params=sim_params,
         events=ForecastEvents(boluses=boluses, carbs=carbs),
-        momentum=MomentumConfig(enabled=True, lookback_points=5),
+        momentum=MomentumConfig(enabled=use_momentum, lookback_points=5),
         recent_bg_series=recent_bg_series if recent_bg_series else None
     )
     
