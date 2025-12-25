@@ -293,11 +293,21 @@ function CalcParamsPanel() {
 
                     <div style={{ display: 'flex', gap: '1rem', alignItems: 'flex-end' }}>
                         <div style={{ flex: 1 }}>
-                            <label style={{ fontSize: '0.85rem', fontWeight: 600, color: '#0369a1' }}>Total Diario (U)</label>
+                            <label style={{ fontSize: '0.85rem', fontWeight: 600, color: '#0369a1', marginBottom: '0.5rem', display: 'block' }}>Total Diario (U)</label>
                             <input
                                 type="number"
                                 placeholder="Ej: 23"
-                                style={{ width: '100%', padding: '0.6rem', borderRadius: '8px', border: '1px solid #bae6fd' }}
+                                style={{
+                                    width: '100%',
+                                    padding: '0.8rem',
+                                    borderRadius: '8px',
+                                    border: '1px solid #bae6fd',
+                                    fontSize: '1.2rem',
+                                    outline: 'none',
+                                    color: '#0369a1',
+                                    fontWeight: 'bold',
+                                    background: 'white'
+                                }}
                                 onChange={(e) => {
                                     const tdd = parseFloat(e.target.value);
                                     if (tdd > 0) {
