@@ -203,7 +203,7 @@ class IsfAnalysisService:
                 confidence="low"
             )
             
-            if count >= 6: # User said 6-10
+            if count >= 3: # Lowered from 6 to allow more results (Confidence scaled)
                 isf_vals = [e.isf_observed for e in events]
                 median_val = statistics.median(isf_vals)
                 stat.median_isf = median_val
