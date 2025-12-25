@@ -281,6 +281,63 @@ function CalcParamsPanel() {
 
             <div className="stack">
                 <Input label="Duración Insulina (DIA - Horas)" type="number" value={params.dia_hours} onChange={e => handleChange('dia_hours', e.target.value)} />
+
+                {/* TDD Assistant */}
+                <div style={{ background: '#f0f9ff', padding: '1rem', borderRadius: '8px', border: '1px solid #bae6fd', margin: '1rem 0' }}>
+                    <h4 style={{ margin: '0 0 0.5rem 0', color: '#0369a1', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        🧮 Asistente TDD
+                    </h4>
+                    <p className="text-sm text-muted" style={{ marginBottom: '1rem' }}>
+                        Si conoces tu Total Diario de Insulina (Basal + Bolos), podemos sugerir tus ratios base.
+                    </p>
+
+                    <div style={{ display: 'flex', gap: '1rem', alignItems: 'flex-end' }}>
+                        <div style={{ flex: 1 }}>
+                            <label style={{ fontSize: '0.85rem', fontWeight: 600, color: '#0369a1' }}>Total Diario (U)</label>
+                            <input
+                                type="number"
+                                placeholder="Ej: 23"
+                                style={{ width: '100%', padding: '0.6rem', borderRadius: '8px', border: '1px solid #bae6fd' }}
+                                onChange={(e) => {
+                                    const tdd = parseFloat(e.target.value);
+                                    if (tdd > 0) {
+                                        const sugIcr = Math.round((500 / tdd) * 10) / 10;
+                                        const sugIsf = Math.round((1800 / tdd));
+                                        // Update UI suggestion state if we had it, or just direct apply logic
+                                        // We will just store it in a data attribute or temp state for the button
+                                        e.target.setAttribute('data-icr', sugIcr);
+                                        e.target.setAttribute('data-isf', sugIsf);
+
+                                        // Show visual feedback immediately
+                                        const fb = document.getElementById('tdd-feedback');
+                                        if (fb) fb.innerHTML = `Sugerido: <strong>ICR ${sugIcr}</strong> | <strong>ISF ${sugIsf}</strong>`;
+                                    }
+                                }}
+                            />
+                        </div>
+                        <Button variant="secondary" onClick={(e) => {
+                            const input = e.currentTarget.parentElement.querySelector('input');
+                            const tdd = parseFloat(input.value);
+                            if (!tdd || tdd <= 0) return alert("Introduce un TDD válido.");
+
+                            const sugIcr = parseFloat(input.getAttribute('data-icr'));
+                            const sugIsf = parseFloat(input.getAttribute('data-isf'));
+
+                            if (window.confirm(`¿Actualizar TODOS los horarios a ICR ${sugIcr} e ISF ${sugIsf}?`)) {
+                                setParams(prev => ({
+                                    ...prev,
+                                    breakfast: { ...prev.breakfast, icr: sugIcr, isf: sugIsf },
+                                    lunch: { ...prev.lunch, icr: sugIcr, isf: sugIsf },
+                                    dinner: { ...prev.dinner, icr: sugIcr, isf: sugIsf },
+                                    snack: { ...prev.snack, icr: sugIcr, isf: sugIsf }
+                                }));
+                                alert("Parámetros actualizados. Recuerda pulsar 'Guardar Parámetros'.");
+                            }
+                        }}>Aplicar</Button>
+                    </div>
+                    <div id="tdd-feedback" style={{ marginTop: '0.5rem', fontSize: '0.9rem', color: '#0284c7' }}></div>
+                </div>
+
                 <Input label="Máximo Bolo (Seguridad - U)" type="number" value={params.max_bolus_u} onChange={e => handleChange('max_bolus_u', e.target.value)} />
 
                 <h4 style={{ margin: '0.5rem 0', color: '#475569', fontSize: '1rem' }}>Configuración de Insulina</h4>
