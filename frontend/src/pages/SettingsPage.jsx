@@ -310,57 +310,55 @@ function CalcParamsPanel() {
                         Si conoces tu Total Diario de Insulina (Basal + Bolos), podemos sugerir tus ratios base.
                     </p>
 
-                    <div style={{ display: 'flex', gap: '1rem', alignItems: 'flex-end' }}>
-                        <div style={{ flex: 1 }}>
-                            <label style={{ fontSize: '0.85rem', fontWeight: 600, color: '#0369a1', marginBottom: '0.5rem', display: 'block' }}>Total Diario (U)</label>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                        <div>
+                            <label style={{ fontSize: '0.9rem', fontWeight: 600, color: '#0369a1', marginBottom: '0.5rem', display: 'block' }}>
+                                Total Diario de Insulina (TDD)
+                            </label>
                             <input
                                 type="number"
+                                inputMode="decimal"
                                 placeholder="Ej: 23"
                                 style={{
                                     width: '100%',
-                                    padding: '0.8rem',
-                                    borderRadius: '8px',
-                                    border: '1px solid #bae6fd',
-                                    fontSize: '1.2rem',
+                                    padding: '1rem',
+                                    borderRadius: '12px',
+                                    border: '2px solid #e2e8f0', // Standard app border
+                                    fontSize: '1.5rem',
                                     outline: 'none',
-                                    color: '#0369a1',
+                                    color: '#1e293b', // Standard text dark
                                     fontWeight: 'bold',
-                                    background: 'white'
+                                    background: 'white',
+                                    appearance: 'textfield',
+                                    textAlign: 'center' // Center for better symmetry in big inputs
                                 }}
+                                onFocus={(e) => e.target.style.borderColor = '#3b82f6'} // Blue on focus only
+                                onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
                                 onChange={(e) => {
-                                    const tdd = parseFloat(e.target.value);
-                                    if (tdd > 0) {
-                                        const sugIcr = Math.round((500 / tdd) * 10) / 10;
-                                        const sugIsf = Math.round((1800 / tdd));
-                                        // Update UI suggestion state if we had it, or just direct apply logic
-                                        // We will just store it in a data attribute or temp state for the button
-                                        e.target.setAttribute('data-icr', sugIcr);
-                                        e.target.setAttribute('data-isf', sugIsf);
-
-                                        // Show visual feedback immediately
-                                        const fb = document.getElementById('tdd-feedback');
-                                        if (fb) fb.innerHTML = `Sugerido: <strong>ICR ${sugIcr}</strong> | <strong>ISF ${sugIsf}</strong>`;
-                                    }
+                                    const val = parseFloat(e.target.value);
+                                    e.target.setAttribute('data-tdd', val || 0);
                                 }}
                             />
                         </div>
-                        <Button variant="secondary" onClick={(e) => {
-                            const input = e.currentTarget.parentElement.querySelector('input');
-                            const tdd = parseFloat(input.value);
-                            if (!tdd || tdd <= 0) return alert("Introduce un TDD válido.");
 
-                            // Calculate Formulae
-                            // ISF = 1800 / TDD (Rapid Standard)
+                        <Button variant="secondary" onClick={(e) => {
+                            // Find input by traversing up
+                            const container = e.currentTarget.parentElement;
+                            const input = container.querySelector('input');
+                            const tdd = parseFloat(input.getAttribute('data-tdd'));
+
+                            if (!tdd || tdd <= 0) return alert("Introduce un TDD válido (ej. 23).");
+
+                            // Formula: ISF = 1800 / TDD
                             const sugIsf = Math.round(1800 / tdd);
 
-                            // ICR = 500 / TDD (Standard Rule - OFTEN WRONG for resistant patients)
-                            // We will show it but NOT apply it blindly.
+                            // Calculate ICR just for info msg
                             const sugIcr = Math.round((500 / tdd) * 10) / 10;
 
-                            const msg = `Sugerencia basada en TDD ${tdd}U:\n\n` +
-                                `• ISF (Sensibilidad): ${sugIsf} (Recomendado)\n` +
-                                `• ICR (Ratio comida): ${sugIcr} (⚠️ SOLO REFERENCIA - NO SE APLICARÁ)\n\n` +
-                                `¿Quieres actualizar SOLO tu SENSIBILIDAD (ISF) a ${sugIsf} en todos los horarios?`;
+                            const msg = `Sugerencia para TDD ${tdd}U:\n\n` +
+                                `• Sensibilidad (ISF): ${sugIsf} (Recomendado)\n` +
+                                `• Ratio Comida (ICR): ~${sugIcr} (Referencia)\n\n` +
+                                `¿Aplicar SOLO el ISF de ${sugIsf}?`;
 
                             if (window.confirm(msg)) {
                                 setParams(prev => ({
@@ -370,12 +368,14 @@ function CalcParamsPanel() {
                                     dinner: { ...prev.dinner, isf: sugIsf },
                                     snack: { ...prev.snack, isf: sugIsf }
                                 }));
-                                alert(`✅ Sensibilidad (ISF) actualizada a ${sugIsf}. Tus Ratios de comida NO se han tocado.`);
+                                alert(`✅ Sensibilidad actualizada a ${sugIsf} en todos los horarios.`);
                             }
-                        }}>Calcular ISF</Button>
+                        }} style={{ padding: '0.8rem', fontSize: '1rem', justifyContent: 'center' }}>
+                            ✨ Calcular y Aplicar ISF
+                        </Button>
                     </div>
                     <div id="tdd-feedback" style={{ marginTop: '0.5rem', fontSize: '0.8rem', color: '#64748b' }}>
-                        Nota: Solo se actualizará la Sensibilidad. Los Ratios de comida son muy personales.
+                        Nota: Esta herramienta solo ajusta tu Factor de Sensibilidad (Corrección).
                     </div>
                 </div>
 
