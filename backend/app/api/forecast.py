@@ -113,6 +113,32 @@ async def get_current_forecast(
     result = await session.execute(stmt)
     rows = result.scalars().all()
     
+    # 3.1 Deduplicate Rows (Fix for Double Submission / Echoes)
+    # We filter out events that are extremely close in time with identical values.
+    unique_rows = []
+    if rows:
+        # Sort by created_at to ensure proximity
+        sorted_rows = sorted(rows, key=lambda x: x.created_at)
+        
+        last_row = None
+        for row in sorted_rows:
+            is_dup = False
+            if last_row:
+                dt_diff = abs((row.created_at - last_row.created_at).total_seconds())
+                # If within 2 mins and identical values
+                if dt_diff < 120:
+                    same_ins = (row.insulin == last_row.insulin)
+                    same_carbs = (row.carbs == last_row.carbs)
+                    if same_ins and same_carbs:
+                        is_dup = True
+            
+            if not is_dup:
+                unique_rows.append(row)
+                last_row = row
+        
+        # Use refined list
+        rows = unique_rows
+
     boluses = []
     carbs = []
     
@@ -142,14 +168,10 @@ async def get_current_forecast(
              icr = settings.cr.dinner
              isf = settings.cf.dinner
              absorption = settings.absorption.dinner
-        
-        # Fallback for night owls (23-05) -> Dinner or specific?
-        # Usually dinner settings persist, or we wrap to breakfast.
-        # Let's assume Dinner for late night snacking for now.
         else:
              icr = settings.cr.dinner
              isf = settings.cf.dinner
-             absorption = settings.absorption.dinner # or snack? default to dinner/snack logic? Let's use dinner for consistency or snack if user prefers. Using dinner as late-night implies meal.
+             absorption = settings.absorption.dinner 
              
         return float(icr), float(isf), int(absorption)
 
