@@ -159,7 +159,7 @@ async def recalc_second(req: RecalcSecondRequest) -> RecalcSecondResponse:
             
             profile = InsulinActionProfile(
                 dia_hours=4.0, 
-                curve="bilinear", 
+                curve="walsh", 
                 peak_minutes=75
             )
             

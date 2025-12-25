@@ -290,7 +290,12 @@ async def compute_iob_from_sources(
              
         total += contribution
         if contribution > 0.01: # Only include significant in breakdown
-            breakdown.append({"ts": ts.isoformat(), "units": units, "iob": contribution})
+            breakdown.append({
+                "ts": ts.isoformat(), 
+                "units": units, 
+                "iob": contribution,
+                "duration": duration
+            })
 
     breakdown.sort(key=lambda item: item["ts"], reverse=True)
     final_iob = max(total, 0.0)

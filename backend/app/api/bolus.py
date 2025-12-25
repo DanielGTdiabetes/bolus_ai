@@ -562,7 +562,11 @@ async def get_current_iob(
         
         active_boluses = []
         for b in breakdown:
-            active_boluses.append({"ts": b["ts"], "units": b["units"]})
+            active_boluses.append({
+                "ts": b["ts"], 
+                "units": b["units"],
+                "duration": b.get("duration", 0)
+            })
             
         curve_points = []
         from datetime import timedelta
