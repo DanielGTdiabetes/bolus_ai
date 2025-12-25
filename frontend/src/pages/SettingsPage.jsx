@@ -210,12 +210,12 @@ function CalcParamsPanel() {
         if (isSlot) {
             setParams(prev => ({
                 ...prev,
-                [slot]: { ...prev[slot], [field]: parseFloat(value) }
+                [slot]: { ...prev[slot], [field]: value }
             }));
         } else {
             setParams(prev => ({
                 ...prev,
-                [field]: parseFloat(value)
+                [field]: value
             }));
         }
     };
@@ -231,7 +231,26 @@ function CalcParamsPanel() {
     };
 
     const handleSave = () => {
-        saveCalcParams(params);
+        // Deep clean and parse numbers
+        const clean = JSON.parse(JSON.stringify(params));
+        const p = (v) => {
+            if (typeof v === 'string') {
+                return parseFloat(v.replace(',', '.')) || 0;
+            }
+            return v;
+        };
+
+        ['breakfast', 'lunch', 'dinner', 'snack'].forEach(s => {
+            if (clean[s]) {
+                clean[s].icr = p(clean[s].icr);
+                clean[s].isf = p(clean[s].isf);
+                clean[s].target = p(clean[s].target);
+            }
+        });
+        clean.dia_hours = p(clean.dia_hours);
+        clean.max_bolus_u = p(clean.max_bolus_u);
+
+        saveCalcParams(clean);
         setStatus('Parámetros guardados correctamente.');
         setTimeout(() => setStatus(null), 3000);
     };
@@ -271,8 +290,8 @@ function CalcParamsPanel() {
             </div>
 
             <div className="stack">
-                <Input label="Ratio (ICR - g/U)" type="number" value={slotData.icr} onChange={e => handleChange('icr', e.target.value, true)} />
-                <Input label="Sensibilidad (ISF - mg/dL/U)" type="number" value={slotData.isf} onChange={e => handleChange('isf', e.target.value, true)} />
+                <Input label="Ratio (ICR - g/U)" type="text" inputMode="decimal" value={slotData.icr} onChange={e => handleChange('icr', e.target.value, true)} />
+                <Input label="Sensibilidad (ISF - mg/dL/U)" type="text" inputMode="decimal" value={slotData.isf} onChange={e => handleChange('isf', e.target.value, true)} />
                 <Input label="Objetivo (Target - mg/dL)" type="number" value={slotData.target} onChange={e => handleChange('target', e.target.value, true)} />
                 <Input label="Absorción (min)" type="number" value={params.absorption?.[slot] ?? 180} onChange={e => handleAbsorptionChange(e.target.value)} />
             </div>
@@ -330,22 +349,34 @@ function CalcParamsPanel() {
                             const tdd = parseFloat(input.value);
                             if (!tdd || tdd <= 0) return alert("Introduce un TDD válido.");
 
-                            const sugIcr = parseFloat(input.getAttribute('data-icr'));
-                            const sugIsf = parseFloat(input.getAttribute('data-isf'));
+                            // Calculate Formulae
+                            // ISF = 1800 / TDD (Rapid Standard)
+                            const sugIsf = Math.round(1800 / tdd);
 
-                            if (window.confirm(`¿Actualizar TODOS los horarios a ICR ${sugIcr} e ISF ${sugIsf}?`)) {
+                            // ICR = 500 / TDD (Standard Rule - OFTEN WRONG for resistant patients)
+                            // We will show it but NOT apply it blindly.
+                            const sugIcr = Math.round((500 / tdd) * 10) / 10;
+
+                            const msg = `Sugerencia basada en TDD ${tdd}U:\n\n` +
+                                `• ISF (Sensibilidad): ${sugIsf} (Recomendado)\n` +
+                                `• ICR (Ratio comida): ${sugIcr} (⚠️ SOLO REFERENCIA - NO SE APLICARÁ)\n\n` +
+                                `¿Quieres actualizar SOLO tu SENSIBILIDAD (ISF) a ${sugIsf} en todos los horarios?`;
+
+                            if (window.confirm(msg)) {
                                 setParams(prev => ({
                                     ...prev,
-                                    breakfast: { ...prev.breakfast, icr: sugIcr, isf: sugIsf },
-                                    lunch: { ...prev.lunch, icr: sugIcr, isf: sugIsf },
-                                    dinner: { ...prev.dinner, icr: sugIcr, isf: sugIsf },
-                                    snack: { ...prev.snack, icr: sugIcr, isf: sugIsf }
+                                    breakfast: { ...prev.breakfast, isf: sugIsf },
+                                    lunch: { ...prev.lunch, isf: sugIsf },
+                                    dinner: { ...prev.dinner, isf: sugIsf },
+                                    snack: { ...prev.snack, isf: sugIsf }
                                 }));
-                                alert("Parámetros actualizados. Recuerda pulsar 'Guardar Parámetros'.");
+                                alert(`✅ Sensibilidad (ISF) actualizada a ${sugIsf}. Tus Ratios de comida NO se han tocado.`);
                             }
-                        }}>Aplicar</Button>
+                        }}>Calcular ISF</Button>
                     </div>
-                    <div id="tdd-feedback" style={{ marginTop: '0.5rem', fontSize: '0.9rem', color: '#0284c7' }}></div>
+                    <div id="tdd-feedback" style={{ marginTop: '0.5rem', fontSize: '0.8rem', color: '#64748b' }}>
+                        Nota: Solo se actualizará la Sensibilidad. Los Ratios de comida son muy personales.
+                    </div>
                 </div>
 
                 <Input label="Máximo Bolo (Seguridad - U)" type="number" value={params.max_bolus_u} onChange={e => handleChange('max_bolus_u', e.target.value)} />
