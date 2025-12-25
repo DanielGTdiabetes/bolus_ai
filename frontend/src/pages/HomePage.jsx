@@ -4,7 +4,7 @@ import { BottomNav } from '../components/layout/BottomNav';
 import { Card, Button } from '../components/ui/Atoms';
 import { useInterval } from '../hooks/useInterval';
 import {
-    getCurrentGlucose, getIOBData, fetchTreatments, getLocalNsConfig, getGlucoseEntries, apiFetch, toJson
+    getCurrentGlucose, getIOBData, fetchTreatments, getLocalNsConfig, getGlucoseEntries, apiFetch, toJson, saveTreatment
 } from '../lib/api';
 import { formatTrend, formatNotes } from '../modules/core/utils';
 import { navigate } from '../modules/core/router';
@@ -419,6 +419,36 @@ function DualBolusPanel({ onHide, onCancel }) {
         if (onHide) onHide();
     };
 
+    const handleAdminister = async (amount) => {
+        if (!amount || amount <= 0) return;
+        if (!window.confirm(`¿Confirmar administración de ${amount} U ahora?`)) return;
+
+        setLoading(true);
+        try {
+            const nsConfig = getLocalNsConfig();
+            const payload = {
+                insulin: parseFloat(amount),
+                created_at: new Date().toISOString(),
+                notes: "Bolo Dividido (Parte 2)",
+                enteredBy: "BolusAI",
+                nightscout: nsConfig ? { url: nsConfig.url, token: nsConfig.token } : undefined
+            };
+
+            await saveTreatment(payload);
+
+            // Clear plan
+            localStorage.removeItem("bolusai_active_dual_plan");
+            setPlan(null);
+            // Notify parent
+            if (onCancel) onCancel();
+
+        } catch (e) {
+            setError("Error al guardar: " + e.message);
+        } finally {
+            setLoading(false);
+        }
+    };
+
     const handleRecalc = async () => {
         setLoading(true);
         setError(null);
@@ -514,6 +544,16 @@ function DualBolusPanel({ onHide, onCancel }) {
                         {recalcResult.warnings?.map((w, i) => <div key={i} className="text-xs text-orange-600">⚠️ {w}</div>)}
                     </div>
                 )}
+
+                <div style={{ marginTop: '1rem' }}>
+                    <Button
+                        onClick={() => handleAdminister(recalcResult ? recalcResult.u2_recommended_u : plan.later_u_planned)}
+                        style={{ width: '100%', background: '#0ea5e9', color: 'white', fontWeight: 'bold', padding: '1rem', fontSize: '1.1rem' }}
+                        disabled={loading}
+                    >
+                        {loading ? 'Guardando...' : `Administrar ${recalcResult ? recalcResult.u2_recommended_u : plan.later_u_planned} U Ahora`}
+                    </Button>
+                </div>
             </div>
         </section>
     );
