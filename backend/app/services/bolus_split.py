@@ -196,8 +196,8 @@ async def recalc_second(req: RecalcSecondRequest) -> RecalcSecondResponse:
     u2_net = u2_raw - applied_iob
     
     # Cap
-    # "cap_u = later_u_planned (por defecto no superar lo planificado)"
-    cap_u = req.later_u_planned
+    # "cap_u = max_bolus_u" (Antes limitado a later_u_planned, ahora permite corrección hacia arriba)
+    cap_u = req.params.max_bolus_u
     
     # Recommended
     # "u2_recommended = clamp(round_to_step(u2_net), 0, cap_u)"
@@ -206,11 +206,9 @@ async def recalc_second(req: RecalcSecondRequest) -> RecalcSecondResponse:
     u2_final = clamp(u2_rec_step, 0.0, cap_u)
     
     # Security limit of total bolus? 
-    # We only check max_bolus_u against valid part? 
-    # Usually max_bolus is for the delivery.
-    if u2_final > req.params.max_bolus_u:
-         u2_final = req.params.max_bolus_u
-         warnings.append("Bolus capped by safety limit")
+    # We already clamped to max_bolus_u above.
+    if u2_final == req.params.max_bolus_u and u2_net > req.params.max_bolus_u:
+         warnings.append(f"Bolus limited by Max Safety ({req.params.max_bolus_u} U)")
          
     return RecalcSecondResponse(
         bg_now_mgdl=bg_now_mgdl,

@@ -40,7 +40,37 @@ async def api_create_plan(payload: BolusPlanRequest):
     return create_plan(payload)
 
 @router.post("/recalc-second", response_model=RecalcSecondResponse, summary="Recalculate second tranche")
-async def api_recalc_second(payload: RecalcSecondRequest):
+async def api_recalc_second(
+    payload: RecalcSecondRequest,
+    user: CurrentUser = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db_session),
+):
+    # Inject NS Config from DB if missing in payload
+    if not payload.nightscout or not payload.nightscout.url:
+        try:
+            db_ns_config = await get_ns_config(session, user.username)
+            if db_ns_config and db_ns_config.enabled and db_ns_config.url:
+                # Create default dict if None
+                if payload.nightscout is None:
+                    # We need to assign a structure that matches the Pydantic model
+                    # RecalcSecondRequest.nightscout is likely a model or dict. 
+                    # Checking imports... it uses NightscoutConfig probably.
+                    # Let's check RecalcSecondRequest definition if possible, but 
+                    # usually it expects an object. 
+                    # We can assign the fields directly if payload is a Pydantic model.
+                    from app.models.settings import NightscoutConfig
+                    payload.nightscout = NightscoutConfig(
+                        url=db_ns_config.url,
+                        token=db_ns_config.api_secret,
+                        enabled=True
+                    )
+                else:
+                    payload.nightscout.url = db_ns_config.url
+                    payload.nightscout.token = db_ns_config.api_secret
+                    payload.nightscout.enabled = True
+        except Exception as e:
+            logger.warning(f"Failed to inject NS config for recalc: {e}")
+
     return await recalc_second(payload)
 
 @router.post("/calc", response_model=BolusResponseV2, summary="Calculate bolus (Stateless V2)")

@@ -417,8 +417,8 @@ export async function calculateBolusWithOptionalSplit(calcPayload, splitSettings
         round_step_u: splitSettings.round_step_u || 0.5,
         dual: {
           percent_now: splitSettings.percent_now || 70,
-          duration_min: splitSettings.duration_min || 120,
-          later_after_min: splitSettings.later_after_min || 120
+          duration_min: splitSettings.duration_min || 150,
+          later_after_min: splitSettings.later_after_min || 150
         }
       };
 

@@ -148,16 +148,16 @@ export function getSplitSettings() {
         return raw ? JSON.parse(raw) : {
             enabled_default: false,
             percent_now: 70,
-            duration_min: 120,
-            later_after_min: 120,
+            duration_min: 150,
+            later_after_min: 150,
             round_step_u: 0.5
         };
     } catch (e) {
         return {
             enabled_default: false,
             percent_now: 70,
-            duration_min: 120,
-            later_after_min: 120,
+            duration_min: 150,
+            later_after_min: 150,
             round_step_u: 0.5
         };
     }

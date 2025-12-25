@@ -473,7 +473,8 @@ function DualBolusPanel({ onHide, onCancel }) {
             const { getCalcParams, getDefaultMealParams } = await import('../modules/core/store');
 
             const nsConfig = getLocalNsConfig();
-            if (!nsConfig?.url) throw new Error("Configura Nightscout");
+            // Removed strict check here to allow backend fallback
+            // if (!nsConfig?.url) throw new Error("Configura Nightscout");
 
             const calcParams = getCalcParams();
             const slot = plan.slot || "lunch";
@@ -493,7 +494,7 @@ function DualBolusPanel({ onHide, onCancel }) {
                     max_bolus_u: calcParams.max_bolus_u || 10,
                     stale_bg_minutes: 15
                 },
-                nightscout: { url: nsConfig.url, token: nsConfig.token, units: "mgdl" }
+                nightscout: nsConfig ? { url: nsConfig.url, token: nsConfig.token, units: "mgdl" } : {}
             };
 
             const res = await recalcSecondBolus(payload);
@@ -553,15 +554,17 @@ function DualBolusPanel({ onHide, onCancel }) {
                                 fontWeight: 'bold',
                                 textAlign: 'center',
                                 outline: 'none',
-                                color: '#1e293b'
+                                color: '#1e293b',
+                                minWidth: '80px'
                             }}
-                            value={extraCarbs}
+                            value={extraCarbs || ''}
                             onChange={e => setExtraCarbs(e.target.value)}
                         />
                         <Button
                             onClick={handleRecalc}
                             disabled={loading}
                             style={{
+                                width: 'auto',
                                 padding: '0 1.5rem',
                                 background: '#f1f5f9',
                                 color: '#334155',
