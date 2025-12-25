@@ -62,7 +62,7 @@ class ForecastEngine:
              t_since = 0 - b.time_offset_min
              # Linear activity returns activity fraction per minute (approx) or relative intensity
              # We rely on the curves matching the loop units.
-             r = InsulinCurves.linear_activity(t_since, req.params.insulin_peak_minutes, req.params.dia_minutes)
+             r = InsulinCurves.get_activity(t_since, req.params.dia_minutes, req.params.insulin_peak_minutes, req.params.insulin_model)
              ins_rate_0 += r * b.units
         
         # Carb Slope at t=0
@@ -125,7 +125,7 @@ class ForecastEngine:
             total_insulin_activity = 0.0
             for b in req.events.boluses:
                 t_since_inj = t_mid - b.time_offset_min
-                rate = InsulinCurves.linear_activity(t_since_inj, req.params.insulin_peak_minutes, req.params.dia_minutes)
+                rate = InsulinCurves.get_activity(t_since_inj, req.params.dia_minutes, req.params.insulin_peak_minutes, req.params.insulin_model)
                 total_insulin_activity += rate * b.units
             
             step_insulin_drop = total_insulin_activity * isf * dt

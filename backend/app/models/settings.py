@@ -82,8 +82,10 @@ class LearningConfig(BaseModel):
 
 class IOBConfig(BaseModel):
     dia_hours: float = Field(default=4.0, gt=0)
-    curve: Literal["walsh", "bilinear"] = "walsh"
+    curve: Literal["walsh", "bilinear", "fiasp", "novorapid", "linear"] = "walsh"
     peak_minutes: int = Field(default=75, ge=10, le=300)
+
+
 
 
 class NightscoutConfig(BaseModel):
@@ -203,6 +205,15 @@ class UserSettings(BaseModel):
                              cr_data[slot] = 10.0
             data["cr"] = cr_data
             
+        # 3. Map insulin_model to iob.curve
+        if "insulin_model" in data:
+            if "iob" not in data or not isinstance(data["iob"], dict):
+                data["iob"] = {}
+            # Map legacy names if any, or direct mapping
+            val = data["insulin_model"]
+            if val in ["fiasp", "novorapid", "linear", "exponential"]:
+                data["iob"]["curve"] = val
+
         return cls.model_validate(data)
 
     @classmethod

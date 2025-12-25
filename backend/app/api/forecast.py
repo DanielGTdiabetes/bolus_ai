@@ -223,7 +223,8 @@ async def get_current_forecast(
         icr=curr_icr, 
         dia_minutes=int(user_settings.iob.dia_hours * 60),
         carb_absorption_minutes=curr_abs,
-        insulin_peak_minutes=user_settings.iob.peak_minutes
+        insulin_peak_minutes=user_settings.iob.peak_minutes,
+        insulin_model=user_settings.iob.curve
     )
     
     # Import locally if not at top, or ensure top imports are enough

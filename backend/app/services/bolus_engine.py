@@ -128,6 +128,7 @@ def calculate_bolus_v2(
         isf_mgdl_per_u=isf,
         target_mgdl=target,
         dia_hours=settings.iob.dia_hours,
+        insulin_model=settings.iob.curve,
         max_bolus_final=settings.max_bolus_u
     )
 

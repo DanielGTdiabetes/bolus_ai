@@ -59,6 +59,31 @@ class InsulinCurves:
             return h * ((duration_min - t_min) / (duration_min - peak_min))
 
 
+
+    @staticmethod
+    def get_activity(t_min: float, duration_min: float, peak_min: float, model_type: str) -> float:
+        """
+        Unified accessor.
+        Uses standard Exponential / Walsh model for all types, varying parameters.
+        """
+        m = model_type.lower()
+        
+        # Fiasp: Standard model but faster peak (approx 55 min)
+        if m == 'fiasp':
+            return InsulinCurves.exponential_activity(t_min, 55, duration_min)
+            
+        # NovoRapid: Standard model with standard peak (approx 75 min)
+        elif m == 'novorapid':
+            return InsulinCurves.exponential_activity(t_min, 75, duration_min)
+            
+        # Exponential / Walsh: Use user-defined peak
+        elif m == 'exponential' or m == 'walsh':
+            return InsulinCurves.exponential_activity(t_min, peak_min, duration_min)
+            
+        else:
+            # Linear Fallback
+            return InsulinCurves.linear_activity(t_min, peak_min, duration_min)
+
 class CarbCurves:
     """
     Carb absorption models.

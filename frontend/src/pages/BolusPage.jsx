@@ -824,7 +824,8 @@ function ResultView({ result, slot, onBack, onSave, saving, currentCarbs, foodNa
                         params = {
                             isf_mgdl_per_u: params.isf,
                             cr_g_per_u: params.icr,
-                            dia_hours: allParams.dia_hours || 4
+                            dia_hours: allParams.dia_hours || 4,
+                            insulin_model: allParams.insulin_model // Fallback mapping
                         };
                     }
                 }
@@ -864,6 +865,7 @@ function ResultView({ result, slot, onBack, onSave, saving, currentCarbs, foodNa
                     icr: icr,
                     dia_minutes: dia * 60,
                     carb_absorption_minutes: 180,
+                    insulin_model: params.insulin_model || 'linear'
                 },
                 events: events
             };

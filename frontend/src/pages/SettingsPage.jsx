@@ -299,6 +299,44 @@ function CalcParamsPanel() {
             <hr style={{ margin: '1rem 0', borderColor: '#f1f5f9' }} />
 
             <div className="stack">
+                <div className="form-group">
+                    <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600 }}>Tipo de Insulina (Perfil)</label>
+                    <select
+                        value={params.insulin_model || 'linear'}
+                        onChange={e => {
+                            const model = e.target.value;
+                            let name = "Rápida";
+                            let wait = 15;
+
+                            if (model === 'fiasp') { name = 'Fiasp'; wait = 5; }
+                            else if (model === 'novorapid') { name = 'NovoRapid'; wait = 15; }
+
+                            setParams(prev => ({
+                                ...prev,
+                                insulin_model: model,
+                                insulin: {
+                                    ...prev.insulin,
+                                    name: name,
+                                    pre_bolus_min: wait
+                                }
+                            }));
+                        }}
+                        style={{
+                            width: '100%', padding: '0.8rem', borderRadius: '8px',
+                            border: '1px solid #cbd5e1', background: 'white',
+                            fontSize: '1rem'
+                        }}
+                    >
+                        <option value="linear">Estándar (Rápida Genérica)</option>
+                        <option value="fiasp">Fiasp / Ultra-Rápida</option>
+                        <option value="novorapid">NovoRapid / Rápida</option>
+                    </select>
+                    <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '4px' }}>
+                        {params.insulin_model === 'fiasp' ? '💡 Configurado: Pico 55m, DIA 4-5h' :
+                            params.insulin_model === 'novorapid' ? '💡 Configurado: Pico 75m, DIA 4-5h' : 'Modelo genérico'}
+                    </div>
+                </div>
+
                 <Input label="Duración Insulina (DIA - Horas)" type="number" value={params.dia_hours} onChange={e => handleChange('dia_hours', e.target.value)} />
 
                 {/* TDD Assistant */}
@@ -383,12 +421,7 @@ function CalcParamsPanel() {
 
                 <h4 style={{ margin: '0.5rem 0', color: '#475569', fontSize: '1rem' }}>Configuración de Insulina</h4>
                 <div style={{ background: '#f8fafc', padding: '1rem', borderRadius: '8px', border: '1px solid #e2e8f0', marginBottom: '1rem' }}>
-                    <Input
-                        label="Nombre (Marca)"
-                        value={params.insulin?.name ?? "Novorapid"}
-                        onChange={e => setParams(prev => ({ ...prev, insulin: { ...prev.insulin, name: e.target.value } }))}
-                        placeholder="Ej: Novorapid, Fiasp, Humalog"
-                    />
+
                     <Input
                         label="Espera Pre-comida (Min)"
                         type="number"

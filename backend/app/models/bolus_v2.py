@@ -29,6 +29,7 @@ class CalcSettings(BaseModel):
     dinner: MealSlotProfile
     snack: Optional[MealSlotProfile] = None
     dia_hours: float = Field(default=4.0, ge=2, le=8)
+    insulin_model: str = "linear" # Added
     round_step_u: float = Field(default=0.1, gt=0)
     max_bolus_u: float = 15.0 # Global safety limit
     max_correction_u: float = 5.0 # Global safety limit
@@ -76,6 +77,7 @@ class UsedParams(BaseModel):
     isf_mgdl_per_u: float
     target_mgdl: float
     dia_hours: float
+    insulin_model: str = "linear" # Added
     max_bolus_final: float
 
 
