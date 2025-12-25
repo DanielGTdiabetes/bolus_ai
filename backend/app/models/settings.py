@@ -191,6 +191,7 @@ class UserSettings(BaseModel):
             
             data["cr"] = new_cr
             data["cf"] = new_cf
+            # new_cf is a dict {breakfast: 50, ...} which matches CorrectionFactors model
 
 
         # 2. Logic Correction: Detect inverted CR or unsafe defaults
