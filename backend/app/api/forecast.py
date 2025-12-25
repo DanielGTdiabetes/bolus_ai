@@ -202,6 +202,12 @@ async def get_current_forecast(
             # Alcohol Check
             if row.notes and "alcohol" in row.notes.lower():
                 evt_abs = 480 # 8 hours for alcohol
+            
+            # Dual Bolus Check (Persistent Memory)
+            # If the notes say "Dual", it's a slow meal (Pizza/Fat), so we use 6h absorption.
+            # This ensures correctness even after the "Active Plan" finishes.
+            elif row.notes and "dual" in row.notes.lower():
+                evt_abs = 360
 
             carbs.append(ForecastEventCarbs(
                 time_offset_min=int(offset), 
