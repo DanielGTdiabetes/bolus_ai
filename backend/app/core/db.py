@@ -85,10 +85,23 @@ async def check_db_health():
         logger.error(f"DB Health Check Failed: {e}")
         return {"ok": False, "error": str(e)}
 
+async def migrate_schema(conn):
+    """
+    Apply any manual schema migrations that might be missing (e.g. new columns).
+    This is a lightweight alternative to full Alembic for rapid agentic dev.
+    """
+    try:
+        # Check treatments.duration
+        await conn.execute(text("ALTER TABLE treatments ADD COLUMN IF NOT EXISTS duration FLOAT DEFAULT 0.0"))
+        logger.info("Checked/Added 'duration' column to treatments.")
+    except Exception as e:
+        logger.warning(f"Schema migration warning: {e}")
+
 async def create_tables():
     if _async_engine:
         async with _async_engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
+            await migrate_schema(conn)
 
 # Abstraction for partial Repository pattern or Session usage
 # To keep it compatible with Dependency Injection:
