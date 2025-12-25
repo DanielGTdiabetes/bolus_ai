@@ -193,7 +193,12 @@ async def get_current_forecast(
         user_hour = (created_at.hour + 1) % 24 
         
         if row.insulin and row.insulin > 0:
-            boluses.append(ForecastEventBolus(time_offset_min=int(offset), units=row.insulin))
+            dur = getattr(row, "duration", 0.0) or 0.0
+            boluses.append(ForecastEventBolus(
+                time_offset_min=int(offset), 
+                units=row.insulin,
+                duration_minutes=dur
+            ))
             
         if row.carbs and row.carbs > 0:
             # Resolve ICR for this SPECIFIC event time

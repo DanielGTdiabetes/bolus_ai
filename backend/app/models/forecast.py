@@ -19,6 +19,7 @@ class SimulationParams(BaseModel):
 class ForecastEventBolus(BaseModel):
     time_offset_min: int = Field(0, description="Minutes from now (0=now, negative=past)")
     units: float
+    duration_minutes: float = Field(0.0, description="Duration in minutes (0=instant)")
 
 class ForecastEventCarbs(BaseModel):
     time_offset_min: int = Field(0, description="Minutes from now (0=now, negative=past)")

@@ -27,6 +27,14 @@ class MealFactors(BaseModel):
     snack: float = Field(default=10.0, description="Ratio CR (g/U)")
 
 
+class CorrectionFactors(BaseModel):
+    # Default ISF to 50.0 mg/dL/U (safer than 10.0)
+    breakfast: float = Field(default=50.0, description="Factor Sensibilidad (mg/dL/U)")
+    lunch: float = Field(default=50.0, description="Factor Sensibilidad (mg/dL/U)")
+    dinner: float = Field(default=50.0, description="Factor Sensibilidad (mg/dL/U)")
+    snack: float = Field(default=50.0, description="Factor Sensibilidad (mg/dL/U)")
+
+
 class AdaptiveFatConfig(BaseModel):
     fu: float = 1.0
     fl: float = 1.0
@@ -128,7 +136,7 @@ class UserSettings(BaseModel):
     schema_version: int = 1
     units: Literal["mg/dL"] = "mg/dL"
     targets: TargetRange = Field(default_factory=TargetRange)
-    cf: MealFactors = Field(default_factory=lambda: MealFactors(breakfast=30, lunch=30, dinner=30, snack=30)) # Default CF 30
+    cf: CorrectionFactors = Field(default_factory=lambda: CorrectionFactors(breakfast=30, lunch=30, dinner=30, snack=30)) # Default CF 30
     cr: MealFactors = Field(default_factory=MealFactors)
     max_bolus_u: float = 10.0
     max_correction_u: float = 5.0

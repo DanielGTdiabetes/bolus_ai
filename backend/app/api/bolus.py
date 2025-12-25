@@ -322,6 +322,7 @@ async def calculate_bolus_stateless(
 
 class BolusAcceptRequest(BaseModel):
     insulin: float = Field(ge=0)
+    duration: float = Field(default=0.0, description="Duration in minutes for extended bolus")
     carbs: float = Field(default=0, ge=0)
     created_at: str
     notes: Optional[str] = ""
@@ -369,6 +370,7 @@ async def save_treatment(
         "eventType": "Correction Bolus" if payload.carbs == 0 else "Meal Bolus",
         "created_at": payload.created_at,
         "insulin": payload.insulin,
+        "duration": payload.duration,
         "carbs": payload.carbs,
         "notes": payload.notes,
         "enteredBy": payload.enteredBy,
@@ -399,6 +401,7 @@ async def save_treatment(
                 event_type=treatment_data["eventType"],
                 created_at=dt,
                 insulin=payload.insulin,
+                duration=payload.duration,
                 carbs=payload.carbs,
                 notes=payload.notes,
                 entered_by=payload.enteredBy,
@@ -434,6 +437,7 @@ async def save_treatment(
                 "eventType": treatment_data["eventType"],
                 "created_at": payload.created_at,
                 "insulin": payload.insulin,
+                "duration": payload.duration,
                 "carbs": payload.carbs,
                 "notes": payload.notes,
                 "enteredBy": payload.enteredBy,

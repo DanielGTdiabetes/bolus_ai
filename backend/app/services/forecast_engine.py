@@ -60,10 +60,19 @@ class ForecastEngine:
         ins_rate_0 = 0.0
         for b in req.events.boluses:
              t_since = 0 - b.time_offset_min
-             # Linear activity returns activity fraction per minute (approx) or relative intensity
-             # We rely on the curves matching the loop units.
-             r = InsulinCurves.get_activity(t_since, req.params.dia_minutes, req.params.insulin_peak_minutes, req.params.insulin_model)
-             ins_rate_0 += r * b.units
+             
+             if b.duration_minutes and b.duration_minutes > 10:
+                 chunk_step = 5.0
+                 n_chunks = math.ceil(b.duration_minutes / chunk_step)
+                 u_per_chunk = b.units / n_chunks
+                 for k in range(n_chunks):
+                     t_chunk_offset = k * chunk_step
+                     t_since_chunk = t_since - t_chunk_offset
+                     r = InsulinCurves.get_activity(t_since_chunk, req.params.dia_minutes, req.params.insulin_peak_minutes, req.params.insulin_model)
+                     ins_rate_0 += r * u_per_chunk
+             else:
+                 r = InsulinCurves.get_activity(t_since, req.params.dia_minutes, req.params.insulin_peak_minutes, req.params.insulin_model)
+                 ins_rate_0 += r * b.units
         
         # Carb Slope at t=0
         carb_rate_0 = 0.0
@@ -125,8 +134,31 @@ class ForecastEngine:
             total_insulin_activity = 0.0
             for b in req.events.boluses:
                 t_since_inj = t_mid - b.time_offset_min
-                rate = InsulinCurves.get_activity(t_since_inj, req.params.dia_minutes, req.params.insulin_peak_minutes, req.params.insulin_model)
-                total_insulin_activity += rate * b.units
+                
+                # Check for Extended Bolus (Square Wave)
+                if b.duration_minutes and b.duration_minutes > 10:
+                    # SIMULATE SQUARE WAVE
+                    # We treat it as N small boluses spread over duration.
+                    # This is computationally expensive but accurate.
+                    # Optimization: Analytical convolution if possible, but discrete summation is safer for now.
+                    
+                    # Split into 5-minute chunks
+                    chunk_step = 5.0
+                    n_chunks = math.ceil(b.duration_minutes / chunk_step)
+                    u_per_chunk = b.units / n_chunks
+                    
+                    # Iterate chunks
+                    for k in range(n_chunks):
+                        # Center of the chunk
+                        t_chunk_offset = k * chunk_step
+                        t_since_chunk = t_since_inj - t_chunk_offset
+                        
+                        rate = InsulinCurves.get_activity(t_since_chunk, req.params.dia_minutes, req.params.insulin_peak_minutes, req.params.insulin_model)
+                        total_insulin_activity += rate * u_per_chunk
+                else:
+                    # Instant Bolus
+                    rate = InsulinCurves.get_activity(t_since_inj, req.params.dia_minutes, req.params.insulin_peak_minutes, req.params.insulin_model)
+                    total_insulin_activity += rate * b.units
             
             step_insulin_drop = total_insulin_activity * isf * dt
             accum_insulin_impact -= step_insulin_drop

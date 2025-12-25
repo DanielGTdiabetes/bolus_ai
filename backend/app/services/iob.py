@@ -176,9 +176,9 @@ async def compute_iob_from_sources(
             if abs(c_units - ex_units) > 0.01:
                 continue
                 
-            # Check time (within 2 minutes tolerance for clock skew/format diffs)
+            # Check time (within 15 minutes tolerance for clock skew/format diffs)
             diff_seconds = abs((c_ts - ex_ts).total_seconds())
-            if diff_seconds < 120: 
+            if diff_seconds < 900: 
                 return True
         return False
         
