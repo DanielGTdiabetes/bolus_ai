@@ -193,6 +193,11 @@ class UserSettings(BaseModel):
             data["cf"] = new_cf
             # new_cf is a dict {breakfast: 50, ...} which matches CorrectionFactors model
 
+        # Fallback: Check for root-level 'isf' (legacy key) if 'cf' is missing/partial
+        if "isf" in data and isinstance(data["isf"], dict) and not data.get("cf"):
+             # Rename isf -> cf
+             data["cf"] = data["isf"]
+
 
         # 2. Logic Correction: Detect inverted CR or unsafe defaults
         cr_data = data.get("cr", {})
