@@ -42,6 +42,7 @@ export default function BolusPage() {
     const [correctionOnly, setCorrectionOnly] = useState(false);
     const [dessertMode, setDessertMode] = useState(false);
     const [dualEnabled, setDualEnabled] = useState(false);
+    const [alcoholEnabled, setAlcoholEnabled] = useState(false);
     const [plateItems, setPlateItems] = useState([]);
 
     // Exercise / Activity State
@@ -323,7 +324,7 @@ export default function BolusPage() {
                 carbs: parseFloat(carbs) || 0,
                 insulin: finalInsulin,
                 enteredBy: state.user?.username || "BolusAI",
-                notes: `BolusAI: ${result.kind === 'dual' ? 'Dual' : 'Normal'}. Gr: ${carbs}. BG: ${glucose}. ${foodName ? 'Comida: ' + foodName + '.' : ''} ${plateItems.length > 0 ? 'Items: ' + plateItems.map(i => i.name).join(', ') : ''}`,
+                notes: `BolusAI: ${result.kind === 'dual' ? 'Dual' : 'Normal'}. Gr: ${carbs}. BG: ${glucose}. ${foodName ? 'Comida: ' + foodName + '.' : ''} ${alcoholEnabled ? 'Alcohol Detected.' : ''} ${plateItems.length > 0 ? 'Items: ' + plateItems.map(i => i.name).join(', ') : ''}`,
                 nightscout: {
                     url: nsConfig.url || null,
                 }
@@ -646,6 +647,27 @@ export default function BolusPage() {
                                 type="checkbox"
                                 checked={dualEnabled}
                                 onChange={toggleDual}
+                                style={{ transform: 'scale(1.5)', cursor: 'pointer' }}
+                            />
+                        </div>
+
+                        {/* Alcohol Toggle */}
+                        <div className="card" style={{
+                            display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1rem',
+                            border: alcoholEnabled ? '2px solid #8b5cf6' : '1px solid #e2e8f0',
+                            background: alcoholEnabled ? '#f5f3ff' : '#fff',
+                            marginTop: '0.5rem'
+                        }}>
+                            <div>
+                                <div style={{ fontWeight: 600, color: alcoholEnabled ? '#6d28d9' : '#0f172a' }}>🍷 Alcohol</div>
+                                <div style={{ fontSize: '0.8rem', color: '#64748b' }}>
+                                    Retrasa el pico de glucosa (8h)
+                                </div>
+                            </div>
+                            <input
+                                type="checkbox"
+                                checked={alcoholEnabled}
+                                onChange={() => setAlcoholEnabled(!alcoholEnabled)}
                                 style={{ transform: 'scale(1.5)', cursor: 'pointer' }}
                             />
                         </div>

@@ -199,6 +199,10 @@ async def get_current_forecast(
             # Resolve ICR for this SPECIFIC event time
             evt_icr, _, evt_abs = get_slot_params(user_hour, user_settings)
             
+            # Alcohol Check
+            if row.notes and "alcohol" in row.notes.lower():
+                evt_abs = 480 # 8 hours for alcohol
+
             carbs.append(ForecastEventCarbs(
                 time_offset_min=int(offset), 
                 grams=row.carbs,
