@@ -71,6 +71,48 @@ export default function BolusPage() {
     // Memory Ref for Learning (Fat, Protein, Items)
     const mealMetaRef = React.useRef(null);
     const [learningHint, setLearningHint] = useState(null);
+    const [orphanCarbs, setOrphanCarbs] = useState(null);
+    const [isUsingOrphan, setIsUsingOrphan] = useState(false);
+
+    const loadData = async () => {
+        try {
+            // Glucose
+            const bgData = await getCurrentGlucose(nsConfig);
+            if (bgData && bgData.bg_mgdl) {
+                setGlucose(String(Math.round(bgData.bg_mgdl)));
+            }
+
+            // IOB
+            const iobData = await getIOBData(nsConfig);
+            if (iobData) {
+                const val = iobData.iob_u ?? iobData.iob_total ?? 0;
+                setIob(val);
+            }
+
+            // Favorites
+            const favs = await getFavorites();
+            if (favs) setFavorites(favs);
+
+            // Recent Treatments (Orphan Carbs Detection)
+            try {
+                const { fetchTreatments } = await import('../lib/api');
+                const treatments = await fetchTreatments({ count: 10 });
+                const now = new Date();
+                const recentOrphan = treatments.find(t => {
+                    const tDate = new Date(t.created_at);
+                    const diffMin = (now.getTime() - tDate.getTime()) / 60000;
+                    // Orphan = has carbs, no insulin, within last 30 mins
+                    return t.carbs > 0 && (!t.insulin || t.insulin === 0) && diffMin > 0 && diffMin < 30;
+                });
+                if (recentOrphan) {
+                    setOrphanCarbs(recentOrphan);
+                }
+            } catch (err) {
+                console.warn("Failed to fetch recent treatments for orphan detection", err);
+            }
+
+        } catch (e) { console.warn(e); }
+    };
 
     // Effect: Load temp carbs (e.g. from favorites / scale)
     useEffect(() => {
@@ -121,28 +163,6 @@ export default function BolusPage() {
         // Auto-fetch Glucose and IOB
         loadData();
     }, []);
-
-    const loadData = async () => {
-        try {
-            // Glucose
-            const bgData = await getCurrentGlucose(nsConfig);
-            if (bgData && bgData.bg_mgdl) {
-                setGlucose(String(Math.round(bgData.bg_mgdl)));
-            }
-
-            // IOB
-            const iobData = await getIOBData(nsConfig);
-            if (iobData) {
-                const val = iobData.iob_u ?? iobData.iob_total ?? 0;
-                setIob(val);
-            }
-
-            // Favorites
-            const favs = await getFavorites();
-            if (favs) setFavorites(favs);
-
-        } catch (e) { console.warn(e); }
-    };
 
     // Strategy Suggestion Logic
     useEffect(() => {
@@ -328,10 +348,10 @@ export default function BolusPage() {
             const treatment = {
                 eventType: "Meal Bolus",
                 created_at: customDate.toISOString(),
-                carbs: parseFloat(carbs) || 0,
+                carbs: isUsingOrphan ? 0 : (parseFloat(carbs) || 0),
                 insulin: finalInsulin,
                 enteredBy: state.user?.username || "BolusAI",
-                notes: `BolusAI: ${result.kind === 'dual' ? 'Dual' : 'Normal'}. Gr: ${carbs}. BG: ${glucose}. ${foodName ? 'Comida: ' + foodName + '.' : ''} ${alcoholEnabled ? 'Alcohol Detected.' : ''} ${plateItems.length > 0 ? 'Items: ' + plateItems.map(i => i.name).join(', ') : ''}`,
+                notes: `BolusAI: ${result.kind === 'dual' ? 'Dual' : 'Normal'}. Gr: ${carbs}${isUsingOrphan ? ' (Sincronizado)' : ''}. BG: ${glucose}. ${foodName ? 'Comida: ' + foodName + '.' : ''} ${alcoholEnabled ? 'Alcohol Detected.' : ''} ${plateItems.length > 0 ? 'Items: ' + plateItems.map(i => i.name).join(', ') : ''}`,
                 nightscout: {
                     url: nsConfig.url || null,
                 }
@@ -457,6 +477,72 @@ export default function BolusPage() {
                 {/* INPUT SECTION */}
                 {!result && (
                     <div className="stack fade-in">
+
+                        {/* Orphan Carbs Alert */}
+                        {orphanCarbs && !isUsingOrphan && (
+                            <div className="fade-in" style={{
+                                background: '#f0fdf4', border: '1px solid #86efac',
+                                borderRadius: '12px', padding: '1rem', marginBottom: '1rem',
+                                display: 'flex', flexDirection: 'column', gap: '8px'
+                            }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#15803d', fontWeight: 700 }}>
+                                    <span>🥗 Carbos Detectados</span>
+                                    <span style={{ fontSize: '0.75rem', fontWeight: 400, background: 'rgba(0,0,0,0.05)', padding: '2px 8px', borderRadius: '10px' }}>
+                                        hace {Math.round((new Date() - new Date(orphanCarbs.created_at)) / 60000)} min
+                                    </span>
+                                </div>
+                                <div style={{ fontSize: '0.9rem', color: '#166534' }}>
+                                    Se han detectado <strong>{orphanCarbs.carbs}g</strong> de hidratos subidos desde otra app (P. ej. FitnessPal).
+                                    {orphanCarbs.carbs >= 50 && (
+                                        <div style={{ marginTop: '5px', fontWeight: 600, color: '#15803d' }}>
+                                            💡 Al ser una cantidad alta ({orphanCarbs.carbs}g), se sugiere usar Bolo Dual para evitar picos.
+                                        </div>
+                                    )}
+                                </div>
+                                <div style={{ display: 'flex', gap: '10px' }}>
+                                    <Button
+                                        onClick={() => {
+                                            setCarbs(String(orphanCarbs.carbs));
+                                            setIsUsingOrphan(true);
+                                            if (orphanCarbs.carbs >= 50) {
+                                                setDualEnabled(true);
+                                                showToast(`✅ ${orphanCarbs.carbs}g aplicados y Bolo Dual activado.`, "success");
+                                            } else {
+                                                showToast("✅ Usando hidratos sincronizados. No se duplicarán al guardar.", "success");
+                                            }
+                                        }}
+                                        style={{ background: '#22c55e', color: '#fff', fontSize: '0.85rem', padding: '6px 12px' }}
+                                    >
+                                        Usar {orphanCarbs.carbs}g {orphanCarbs.carbs >= 50 ? '+ Dual' : ''}
+                                    </Button>
+                                    <Button
+                                        onClick={() => setOrphanCarbs(null)}
+                                        variant="outline"
+                                        style={{ fontSize: '0.85rem', padding: '6px 12px' }}
+                                    >
+                                        Ignorar
+                                    </Button>
+                                </div>
+                            </div>
+                        )}
+
+                        {isUsingOrphan && (
+                            <div className="fade-in" style={{
+                                background: '#eff6ff', border: '1px solid #3b82f6',
+                                borderRadius: '12px', padding: '0.8rem', marginBottom: '1rem',
+                                display: 'flex', justifyContent: 'space-between', alignItems: 'center'
+                            }}>
+                                <div style={{ fontSize: '0.85rem', color: '#1e40af' }}>
+                                    🔗 Vinculado a {orphanCarbs.carbs}g externos. No se duplicarán.
+                                </div>
+                                <button
+                                    onClick={() => setIsUsingOrphan(false)}
+                                    style={{ background: 'none', border: 'none', color: '#3b82f6', fontWeight: 600, fontSize: '0.8rem', cursor: 'pointer' }}
+                                >
+                                    Desvincular
+                                </button>
+                            </div>
+                        )}
 
 
 
