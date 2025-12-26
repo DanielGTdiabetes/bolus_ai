@@ -118,7 +118,8 @@ async def get_current_glucose_stateless(
             # Trend arrow mapping
             arrows = {
                 "DoubleUp": "↑↑", "SingleUp": "↑", "FortyFiveUp": "↗",
-                "Flat": "→", "FortyFiveDown": "↘", "SingleDown": "↓", "DoubleDown": "↓↓"
+                "Flat": "→", "FortyFiveDown": "↘", "SingleDown": "↓", "DoubleDown": "↓↓",
+                "NOT COMPUTABLE": "---", "RATE OUT OF RANGE": "---", "NONE": "---"
             }
             arrow = arrows.get(sgv.direction, sgv.direction)
 
@@ -248,7 +249,8 @@ async def get_current_glucose_server(
 
             arrows = {
                 "DoubleUp": "↑↑", "SingleUp": "↑", "FortyFiveUp": "↗",
-                "Flat": "→", "FortyFiveDown": "↘", "SingleDown": "↓", "DoubleDown": "↓↓"
+                "Flat": "→", "FortyFiveDown": "↘", "SingleDown": "↓", "DoubleDown": "↓↓",
+                "NOT COMPUTABLE": "---", "RATE OUT OF RANGE": "---", "NONE": "---"
             }
             arrow = arrows.get(sgv.direction, sgv.direction)
 

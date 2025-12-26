@@ -10,7 +10,10 @@ export function formatTrend(trend, stale) {
         "Flat": "→",
         "FortyFiveDown": "↘",
         "SingleDown": "↓",
-        "DoubleDown": "↓↓"
+        "DoubleDown": "↓↓",
+        "NOT COMPUTABLE": "---",
+        "RATE OUT OF RANGE": "---",
+        "NONE": "---"
     };
     return icons[trend] || trend || "";
 }
