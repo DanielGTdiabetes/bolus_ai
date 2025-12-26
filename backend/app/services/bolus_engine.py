@@ -182,27 +182,80 @@ def calculate_bolus_v2(
     total_base = meal_u + corr_u
     
     if request.ignore_iob:
-        # Modo "Grasa/Postre" (Reactive Strategy)
-        # Asumimos que el IOB existente está "ocupado" con la comida anterior.
-        # Por tanto, NO lo restamos de la corrección actual.
+        # --- ESTRATEGIA REACTIVA / MICRO-BOLOS (Grasas/Postre) ---
+        explain.append("--- MODO REACTIVO (GRASAS/POSTRE) ---")
+        explain.append(f"1. IOB Ignorado: {iob_u:.2f} U (Asumido para comida anterior)")
         
-        # OJO: Si hay bolo de comida NUEVO en esta petición, ¿debería restar IOB?
-        # Normalmente este modo se usa para correcciones puras (carbs=0).
-        # Si hubiera carbs, lo prudente es restar IOB de carbs pero no de corrección.
-        # Para simplificar y ser seguros en corrección:
+        # 1. Analizar Tendencia y Urgencia
+        import math
+        trend_factor = 1.0
+        is_rising = False
         
-        # Restamos IOB solo de la parte de comida (si la hay), nunca de la corrección.
-        meal_net = max(0.0, meal_u - iob_u)
-        # La corrección pasa limpia
-        total_after_iob = meal_net + corr_u
+        trend_arrow = glucose_info.trend or ""
+        if trend_arrow.upper() in ["DOUBLEUP", "SINGLEUP", "FORTYFIVEUP"]:
+            is_rising = True
+            explain.append(f"2. Tendencia: Subiendo ({trend_arrow}) ↗️. Se requiere acción.")
+        elif trend_arrow.upper() in ["FLAT"]:
+            explain.append(f"2. Tendencia: Estable ({trend_arrow}) ➡️. Acción preventiva.")
+        else:
+            explain.append(f"2. Tendencia: {trend_arrow}. Precaución.")
+
+        # 2. Calcular Corrección "Pura" (Sin IOB)
+        raw_correction = 0.0
+        if bg_usable and bg > target:
+            raw_correction = (bg - target) / isf
         
-        explain.append(f"C) IOB Ignorado (Modo Grasa): {iob_u:.2f} U activos no restan.")
-        if corr_u > 0:
-            explain.append(f"   Corrección íntegra: {corr_u:.2f} U")
+        # 3. Reglas de Micro-Bolos (Safety Caps)
+        # Regla: Nunca sugerir una corrección masiva de golpe en este modo ciego.
+        # Máximo seguro por "tanda" (Micro-bolo): 1.5 U o el 50% de lo necesario, lo que sea mayor, pero con techo.
         
-        # Safety Alert for Stacking
-        if iob_u > 2.0: # Umbral arbitrario de seguridad
-             warnings.append("⚠️ CUIDADO: Tienes mucha insulina activa (>2U). Asegúrate de que la subida es real antes de inyectar.")
+        micro_bolus_u = raw_correction
+        cap_applied = False
+        
+        # Umbral de Disparo (>130 mg/dL para actuar)
+        if bg < 130 and not is_rising:
+             warnings.append("Glucosa < 130 y estable. El algoritmo sugiere ESPERAR antes del micro-bolo.")
+             micro_bolus_u = 0.0
+        else:
+             # Lógica de Seguridad (Cap)
+             # Si sube rápido, permitimos más (hasta 1.5 U o 70% de la necesidad)
+             # Si va lento, frenamos (max 1.0 U o 50%)
+             
+             limit = 1.0 # Default limit for manual micro-bolus
+             pct = 0.5   # Default percentage
+             
+             if is_rising:
+                 limit = 1.5
+                 pct = 0.7
+             
+             # Calculamos la dosis segura
+             safe_dose = raw_correction * pct
+             # Pero si la dosis es muy pequeña (< 0.5), ponla entera (no micro-dividas lo invisible)
+             if raw_correction < 0.8:
+                 safe_dose = raw_correction
+             
+             # Aplicar Techo Hard
+             if safe_dose > limit:
+                 safe_dose = limit
+                 cap_applied = True
+                 
+             micro_bolus_u = safe_dose
+
+        # Resultado final del bloque
+        if cap_applied:
+            explain.append(f"3. Seguridad: Corrección teórica {raw_correction:.2f} U.")
+            explain.append(f"   -> LIMITADA a {micro_bolus_u:.2f} U (Micro-bolo seguro).")
+            explain.append("   (Revisar en 45-60 min si se requiere más).")
+        else:
+            explain.append(f"3. Micro-Bolo calculado: {micro_bolus_u:.2f} U")
+
+        # Asignación final
+        meal_net = max(0.0, meal_u - iob_u) # Restamos IOB a la comida si la hubiera (raro en este modo)
+        total_after_iob = meal_net + micro_bolus_u
+        
+        # Warning de IOB excesivo
+        if iob_u > 3.0:
+             warnings.append(f"⚠️ ALTO RIESGO: Tienes {iob_u:.1f} U activas. Si te pones este micro-bolo, vigila hipoglucemias.")
 
     else:
         # Standard "Loop" Logic: IOB offsets everything.
