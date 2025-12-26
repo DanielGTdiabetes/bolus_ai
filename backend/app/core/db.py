@@ -94,6 +94,11 @@ async def migrate_schema(conn):
         # Check treatments.duration
         await conn.execute(text("ALTER TABLE treatments ADD COLUMN IF NOT EXISTS duration FLOAT DEFAULT 0.0"))
         logger.info("Checked/Added 'duration' column to treatments.")
+        
+        # Add fat and protein
+        await conn.execute(text("ALTER TABLE treatments ADD COLUMN IF NOT EXISTS fat FLOAT DEFAULT 0.0"))
+        await conn.execute(text("ALTER TABLE treatments ADD COLUMN IF NOT EXISTS protein FLOAT DEFAULT 0.0"))
+        logger.info("Checked/Added 'fat' and 'protein' columns to treatments.")
     except Exception as e:
         logger.warning(f"Schema migration warning: {e}")
 
