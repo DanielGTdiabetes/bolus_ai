@@ -1,0 +1,8 @@
+--- Testing Fiasp (Peak 55) ---
+DIA 3h, Peak 55m, t=43m -> IOB%: 0.4179, Rem of 4U: 1.6717U
+DIA 4h, Peak 55m, t=43m -> IOB%: 0.4365, Rem of 4U: 1.7461U
+DIA 5h, Peak 55m, t=43m -> IOB%: 0.4455, Rem of 4U: 1.7820U
+
+--- Testing NovoRapid (Peak 75) ---
+DIA 4h, Peak 75m, t=43m -> IOB%: 0.5338, Rem of 4U: 2.1351U
+DIA 5h, Peak 75m, t=43m -> IOB%: 0.5448, Rem of 4U: 2.1793U
