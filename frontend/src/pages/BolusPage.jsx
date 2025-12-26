@@ -299,7 +299,7 @@ export default function BolusPage() {
                 dia_hours: mealParams.dia_hours || 4.0,
                 round_step_u: mealParams.round_step_u || 0.5,
                 max_bolus_u: mealParams.max_bolus_u || 15,
-                ignore_iob_for_meal: dessertMode,
+                ignore_iob: dessertMode,
                 exercise: {
                     planned: exerciseEnabled,
                     minutes: exerciseEnabled ? (parseInt(exerciseMinutes) || 0) : 0,
@@ -627,7 +627,6 @@ export default function BolusPage() {
                                     setCorrectionOnly(e.target.checked);
                                     if (e.target.checked) {
                                         setCarbs("0");
-                                        setDessertMode(false);
                                     }
                                 }} />
                                 Solo Corrección
@@ -635,9 +634,8 @@ export default function BolusPage() {
                             <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.9rem' }}>
                                 <input type="checkbox" checked={dessertMode} onChange={e => {
                                     setDessertMode(e.target.checked);
-                                    if (e.target.checked) setCorrectionOnly(false);
                                 }} />
-                                Postre (Ignorar IOB)
+                                Ignorar IOB (Grasas)
                             </label>
                         </div>
 
