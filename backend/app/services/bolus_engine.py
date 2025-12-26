@@ -181,24 +181,29 @@ def calculate_bolus_v2(
     # 4. IOB
     total_base = meal_u + corr_u
     
-    if request.ignore_iob_for_meal:
-        # "Wizard" Logic: IOB only offsets correction, never meal.
-        remaining_iob = max(0.0, iob_u)
-        corr_after_iob = max(0.0, corr_u - remaining_iob)
-        total_after_iob = meal_u + corr_after_iob
+    if request.ignore_iob:
+        # Modo "Grasa/Postre" (Reactive Strategy)
+        # Asumimos que el IOB existente está "ocupado" con la comida anterior.
+        # Por tanto, NO lo restamos de la corrección actual.
         
-        if iob_u > 0:
-            explain.append(f"C) IOB (Postre): {iob_u:.2f} U activos.")
-            if corr_u > 0:
-                explain.append(f"   Resta solo de corrección: {corr_u:.2f} -> {corr_after_iob:.2f} U")
-            else:
-                explain.append("   Ignorado para comida (Estrategia Postre/Segundo Plato).")
-            
-            explain.append(f"   Neto = {meal_u:.2f} (Comida) + {corr_after_iob:.2f} (Corr. Ajustada) = {total_after_iob:.2f} U")
-            explain.append("   ⚠️ Consejo: Si tu bolo anterior fue hace < 2h, considera esperar 15-20 min antes de inyectar este bolo (Retraso por Vaciado Gástrico).")
-        else:
-            explain.append("C) IOB: 0 U")
-            
+        # OJO: Si hay bolo de comida NUEVO en esta petición, ¿debería restar IOB?
+        # Normalmente este modo se usa para correcciones puras (carbs=0).
+        # Si hubiera carbs, lo prudente es restar IOB de carbs pero no de corrección.
+        # Para simplificar y ser seguros en corrección:
+        
+        # Restamos IOB solo de la parte de comida (si la hay), nunca de la corrección.
+        meal_net = max(0.0, meal_u - iob_u)
+        # La corrección pasa limpia
+        total_after_iob = meal_net + corr_u
+        
+        explain.append(f"C) IOB Ignorado (Modo Grasa): {iob_u:.2f} U activos no restan.")
+        if corr_u > 0:
+            explain.append(f"   Corrección íntegra: {corr_u:.2f} U")
+        
+        # Safety Alert for Stacking
+        if iob_u > 2.0: # Umbral arbitrario de seguridad
+             warnings.append("⚠️ CUIDADO: Tienes mucha insulina activa (>2U). Asegúrate de que la subida es real antes de inyectar.")
+
     else:
         # Standard "Loop" Logic: IOB offsets everything.
         total_after_iob = max(0.0, total_base - iob_u)
