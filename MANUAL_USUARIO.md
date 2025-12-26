@@ -70,11 +70,19 @@ No es una calculadora normal. Es un "Cerebro".
 
 ### B. Funciones Avanzadas (Los Modos)
 #### 🍕 1. Modo Grasa/Proteína (Pizza, Burger, Asados)
-*Activa el interruptor cuando comas algo graso.*
-*   **El Problema:** La grasa retrasa la subida de azúcar 3-4 horas. La insulina normal es muy rápida.
-*   **La Solución:** La app te propone un **Bolo Dividido (Dual)**.
-    *   **Ejemplo:** 60% Ahora + 40% en 2 horas.
-*   **Seguridad:** A las 2 horas, la app te avisará. **No te obligará a ponértelo**. Te pedirá que compruebes tu glucosa y recalcules.
+#### 🍕 1. Modo Grasa/Proteína (Pizza, Burger, Asados)
+Existen dos formas de gestionar las grasas:
+
+**A. Planificado (Bolo Dual / Extendido):**
+*   *Cuándo:* Antes de empezar a comer.
+*   **Acción:** Activa el interruptor "Bolo Dual".
+*   **Estrategia:** La app te propone dividir la dosis (ej. 60% Ahora + 40% en 2 horas).
+
+**B. Reactivo (Corrección Tardía):** *¡NUEVO!*
+*   *Cuándo:* Si a las 2-3 horas ves que tu glucosa empieza a subir inesperadamente (por la grasa).
+*   **Acción:** En la calculadora, marca **"Solo Corrección"** y activa **"Ignorar IOB (Grasas)"**.
+*   **Estrategia (Micro-bolos):** La app calculará la corrección necesaria sin restar la insulina de la comida anterior (porque asume que está "ocupada").
+    *   *Seguridad:* Aplicará límites automáticos (1.0 - 1.5 U máximo) para que corrijas poco a poco cada 45-60 min sin peligro.
 
 #### 🏃 2. Modo Ejercicio
 *Actívalo si vas a moverte después de comer (caminar, gimnasio).*
@@ -238,6 +246,16 @@ Has comido bien, te has puesto tu insulina... y de repente, a los 45 minutos, sa
     3.  **Importante:** La app verá que tienes **Insulina Activa (IOB)** de la comida anterior.
     4.  **Cálculo Inteligente:** En lugar de mandarte la dosis completa, la app restará lo que te sobra de la comida anterior para evitar que se te acumule (Stacking).
     5.  Te dirá: *"Para la tarta necesitas 3 U, pero como te sobra 1 U activa de la comida, ponte solo **2 U**"*. ¡Salvado de la hipoglucemia!
+
+### 📈 5. La Subida Tardía (El "Efecto Pizza")
+Cenaste pizza hace 3 horas. Te pusiste tu bolo normal. Todo iba bien, pero de repente... ¡tu glucosa se dispara a 180 y subiendo ↗️!
+*   **Error:** Usar la calculadora normal. Te dirá "0.0 U sugeridas" porque aún tienes insulina activa (IOB) de la cena.
+*   **Solución (Modo Reactivo):**
+    1.  Abre la calculadora. Pon Glucosa: 180.
+    2.  Marca ☑️ **Solo Corrección**.
+    3.  Marca ☑️ **Ignorar IOB (Grasas)**.
+    4.  **Cálculo:** La app entenderá que esa subida es "nueva" (grasa entrando tarde) y te sugerirá una corrección (ej. 1.0 U).
+    5.  **Micro-bolos:** La app limita la dosis por seguridad. Si sigues subiendo en 1 hora, repite el proceso. ¡Así controlas la grasa sin riesgo de sobredosis!
 
 ---
 *Bolus AI está diseñado para ser tu copiloto. Siempre consulta con tu médico antes de hacer cambios drásticos en tu terapia.*
