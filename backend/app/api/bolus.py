@@ -341,6 +341,8 @@ class BolusAcceptRequest(BaseModel):
     insulin: float = Field(ge=0)
     duration: float = Field(default=0.0, description="Duration in minutes for extended bolus")
     carbs: float = Field(default=0, ge=0)
+    fat: float = Field(default=0, ge=0)
+    protein: float = Field(default=0, ge=0)
     created_at: str
     notes: Optional[str] = ""
     enteredBy: str = "BolusAI"
@@ -389,6 +391,8 @@ async def save_treatment(
         "insulin": payload.insulin,
         "duration": payload.duration,
         "carbs": payload.carbs,
+        "fat": payload.fat,
+        "protein": payload.protein,
         "notes": payload.notes,
         "enteredBy": payload.enteredBy,
         "type": "bolus",
@@ -420,6 +424,8 @@ async def save_treatment(
                 insulin=payload.insulin,
                 duration=payload.duration,
                 carbs=payload.carbs,
+                fat=payload.fat,
+                protein=payload.protein,
                 notes=payload.notes,
                 entered_by=payload.enteredBy,
                 is_uploaded=False 
@@ -456,6 +462,8 @@ async def save_treatment(
                 "insulin": payload.insulin,
                 "duration": payload.duration,
                 "carbs": payload.carbs,
+                "fat": payload.fat,
+                "protein": payload.protein,
                 "notes": payload.notes,
                 "enteredBy": payload.enteredBy,
             }
