@@ -91,21 +91,29 @@ async def migrate_schema(conn):
     This is a lightweight alternative to full Alembic for rapid agentic dev.
     """
     try:
-        # Check treatments.duration
+        # 1. duration
         await conn.execute(text("ALTER TABLE treatments ADD COLUMN IF NOT EXISTS duration FLOAT DEFAULT 0.0"))
-        logger.info("Checked/Added 'duration' column to treatments.")
         
-        # Add fat and protein
+        # 2. fat
         await conn.execute(text("ALTER TABLE treatments ADD COLUMN IF NOT EXISTS fat FLOAT DEFAULT 0.0"))
+        
+        # 3. protein
         await conn.execute(text("ALTER TABLE treatments ADD COLUMN IF NOT EXISTS protein FLOAT DEFAULT 0.0"))
-        logger.info("Checked/Added 'fat' and 'protein' columns to treatments.")
+        
+        # Commit changes if using a connection that requires it (begin() usually handles this, but let's be safe)
+        await conn.commit()
+        logger.info("✅ Database Migration: Columns 'duration', 'fat', 'protein' checked/added to treatments table.")
     except Exception as e:
-        logger.warning(f"Schema migration warning: {e}")
+        logger.error(f"❌ Database Migration Error: {e}")
+        # Don't raise, allow app to try and start, but the error will be in logs.
 
 async def create_tables():
     if _async_engine:
-        async with _async_engine.begin() as conn:
+        # We use a non-begin connection to have more control over commits if needed
+        async with _async_engine.connect() as conn:
+            # Create all (only creates new tables)
             await conn.run_sync(Base.metadata.create_all)
+            # Apply column migrations
             await migrate_schema(conn)
 
 # Abstraction for partial Repository pattern or Session usage
