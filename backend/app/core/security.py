@@ -6,7 +6,7 @@ import hmac
 import json
 import time
 from datetime import datetime, timedelta, timezone
-from typing import Any, Callable
+from typing import Any, Callable, Optional
 
 from pathlib import Path
 
@@ -17,7 +17,9 @@ from pydantic import BaseModel
 
 from app.core.settings import Settings, get_settings
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
+# Make OAuth2 optional so basic endpoints don't crash without token
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)
+
 
 
 class JWTError(Exception):
@@ -163,3 +165,36 @@ def require_admin(current_user: CurrentUser = Depends(get_current_user)) -> Curr
     if current_user.role != "admin":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin only")
     return current_user
+
+
+def get_current_user_optional(
+    token: Optional[str] = Depends(oauth2_scheme), 
+    token_manager: TokenManager = Depends(get_token_manager),
+    settings: Settings = Depends(get_settings),
+) -> Optional[CurrentUser]:
+    """
+    Returns CurrentUser if token is valid, else None.
+    Does NOT raise HTTPException (401).
+    Used for webhooks or public endpoints that *can* use auth but don't require it.
+    """
+    if not token:
+        return None
+        
+    try:
+        from app.core.datastore import UserStore
+        payload = token_manager.decode_token(token, expected_type="access")
+        username = str(payload.get("sub"))
+        
+        # We need to replicate UserStore loading logic or make it lighter
+        # For optional, maybe just returning a dummy user if DB fails?
+        # Let's try to load properly
+        store = UserStore(Path(settings.data.data_dir) / "users.json")
+        user_dict = store.find(username)
+        if user_dict:
+            return CurrentUser(**user_dict)
+    except Exception:
+        # If token is invalid or user not found, just return None for optional auth
+        pass
+        
+    return None
+
