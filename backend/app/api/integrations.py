@@ -181,9 +181,9 @@ async def ingest_nutrition(
                 if count >= 5: break
                 
                 meal = parsed_meals[date_key]
-                t_carbs = meal["c"]
-                t_fat = meal["f"]
-                t_protein = meal["p"]
+                t_carbs = round(meal["c"], 1)
+                t_fat = round(meal["f"], 1)
+                t_protein = round(meal["p"], 1)
                 
                 if t_carbs < 1 and t_fat < 1 and t_protein < 1: continue
 

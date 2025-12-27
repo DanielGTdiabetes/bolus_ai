@@ -330,7 +330,7 @@ function ActivityList({ onRefresh }) {
                             </div>
                             <div style={{ flex: 1 }}>
                                 <div style={{ fontWeight: 700, fontSize: '0.9rem', color: '#334155' }}>
-                                    {u > 0 && `${u} U `} {c > 0 && `${c} g`}
+                                    {u > 0 && `${parseFloat(u.toFixed(2))} U `} {c > 0 && `${Math.round(c)} g`}
                                 </div>
                                 <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>{formatNotes(t.notes) || t.enteredBy || 'Entrada'}</div>
                             </div>

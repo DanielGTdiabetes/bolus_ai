@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Header } from '../components/layout/Header';
 import { BottomNav } from '../components/layout/BottomNav';
-import { fetchTreatments, getLocalNsConfig, updateTreatment } from '../lib/api';
+import { fetchTreatments, getLocalNsConfig, updateTreatment, deleteTreatment } from '../lib/api';
 import { Button, Input, Card } from '../components/ui/Atoms';
 
 import { formatTrend, formatNotes } from '../modules/core/utils';
@@ -76,6 +76,18 @@ export default function HistoryPage() {
             alert("✅ Registro actualizado");
         } catch (e) {
             alert("Error: " + e.message);
+        }
+    };
+
+    const handleDelete = async (id) => {
+        if (!confirm("¿Estás seguro de que quieres eliminar este registro?")) return;
+        try {
+            await deleteTreatment(id);
+            setEditingTx(null);
+            load();
+            alert("🗑️ Registro eliminado");
+        } catch (e) {
+            alert("Error al eliminar: " + e.message);
         }
     };
 
@@ -163,8 +175,8 @@ export default function HistoryPage() {
                         const timeStr = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
                         let val = "";
-                        if (u > 0) val += `${u} U `;
-                        if (c > 0) val += `${c} g`;
+                        if (u > 0) val += `${parseFloat(u.toFixed(2))} U `;
+                        if (c > 0) val += `${Math.round(c)} g`;
 
                         let foodName = null;
                         if (t.notes) {
@@ -207,6 +219,7 @@ export default function HistoryPage() {
                         treatment={editingTx}
                         onClose={() => setEditingTx(null)}
                         onSave={handleSaveEdit}
+                        onDelete={handleDelete}
                     />
                 )}
             </main>
@@ -215,7 +228,7 @@ export default function HistoryPage() {
     );
 }
 
-function EditHistoryModal({ treatment, onClose, onSave }) {
+function EditHistoryModal({ treatment, onClose, onSave, onDelete }) {
     // Helpers
     const getInitialDate = (t) => {
         const d = new Date(t.created_at || t.timestamp || t.date || Date.now());
@@ -270,13 +283,24 @@ function EditHistoryModal({ treatment, onClose, onSave }) {
                     <Input type="datetime-local" value={dateVal} onChange={e => setDateVal(e.target.value)} />
                 </div>
 
-                <div style={{ display: 'flex', gap: '1rem' }}>
-                    <Button onClick={handleSubmit} disabled={submitting} style={{ flex: 1 }}>
-                        {submitting ? 'Guardando...' : 'Guardar'}
-                    </Button>
-                    <Button onClick={onClose} variant="ghost" style={{ flex: 1 }}>
-                        Cancelar
-                    </Button>
+                <div style={{ display: 'flex', gap: '1rem', flexDirection: 'column' }}>
+                    <div style={{ display: 'flex', gap: '1rem' }}>
+                        <Button onClick={handleSubmit} disabled={submitting} style={{ flex: 1 }}>
+                            {submitting ? 'Guardando...' : 'Guardar'}
+                        </Button>
+                        <Button onClick={onClose} variant="ghost" style={{ flex: 1 }}>
+                            Cancelar
+                        </Button>
+                    </div>
+                    {treatment._id && (
+                        <Button
+                            onClick={() => onDelete(treatment._id)}
+                            variant="ghost"
+                            style={{ color: '#ef4444', borderColor: '#fee2e2', background: '#fef2f2' }}
+                        >
+                            🗑️ Eliminar Registro
+                        </Button>
+                    )}
                 </div>
             </Card>
         </div>
