@@ -98,15 +98,25 @@ export default function BolusPage() {
                 const { fetchTreatments } = await import('../lib/api');
                 const treatments = await fetchTreatments({ count: 10 });
                 const now = new Date();
-                const recentOrphan = treatments.find(t => {
+                // Find ALL potential orphans in the last 60 mins
+                const orphans = treatments.filter(t => {
                     const tDate = new Date(t.created_at);
                     const diffMin = (now.getTime() - tDate.getTime()) / 60000;
-                    // Orphan = has nutrition (carbs/fat/protein), no insulin, within last 45 mins
                     const hasNutrition = (t.carbs > 0 || t.fat > 0 || t.protein > 0);
-                    return hasNutrition && (!t.insulin || t.insulin === 0) && diffMin > 0 && diffMin < 45;
+                    // Standard orphan check
+                    return hasNutrition && (!t.insulin || t.insulin === 0) && diffMin > 0 && diffMin < 60;
                 });
-                if (recentOrphan) {
-                    setOrphanCarbs(recentOrphan);
+
+                if (orphans.length > 0) {
+                    // Sort by "Data Richness" (Carbs + Fat + Protein sum) DESC
+                    // This creates a preference for the "fullest" record if duplicates exist
+                    orphans.sort((a, b) => {
+                        const sumA = (a.carbs || 0) + (a.fat || 0) + (a.protein || 0);
+                        const sumB = (b.carbs || 0) + (b.fat || 0) + (b.protein || 0);
+                        return sumB - sumA;
+                    });
+
+                    setOrphanCarbs(orphans[0]);
                 }
             } catch (err) {
                 console.warn("Failed to fetch recent treatments for orphan detection", err);
