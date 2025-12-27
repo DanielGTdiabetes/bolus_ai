@@ -328,38 +328,96 @@ def calculate_bolus_v2(
     step = settings.round_step_u
 
     if request.slow_meal.enabled:
+        # --- LOGIC A: Manual Dual Bolus (User input) ---
         pct = request.slow_meal.upfront_pct
         upfront_raw = total_after_exercise * pct
         later_raw = total_after_exercise - upfront_raw
+    elif request.fat_g > 0 or request.protein_g > 0:
+        # --- LOGIC B: Warsaw Method (Auto-Dual from Mactros) ---
+        # Formula:
+        # F_kcal = fat * 9
+        # P_kcal = protein * 4
+        # Total_kcal = F_kcal + P_kcal
+        # FPU (Fat-Protein Units) = Total_kcal / 10 (approx equivalent carbs)
         
-        # Apply Techne to Upfront Only
-        if techne_ok:
-            upfront = _smart_round(upfront_raw, step, techne_trend, settings.techne.max_step_change, explain)
+        # Trio/Warsaw Adjustment: normally we don't cover 100% of FPU.
+        # Standard conservative start is ~50% coverage.
+        
+        fat_kcal = request.fat_g * 9.0
+        prot_kcal = request.protein_g * 4.0
+        total_extra_kcal = fat_kcal + prot_kcal
+        
+        # Threshold to trigger (e.g. at least 10g equivalent carbs / 100kcal)
+        if settings.warsaw.enabled and total_extra_kcal >= settings.warsaw.trigger_threshold_kcal:
+             fpu_equivalent_carbs = total_extra_kcal / 10.0
+             
+             # Adjustment Factor (from Settings)
+             safety_factor = settings.warsaw.safety_factor 
+             
+             # Calculate Extra Insulin needed for FPU
+             # This is ADDED to the normal meal bolus? 
+             # Warsaw method usually says: Treat Carbs as Upfront, Treat FPU as Extended.
+             # So we do:
+             # Upfront = Normal Bolus (for Carbs)
+             # Later = FPU_Carbs * SafetyFactor / ICR
+             
+             fpu_bolus_u = (fpu_equivalent_carbs * safety_factor) / cr
+             
+             # Duration Calculation (Warsaw)
+             # Basic rule: <150kcal: 3h, 150-300: 4h, >300: 5h+
+             # Simplified Trio/AndroidAPS formula logic:
+             # duration = 3h + (fpu / 10) * 0.5h ??
+             # Let's use robust stepping:
+             if fpu_equivalent_carbs < 20: duration_calc = 180 # 3h
+             elif fpu_equivalent_carbs < 40: duration_calc = 240 # 4h
+             else: duration_calc = 300 # 5h
+             
+             explain.append(f"🥩 Warsaw (Grasa/Prot): {request.fat_g}g F, {request.protein_g}g P -> {total_extra_kcal:.0f} kcal")
+             explain.append(f"   Equivalente Carbs: {fpu_equivalent_carbs:.1f}g x {safety_factor} (Safety) = {fpu_equivalent_carbs*safety_factor:.1f}g netos")
+             explain.append(f"   Extra Extendido: {fpu_bolus_u:.2f} U durante {duration_calc/60:.1f}h")
+             
+             # Apply
+             kind = "extended"
+             upfront_raw = total_after_exercise # The carb part is upfront
+             later_raw = fpu_bolus_u
+             duration = duration_calc
+             
+             # Note: total_after_exercise was strictly CARBS + CORR.
+             # Now we are ADDING insulin.
         else:
-            upfront = _round_step(upfront_raw, step)
-            
-        later = _round_step(later_raw, step)
+            upfront_raw = total_after_exercise
+            later_raw = 0.0
+    else:
+        # Standard Normal Bolus
+        pct = 1.0
+        upfront_raw = total_after_exercise
+        later_raw = 0.0
         
-        if later < step:
+    
+    # Common final rounding logic for all branches
+    if techne_ok:
+        upfront = _smart_round(upfront_raw, step, techne_trend, settings.techne.max_step_change, explain)
+    else:
+        upfront = _round_step(upfront_raw, step)
+        
+    later = _round_step(later_raw, step)
+    
+    if later > 0 and later < step:
              explain.append("E) Bolo extendido: la parte extendida es despreciable (< step). Cambiando a Normal.")
              kind = "normal"
-             # Re-calc upfront based on total (with Techne if applicable)
-             if techne_ok:
-                 upfront = _smart_round(total_after_exercise, step, techne_trend, settings.techne.max_step_change, explain)
-             else:
-                 upfront = _round_step(total_after_exercise, step)
              later = 0.0
-        else:
+             # Note: upfront is already rounded from total if it was normal, 
+             # but here we might have added FPU insulin that gets lost. 
+             # Safety decision: Drop small FPU insulin.
+    elif later >= step:
+             # Only override kind if it wasn't already extended (though logic above sets it)
              kind = "extended"
-             duration = request.slow_meal.duration_min
-             explain.append(f"E) Estrategia Dual/Cuadrada: Split {int(pct*100)}% / {int(100 - pct*100)}%")
+             # If duration wasn't set by logic B, use default
+             if duration == 0: duration = request.slow_meal.duration_min
+             
+             explain.append(f"E) Estrategia Dual/Cuadrada (Warsaw/Manual)")
              explain.append(f"   Ahora: {upfront:.2f} U, Luego: {later:.2f} U en {duration} min")
 
-    else:
-         if techne_ok:
-             upfront = _smart_round(total_after_exercise, step, techne_trend, settings.techne.max_step_change, explain)
-         else:
-             upfront = _round_step(total_after_exercise, step)
 
     # 7. Límites finales
     total_final = upfront + later

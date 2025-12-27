@@ -45,4 +45,7 @@ api_router.include_router(forecast_router, prefix="/forecast", tags=["forecast"]
 from .events import router as events_router
 api_router.include_router(events_router, prefix="/events", tags=["events"])
 
+from .integrations import router as integrations_router
+api_router.include_router(integrations_router, prefix="/integrations", tags=["integrations"])
+
 __all__ = ["api_router"]
