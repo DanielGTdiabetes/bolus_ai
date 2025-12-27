@@ -131,6 +131,10 @@ def calculate_bolus_v2(
         insulin_model=settings.iob.curve,
         max_bolus_final=settings.max_bolus_u
     )
+    
+    # Global Warnings
+    if request.alcohol:
+        warnings.append("Alcohol Activo: Riesgo de hipoglucemia tardía. Monitorea tu glucosa.")
 
     # 2. Comida
     meal_u = 0.0
@@ -155,22 +159,23 @@ def calculate_bolus_v2(
              bg_usable = True
     
     if bg_usable:
-        if bg > target:
-            diff = bg - target
-            corr_u = diff / isf
-            # Cap de corrección
-            if corr_u > settings.max_correction_u:
-                explain.append(f"   Corrección calculada {corr_u:.2f} U supera límite {settings.max_correction_u} U")
-                corr_u = settings.max_correction_u
-            
-            trend_str = f" ({glucose_info.trend})" if glucose_info.trend else ""
-            age_str = f" [{glucose_info.age_minutes:.0f}m]" if glucose_info.age_minutes is not None else ""
-            explain.append(f"B) Corrección: ({bg:.0f}{trend_str}{age_str} - {target:.0f}) / {isf:.0f}(ISF) = {corr_u:.2f} U")
-        elif bg < 70:
-            warnings.append(f"Glucosa baja ({bg}), se recomienda NO poner bolo o tratar hipo.")
-            explain.append(f"B) Corrección: Glucosa < 70 ({bg}), riesgo hipoglucemia.")
-        else:
-             explain.append(f"B) Corrección: Glucosa ({bg}) <= Objetivo ({target}). 0 U")
+
+        # Always calculate correction, even if negative (to reduce meal bolus if needed)
+        diff = bg - target
+        corr_u = diff / isf
+        
+        # Cap de corrección positiva
+        if corr_u > settings.max_correction_u:
+            explain.append(f"   Corrección calculada {corr_u:.2f} U supera límite {settings.max_correction_u} U")
+            corr_u = settings.max_correction_u
+        
+        trend_str = f" ({glucose_info.trend})" if glucose_info.trend else ""
+        age_str = f" [{glucose_info.age_minutes:.0f}m]" if glucose_info.age_minutes is not None else ""
+        
+        explain.append(f"B) Corrección: ({bg:.0f}{trend_str}{age_str} - {target:.0f}) / {isf:.0f}(ISF) = {corr_u:.2f} U")
+
+        if bg < 70:
+            warnings.append(f"Glucosa baja ({bg}). La corrección negativa reducirá el bolo de comida.")
     else:
         if bg is None:
             explain.append("B) Corrección: 0 U (Falta glucosa)")
@@ -279,8 +284,10 @@ def calculate_bolus_v2(
                    explain.append("3. Micro-Bolo: 0.00 U")
 
         # Asignación final
-        # PRECAUCION: Incluso en modo Grasas, la comida (carbs) SI debe descontar IOB si existen carbs.
-        meal_net = max(0.0, meal_u - iob_u) 
+        # EN MODO REACTIVO/POSTRE (Ignore IOB), NO descontamos IOB de la comida.
+        # El usuario asume que quiere cubrir este 'Postre' completo.
+        meal_net = meal_u 
+        explain.append(f"   (Modo Postre: IOB no descuenta comida. {meal_u:.2f} U íntegras)") 
         total_after_iob = meal_net + micro_bolus_u
 
     else:
@@ -428,6 +435,14 @@ def calculate_bolus_v2(
         later = _round_step(later * ratio, settings.round_step_u)
         total_final = upfront + later 
         explain.append(f"F) Límite de seguridad aplicado: Total ahora {total_final:.2f} U")
+
+    # 7b. Hard Stop por Hipo (Seguridad Crítica)
+    if glucose_info.mgdl is not None and glucose_info.mgdl < 70:
+        upfront = 0.0
+        later = 0.0
+        total_final = 0.0
+        explain.append(f"⛔ SEGURIDAD: Glucosa < 70 ({glucose_info.mgdl}). Bolo anulado.")
+        warnings.append("PELIGRO: Hipo detectada (BG < 70). Bolo cancelado. Trata la hipoglucemia.")
 
     # 8. Sugerencias TDD
     suggestions = BolusSuggestions()
