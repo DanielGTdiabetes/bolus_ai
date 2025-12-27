@@ -93,15 +93,24 @@ async def ingest_nutrition(
                     for entry in m_data:
                         # entry: {date: "2025-...", qty: "..."}
                         raw_date = entry.get("date")
-                        raw_qty = float(entry.get("qty", 0))
+                        
+                        # Fix Qty logic:
+                        # Sometimes qty is string "36.6", sometimes number 36.6
+                        raw_qty_val = entry.get("qty", 0)
+                        try:
+                            raw_qty = float(raw_qty_val)
+                        except:
+                            raw_qty = 0.0
                         
                         # Normalize date key (strip seconds/timezone to group near-simultaneous entries?)
                         # HealthKit data for same meal usually shares EXACT timestamp down to second
                         if raw_date:
                             if raw_date not in parsed_meals:
-                                parsed_meals[raw_date] = {"c":0, "f":0, "p":0, "ts": raw_date}
+                                parsed_meals[raw_date] = {"c":0.0, "f":0.0, "p":0.0, "ts": raw_date}
                             
-                            parsed_meals[raw_date][metric_type] = raw_qty
+                            # Add to existing (in case multiple entries for same type/time? unlikely but safe)
+                            # Actually, usually unique per type per time.
+                            parsed_meals[raw_date][metric_type] += raw_qty
         
         # If flat format was sent (fallback)
         else:
