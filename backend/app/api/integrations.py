@@ -192,8 +192,12 @@ async def ingest_nutrition(
                 # Check for same macros AND roughly same time (within 10 min of the original timestamp)
                 # Because we are processing history, we must check history
                 
-                dedup_window_start = item_ts - timedelta(minutes=10)
-                dedup_window_end = item_ts + timedelta(minutes=10)
+                # Fix for SQLA error: ensure comparison datetimes are compatible with DB driver (often naive UTC preferred)
+                dedup_window_start = (item_ts - timedelta(minutes=10)).replace(tzinfo=None)
+                dedup_window_end = (item_ts + timedelta(minutes=10)).replace(tzinfo=None)
+                
+                # Also ensure item_ts for saving is naive if needed by model, though usually model handles it.
+                # Let's keep item_ts aware for now unless save fails too. The error was in WHERE clause comparison.
                 
                 stmt = select(Treatment).where(
                     Treatment.created_at >= dedup_window_start,
@@ -216,7 +220,7 @@ async def ingest_nutrition(
                     id=tid,
                     user_id=username,
                     event_type="Meal Bolus", 
-                    created_at=item_ts,
+                    created_at=item_ts.replace(tzinfo=None), # Ensure naive for consistency
                     insulin=0.0,
                     carbs=t_carbs,
                     fat=t_fat,
