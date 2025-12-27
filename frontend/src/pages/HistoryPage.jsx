@@ -169,6 +169,9 @@ export default function HistoryPage() {
                     {treatments.map((t, idx) => {
                         const u = parseFloat(t.insulin) || 0;
                         const c = parseFloat(t.carbs) || 0;
+                        const f = parseFloat(t.fat) || 0;
+                        const p = parseFloat(t.protein) || 0;
+
                         const isBolus = u > 0;
                         const icon = isBolus ? "💉" : "🍪";
                         const date = new Date(t.created_at || t.timestamp || t.date);
@@ -176,7 +179,17 @@ export default function HistoryPage() {
 
                         let val = "";
                         if (u > 0) val += `${parseFloat(u.toFixed(2))} U `;
-                        if (c > 0) val += `${Math.round(c)} g`;
+
+                        // Build nutrition string
+                        let nutr = [];
+                        if (c > 0) nutr.push(`${Math.round(c)} g HC`);
+                        if (f > 0) nutr.push(`${Math.round(f)} g Gras.`);
+                        if (p > 0) nutr.push(`${Math.round(p)} g Prot.`);
+
+                        if (nutr.length > 0) {
+                            if (val) val += " • ";
+                            val += nutr.join(" • ");
+                        }
 
                         let foodName = null;
                         if (t.notes) {
