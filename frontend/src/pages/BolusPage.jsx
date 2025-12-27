@@ -253,7 +253,13 @@ export default function BolusPage() {
         }
     };
 
-    const toggleDual = () => setDualEnabled(!dualEnabled);
+    const toggleDual = () => {
+        const newValue = !dualEnabled;
+        setDualEnabled(newValue);
+        if (newValue) {
+            setDessertMode(false); // Disable Ignore IOB if Dual is enabled
+        }
+    };
 
     const handleCalculate = async () => {
         setCalculating(true);
@@ -634,9 +640,13 @@ export default function BolusPage() {
                             </label>
                             <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.9rem' }}>
                                 <input type="checkbox" checked={dessertMode} onChange={e => {
-                                    setDessertMode(e.target.checked);
+                                    const val = e.target.checked;
+                                    setDessertMode(val);
+                                    if (val) {
+                                        setDualEnabled(false); // Disable Dual if Ignore IOB is enabled
+                                    }
                                 }} />
-                                Ignorar IOB (Grasas)
+                                Modo Microbolos
                             </label>
                         </div>
 
