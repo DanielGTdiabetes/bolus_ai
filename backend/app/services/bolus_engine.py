@@ -253,9 +253,22 @@ def calculate_bolus_v2(
                      if not request.alcohol and raw_correction < 0.8: 
                          calc_dose = raw_correction
                      
+                     
                      if calc_dose > base_limit:
                          calc_dose = base_limit
                          explain.append(f"   (Limitado a {base_limit} U)")
+                     
+                     # 4. Round to User Step (Critical for Pen Users)
+                     # Before this, we had precise theoretical values (e.g 0.8), but pens are 0.5 or 1.0 steps.
+                     # We must round down or up safely.
+                     step = settings.round_step_u
+                     calc_dose = _round_step(calc_dose, step)
+                     
+                     if calc_dose < step:
+                          # If result is smaller than minimum deliverable, show 0 BUT explain
+                          if calc_dose > 0.001: 
+                               explain.append(f"   Dosis {calc_dose:.2f}U < paso mínimo {step}U. Se redondea a 0.")
+                          calc_dose = 0.0
                          
                      micro_bolus_u = calc_dose
             
