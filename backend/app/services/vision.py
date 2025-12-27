@@ -19,6 +19,12 @@ Analyze the image of food provided.
 Estimate carbohydrates, fats, and proteins precisely.
 If the image is a RESTAURANT MENU, list the distinct dishes visible.
 
+**IMPORTANT: FAT & PROTEIN FOCUS:**
+The user relies on the "Warsaw Method" for insulin dosing. This method uses Fat and Protein grams to calculate extended boluses. 
+- You MUST estimate **Fats (g)** and **Proteins (g)** with the same care as Carbohydrates.
+- Do NOT ignore hidden fats (oils, sauces, cheese).
+- Do NOT ignore protein density (meat, eggs, legumes).
+
 **FIDUCIAL MARKER INSTRUCTION:**
 If you detect a **RED INSULIN PEN** (NovoPen Echo Plus style, cylindrical, dark red metallic) in the image, use it as a **FIDUCIAL MARKER** for scale.
 - The pen measures **exactly 16.5 cm (165 mm)** in length.
