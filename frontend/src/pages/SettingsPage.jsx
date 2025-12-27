@@ -184,7 +184,10 @@ function CalcParamsPanel() {
         dia_hours: 4,
         round_step_u: 0.5,
         max_bolus_u: 10,
-        techne: { enabled: false, max_step_change: 0.5, safety_iob_threshold: 1.5 }
+        round_step_u: 0.5,
+        max_bolus_u: 10,
+        techne: { enabled: false, max_step_change: 0.5, safety_iob_threshold: 1.5 },
+        warsaw: { enabled: true, trigger_threshold_kcal: 150, safety_factor: 0.5 }
     };
 
     const [params, setParams] = useState(defaults);
@@ -199,7 +202,8 @@ function CalcParamsPanel() {
             const merged = {
                 ...defaults,
                 ...p,
-                techne: { ...defaults.techne, ...(p.techne || {}) }
+                techne: { ...defaults.techne, ...(p.techne || {}) },
+                warsaw: { ...defaults.warsaw, ...(p.warsaw || {}) }
             };
             setParams(merged);
         }
@@ -479,6 +483,48 @@ function CalcParamsPanel() {
                 </div>
             </div>
 
+            <div style={{ marginTop: '1rem', padding: '1rem', background: '#fff7ed', borderRadius: '8px', border: '1px solid #fed7aa' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '0.8rem', fontWeight: 600, color: '#9a3412', marginBottom: params.warsaw?.enabled ? '1rem' : 0, cursor: 'pointer' }}>
+                    <input
+                        type="checkbox"
+                        checked={params.warsaw?.enabled}
+                        onChange={e => setParams(prev => ({ ...prev, warsaw: { ...prev.warsaw, enabled: e.target.checked } }))}
+                        style={{ width: '1.2rem', height: '1.2rem' }}
+                    />
+                    Método Warsaw (Grasas y Proteínas)
+                </label>
+
+                {params.warsaw?.enabled && (
+                    <div className="stack" style={{ gap: '0.8rem', marginTop: '0.5rem' }}>
+                        <p className="text-sm text-muted" style={{ margin: 0 }}>
+                            Si la comida tiene muchas grasas/proteínas, se sugerirá un <strong>Bolo Extendido</strong> para evitar subidas tardías.
+                        </p>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                            <Input
+                                label="Activar si Kcal Grasa/Prot >"
+                                type="number"
+                                value={params.warsaw.trigger_threshold_kcal}
+                                onChange={e => setParams(prev => ({ ...prev, warsaw: { ...prev.warsaw, trigger_threshold_kcal: parseInt(e.target.value) } }))}
+                                placeholder="Ej: 150"
+                            />
+                            <Input
+                                label="Intensidad (Cobertura)"
+                                type="number"
+                                step="0.1"
+                                value={params.warsaw.safety_factor}
+                                onChange={e => setParams(prev => ({ ...prev, warsaw: { ...prev.warsaw, safety_factor: parseFloat(e.target.value) } }))}
+                                placeholder="Ej: 0.5 (50%)"
+                            />
+                        </div>
+                        <div style={{ fontSize: '0.75rem', color: '#c2410c' }}>
+                            💡 <strong>Ejemplo:</strong> Con {params.warsaw.trigger_threshold_kcal} kcal (aprox {(params.warsaw.trigger_threshold_kcal / 9).toFixed(0)}g de grasa), se activará el aviso.
+                            <br />
+                            🛡️ <strong>Seguridad:</strong> Se cubre solo el {Math.round(params.warsaw.safety_factor * 100)}% de esas grasas (50% es recomendado).
+                        </div>
+                    </div>
+                )}
+            </div>
+
             <Button onClick={handleSave} style={{ marginTop: '1rem' }}>Guardar Parámetros</Button>
             {status && <div className="text-teal text-center text-sm" style={{ marginTop: '0.5rem' }}>{status}</div>}
 
@@ -497,7 +543,7 @@ function CalcParamsPanel() {
                     <Button variant="secondary" onClick={handleSaveSplit}>Guardar Avanzado</Button>
                 </div>
             </details>
-        </div>
+        </div >
     );
 }
 
