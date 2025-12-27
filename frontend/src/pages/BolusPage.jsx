@@ -278,6 +278,22 @@ export default function BolusPage() {
             const mealParams = getCalcParams();
             if (!mealParams) throw new Error("No hay configuración de ratios.");
 
+            // Determine Fat and Protein for Warsaw Calculation
+            let fatVal = 0;
+            let proteinVal = 0;
+            if (isUsingOrphan && orphanCarbs) {
+                fatVal = orphanCarbs.fat || 0;
+                proteinVal = orphanCarbs.protein || 0;
+            } else if (mealMetaRef.current) {
+                fatVal = mealMetaRef.current.fat || 0;
+                proteinVal = mealMetaRef.current.protein || 0;
+            }
+            // Add tempFat/Protein from state if not found (legacy fallback for first navigation)
+            if (fatVal === 0 && proteinVal === 0) {
+                if (state.tempFat) fatVal = state.tempFat;
+                if (state.tempProtein) proteinVal = state.tempProtein;
+            }
+
             const slotParams = mealParams[slot];
             if (!slotParams?.icr || !slotParams?.isf || !slotParams?.target) {
                 throw new Error(`Faltan datos para el horario '${slot}'.`);
@@ -297,6 +313,8 @@ export default function BolusPage() {
 
             const payload = {
                 carbs_g: correctionOnly ? 0 : carbsVal,
+                fat_g: correctionOnly ? 0 : fatVal,
+                protein_g: correctionOnly ? 0 : proteinVal,
                 bg_mgdl: isNaN(bgVal) ? null : bgVal,
                 meal_slot: slot,
                 target_mgdl: slotParams.target,
@@ -502,9 +520,9 @@ export default function BolusPage() {
                                     </span>
                                 </div>
                                 <div style={{ fontSize: '0.9rem', color: '#166534' }}>
-                                    Se han detectado datos externos: <strong>{orphanCarbs.carbs || 0}g HC</strong>
+                                    Se han detectado datos externos: <strong>{(orphanCarbs.carbs || 0).toFixed(1)}g HC</strong>
                                     {(orphanCarbs.fat > 0 || orphanCarbs.protein > 0) && (
-                                        <span>, {orphanCarbs.fat || 0}g Grasas, {orphanCarbs.protein || 0}g Prot.</span>
+                                        <span>, {(orphanCarbs.fat || 0).toFixed(1)}g Grasas, {(orphanCarbs.protein || 0).toFixed(1)}g Prot.</span>
                                     )}
 
                                     {(orphanCarbs.carbs >= 50 || orphanCarbs.fat >= 15 || orphanCarbs.protein >= 20) && (
@@ -516,7 +534,8 @@ export default function BolusPage() {
                                 <div style={{ display: 'flex', gap: '10px' }}>
                                     <Button
                                         onClick={() => {
-                                            setCarbs(String(orphanCarbs.carbs || 0));
+                                            // Format to 1 decimal for input
+                                            setCarbs((orphanCarbs.carbs || 0).toFixed(1));
                                             setIsUsingOrphan(true);
                                             const needsDual = (orphanCarbs.carbs >= 50 || orphanCarbs.fat >= 15 || orphanCarbs.protein >= 20);
                                             if (needsDual) {
@@ -548,7 +567,7 @@ export default function BolusPage() {
                                 display: 'flex', justifyContent: 'space-between', alignItems: 'center'
                             }}>
                                 <div style={{ fontSize: '0.85rem', color: '#1e40af' }}>
-                                    🔗 Vinculado a {orphanCarbs.carbs}g externos. No se duplicarán.
+                                    🔗 Vinculado a {parseFloat((orphanCarbs.carbs || 0).toFixed(1))}g externos. No se duplicarán.
                                 </div>
                                 <button
                                     onClick={() => setIsUsingOrphan(false)}
