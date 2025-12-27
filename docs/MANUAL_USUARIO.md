@@ -134,5 +134,33 @@ Bolus AI aprende de tus datos históricos para sugerir cambios en tus Ratios (IC
 
 ---
 
-## 10. ⚠️ Descargo de Responsabilidad Médico
+
+---
+
+## 11. 🍷 Protocolo: Situaciones Complejas (Alcohol y Grasas)
+
+Cómo actuar ante una cena copiosa (pizza, asado) acompañada de alcohol:
+
+1.  **Inicio (La Cena)**:
+    - Introduce todos los datos: Carbohidratos, Grasas y Proteínas.
+    - **Marca la casilla "Alcohol"**: Esto alerta al sistema de que tu hígado estará ocupado y el riesgo de hipoglucemia tardía es real.
+    - **Acepta el Bolo Doble (Warsaw)**: El sistema dividirá la insulina para cubrir la grasa que se absorberá horas después.
+
+2.  **La Subida (90-120 min)**:
+    - Es habitual y **esperable** ver una subida temporal (ej. 200 mg/dL). No entres en pánico. Esa glucosa está "cubierta" por la segunda parte del bolo doble que está entrando lentamente.
+
+3.  **La Reacción (Micro-bolo)**:
+    - Si te mides y ves la glucosa alta, puedes consultar la calculadora.
+    - **Si la app te recomienda 0.0 U**: **HAZLE CASO**.
+        - El sistema ha detectado que tienes **Insulina Activa (IOB)** elevada del bolo doble + **Efecto Alcohol**.
+        - Sumar más insulina ahora provocaría una hipoglucemia grave de madrugada.
+    - **Si la app permite un micro-bolo**: Será una dosis muy reducida (aprox 50%) por seguridad.
+
+4.  **Cuando corregir manualmente**:
+    - Solo si pasadas 3-4 horas la glucosa sigue muy alta y estable.
+    - O si la tendencia es "Subiendo Rápidamente" (flecha arriba).
+
+---
+
+## 12. ⚠️ Descargo de Responsabilidad Médico
 Esta aplicación es una **herramienta de apoyo** a la decisión. Los cálculos son estimaciones basadas en algoritmos de IA y no deben sustituir el criterio clínico. **Verifica siempre los datos antes de administrarte insulina.**
