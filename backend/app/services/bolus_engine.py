@@ -184,78 +184,91 @@ def calculate_bolus_v2(
     if request.ignore_iob:
         # --- ESTRATEGIA REACTIVA / MICRO-BOLOS (Grasas/Postre) ---
         explain.append("--- MODO REACTIVO (GRASAS/POSTRE) ---")
-        explain.append(f"1. IOB Ignorado: {iob_u:.2f} U (Asumido para comida anterior)")
         
-        # 1. Analizar Tendencia y Urgencia
-        import math
-        trend_factor = 1.0
-        is_rising = False
+        # --- ESTRATEGIA REACTIVA / MICRO-BOLOS (Grasas/Postre) ---
+        explain.append("--- MODO REACTIVO (GRASAS/POSTRE) ---")
         
-        trend_arrow = glucose_info.trend or ""
-        if trend_arrow.upper() in ["DOUBLEUP", "SINGLEUP", "FORTYFIVEUP"]:
-            is_rising = True
-            explain.append(f"2. Tendencia: Subiendo ({trend_arrow}) ↗️. Se requiere acción.")
-        elif trend_arrow.upper() in ["FLAT"]:
-            explain.append(f"2. Tendencia: Estable ({trend_arrow}) ➡️. Acción preventiva.")
-        else:
-            explain.append(f"2. Tendencia: {trend_arrow}. Precaución.")
+        # 1. Safety Gates (Time & Alcohol)
+        micro_bolus_u = 0.0
+        safety_ok = True
+        
+        # A) Time Gate (Avoid Stacking on Peak)
+        # If last bolus was < 75 min ago, we are likely near peak. Dangerous to add more blind corrections.
+        last_min = request.last_bolus_minutes
+        if last_min is not None and last_min < 75:
+             explain.append(f"⛔ SEGURIDAD TIEMPO: Último bolo hace {last_min} min (<75 min).")
+             explain.append("   Riesgo de stacking en pico. Se deniega micro-bolo.")
+             warnings.append(f"Espera: Bolo reciente ({last_min} min).")
+             safety_ok = False
+        
+        if safety_ok:
+            explain.append(f"1. IOB Ignorado para cálculo base: {iob_u:.2f} U (Bolo previo > 75 min)")
+            
+            # Analizar Tendencia
+            is_rising = False
+            trend_arrow = glucose_info.trend or ""
+            if trend_arrow.upper() in ["DOUBLEUP", "SINGLEUP", "FORTYFIVEUP"]:
+                is_rising = True
+                explain.append(f"2. Tendencia: Subiendo ({trend_arrow}) ↗️.")
+            elif trend_arrow.upper() in ["FLAT"]:
+                explain.append(f"2. Tendencia: Estable ({trend_arrow}) ➡️.")
+            else:
+                 explain.append(f"2. Tendencia: {trend_arrow}.")
 
-        # 2. Calcular Corrección "Pura" (Sin IOB)
-        raw_correction = 0.0
-        if bg_usable and bg > target:
-            raw_correction = (bg - target) / isf
-        
-        # 3. Reglas de Micro-Bolos (Safety Caps)
-        # Regla: Nunca sugerir una corrección masiva de golpe en este modo ciego.
-        # Máximo seguro por "tanda" (Micro-bolo): 1.5 U o el 50% de lo necesario, lo que sea mayor, pero con techo.
-        
-        micro_bolus_u = raw_correction
-        cap_applied = False
-        
-        # Umbral de Disparo (>130 mg/dL para actuar)
-        if bg < 130 and not is_rising:
-             warnings.append("Glucosa < 130 y estable. El algoritmo sugiere ESPERAR antes del micro-bolo.")
-             micro_bolus_u = 0.0
-        else:
-             # Lógica de Seguridad (Cap)
-             # Si sube rápido, permitimos más (hasta 1.5 U o 70% de la necesidad)
-             # Si va lento, frenamos (max 1.0 U o 50%)
-             
-             limit = 1.0 # Default limit for manual micro-bolus
-             pct = 0.5   # Default percentage
-             
-             if is_rising:
-                 limit = 1.5
-                 pct = 0.7
-             
-             # Calculamos la dosis segura
-             safe_dose = raw_correction * pct
-             # Pero si la dosis es muy pequeña (< 0.5), ponla entera (no micro-dividas lo invisible)
-             if raw_correction < 0.8:
-                 safe_dose = raw_correction
-             
-             # Aplicar Techo Hard
-             if safe_dose > limit:
-                 safe_dose = limit
-                 cap_applied = True
-                 
-             micro_bolus_u = safe_dose
+            # B) Alcohol Soft Landing
+            # If alcohol is present, we don't BLOCK, but we DAMPEN significantly.
+            reduction_factor = 1.0
+            if request.alcohol:
+                reduction_factor = 0.5
+                explain.append("🍷 ALCOHOL ACTIVO: Corrección reducida al 50% por seguridad.")
+                warnings.append("Modo Alcohol: Dosis reducida 50%.")
 
-        # Resultado final del bloque
-        if cap_applied:
-            explain.append(f"3. Seguridad: Corrección teórica {raw_correction:.2f} U.")
-            explain.append(f"   -> LIMITADA a {micro_bolus_u:.2f} U (Micro-bolo seguro).")
-            explain.append("   (Revisar en 45-60 min si se requiere más).")
-        else:
-            explain.append(f"3. Micro-Bolo calculado: {micro_bolus_u:.2f} U")
+            # 2. Calcular Corrección
+            raw_correction = 0.0
+            if bg_usable and bg > target:
+                raw_correction = (bg - target) / isf
+            
+            # 3. Reglas de Micro-Bolos (Safety Caps)
+            base_limit = 1.0
+            pct = 0.5 * reduction_factor # Inherit alcohol reduction
+            
+            if is_rising:
+                base_limit = 1.5
+                pct = 0.7 * reduction_factor
+            
+            # IOB Check (Secondary Safety)
+            # If IOB is HUGE (> 3.5), we block regardless of time (maybe extended bolus overlap?)
+            if iob_u > 3.5:
+                 explain.append(f"⚠️ IOB muy alto ({iob_u:.1f}U). Cancelando micro-bolo por precaución.")
+                 micro_bolus_u = 0.0
+            else:
+                # Normal Calculation
+                # Umbral de Disparo (>130 mg/dL para actuar, salvo que suba mucho)
+                if bg < 130 and not is_rising:
+                     explain.append("   Glucosa < 130 y estable. Esperar.")
+                     micro_bolus_u = 0.0
+                else:
+                     calc_dose = raw_correction * pct
+                     # Min floor for very small corrections if not alcohol (alcohol always strictly proportional)
+                     if not request.alcohol and raw_correction < 0.8: 
+                         calc_dose = raw_correction
+                     
+                     if calc_dose > base_limit:
+                         calc_dose = base_limit
+                         explain.append(f"   (Limitado a {base_limit} U)")
+                         
+                     micro_bolus_u = calc_dose
+            
+            if micro_bolus_u > 0:
+                explain.append(f"3. Micro-Bolo final: {micro_bolus_u:.2f} U")
+            else:
+                if safety_ok and micro_bolus_u == 0:
+                   explain.append("3. Micro-Bolo: 0.00 U")
 
         # Asignación final
-        meal_net = max(0.0, meal_u - iob_u) # Restamos IOB a la comida si la hubiera (raro en este modo)
+        # PRECAUCION: Incluso en modo Grasas, la comida (carbs) SI debe descontar IOB si existen carbs.
+        meal_net = max(0.0, meal_u - iob_u) 
         total_after_iob = meal_net + micro_bolus_u
-        
-        # Warning de IOB excesivo
-        if iob_u > 3.0:
-             warnings.append(f"⚠️ ALTO RIESGO: Tienes {iob_u:.1f} U activas. Si te pones este micro-bolo, vigila hipoglucemias.")
 
     else:
         # Standard "Loop" Logic: IOB offsets everything.

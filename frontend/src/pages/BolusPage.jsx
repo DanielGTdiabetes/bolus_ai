@@ -300,6 +300,7 @@ export default function BolusPage() {
                 round_step_u: mealParams.round_step_u || 0.5,
                 max_bolus_u: mealParams.max_bolus_u || 15,
                 ignore_iob: dessertMode,
+                alcohol: alcoholEnabled,
                 exercise: {
                     planned: exerciseEnabled,
                     minutes: exerciseEnabled ? (parseInt(exerciseMinutes) || 0) : 0,

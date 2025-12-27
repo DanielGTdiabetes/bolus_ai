@@ -62,6 +62,8 @@ class BolusRequestV2(BaseModel):
     
     # Strategy Flags
     ignore_iob: bool = Field(default=False, description="Modo Comida Grasa: Ignorar IOB para calcular corrección (Micro-bolos reactivos)")
+    last_bolus_minutes: Optional[int] = Field(default=None, description="Minutes since last insulin bolus (for safety checks)")
+    alcohol: bool = Field(default=False, description="Modo Alcohol: Se asume tendencia a baja a largo plazo, suprime correcciones agresivas.")
 
     model_config = ConfigDict(populate_by_name=True, extra="ignore")
 

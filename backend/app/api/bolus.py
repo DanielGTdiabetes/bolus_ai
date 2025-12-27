@@ -277,6 +277,23 @@ async def calculate_bolus_stateless(
          except Exception as db_err:
              logger.error(f"Failed to fetch DB events for IOB: {db_err}")
 
+    # Inject Last Bolus Time (Safety for Micro-Boluses)
+    if db_events:
+        # db_events is sorted desc, so [0] is latest
+        try:
+            latest = db_events[0]
+            lat_ts = datetime.fromisoformat(latest["ts"])
+            if lat_ts.tzinfo is None: lat_ts = lat_ts.replace(tzinfo=timezone.utc)
+            
+            now_ts = datetime.now(timezone.utc)
+            diff_min = int((now_ts - lat_ts).total_seconds() / 60)
+            
+            if diff_min >= 0:
+                payload.last_bolus_minutes = diff_min
+                logger.info(f"Safety: Detected last bolus {diff_min} min ago ({latest['units']} U)")
+        except Exception as e:
+            logger.warning(f"Failed to calc last bolus time: {e}")
+
     # 4. Calculate IOB
     # Ensure client exists if needed for IOB even if BG was manual
     if ns_client is None and ns_config.enabled and ns_config.url:
