@@ -68,8 +68,19 @@ No es una calculadora normal. Es un "Cerebro".
 *   **Carbohidratos:** Gramos totales.
 *   **Plato (Opcional):** Escribe el nombre para guardarlo en el historial o aprender en el futuro y buscar en el listado de alimentos.
 
-### B. Funciones Avanzadas (Los Modos)
-#### 🍕 1. Modo Grasa/Proteína (Pizza, Burger, Asados)
+### C. Sincronización MyFitnessPal / Salud 📲
+La app es capaz de leer los carbohidratos que registres en aplicaciones externas (Apple Health, MyFitnessPal, FatSecret) si tienes configurada una app de exportación (como Nightscout Uploader).
+
+#### ¿Cómo Funciona?
+1.  **Detección Automática:** Cuando la app detecta un nuevo registro de carbohidratos externo, aparecerá una **alerta verde** en la parte superior de la calculadora.
+2.  **Modo Diferencia:**
+    *   Si ya habías registrado una parte de la comida (ej. 45g) y ahora llega una actualización con el total (ej. 60g), la app te avisará.
+    *   Te ofrecerá un botón para **"Usar Diferencia (+15g)"**. Así solo te pinchas por lo que te falta.
+3.  **Regla de Colisión (Anti-Duplicados):**
+    *   Si llegan dos datos casi a la vez (ej. el registro original de 45g y la corrección de 60g en menos de 5 minutos), el sistema inteligente **NO los suma** (no verás 105g).
+    *   Automáticamente se queda con el valor **mayor** (60g) para los gráficos y cálculos de COB, asumiendo que es la corrección más reciente.
+
+### D. Funciones Avanzadas (Los Modos)
 #### 🍕 1. Modo Grasa/Proteína (Pizza, Burger, Asados)
 Existen dos formas de gestionar las grasas:
 
