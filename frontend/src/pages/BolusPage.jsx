@@ -133,6 +133,8 @@ export default function BolusPage() {
                     if (recentSaves.length > 0) {
                         // Sum up what we already covered
                         alreadyApplied = recentSaves.reduce((acc, t) => acc + (t.carbs || 0), 0);
+                        const alreadyAppliedFat = recentSaves.reduce((acc, t) => acc + (t.fat || 0), 0);
+                        const alreadyAppliedProtein = recentSaves.reduce((acc, t) => acc + (t.protein || 0), 0);
 
                         // If the new total is just an accumulation, offer the difference
                         if (bestOrphan.carbs > alreadyApplied) {
@@ -141,6 +143,11 @@ export default function BolusPage() {
                             adjustedOrphan._originalCarbs = bestOrphan.carbs;
                             adjustedOrphan._alreadyApplied = alreadyApplied;
                             adjustedOrphan._netCarbs = diffCarbs;
+
+                            // Net Macros (Prevent negatives)
+                            adjustedOrphan._netFat = Math.max(0, (bestOrphan.fat || 0) - alreadyAppliedFat);
+                            adjustedOrphan._netProtein = Math.max(0, (bestOrphan.protein || 0) - alreadyAppliedProtein);
+
                         } else if (bestOrphan.carbs <= alreadyApplied + 2) {
                             // Close enough to consider covered
                             adjustedOrphan._fullyCovered = true;
@@ -325,8 +332,14 @@ export default function BolusPage() {
             let fatVal = 0;
             let proteinVal = 0;
             if (isUsingOrphan && orphanCarbs) {
-                fatVal = orphanCarbs.fat || 0;
-                proteinVal = orphanCarbs.protein || 0;
+                // SAFETY: Use Net values if in Diff Mode to avoid double counting fat/protein in Warsaw calculation
+                if (orphanCarbs._diffMode) {
+                    fatVal = orphanCarbs._netFat || 0;
+                    proteinVal = orphanCarbs._netProtein || 0;
+                } else {
+                    fatVal = orphanCarbs.fat || 0;
+                    proteinVal = orphanCarbs.protein || 0;
+                }
             } else if (mealMetaRef.current) {
                 fatVal = mealMetaRef.current.fat || 0;
                 proteinVal = mealMetaRef.current.protein || 0;
@@ -418,8 +431,8 @@ export default function BolusPage() {
                 eventType: "Meal Bolus",
                 created_at: customDate.toISOString(),
                 carbs: isUsingOrphan ? 0 : (parseFloat(carbs) || 0),
-                fat: isUsingOrphan ? (orphanCarbs.fat || 0) : (mealMetaRef.current?.fat || 0),
-                protein: isUsingOrphan ? (orphanCarbs.protein || 0) : (mealMetaRef.current?.protein || 0),
+                fat: isUsingOrphan ? (orphanCarbs._diffMode ? (orphanCarbs._netFat || 0) : (orphanCarbs.fat || 0)) : (mealMetaRef.current?.fat || 0),
+                protein: isUsingOrphan ? (orphanCarbs._diffMode ? (orphanCarbs._netProtein || 0) : (orphanCarbs.protein || 0)) : (mealMetaRef.current?.protein || 0),
                 insulin: finalInsulin,
                 enteredBy: state.user?.username || "BolusAI",
                 notes: `BolusAI: ${result.kind === 'dual' ? 'Dual' : 'Normal'}. Gr: ${carbs}${isUsingOrphan ? ' (Sincronizado)' : ''}. BG: ${glucose}. ${foodName ? 'Comida: ' + foodName + '.' : ''} ${alcoholEnabled ? 'Alcohol Detected.' : ''} ${plateItems.length > 0 ? 'Items: ' + plateItems.map(i => i.name).join(', ') : ''}`,
