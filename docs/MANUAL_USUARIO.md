@@ -160,6 +160,8 @@ Cómo actuar ante una cena copiosa (pizza, asado) acompañada de alcohol:
     - Solo si pasadas 3-4 horas la glucosa sigue muy alta y estable.
     - O si la tendencia es "Subiendo Rápidamente" (flecha arriba).
 
+> **💡 Nota sobre "Modo Enfermedad"**: Si activas este modo durante una cena complicada, **el cálculo de insulina NO cambiará** (la app te dará las mismas dosis de seguridad). Sin embargo, es **muy recomendable** hacerlo para "proteger" tus estadísticas: le dirá al algoritmo que ignore los datos de esta noche para que no te sugiera cambios de Ratio basados en una situación excepcional.
+
 ---
 
 ## 12. ⚠️ Descargo de Responsabilidad Médico
