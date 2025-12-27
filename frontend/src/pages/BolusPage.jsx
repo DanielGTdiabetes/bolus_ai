@@ -116,7 +116,40 @@ export default function BolusPage() {
                         return sumB - sumA;
                     });
 
-                    setOrphanCarbs(orphans[0]);
+                    // Check if we already applied a partial amount recently?
+                    // We look at *Saved Treatments* in the last 90 mins that were marked as "Sincronizado" (orphan usage).
+                    const recentSaves = treatments.filter(t => {
+                        const tDate = new Date(t.created_at);
+                        const diffMin = (now.getTime() - tDate.getTime()) / 60000;
+                        // Check notes for "Sincronizado" or look for similarity
+                        return diffMin < 90 && t.notes && t.notes.includes("(Sincronizado)");
+                    });
+
+                    const bestOrphan = orphans[0];
+                    let adjustedOrphan = { ...bestOrphan };
+                    let diffCarbs = bestOrphan.carbs;
+                    let alreadyApplied = 0;
+
+                    if (recentSaves.length > 0) {
+                        // Sum up what we already covered
+                        alreadyApplied = recentSaves.reduce((acc, t) => acc + (t.carbs || 0), 0);
+
+                        // If the new total is just an accumulation, offer the difference
+                        if (bestOrphan.carbs > alreadyApplied) {
+                            diffCarbs = bestOrphan.carbs - alreadyApplied;
+                            adjustedOrphan._diffMode = true;
+                            adjustedOrphan._originalCarbs = bestOrphan.carbs;
+                            adjustedOrphan._alreadyApplied = alreadyApplied;
+                            adjustedOrphan._netCarbs = diffCarbs;
+                        } else if (bestOrphan.carbs <= alreadyApplied + 2) {
+                            // Close enough to consider covered
+                            adjustedOrphan._fullyCovered = true;
+                        }
+                    }
+
+                    if (!adjustedOrphan._fullyCovered) {
+                        setOrphanCarbs(adjustedOrphan);
+                    }
                 }
             } catch (err) {
                 console.warn("Failed to fetch recent treatments for orphan detection", err);
@@ -530,12 +563,24 @@ export default function BolusPage() {
                                     </span>
                                 </div>
                                 <div style={{ fontSize: '0.9rem', color: '#166534' }}>
-                                    Se han detectado datos externos: <strong>{(orphanCarbs.carbs || 0).toFixed(1)}g HC</strong>
-                                    {(orphanCarbs.fat > 0 || orphanCarbs.protein > 0) && (
-                                        <span>, {(orphanCarbs.fat || 0).toFixed(1)}g Grasas, {(orphanCarbs.protein || 0).toFixed(1)}g Prot.</span>
+                                    {orphanCarbs._diffMode ? (
+                                        <div>
+                                            Nueva actualización: <strong>{(orphanCarbs._originalCarbs || 0).toFixed(1)}g Total</strong>.
+                                            <br />
+                                            <span style={{ fontSize: '0.85rem' }}>Ya aplicaste: <strong>{orphanCarbs._alreadyApplied.toFixed(1)}g</strong>.</span>
+                                            <br />
+                                            <span style={{ fontWeight: 800 }}>Diferencia a cubrir: +{(orphanCarbs._netCarbs || 0).toFixed(1)}g HC</span>
+                                        </div>
+                                    ) : (
+                                        <>
+                                            Se han detectado datos externos: <strong>{(orphanCarbs.carbs || 0).toFixed(1)}g HC</strong>
+                                            {(orphanCarbs.fat > 0 || orphanCarbs.protein > 0) && (
+                                                <span>, {(orphanCarbs.fat || 0).toFixed(1)}g Grasas, {(orphanCarbs.protein || 0).toFixed(1)}g Prot.</span>
+                                            )}
+                                        </>
                                     )}
 
-                                    {(orphanCarbs.carbs >= 50 || orphanCarbs.fat >= 15 || orphanCarbs.protein >= 20) && (
+                                    {(!orphanCarbs._diffMode && (orphanCarbs.carbs >= 50 || orphanCarbs.fat >= 15 || orphanCarbs.protein >= 20)) && (
                                         <div style={{ marginTop: '5px', fontWeight: 600, color: '#15803d' }}>
                                             💡 {orphanCarbs.fat >= 15 ? 'Muchas grasas detectadas.' : 'Cantidad alta detectada.'} Se recomienda <strong>Bolo Dual</strong>.
                                         </div>
@@ -544,10 +589,23 @@ export default function BolusPage() {
                                 <div style={{ display: 'flex', gap: '10px' }}>
                                     <Button
                                         onClick={() => {
+                                            const valToSet = orphanCarbs._diffMode ? orphanCarbs._netCarbs : orphanCarbs.carbs;
+
                                             // Format to 1 decimal for input
-                                            setCarbs((orphanCarbs.carbs || 0).toFixed(1));
+                                            setCarbs((valToSet || 0).toFixed(1));
                                             setIsUsingOrphan(true);
-                                            const needsDual = (orphanCarbs.carbs >= 50 || orphanCarbs.fat >= 15 || orphanCarbs.protein >= 20);
+
+                                            // IMPORTANT: If we are applying a DIFFERENCE (new food added now), 
+                                            // we must reset the time to NOW, otherwise it might use the old meal time.
+                                            if (orphanCarbs._diffMode) {
+                                                const now = new Date();
+                                                const localIso = new Date(now.getTime() - (now.getTimezoneOffset() * 60000)).toISOString().slice(0, 16);
+                                                setDate(localIso);
+                                            }
+
+                                            const totalC = orphanCarbs._diffMode ? orphanCarbs._originalCarbs : orphanCarbs.carbs;
+                                            const needsDual = (totalC >= 50 || orphanCarbs.fat >= 15 || orphanCarbs.protein >= 20);
+
                                             if (needsDual) {
                                                 setDualEnabled(true);
                                                 showToast("✅ Datos aplicados y Bolo Dual activado por grasas/HC.", "success");
@@ -557,7 +615,8 @@ export default function BolusPage() {
                                         }}
                                         style={{ background: '#22c55e', color: '#fff', fontSize: '0.85rem', padding: '6px 12px' }}
                                     >
-                                        Usar Datos {(orphanCarbs.carbs >= 50 || orphanCarbs.fat >= 15 || orphanCarbs.protein >= 20) ? '+ Dual' : ''}
+                                        Usar {orphanCarbs._diffMode ? 'Diferencia (+' + Math.round(orphanCarbs._netCarbs) + 'g)' : 'Datos'}
+                                        {(!orphanCarbs._diffMode && (orphanCarbs.carbs >= 50 || orphanCarbs.fat >= 15 || orphanCarbs.protein >= 20)) ? ' + Dual' : ''}
                                     </Button>
                                     <Button
                                         onClick={() => setOrphanCarbs(null)}
