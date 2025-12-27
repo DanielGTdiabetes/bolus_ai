@@ -174,33 +174,46 @@ async def get_current_forecast(
     if all_rows:
         last_row = None
         for row in all_rows:
-            is_dup = False
-            # Normalize row time for comparison
+            # Prepare row properties
             r_time = row.created_at
             if r_time.tzinfo is None: r_time = r_time.replace(tzinfo=timezone.utc)
+            r_ins = getattr(row, 'insulin', 0) or 0
+            r_carbs = getattr(row, 'carbs', 0) or 0
+            
+            is_dup = False
             
             if last_row:
                 l_time = last_row.created_at
                 if l_time.tzinfo is None: l_time = l_time.replace(tzinfo=timezone.utc)
+                l_ins = getattr(last_row, 'insulin', 0) or 0
+                l_carbs = getattr(last_row, 'carbs', 0) or 0
                 
                 dt_diff = abs((r_time - l_time).total_seconds())
                 
-                # Check values
-                r_ins = getattr(row, 'insulin', 0) or 0
-                l_ins = getattr(last_row, 'insulin', 0) or 0
-                r_carbs = getattr(row, 'carbs', 0) or 0
-                l_carbs = getattr(last_row, 'carbs', 0) or 0
-                
+                # Check 1: Exact Duplicate (Same Insulin AND Same Carbs)
                 values_match = (abs(r_ins - l_ins) < 0.1) and (abs(r_carbs - l_carbs) < 1.0)
                 
-                # If values match and time is close
                 if values_match:
-                    # 2 mins proximity
-                    if dt_diff < 120:
+                    # 2 mins proximity OR Timezone shift (1h, 2h)
+                    if dt_diff < 120 or abs(dt_diff - 3600) < 120 or abs(dt_diff - 7200) < 120:
                         is_dup = True
-                    # Timezone shift (1h, 2h)
-                    elif abs(dt_diff - 3600) < 120 or abs(dt_diff - 7200) < 120:
-                        is_dup = True
+                
+                # Check 2: Carb Collision (Update Logic) - ONLY if both have NO insulin
+                # If we have two carb entries close in time, assume it's an update (e.g. 45 -> 60)
+                # We KEEP the one with higher carbs (assuming it's the accumulated total like MPF)
+                if not is_dup and r_ins == 0 and l_ins == 0:
+                     if dt_diff < 300: # Within 5 minutes
+                         # It's a collision. We want to keep the one with MAX carbs.
+                         # 'row' is the current candidate. 'last_row' is the one already in unique_rows[-1].
+                         if r_carbs > l_carbs:
+                             # Current is better (updated total). Replace the last one.
+                             unique_rows.pop() # Remove the smaller/old one
+                             unique_rows.append(row) # Add the new bigger one
+                             last_row = row
+                             is_dup = True # Handled, don't add again
+                         else:
+                             # Previous was better or equal. Ignore current.
+                             is_dup = True 
             
             if not is_dup:
                 unique_rows.append(row)

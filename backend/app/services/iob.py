@@ -419,17 +419,41 @@ async def compute_cob_from_sources(
     for e in valid_entries:
         is_dup = False
         e_ts = _safe_parse(e["ts"])
-        e_val = float(e["carbs"])
-        
+        e_val = float(e.get("carbs", 0))
+        # Check if insulin is present? This function uses "extra_entries" (carbs only) + NS (treatments).
+        # We should check if 'insulin' key exists and is > 0?
+        # compute_cob_from_sources aggregates CARBS. 
+        # But if the entry has insulin, usually it's a bolus.
+        # "Carb Collision" logic applies primarily to SNACKS (0 insulin).
+        # We can simulate this by assuming valid_entries are carb records.
+        # But wait, NS treatments return everything.
+        e_ins = float(e.get("insulin", 0) or 0)
+
         if last_e:
             l_ts = _safe_parse(last_e["ts"])
-            l_val = float(last_e["carbs"])
+            l_val = float(last_e.get("carbs", 0))
+            l_ins = float(last_e.get("insulin", 0) or 0)
             
             dt = abs((e_ts - l_ts).total_seconds())
-            if abs(e_val - l_val) < 1.0:
+            
+            # 1. Exact Match
+            if abs(e_val - l_val) < 1.0 and abs(e_ins - l_ins) < 0.1:
                 if dt < 900: is_dup = True
                 elif abs(dt - 3600) < 300: is_dup = True
                 elif abs(dt - 7200) < 300: is_dup = True
+                
+            # 2. Carb Collision (Update Logic)
+            # If both have NO insulin and are strictly Carb updates
+            if not is_dup and e_ins == 0 and l_ins == 0:
+                 if dt < 300: # 5 min window
+                     # Keep MAX
+                     if e_val > l_val:
+                         unique_entries.pop()
+                         unique_entries.append(e)
+                         last_e = e
+                         is_dup = True
+                     else:
+                         is_dup = True
         
         if not is_dup:
             unique_entries.append(e)
