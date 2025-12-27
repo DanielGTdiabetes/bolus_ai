@@ -3,7 +3,8 @@ from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
 import logging
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
+from sqlalchemy import select, and_
 
 from app.core.security import get_current_user_optional, CurrentUser
 from app.api.bolus import save_treatment
@@ -115,9 +116,30 @@ async def ingest_nutrition(
             notes += ": " + ", ".join(notes_list[:3]) # Limit length
         notes += " #imported"
         
-        # DB Save Direct
         if session:
             from app.models.treatment import Treatment
+            
+            # --- DEDUPLICATION CHECK ---
+            # Check if we already received identical macros in the last 15 mins
+            dedup_window = datetime.now(timezone.utc) - timedelta(minutes=15)
+            
+            stmt = select(Treatment).where(
+                Treatment.created_at >= dedup_window,
+                Treatment.carbs == total_carbs,
+                Treatment.fat == total_fat,
+                Treatment.protein == total_protein,
+                Treatment.entered_by == "webhook-integration"
+            )
+            result = await session.execute(stmt)
+            existing = result.scalars().first()
+            
+            if existing:
+                logger.info("Ingest Skipped: Duplicate data detected within 15 min.")
+                return {"success": True, "status": "duplicate_skipped", "id": existing.id}
+            
+            # --- END DEDUPLICATION ---
+            
+            # DB Save Direct
             
             new_t = Treatment(
                 id=treatment_id,
