@@ -355,23 +355,84 @@ async def compute_cob_from_sources(
     now: datetime,
     nightscout_client,
     data_store: DataStore,
+    extra_entries: list[dict[str, float]] | None = None,
 ) -> float:
     entries = []
+    
+    # 1. Fetch Local fallback (always load for merging)
+    local_events = []
+    try:
+        raw_events = data_store.load_events()
+        for e in raw_events:
+             if e.get("carbs"):
+                 local_events.append({"ts": e["ts"], "carbs": float(e["carbs"])})
+    except:
+        pass
+
+    entries.extend(local_events)
+
+    # 2. Fetch Nightscout
+    ns_entries = []
     if nightscout_client:
         try:
             # 6 hours lookback for carbs
             treatments = await nightscout_client.get_recent_treatments(hours=6, limit=1000)
-            entries.extend(_carbs_from_treatments(treatments))
+            ns_entries = _carbs_from_treatments(treatments)
         except Exception as exc:
              logger.warning("Nightscout treatments (for COB) unavailable", extra={"error": str(exc)})
     
-    # Also Check Local? 
-    # Usually we rely on NS if enabled, but local if not.
-    if not entries:
-        # Minimal local fallback
-        events = data_store.load_events()
-        for e in events:
-             if e.get("carbs"):
-                 entries.append({"ts": e["ts"], "carbs": float(e["carbs"])})
+    # 3. Merge DB (Extra)
+    if extra_entries:
+        # DB format usually {"ts": iso, "carbs": val} or similar
+        # Ensure format matches
+        for e in extra_entries:
+            entries.append(e)
 
-    return compute_cob(now, entries, duration_hours=4.0)
+    # 4. Merge NS
+    if ns_entries:
+        for e in ns_entries:
+            entries.append(e)
+            
+    # 5. Deduplicate
+    # Reuse simple dedupe logic or implement inline
+    # Keys: ts, carbs. Tolerance: 15 min, 1h. Values: exactish.
+    unique_entries = []
+    
+    def _safe_parse(ts_val):
+        try:
+            dt = datetime.fromisoformat(str(ts_val).replace("Z", "+00:00"))
+            if dt.tzinfo is None: dt = dt.replace(tzinfo=timezone.utc)
+            return dt
+        except:
+            return None
+
+    # Sort
+    # entries need valid ts
+    valid_entries = []
+    for e in entries:
+        if _safe_parse(e.get("ts")):
+            valid_entries.append(e)
+            
+    valid_entries.sort(key=lambda x: _safe_parse(x["ts"]))
+    
+    last_e = None
+    for e in valid_entries:
+        is_dup = False
+        e_ts = _safe_parse(e["ts"])
+        e_val = float(e["carbs"])
+        
+        if last_e:
+            l_ts = _safe_parse(last_e["ts"])
+            l_val = float(last_e["carbs"])
+            
+            dt = abs((e_ts - l_ts).total_seconds())
+            if abs(e_val - l_val) < 1.0:
+                if dt < 900: is_dup = True
+                elif abs(dt - 3600) < 300: is_dup = True
+                elif abs(dt - 7200) < 300: is_dup = True
+        
+        if not is_dup:
+            unique_entries.append(e)
+            last_e = e
+
+    return compute_cob(now, unique_entries, duration_hours=4.0)

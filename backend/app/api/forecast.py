@@ -104,6 +104,7 @@ async def get_current_forecast(
     
     cutoff = datetime.now(timezone.utc) - timedelta(hours=6)
     
+    # 3.0 Fetch DB Treatments
     stmt = (
         select(Treatment)
         .where(Treatment.user_id == user.username)
@@ -111,39 +112,100 @@ async def get_current_forecast(
         .order_by(Treatment.created_at.desc())
     )
     result = await session.execute(stmt)
-    rows = result.scalars().all()
-    
-    # 3.1 Deduplicate Rows (Fix for Double Submission / Echoes)
-    # We filter out events that are extremely close in time with identical values.
-    unique_rows = []
-    if rows:
-        # Sort by created_at to ensure proximity
-        sorted_rows = sorted(rows, key=lambda x: x.created_at)
-        
-        last_row = None
-        for row in sorted_rows:
-            is_dup = False
-            if last_row:
-                dt_diff = abs((row.created_at - last_row.created_at).total_seconds())
-                # If within 2 mins and identical values
-                if dt_diff < 120:
-                    same_ins = (row.insulin == last_row.insulin)
-                    same_carbs = (row.carbs == last_row.carbs)
-                    if same_ins and same_carbs:
-                        is_dup = True
+    db_rows = result.scalars().all()
+
+    # 3.1 Fetch NS Treatments (External Data)
+    ns_rows = []
+    if ns_config and ns_config.enabled and ns_config.url:
+        try:
+            client = NightscoutClient(ns_config.url, ns_config.api_secret, timeout_seconds=5)
+            # Fetch last 6 hours
+            ns_treatments = await client.get_recent_treatments(hours=6, limit=200)
+            await client.aclose()
+            
+            # Convert NS treatments to pseudo-Treatment objects for uniform processing
+            for t in ns_treatments:
+                # Map fields
+                _id = t.id or t._id
+                _created_at = t.created_at
+                _insulin = t.insulin
+                _carbs = t.carbs
+                _notes = t.notes
+                _duration = t.duration
                 
-                # Timezone Glitch Guard (1h or 2h offset with IDENTICAL values)
-                elif abs(dt_diff - 3600) < 120 or abs(dt_diff - 7200) < 120:
-                    same_ins = (row.insulin == last_row.insulin)
-                    same_carbs = (row.carbs == last_row.carbs)
-                    if same_ins and same_carbs:
+                # Filter out obvious duplicates already in DB? 
+                # We do dedupe below, so just append.
+                # Create a simple object or dict accessor wrapper
+                class PseudoTreatment:
+                    def __init__(self, id, created_at, insulin, carbs, notes, duration):
+                        self.id = id
+                        self.created_at = created_at
+                        self.insulin = insulin
+                        self.carbs = carbs
+                        self.notes = notes
+                        self.duration = duration
+                
+                # Check formatting
+                if isinstance(_created_at, str):
+                    try:
+                        _created_at = datetime.fromisoformat(_created_at.replace("Z", "+00:00"))
+                    except:
+                        pass
+                
+                # Ensure UTC
+                if isinstance(_created_at, datetime) and _created_at.tzinfo is None:
+                    _created_at = _created_at.replace(tzinfo=timezone.utc)
+                
+                ns_rows.append(PseudoTreatment(_id, _created_at, _insulin, _carbs, _notes, _duration))
+                
+        except Exception as e:
+            print(f"Forecast NS Treatment fetch failed: {e}")
+            pass
+
+    # 3.2 Merge & Deduplicate
+    all_rows = []
+    all_rows.extend(db_rows)
+    all_rows.extend(ns_rows)
+    
+    # Sort by created_at
+    all_rows.sort(key=lambda x: x.created_at if x.created_at.tzinfo else x.created_at.replace(tzinfo=timezone.utc))
+
+    unique_rows = []
+    if all_rows:
+        last_row = None
+        for row in all_rows:
+            is_dup = False
+            # Normalize row time for comparison
+            r_time = row.created_at
+            if r_time.tzinfo is None: r_time = r_time.replace(tzinfo=timezone.utc)
+            
+            if last_row:
+                l_time = last_row.created_at
+                if l_time.tzinfo is None: l_time = l_time.replace(tzinfo=timezone.utc)
+                
+                dt_diff = abs((r_time - l_time).total_seconds())
+                
+                # Check values
+                r_ins = getattr(row, 'insulin', 0) or 0
+                l_ins = getattr(last_row, 'insulin', 0) or 0
+                r_carbs = getattr(row, 'carbs', 0) or 0
+                l_carbs = getattr(last_row, 'carbs', 0) or 0
+                
+                values_match = (abs(r_ins - l_ins) < 0.1) and (abs(r_carbs - l_carbs) < 1.0)
+                
+                # If values match and time is close
+                if values_match:
+                    # 2 mins proximity
+                    if dt_diff < 120:
+                        is_dup = True
+                    # Timezone shift (1h, 2h)
+                    elif abs(dt_diff - 3600) < 120 or abs(dt_diff - 7200) < 120:
                         is_dup = True
             
             if not is_dup:
                 unique_rows.append(row)
                 last_row = row
         
-        # Use refined list
         rows = unique_rows
 
     boluses = []

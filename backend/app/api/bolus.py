@@ -537,7 +537,9 @@ async def get_current_iob(
         ns_client = NightscoutClient(eff_url, eff_token, timeout_seconds=5)
         
         # Fetch DB treatments for IOB
+        # Fetch DB treatments for IOB
     db_events = []
+    db_carbs = []
     if session:
          try:
             from app.models.treatment import Treatment as DBTreatment
@@ -552,11 +554,16 @@ async def get_current_iob(
             result = await session.execute(stmt)
             rows = result.scalars().all()
             for row in rows:
+                created_iso = row.created_at.isoformat()
+                if not created_iso.endswith("Z") and "+" not in created_iso:
+                    created_iso += "Z"
+
                 if row.insulin and row.insulin > 0:
-                    created_iso = row.created_at.isoformat()
-                    if not created_iso.endswith("Z") and "+" not in created_iso:
-                        created_iso += "Z"
                     db_events.append({"ts": created_iso, "units": float(row.insulin)})
+                
+                if row.carbs and row.carbs > 0:
+                    db_carbs.append({"ts": created_iso, "carbs": float(row.carbs)}) # For COB
+
          except Exception as db_err:
              logger.error(f"Failed to fetch DB events for IOB: {db_err}")
 
@@ -608,7 +615,7 @@ async def get_current_iob(
             
             
         # Calculate COB
-        total_cob = await compute_cob_from_sources(now, ns_client, store)
+        total_cob = await compute_cob_from_sources(now, ns_client, store, extra_entries=db_carbs)
 
         return {
             "iob_total": round(total_iob, 2),
