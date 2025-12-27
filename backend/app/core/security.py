@@ -150,6 +150,9 @@ def get_current_user(
 ) -> CurrentUser:
     from app.core.datastore import UserStore
 
+    if not token:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
+
     payload = token_manager.decode_token(token, expected_type="access")
     username = str(payload.get("sub"))
     store = UserStore(Path(settings.data.data_dir) / "users.json")
