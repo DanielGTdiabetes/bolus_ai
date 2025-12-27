@@ -247,15 +247,29 @@ Has comido bien, te has puesto tu insulina... y de repente, a los 45 minutos, sa
     4.  **Cálculo Inteligente:** En lugar de mandarte la dosis completa, la app restará lo que te sobra de la comida anterior para evitar que se te acumule (Stacking).
     5.  Te dirá: *"Para la tarta necesitas 3 U, pero como te sobra 1 U activa de la comida, ponte solo **2 U**"*. ¡Salvado de la hipoglucemia!
 
-### 📈 5. La Subida Tardía (El "Efecto Pizza")
-Cenaste pizza hace 3 horas. Te pusiste tu bolo normal. Todo iba bien, pero de repente... ¡tu glucosa se dispara a 180 y subiendo ↗️!
-*   **Error:** Usar la calculadora normal. Te dirá "0.0 U sugeridas" porque aún tienes insulina activa (IOB) de la cena.
-*   **Solución (Modo Reactivo):**
+### 📈 5. La Subida Tardía (El "Micro-Bolo" de Rescate)
+Cenaste pizza o comida grasa hace 3 horas. Te pusiste tu bolo normal. Todo iba bien, pero de repente... ¡tu glucosa se dispara a 180 y subiendo ↗️!
+
+*   **Error:** Usar la calculadora normal. Te dirá "0.0 U sugeridas" porque aún tienes algo de insulina activa (IOB) de la cena.
+*   **Solución (Modo Microbolos):**
+    Este es tu "Plan C" para cuando la grasa gana la batalla a la insulina inicial.
+
     1.  Abre la calculadora. Pon Glucosa: 180.
     2.  Marca ☑️ **Solo Corrección**.
-    3.  Marca ☑️ **Ignorar IOB (Grasas)**.
-    4.  **Cálculo:** La app entenderá que esa subida es "nueva" (grasa entrando tarde) y te sugerirá una corrección (ej. 1.0 U).
-    5.  **Micro-bolos:** La app limita la dosis por seguridad. Si sigues subiendo en 1 hora, repite el proceso. ¡Así controlas la grasa sin riesgo de sobredosis!
+    3.  Marca ☑️ **Modo Microbolos**.
+    4.  **Cálculo:** La app sugerirá una pequeña dosis de rescate (ej. 0.5 o 1.0 U) ignorando parcialmente la insulina activa, porque entiende que no es suficiente para la grasa que está entrando.
+    
+    **💡 Ejemplo Práctico: Cena de Nochevieja**
+    1.  **21:00 (Inicio):** Usas Bolo Dual. Te pones 6 U ahora y programas 4 U para luego.
+    2.  **23:30 (2ª Parte):** Te pones las 4 U restantes.
+    3.  **01:30 (El Problema):** Pasado el tiempo, la glucosa sigue alta en 180 ➡️. Las 4 U no pudieron con todo el turrón. 
+        *   Si usas la calculadora normal: *"Tienes IOB. Espera"*. (Te deja vendido).
+        *   **Con Modo Microbolos:** *"Bolo hace 2 horas. Te calculo **1.0 U** extra de rescate"*.
+    
+    **⚠️ Reglas de Seguridad Automáticas:**
+    *   **Bloqueo de Tiempo:** Si te has pinchado hace menos de **75 min**, el sistema **NO** te dejará ponerte micro-bolos. (Te dirá: *"⛔ Espera, bolo reciente"*).
+    *   **Alcohol:** Si marcas modo Alcohol, la dosis sugerida se reduce a la **mitad** (50%) para evitar bajones peligrosos de madrugada.
+    *   **Redondeo Seguro:** La dosis siempre se redondeará al paso de tu bolígrafo (ej. 0.5 o 1.0) para que sea real y accionable.
 
 ---
 *Bolus AI está diseñado para ser tu copiloto. Siempre consulta con tu médico antes de hacer cambios drásticos en tu terapia.*
