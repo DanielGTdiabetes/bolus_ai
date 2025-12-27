@@ -568,6 +568,12 @@ async def get_treatments_server(
                 # Check content equality
                 if abs(ex_ins - item_ins) < 0.001 and abs(ex_carbs - item_carbs) < 0.1:
                     is_duplicate = True
+                    # Merge Metadata: If the discarded item has Fat/Protein that the existing one lacks, keep it.
+                    # This fixes the case where NS record (Fat=0) shadows DB/Local record (Fat=45).
+                    if not existing.get("fat") and item.get("fat"):
+                        existing["fat"] = item["fat"]
+                    if not existing.get("protein") and item.get("protein"):
+                        existing["protein"] = item["protein"]
                     break
         
         if not is_duplicate:
