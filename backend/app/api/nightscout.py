@@ -406,6 +406,10 @@ async def get_treatments_server(
                     if m.id:
                         d["_id"] = m.id
                     
+                    # Ensure nutrition fields
+                    d["fat"] = getattr(m, 'fat', 0)
+                    d["protein"] = getattr(m, 'protein', 0)
+
                     # Ensure created_at is strictly ISO with Z if it is UTC
                     if m.created_at: 
                         # m.created_at is timezone-aware in the model
@@ -453,6 +457,8 @@ async def get_treatments_server(
                     "date": row.created_at.replace(tzinfo=timezone.utc).timestamp() * 1000,
                     "insulin": row.insulin,
                     "carbs": row.carbs,
+                    "fat": getattr(row, 'fat', 0), # Added
+                    "protein": getattr(row, 'protein', 0), # Added
                     "notes": row.notes,
                     "enteredBy": row.entered_by,
                     "is_uploaded": row.is_uploaded,
