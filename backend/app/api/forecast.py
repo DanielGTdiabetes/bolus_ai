@@ -219,7 +219,7 @@ async def get_current_forecast(
                 unique_rows.append(row)
                 last_row = row
         
-        rows = unique_rows
+    rows = unique_rows
 
     boluses = []
     carbs = []
