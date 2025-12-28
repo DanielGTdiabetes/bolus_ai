@@ -369,53 +369,51 @@ def calculate_bolus_v2(
         # Total_kcal = F_kcal + P_kcal
         # FPU (Fat-Protein Units) = Total_kcal / 10 (approx equivalent carbs)
         
-        # Trio/Warsaw Adjustment: normally we don't cover 100% of FPU.
-        # Standard conservative start is ~50% coverage.
-        
         fat_kcal = request.fat_g * 9.0
         prot_kcal = request.protein_g * 4.0
         total_extra_kcal = fat_kcal + prot_kcal
         
-        # Threshold to trigger (e.g. at least 10g equivalent carbs / 100kcal)
-        if settings.warsaw.enabled and total_extra_kcal >= settings.warsaw.trigger_threshold_kcal:
+        warsaw_u = 0.0
+        
+        # Calculate Warsaw Insulin if enabled, regardless of threshold (to decide where to put it)
+        if settings.warsaw.enabled:
              fpu_equivalent_carbs = total_extra_kcal / 10.0
-             
-             # Adjustment Factor (from Settings)
              safety_factor = settings.warsaw.safety_factor 
+             warsaw_u = (fpu_equivalent_carbs * safety_factor) / cr
              
-             # Calculate Extra Insulin needed for FPU
-             # This is ADDED to the normal meal bolus? 
-             # Warsaw method usually says: Treat Carbs as Upfront, Treat FPU as Extended.
-             # So we do:
-             # Upfront = Normal Bolus (for Carbs)
-             # Later = FPU_Carbs * SafetyFactor / ICR
-             
-             fpu_bolus_u = (fpu_equivalent_carbs * safety_factor) / cr
+        # Threshold Logic:
+        # If > Threshold -> EXTEND (Dual Bolus)
+        # If <= Threshold -> UPFRONT (Simple Bolus, but included)
+        
+        if settings.warsaw.enabled and total_extra_kcal >= settings.warsaw.trigger_threshold_kcal:
              
              # Duration Calculation (Warsaw)
-             # Basic rule: <150kcal: 3h, 150-300: 4h, >300: 5h+
-             # Simplified Trio/AndroidAPS formula logic:
-             # duration = 3h + (fpu / 10) * 0.5h ??
-             # Let's use robust stepping:
              if fpu_equivalent_carbs < 20: duration_calc = 180 # 3h
              elif fpu_equivalent_carbs < 40: duration_calc = 240 # 4h
              else: duration_calc = 300 # 5h
              
-             explain.append(f"🥩 Warsaw (Grasa/Prot): {request.fat_g}g F, {request.protein_g}g P -> {total_extra_kcal:.0f} kcal")
-             explain.append(f"   Equivalente Carbs: {fpu_equivalent_carbs:.1f}g x {safety_factor} (Safety) = {fpu_equivalent_carbs*safety_factor:.1f}g netos")
-             explain.append(f"   Extra Extendido: {fpu_bolus_u:.2f} U durante {duration_calc/60:.1f}h")
+             explain.append(f"🥩 Warsaw (Dual): {request.fat_g}g F, {request.protein_g}g P -> {total_extra_kcal:.0f} kcal")
+             explain.append(f"   Equivalente: {fpu_equivalent_carbs:.1f}g x {safety_factor} = {fpu_equivalent_carbs*safety_factor:.1f}g netos")
+             explain.append(f"   Extra a Extender: {warsaw_u:.2f} U durante {duration_calc/60:.1f}h")
              
-             # Apply
+             # Apply Split
              kind = "extended"
-             upfront_raw = total_after_exercise # The carb part is upfront
-             later_raw = fpu_bolus_u
+             upfront_raw = total_after_exercise # Carbs upfront
+             later_raw = warsaw_u # FPU extended
              duration = duration_calc
              
-             # Note: total_after_exercise was strictly CARBS + CORR.
-             # Now we are ADDING insulin.
+        elif settings.warsaw.enabled and warsaw_u > 0:
+             # Add to Upfront
+             explain.append(f"🥩 Warsaw (Simple): {total_extra_kcal:.0f} kcal < Umbral {settings.warsaw.trigger_threshold_kcal}.")
+             explain.append(f"   Se añade el extra ({warsaw_u:.2f} U) al bolo inmediato.")
+             
+             kind = "normal"
+             upfront_raw = total_after_exercise + warsaw_u
+             later_raw = 0.0
         else:
-            upfront_raw = total_after_exercise
-            later_raw = 0.0
+             # Disabled or 0
+             upfront_raw = total_after_exercise
+             later_raw = 0.0
     else:
         # Standard Normal Bolus
         pct = 1.0
