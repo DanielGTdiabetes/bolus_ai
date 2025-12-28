@@ -187,7 +187,7 @@ function CalcParamsPanel() {
         round_step_u: 0.5,
         max_bolus_u: 10,
         techne: { enabled: false, max_step_change: 0.5, safety_iob_threshold: 1.5 },
-        warsaw: { enabled: true, trigger_threshold_kcal: 150, safety_factor: 0.1 },
+        warsaw: { enabled: true, trigger_threshold_kcal: 300, safety_factor: 0.1 },
         autosens: { enabled: true, min_ratio: 0.7, max_ratio: 1.2 }
     };
 
@@ -507,7 +507,7 @@ function CalcParamsPanel() {
                                 type="number"
                                 value={params.warsaw.trigger_threshold_kcal}
                                 onChange={e => setParams(prev => ({ ...prev, warsaw: { ...prev.warsaw, trigger_threshold_kcal: parseInt(e.target.value) } }))}
-                                placeholder="Ej: 150"
+                                placeholder="Ej: 300"
                             />
                             <Input
                                 label="Intensidad (Cobertura)"

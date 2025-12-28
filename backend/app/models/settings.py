@@ -112,7 +112,7 @@ class TechneRoundingConfig(BaseModel):
 
 class WarsawConfig(BaseModel):
     enabled: bool = True
-    trigger_threshold_kcal: int = Field(default=150, description="Min extra kcal (fat+prot) to trigger auto-dual")
+    trigger_threshold_kcal: int = Field(default=300, description="Min extra kcal (fat+prot) to trigger auto-dual")
     safety_factor: float = Field(default=0.1, ge=0.1, le=1.0, description="Fraction of FPU to cover (0.5 = 50%)")
 
 
