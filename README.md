@@ -12,16 +12,17 @@ Para una explicación completa de cómo funciona la aplicación, consulta nuestr
 
 ## ✨ Características Principales
 
+- **🤖 Autosens (Nuevo)**: Detección automática de resistencia/sensibilidad en tiempo real (ajusta tus ratios si tienes un mal día).
+- **🕸️ Shadow Labs (Experimental)**: Pruebas de algoritmos de absorción en segundo plano sin riesgo (Auto-ISF, curvas personalizadas).
+- **🧠 Motor de Aprendizaje**: Sugerencias clínicas basadas en tus patrones (ej. "Baja tu ratio del desayuno").
 - **📸 Análisis de Comida por IA**: Estima carbohidratos, grasas y proteínas a partir de una foto.
-- **🧠 Smart Input (Nuevo)**: Autocompletado inteligente de comidas y aprendizaje de favoritos.
-- **📍 Mapa Corporal (Nuevo)**: Registro visual y rotación automática de sitios de inyección (Abdomen, Muslos, Glúteos) con ilustraciones médicas.
-- **⏰ Calculadora de Olvido (Nuevo)**: Herramienta de seguridad para recálculo de dosis basal tardía.
-- **🍴 Modo Restaurante**: Seguimiento inteligente de comidas complejas con sugerencias de ajuste al terminar.
-- **⚖️ Báscula Bluetooth**: Conexión directa con básculas inteligentes (Prozis) para pesaje preciso.
-- **📏 Calibración con Referencia**: Usa tu **pluma de insulina roja** (16.5cm) como referencia de tamaño para medir comida.
-- **⏱️ Bolo Dual/Extendido**: Sugerencias inteligentes de fraccionamiento de insulina.
-- **🔄 Integración Nightscout**: Lectura de glucosa en tiempo real, IOB y descarga de historial.
-- **📊 Gestión de Basal**: Registro de glucosa al despertar, escaneo nocturno de hipos y evaluación de efectividad de cambios de dosis.
+- **📍 Mapa Corporal**: Rotación de sitios de inyección con memoria visual.
+- **⏰ Calculadora de Olvido**: Seguridad para recálculo de basal tardía.
+- **🍴 Modo Restaurante**: Seguimiento inteligente de comidas complejas.
+- **⚖️ Báscula Bluetooth**: Conexión directa con básculas inteligentes.
+- **⏱️ Bolo Dual/Extendido/Micro**: Estrategias avanzadas para grasas, proteínas y correcciones post-pandriales ("Dessert Mode").
+- **🔄 Integración Nightscout**: Lectura en tiempo real + Subida de Tratamientos.
+- **📊 Gestión de Basal**: Análisis de "Amanecer" y eficacia nocturna.
 
 ---
 ## 💻 Ejecución Local (Recomendado Desarrollo)
@@ -49,6 +50,9 @@ Evita lipodistrofias usando el avatar visual. La app recuerda exactamente dónde
 
 ### 📏 Truco del Bolígrafo (Calibración)
 Si habilitas el análisis de imagen, puedes colocar tu **pluma de insulina** (modelo NovoPen Echo Plus o similar, color rojo metálico) junto al plato. La IA sabe que mide exactamente **16.5 cm** y la usará para calibrar el volumen real de la comida.
+
+### 🤖 Autosens & Sugerencias
+Olvídate de calcular si hoy estás más resistente. La app analiza las últimas 24h y ajusta dinámicamente tu ISF y Ratios (+10%, -5%...) para clavar el bolo. Además, el **Motor de Aprendizaje** revisa tus noches y comidas recurrentes para sugerirte cambios permanentes en tu terapia ("Tu desayuno de las 8am siempre acaba alto, sube el ratio").
 
 ### 🍽️ Sesión Restaurante (Seguridad en Exterior)
 El modo restaurante te permite planificar una comida desde el menú, realizar un bolo inicial y luego ir añadiendo fotos de los platos reales. Al final, la app calcula si el bolo fue suficiente o si necesitas un pequeño ajuste, siempre vigilando tu Insulina Activa (IOB).

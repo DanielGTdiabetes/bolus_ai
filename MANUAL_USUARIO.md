@@ -173,6 +173,25 @@ Mide cuánto te baja realmente 1 unidad de insulina.
 *   **¡OJO!** Solo funciona con datos "limpios" (Corrección aislada, sin comida, sin insulina previa).
 *   Si ves "Faltan datos", es normal. Significa que siempre te corriges comiendo. Intenta corregirte en ayunas un par de veces para calibrarlo.
 
+### D. Autosens (Sensibilidad Automática) 🤖
+Es tu **piloto automático de sensibilidad**.
+
+#### ¿Qué hace?
+Revisa tu glucosa de las últimas 24 horas y detecta si hoy estás **Resistente** (necesitas más insulina) o **Sensible** (necesitas menos).
+
+#### ¿Cómo funciona?
+*   Si detecta **Resistencia** (ej. estrés, enfermedad, sedentarismo): La app **bajará tu ISF y Ratio** temporalmente para que los próximos bolos sean más fuertes (+10%, +20%...).
+*   Si detecta **Sensibilidad** (ej. deporte intenso ayer): Hará los bolos más suaves para evitar hipoglucemias.
+
+#### ¿Dónde lo veo?
+*   **Calculadora:** Al calcular un bolo, verás un aviso: *"🔍 Autosens: Factor 1.2 (Resistencia +20%)"*. El ISF efectivo ya estará ajustado.
+*   **Gráfica de Predicción:** La curva futura ya tendrá en cuenta este factor. Si estás resistente, la curva bajará más despacio.
+
+#### Seguridad
+*   Tiene límites estrictos (mínimo 0.7, máximo 1.2 o 1.3 según config).
+*   Ignora datos "sucios" (si tenías comida activa o el sensor fallaba).
+*   Si tienes dudas, puedes desactivarlo desde **Ajustes > Perfil**.
+
 ---
 
 ## 7. 📦 GESTIÓN DE INSUMOS
