@@ -701,6 +701,16 @@ export async function exportUserData() {
   return data;
 }
 
+export async function importUserData(jsonData) {
+  const response = await apiFetch("/api/data/import", {
+    method: "POST",
+    body: JSON.stringify(jsonData)
+  });
+  const data = await toJson(response);
+  if (!response.ok) throw new Error(data.detail || "Error al importar datos");
+  return data;
+}
+
 export async function runAutoScan() {
   const response = await apiFetch("/api/basal/trigger-autoscan", {
     method: "POST"

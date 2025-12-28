@@ -10,3 +10,11 @@ async def export_user_history(current_user: CurrentUser = Depends(get_current_us
     Download all user data (Basal, Settings, Suggestions) as JSON.
     """
     return await export_all_user_data(current_user.id)
+
+@router.post("/import")
+async def import_user_history(data: dict, current_user: CurrentUser = Depends(get_current_user)):
+    """
+    Import user data from JSON (overwrites existing records with same ID).
+    """
+    from app.services.import_service import import_user_data
+    return await import_user_data(current_user.id, data)

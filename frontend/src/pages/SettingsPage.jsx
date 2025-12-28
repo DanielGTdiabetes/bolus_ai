@@ -9,7 +9,7 @@ import {
 } from '../modules/core/store';
 import {
     getNightscoutSecretStatus, saveNightscoutSecret, testNightscout,
-    fetchHealth, exportUserData
+    fetchHealth, exportUserData, importUserData
 } from '../lib/api';
 import { IsfAnalyzer } from '../components/settings/IsfAnalyzer';
 
@@ -589,6 +589,9 @@ function CalcParamsPanel() {
 }
 
 function DataPanel() {
+    const fileInputRef = React.useRef(null);
+    const [importing, setImporting] = useState(false);
+
     const handleExport = async () => {
         try {
             const data = await exportUserData();
@@ -604,6 +607,37 @@ function DataPanel() {
         } catch (e) { alert(e.message); }
     };
 
+    const handleImportClick = () => {
+        fileInputRef.current.click();
+    };
+
+    const handleFileChange = async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        if (!window.confirm("⚠️ IMPORTANTE: Al importar, se sobreescribirán los datos existentes si coinciden los IDs. \n\n¿Seguro que quieres restaurar esta copia de seguridad?")) {
+            e.target.value = null;
+            return;
+        }
+
+        setImporting(true);
+        const reader = new FileReader();
+        reader.onload = async (evt) => {
+            try {
+                const json = JSON.parse(evt.target.result);
+                const stats = await importUserData(json);
+                alert(`✅ Importación completada.\n\nResumen:\n${JSON.stringify(stats, null, 2)}`);
+                window.location.reload();
+            } catch (err) {
+                alert("❌ Error al importar: " + err.message);
+            } finally {
+                setImporting(false);
+                if (fileInputRef.current) fileInputRef.current.value = null;
+            }
+        };
+        reader.readAsText(file);
+    };
+
     return (
         <div className="stack">
             <div style={{ background: '#f8fafc', padding: '1rem', borderRadius: '8px' }}>
@@ -611,6 +645,22 @@ function DataPanel() {
                 <p style={{ marginBottom: '1rem', color: '#64748b', fontSize: '0.9rem' }}>Descarga copia de seguridad de todos tus datos.</p>
                 <Button variant="secondary" onClick={handleExport}>📥 Descargar Todo (JSON)</Button>
             </div>
+
+            <div style={{ background: '#f0fdf4', padding: '1rem', borderRadius: '8px', border: '1px solid #bbf7d0' }}>
+                <h3 style={{ fontSize: '1.1rem', margin: '0 0 0.5rem 0' }}>Restaurar / Importar</h3>
+                <p style={{ marginBottom: '1rem', color: '#64748b', fontSize: '0.9rem' }}>Carga un archivo JSON previamente exportado para restaurar tu configuración y datos.</p>
+                <input
+                    type="file"
+                    accept=".json"
+                    style={{ display: 'none' }}
+                    ref={fileInputRef}
+                    onChange={handleFileChange}
+                />
+                <Button variant="secondary" onClick={handleImportClick} disabled={importing} style={{ borderColor: '#16a34a', color: '#16a34a' }}>
+                    {importing ? 'Importando...' : '📤 Seleccionar Archivo...'}
+                </Button>
+            </div>
+
             <div style={{ background: '#f8fafc', padding: '1rem', borderRadius: '8px' }}>
                 <h3 style={{ fontSize: '1.1rem', margin: '0 0 0.5rem 0' }}>Notificaciones Push</h3>
                 <p style={{ marginBottom: '1rem', color: '#64748b', fontSize: '0.9rem' }}>Recibe alertas de análisis.</p>
