@@ -373,19 +373,19 @@ def calculate_bolus_v2(
         prot_kcal = request.protein_g * 4.0
         total_extra_kcal = fat_kcal + prot_kcal
         
-        warsaw_u = 0.0
-        
-        # Calculate Warsaw Insulin if enabled, regardless of threshold (to decide where to put it)
-        if settings.warsaw.enabled:
-             fpu_equivalent_carbs = total_extra_kcal / 10.0
-             safety_factor = settings.warsaw.safety_factor 
-             warsaw_u = (fpu_equivalent_carbs * safety_factor) / cr
-             
         # Threshold Logic:
-        # If > Threshold -> EXTEND (Dual Bolus)
-        # If <= Threshold -> UPFRONT (Simple Bolus, but included)
+        # If > Threshold -> EXTEND (Dual Bolus) -> Use Dual Factor
+        # If <= Threshold -> UPFRONT (Simple Bolus, but included) -> Use Simple Factor
         
-        if settings.warsaw.enabled and total_extra_kcal >= settings.warsaw.trigger_threshold_kcal:
+        is_above_threshold = (settings.warsaw.enabled and total_extra_kcal >= settings.warsaw.trigger_threshold_kcal)
+        
+        if is_above_threshold:
+             # Case A: Dual Bolus (High Fat/Protein)
+             # Use the Dual Safety Factor logic
+             safety_factor = getattr(settings.warsaw, 'safety_factor_dual', 0.2)
+             
+             fpu_equivalent_carbs = total_extra_kcal / 10.0
+             warsaw_u = (fpu_equivalent_carbs * safety_factor) / cr
              
              # Duration Calculation (Warsaw)
              if fpu_equivalent_carbs < 20: duration_calc = 180 # 3h
@@ -393,7 +393,7 @@ def calculate_bolus_v2(
              else: duration_calc = 300 # 5h
              
              explain.append(f"🥩 Warsaw (Dual): {request.fat_g}g F, {request.protein_g}g P -> {total_extra_kcal:.0f} kcal")
-             explain.append(f"   Equivalente: {fpu_equivalent_carbs:.1f}g x {safety_factor} = {fpu_equivalent_carbs*safety_factor:.1f}g netos")
+             explain.append(f"   Equivalente: {fpu_equivalent_carbs:.1f}g x {safety_factor} (Factor Dual) = {fpu_equivalent_carbs*safety_factor:.1f}g netos")
              explain.append(f"   Extra a Extender: {warsaw_u:.2f} U durante {duration_calc/60:.1f}h")
              
              # Apply Split
@@ -402,16 +402,27 @@ def calculate_bolus_v2(
              later_raw = warsaw_u # FPU extended
              duration = duration_calc
              
-        elif settings.warsaw.enabled and warsaw_u > 0:
-             # Add to Upfront
-             explain.append(f"🥩 Warsaw (Simple): {total_extra_kcal:.0f} kcal < Umbral {settings.warsaw.trigger_threshold_kcal}.")
-             explain.append(f"   Se añade el extra ({warsaw_u:.2f} U) al bolo inmediato.")
+        elif settings.warsaw.enabled:
+             # Case B: Simple Bolus (Low/Moderate Fat/Protein)
+             # Use Simple Safety Factor
+             safety_factor = settings.warsaw.safety_factor
              
-             kind = "normal"
-             upfront_raw = total_after_exercise + warsaw_u
-             later_raw = 0.0
+             fpu_equivalent_carbs = total_extra_kcal / 10.0
+             warsaw_u = (fpu_equivalent_carbs * safety_factor) / cr
+             
+             if warsaw_u > 0:
+                 # Add to Upfront
+                 explain.append(f"🥩 Warsaw (Simple): {total_extra_kcal:.0f} kcal < Umbral {settings.warsaw.trigger_threshold_kcal}.")
+                 explain.append(f"   Usando Factor Simple {safety_factor}. Se añade el extra ({warsaw_u:.2f} U) al bolo inmediato.")
+                 
+                 kind = "normal"
+                 upfront_raw = total_after_exercise + warsaw_u
+                 later_raw = 0.0
+             else:
+                 upfront_raw = total_after_exercise
+                 later_raw = 0.0
         else:
-             # Disabled or 0
+             # Disabled
              upfront_raw = total_after_exercise
              later_raw = 0.0
     else:

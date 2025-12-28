@@ -380,6 +380,7 @@ export default function BolusPage() {
                 round_step_u: mealParams.round_step_u || 0.5,
                 max_bolus_u: mealParams.max_bolus_u || 15,
                 warsaw_safety_factor: mealParams.warsaw?.safety_factor,
+                warsaw_safety_factor_dual: mealParams.warsaw?.safety_factor_dual,
                 warsaw_trigger_threshold_kcal: mealParams.warsaw?.trigger_threshold_kcal,
                 ignore_iob: dessertMode,
                 alcohol: alcoholEnabled,

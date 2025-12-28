@@ -64,6 +64,7 @@ class BolusRequestV2(BaseModel):
     
     # Warsaw Overrides
     warsaw_safety_factor: Optional[float] = Field(default=None, ge=0.01, le=1.0)
+    warsaw_safety_factor_dual: Optional[float] = Field(default=None, ge=0.01, le=1.0)
     warsaw_trigger_threshold_kcal: Optional[int] = Field(default=None, ge=0)
     
     # Strategy Flags

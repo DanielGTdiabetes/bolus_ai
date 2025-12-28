@@ -187,7 +187,7 @@ function CalcParamsPanel() {
         round_step_u: 0.5,
         max_bolus_u: 10,
         techne: { enabled: false, max_step_change: 0.5, safety_iob_threshold: 1.5 },
-        warsaw: { enabled: true, trigger_threshold_kcal: 300, safety_factor: 0.1 },
+        warsaw: { enabled: true, trigger_threshold_kcal: 300, safety_factor: 0.1, safety_factor_dual: 0.2 },
         autosens: { enabled: true, min_ratio: 0.7, max_ratio: 1.2 }
     };
 
@@ -510,12 +510,20 @@ function CalcParamsPanel() {
                                 placeholder="Ej: 300"
                             />
                             <Input
-                                label="Intensidad (Cobertura)"
+                                label="Factor Bolo Simple (0.1 = 10%)"
                                 type="number"
                                 step="0.1"
                                 value={params.warsaw.safety_factor}
                                 onChange={e => setParams(prev => ({ ...prev, warsaw: { ...prev.warsaw, safety_factor: parseFloat(e.target.value) } }))}
-                                placeholder="Ej: 0.1 (10%)"
+                                placeholder="0.1"
+                            />
+                            <Input
+                                label="Factor Bolo Dual (0.2 = 20%)"
+                                type="number"
+                                step="0.1"
+                                value={params.warsaw.safety_factor_dual ?? 0.2}
+                                onChange={e => setParams(prev => ({ ...prev, warsaw: { ...prev.warsaw, safety_factor_dual: parseFloat(e.target.value) } }))}
+                                placeholder="0.2"
                             />
                         </div>
                         <div style={{ fontSize: '0.75rem', color: '#c2410c' }}>

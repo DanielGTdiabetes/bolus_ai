@@ -167,6 +167,8 @@ async def calculate_bolus_stateless(
         warsaw_settings = WarsawConfig()
         if payload.warsaw_safety_factor is not None:
              warsaw_settings.safety_factor = payload.warsaw_safety_factor
+        if payload.warsaw_safety_factor_dual is not None:
+             warsaw_settings.safety_factor_dual = payload.warsaw_safety_factor_dual
         if payload.warsaw_trigger_threshold_kcal is not None:
              warsaw_settings.trigger_threshold_kcal = payload.warsaw_trigger_threshold_kcal
         
