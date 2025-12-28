@@ -193,6 +193,12 @@ class AutosensService:
                     if 0 < age_min < abs_time:
                          has_active_carbs = True
             
+                # check for exclusions
+                if tr['notes'] and any(x in tr['notes'].lower() for x in ['alcohol', 'sick', 'enfermedad']):
+                     if 0 <= age_min < 600: # 10h exclusion window for safety
+                         has_active_carbs = True # Re-use this flag or create new, reusing forces invalidity
+
+            
             # Delta Model = (CarbReach - InsulinDrop) * dt
             # CarbReach = CarbRate * CS (CS = ISF/ICR)
             cs = current_isf / current_icr if current_icr > 0 else 0

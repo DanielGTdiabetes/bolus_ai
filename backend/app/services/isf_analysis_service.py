@@ -112,6 +112,10 @@ class IsfAnalysisService:
             if not t.insulin or t.insulin <= 0.1: continue # Ignore micro-boluses < 0.1
             if t.carbs and t.carbs > 0: continue
             
+            # Exclude Alcohol/Sick (User Request)
+            if t.notes and any(x in t.notes.lower() for x in ['alcohol', 'sick', 'enfermedad']):
+                continue
+            
             candidates.append(t)
             
         clean_events: List[IsfEvent] = []
