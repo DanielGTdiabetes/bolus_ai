@@ -306,6 +306,11 @@ async def get_current_forecast(
 
 
 
+    
+    # Initialize current parameters for the simulation
+    now_hour = (datetime.now(timezone.utc).hour + 1) % 24
+    curr_icr, curr_isf, _ = get_slot_params(now_hour, user_settings)
+
     # 3.4 Calculate Autosens (if enabled)
     # We do this logic right before constructing final simulation params
     autosens_ratio = 1.0
