@@ -62,6 +62,10 @@ class BolusRequestV2(BaseModel):
     exercise: ExerciseParams = Field(default_factory=ExerciseParams)
     slow_meal: SlowMealParams = Field(default_factory=SlowMealParams)
     
+    # Warsaw Overrides
+    warsaw_safety_factor: Optional[float] = Field(default=None, ge=0.01, le=1.0)
+    warsaw_trigger_threshold_kcal: Optional[int] = Field(default=None, ge=0)
+    
     # Strategy Flags
     ignore_iob: bool = Field(default=False, description="Modo Comida Grasa: Ignorar IOB para calcular corrección (Micro-bolos reactivos)")
     last_bolus_minutes: Optional[int] = Field(default=None, description="Minutes since last insulin bolus (for safety checks)")

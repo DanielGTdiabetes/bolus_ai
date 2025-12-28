@@ -379,6 +379,8 @@ export default function BolusPage() {
                 dia_hours: mealParams.dia_hours || 4.0,
                 round_step_u: mealParams.round_step_u || 0.5,
                 max_bolus_u: mealParams.max_bolus_u || 15,
+                warsaw_safety_factor: mealParams.warsaw?.safety_factor,
+                warsaw_trigger_threshold_kcal: mealParams.warsaw?.trigger_threshold_kcal,
                 ignore_iob: dessertMode,
                 alcohol: alcoholEnabled,
                 exercise: {
@@ -435,7 +437,7 @@ export default function BolusPage() {
                 protein: isUsingOrphan ? (orphanCarbs._diffMode ? (orphanCarbs._netProtein || 0) : (orphanCarbs.protein || 0)) : (mealMetaRef.current?.protein || 0),
                 insulin: finalInsulin,
                 enteredBy: state.user?.username || "BolusAI",
-                notes: `BolusAI: ${result.kind === 'dual' ? 'Dual' : 'Normal'}. Gr: ${carbs}${isUsingOrphan ? ' (Sincronizado)' : ''}. BG: ${glucose}. ${foodName ? 'Comida: ' + foodName + '.' : ''} ${alcoholEnabled ? 'Alcohol Detected.' : ''} ${plateItems.length > 0 ? 'Items: ' + plateItems.map(i => i.name).join(', ') : ''}`,
+                notes: `BolusAI: ${(result.kind === 'dual' || result.kind === 'extended') ? 'Dual' : 'Normal'}. Gr: ${carbs}${isUsingOrphan ? ' (Sincronizado)' : ''}. BG: ${glucose}. ${foodName ? 'Comida: ' + foodName + '.' : ''} ${alcoholEnabled ? 'Alcohol Detected.' : ''} ${plateItems.length > 0 ? 'Items: ' + plateItems.map(i => i.name).join(', ') : ''}`,
                 nightscout: {
                     url: nsConfig.url || null,
                 }
@@ -444,7 +446,7 @@ export default function BolusPage() {
             // Add Meal Meta for Learning
             if (mealMetaRef.current) {
                 // If dual, we capture strategy
-                const strategy = result.kind === 'dual' ? {
+                const strategy = (result.kind === 'dual' || result.kind === 'extended') ? {
                     kind: 'dual',
                     total: result.total_u_final,
                     upfront: result.upfront_u,
@@ -458,7 +460,7 @@ export default function BolusPage() {
                 };
             }
 
-            if (result.kind === 'dual') {
+            if (result.kind === 'dual' || result.kind === 'extended') {
                 treatment.notes += ` (Split: ${finalInsulin} now + ${result.later_u} delayed ${result.duration_min}m)`;
                 // Update global state for HomePage tracking
                 state.lastBolusPlan = {
