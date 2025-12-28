@@ -129,7 +129,6 @@ async def calculate_bolus_stateless(
             cf=isf_settings,
             targets=target_settings,
             iob=iob_settings,
-            iob=iob_settings,
             nightscout=ns_settings,
             autosens=AutosensConfig(enabled=payload.enable_autosens) if payload.enable_autosens is not None else AutosensConfig(), 
             max_bolus_u=payload.settings.max_bolus_u,
