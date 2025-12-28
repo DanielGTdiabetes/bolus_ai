@@ -147,20 +147,26 @@ class AutosensService:
             # Resolve ISF/ICR/Basal for t_prev
             # User UserSettings schedule logic if available, else flat
             # (Assuming simplified flat or basic schedule from Forecast logic)
-            hour_local = (t_prev.hour + 1) % 24 # crude local time
+            # Resolve ISF/ICR/Basal for t_prev
+            # We map the hour to the closest Meal Slot configuration
+            hour_local = (t_prev.hour + 1) % 24 # +1 approximate local time adjustment assumption
             
-            current_isf = settings.cf.lunch
-            current_icr = settings.cr.lunch
-            current_dia = settings.iob.dia_hours * 60
-            current_model = settings.iob.curve
+            # Default to Snack (often safe choice or used for night)
+            current_isf = settings.cf.snack
+            current_icr = settings.cr.snack
             
-            # Simple schedule map
             if 5 <= hour_local < 11:
                 current_isf = settings.cf.breakfast
                 current_icr = settings.cr.breakfast
-            elif 17 <= hour_local < 23:
+            elif 11 <= hour_local < 16:
+                current_isf = settings.cf.lunch
+                current_icr = settings.cr.lunch
+            elif 19 <= hour_local < 23:
                 current_isf = settings.cf.dinner
                 current_icr = settings.cr.dinner
+            
+            current_dia = settings.iob.dia_hours * 60
+            current_model = settings.iob.curve
             
             has_active_carbs = False
             
