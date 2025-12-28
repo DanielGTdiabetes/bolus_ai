@@ -187,7 +187,8 @@ function CalcParamsPanel() {
         round_step_u: 0.5,
         max_bolus_u: 10,
         techne: { enabled: false, max_step_change: 0.5, safety_iob_threshold: 1.5 },
-        warsaw: { enabled: true, trigger_threshold_kcal: 150, safety_factor: 0.5 }
+        warsaw: { enabled: true, trigger_threshold_kcal: 150, safety_factor: 0.5 },
+        autosens: { enabled: true, min_ratio: 0.7, max_ratio: 1.2 }
     };
 
     const [params, setParams] = useState(defaults);
@@ -203,7 +204,8 @@ function CalcParamsPanel() {
                 ...defaults,
                 ...p,
                 techne: { ...defaults.techne, ...(p.techne || {}) },
-                warsaw: { ...defaults.warsaw, ...(p.warsaw || {}) }
+                warsaw: { ...defaults.warsaw, ...(p.warsaw || {}) },
+                autosens: { ...defaults.autosens, ...(p.autosens || {}) }
             };
             setParams(merged);
         }
@@ -520,6 +522,45 @@ function CalcParamsPanel() {
                             💡 <strong>Ejemplo:</strong> Con {params.warsaw.trigger_threshold_kcal} kcal (aprox {(params.warsaw.trigger_threshold_kcal / 9).toFixed(0)}g de grasa), se activará el aviso.
                             <br />
                             🛡️ <strong>Seguridad:</strong> Se cubre solo el {Math.round(params.warsaw.safety_factor * 100)}% de esas grasas (50% es recomendado).
+                        </div>
+                    </div>
+                )}
+            </div>
+
+            <div style={{ marginTop: '1rem', padding: '1rem', background: '#f0fdf4', borderRadius: '8px', border: '1px solid #bbf7d0' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '0.8rem', fontWeight: 600, color: '#166534', marginBottom: params.autosens?.enabled ? '1rem' : 0, cursor: 'pointer' }}>
+                    <input
+                        type="checkbox"
+                        checked={params.autosens?.enabled}
+                        onChange={e => setParams(prev => ({ ...prev, autosens: { ...prev.autosens, enabled: e.target.checked } }))}
+                        style={{ width: '1.2rem', height: '1.2rem' }}
+                    />
+                    Autosens (Sensibilidad Dinámica) 🤖
+                </label>
+
+                {params.autosens?.enabled && (
+                    <div className="stack" style={{ gap: '0.8rem', marginTop: '0.5rem' }}>
+                        <p className="text-sm text-muted" style={{ margin: 0 }}>
+                            Ajusta tus Ratios e ISF automáticamente según tu resistencia o sensibilidad de las últimas 24h.
+                        </p>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                            <Input
+                                label="Ratio Mínimo (Sensibilidad)"
+                                type="number"
+                                step="0.05"
+                                value={params.autosens.min_ratio}
+                                onChange={e => setParams(prev => ({ ...prev, autosens: { ...prev.autosens, min_ratio: parseFloat(e.target.value) } }))}
+                            />
+                            <Input
+                                label="Ratio Máximo (Resistencia)"
+                                type="number"
+                                step="0.05"
+                                value={params.autosens.max_ratio}
+                                onChange={e => setParams(prev => ({ ...prev, autosens: { ...prev.autosens, max_ratio: parseFloat(e.target.value) } }))}
+                            />
+                        </div>
+                        <div style={{ fontSize: '0.75rem', color: '#15803d' }}>
+                            💡 <strong>Limites:</strong> Si Autosens detecta una desviación, nunca aplicará un factor fuera de este rango ({params.autosens.min_ratio}x - {params.autosens.max_ratio}x) por seguridad.
                         </div>
                     </div>
                 )}
