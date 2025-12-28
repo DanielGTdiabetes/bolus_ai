@@ -234,6 +234,18 @@ Para conectar con tu sensor Dexcom/Libre en la nube.
 
 ---
 
+### D. Configuración Avanzada (Warsaw & Autosens)
+Desde la pestaña "Cálculo" en Ajustes, puedes afinar el comportamiento automático.
+
+#### Método Warsaw (Grasas/Proteínas)
+Define cuándo y cuánto corregir por comidas grasas.
+*   **Umbral de Disparo (Kcal):** Mínimo de energía extra (grasa+proteína) para que la app sugiera bolo doble.
+    *   *Por defecto:* **300 kcal** (aprox. 33g de grasa). Esto evita avisos en desayunos sanos normales.
+*   **Factor de Seguridad:** Porcentaje de la grasa que se cubre con insulina.
+    *   *Por defecto:* **0.1 (10%)**. Un inicio muy conservador para evitar hipoglucemias tardías. Usuarios expertos pueden subirlo a 0.5 (50%) si su basal lo requiere.
+
+---
+
 # 🌟 Ejemplos Prácticos de Uso
 
 ### 🏠 1. Comer en Casa (Día Normal)
