@@ -250,12 +250,21 @@ Define cuándo y cuánto corregir por comidas grasas.
 ### D. Configuración Avanzada (Warsaw & Autosens)
 Desde la pestaña "Cálculo" en Ajustes, puedes afinar el comportamiento automático.
 
-#### Método Warsaw (Grasas/Proteínas)
-Define cuándo y cuánto corregir por comidas grasas.
-*   **Umbral de Disparo (Kcal):** Mínimo de energía extra (grasa+proteína) para que la app sugiera bolo doble.
-    *   *Por defecto:* **300 kcal** (aprox. 33g de grasa). Esto evita avisos en desayunos sanos normales.
-*   **Factor de Seguridad:** Porcentaje de la grasa que se cubre con insulina.
-    *   *Por defecto:* **0.1 (10%)**. Un inicio muy conservador para evitar hipoglucemias tardías. Usuarios expertos pueden subirlo a 0.5 (50%) si su basal lo requiere.
+#### Método Warsaw Adaptativo (Grasas/Proteínas) 🧠
+Define cómo la app gestiona la insulina necesaria para las grasas y proteínas. Ahora el sistema es inteligente y se adapta al tamaño de la comida.
+
+*   **Umbral de Disparo (Kcal):** Mínimo de energía grasa/proteica para considerar la comida "copiosa" y activar el Bolo Dual.
+    *   *Por defecto:* **300 kcal** o **500 kcal**.
+    *   **Bajo el umbral:** La insulina extra se suma al bolo inmediato (Bolo Simple) para no complicarte la vida en comidas normales.
+    *   **Sobre el umbral:** La app sugiere dividir la dosis (Bolo Dual) para evitar picos tardíos.
+
+*   **Factores de Seguridad (Intensidad):**
+    Puedes definir dos niveles de agresividad diferentes:
+    1.  **Factor Estándar (Bolo Simple):** Se usa para el día a día (pollo, pescado, huevos).
+        *   *Recomendado:* **0.1 (10%)**. Cubre solo un poco para mantener la línea plana sin riesgo.
+    2.  **Factor Dual (Bolo Copioso):** Se usa solo cuando se supera el umbral (hamburguesas, pizzas, asados).
+        *   *Recomendado:* **0.2 o 0.3 (20-30%)**. Al ser mucha grasa, se requiere más insulina para vencer la resistencia temporal.
+
 
 ---
 
