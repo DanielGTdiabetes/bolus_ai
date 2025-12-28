@@ -556,6 +556,18 @@ export default function BolusPage() {
         }
     };
 
+    // Helper for Orphan Dual Logic (Uses Warsaw Threshold)
+    const getOrphanDualStatus = (oc) => {
+        if (!oc || oc._diffMode) return { needed: false, isFat: false };
+        const params = getCalcParams();
+        const th = params?.warsaw?.trigger_threshold_kcal || 300;
+        const kcal = (oc.fat || 0) * 9 + (oc.protein || 0) * 4;
+        const isFat = kcal >= th;
+        const isCarb = (oc.carbs || 0) >= 50;
+        return { needed: isFat || isCarb, isFat };
+    };
+    const orphanDual = getOrphanDualStatus(orphanCarbs);
+
     return (
         <>
             <Header title="Calcular Bolo" showBack={true} />
@@ -596,9 +608,9 @@ export default function BolusPage() {
                                         </>
                                     )}
 
-                                    {(!orphanCarbs._diffMode && (orphanCarbs.carbs >= 50 || orphanCarbs.fat >= 15 || orphanCarbs.protein >= 20)) && (
+                                    {orphanDual.needed && (
                                         <div style={{ marginTop: '5px', fontWeight: 600, color: '#15803d' }}>
-                                            💡 {orphanCarbs.fat >= 15 ? 'Muchas grasas detectadas.' : 'Cantidad alta detectada.'} Se recomienda <strong>Bolo Dual</strong>.
+                                            💡 {orphanDual.isFat ? 'Muchas grasas detectadas.' : 'Cantidad alta detectada.'} Se recomienda <strong>Bolo Dual</strong>.
                                         </div>
                                     )}
                                 </div>
@@ -620,7 +632,8 @@ export default function BolusPage() {
                                             }
 
                                             const totalC = orphanCarbs._diffMode ? orphanCarbs._originalCarbs : orphanCarbs.carbs;
-                                            const needsDual = (totalC >= 50 || orphanCarbs.fat >= 15 || orphanCarbs.protein >= 20);
+                                            // Use logic calculated at render to ensure consistency with UI
+                                            const needsDual = orphanDual.needed;
 
                                             if (needsDual) {
                                                 setDualEnabled(true);
@@ -632,7 +645,7 @@ export default function BolusPage() {
                                         style={{ background: '#22c55e', color: '#fff', fontSize: '0.85rem', padding: '6px 12px' }}
                                     >
                                         Usar {orphanCarbs._diffMode ? 'Diferencia (+' + Math.round(orphanCarbs._netCarbs) + 'g)' : 'Datos'}
-                                        {(!orphanCarbs._diffMode && (orphanCarbs.carbs >= 50 || orphanCarbs.fat >= 15 || orphanCarbs.protein >= 20)) ? ' + Dual' : ''}
+                                        {orphanDual.needed ? ' + Dual' : ''}
                                     </Button>
                                     <Button
                                         onClick={() => setOrphanCarbs(null)}
