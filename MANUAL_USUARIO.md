@@ -2,7 +2,7 @@
 **Versión Extendida**
 
 Bienvenido a **Bolus AI**, tu sistema avanzado de ayuda a la decisión para la diabetes tipo 1.
-Esta aplicación no es una simple calculadora; es un sistema que aprende, predice y te protege utilizando Inteligencia Artificial y reglas clinicas avanzadas.
+Esta aplicación esLa nueva herramienta de **Análisis ISF** (en `Ajustes` -> `Análisis`) utiliza algoritmos estadísticos para auditar tu historial:tmos matemáticos y no deben sustituir el criterio clínico. **Verifica siempre los datos antes de administrarte insulina.**
 
 Este manual detalla **cada función**, pantalla por pantalla, para que aproveches el 100% de su potencial.
 
@@ -34,13 +34,13 @@ El centro de control diseñado para darte información crítica en 1 segundo.
     *   🟡 **Naranja:** Alerta (Alto/Bajo leve).
     *   🔴 **Rojo:** Peligro (Hipo/Hiper severa).
 
-#### � La Gráfica de Predicción (El "Futuro")
+#### La Gráfica de Predicción (El "Futuro")
 Toca el número de glucosa o la pequeña curva debajo para ver el gráfico detallado.
 *   **Línea Punteada:** Predicción a 30-60 minutos. La app calcula tu velocidad actual + insulina activa.
 *   **Sombra (Cono de Incertidumbre):** El margen de error. Sombra ancha = predicción menos segura.
 *   **Avisos:** Si la línea futura toca la zona roja (<70), aparecerá un aviso de **"Riesgo Inminente"** para que comas antes de tener la hipoglucemia.
 *   **Datos Clave (Debajo de la gráfica):**
-    *   **Mínimo Estimado:** El valor más bajo calculadopor la IA.
+    *   **Mínimo Estimado:** El valor más bajo calculado por el sistema.
     *   **Tiempo al Mínimo:** Cuántos minutos faltan para llegar a ese punto más bajo. (Vital para saber si tienes prisa por comer o si puedes esperar).
     *   **Glucosa Final:** Dónde acabarás dentro de 6 horas si no haces nada.
 
@@ -105,6 +105,7 @@ Existen dos formas de gestionar las grasas:
 La app gestiona la insulina activa de dos formas (configurable):
 1.  **Modo Loop (Estándar):** Resta TODA la IOB del cálculo total. Es lo más seguro.
 2.  **Modo Mago (Postres):** Si comes un postre, no resta la insulina de la comida anterior (porque esa insulina está ocupada con la comida anterior). Solo resta si te vas a corregir una glucosa alta.
+Esta aplicación no es una simple calculadora; es un sistema que aprende, predice y te protege utilizando algoritmos estadísticos y reglas clínicas avanzadas.
 
 ---
 
@@ -231,6 +232,18 @@ Para conectar con tu sensor Dexcom/Libre en la nube.
 (Suele estar en el Perfil o Cabecera).
 *   Actívalo cuando tengas gripe o fiebre.
 *   **Efecto:** Aumenta temporalmente tus dosis (ej. +20%) porque la enfermedad crea resistencia a la insulina.
+
+---
+
+### D. Configuración Avanzada (Warsaw & Autosens)
+Desde la pestaña "Cálculo" en Ajustes, puedes afinar el comportamiento automático.
+
+#### Método Warsaw (Grasas/Proteínas)
+Define cuándo y cuánto corregir por comidas grasas.
+*   **Umbral de Disparo (Kcal):** Mínimo de energía extra (grasa+proteína) para que la app sugiera bolo doble.
+    *   *Por defecto:* **300 kcal** (aprox. 33g de grasa). Esto evita avisos en desayunos sanos normales.
+*   **Factor de Seguridad:** Porcentaje de la grasa que se cubre con insulina.
+    *   *Por defecto:* **0.1 (10%)**. Un inicio muy conservador para evitar hipoglucemias tardías. Usuarios expertos pueden subirlo a 0.5 (50%) si su basal lo requiere.
 
 ---
 

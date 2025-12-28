@@ -106,7 +106,7 @@ Tu seguridad es lo más importante. Bolus AI incluye:
 
 El factor de sensibilidad (ISF) determina cuánto baja tu glucosa con 1 unidad de insulina. Este valor cambia con el tiempo y es difícil de calcular manualmente.
 
-La nueva herramienta de **Análisis ISF** (en `Ajustes` -> `Análisis`) utiliza inteligencia artificial para auditar tu historial:
+La nueva herramienta de **Análisis ISF** (en `Ajustes` -> `Análisis`) utiliza algoritmos estadísticos para auditar tu historial:
 
 1.  **Detección de "Correcciones Limpias"**: Identifica momentos donde te pusiste insulina correcona (sin comida) y analiza qué pasó en las siguientes 4 horas, filtrando interferencias (comidas posteriores, ejercicio, etc).
 2.  **Cálculo Real**: Mide cuánto bajó realmente tu glucosa por cada unidad.
@@ -164,5 +164,18 @@ Cómo actuar ante una cena copiosa (pizza, asado) acompañada de alcohol:
 
 ---
 
-## 12. ⚠️ Descargo de Responsabilidad Médico
-Esta aplicación es una **herramienta de apoyo** a la decisión. Los cálculos son estimaciones basadas en algoritmos de IA y no deben sustituir el criterio clínico. **Verifica siempre los datos antes de administrarte insulina.**
+## 12. ⚙️ Configuración Avanzada (Warsaw & Autosens)
+
+Desde la pestaña "Cálculo" en Ajustes, puedes afinar el comportamiento automático.
+
+### Método Warsaw (Grasas/Proteínas)
+Define cuándo y cuánto corregir por comidas grasas.
+*   **Umbral de Disparo (Kcal):** Mínimo de energía extra (grasa+proteína) para que la app sugiera bolo doble.
+    *   *Por defecto:* **300 kcal** (aprox. 33g de grasa). Esto evita avisos en desayunos sanos normales.
+*   **Factor de Seguridad:** Porcentaje de la grasa que se cubre con insulina.
+    *   *Por defecto:* **0.1 (10%)**. Un inicio muy conservador para evitar hipoglucemias tardías. Usuarios expertos pueden subirlo a 0.5 (50%) si su basal lo requiere.
+
+---
+
+## 13. ⚠️ Descargo de Responsabilidad Médico
+Esta aplicación es una **herramienta de apoyo** a la decisión. Los cálculos son estimaciones basadas en algoritmos matemáticos y no deben sustituir el criterio clínico. **Verifica siempre los datos antes de administrarte insulina.**
