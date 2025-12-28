@@ -109,10 +109,18 @@ class TechneRoundingConfig(BaseModel):
     safety_iob_threshold: float = 1.5  # If IOB > this, disable Techne rounding (avoid stacking)
 
 
+
 class WarsawConfig(BaseModel):
     enabled: bool = True
     trigger_threshold_kcal: int = Field(default=150, description="Min extra kcal (fat+prot) to trigger auto-dual")
     safety_factor: float = Field(default=0.5, ge=0.1, le=1.0, description="Fraction of FPU to cover (0.5 = 50%)")
+
+
+class AutosensConfig(BaseModel):
+    enabled: bool = True
+    min_ratio: float = 0.7
+    max_ratio: float = 1.2
+
 
 
 class VisionConfig(BaseModel):
@@ -158,6 +166,7 @@ class UserSettings(BaseModel):
     vision: VisionConfig = Field(default_factory=VisionConfig)
     labs: LabsConfig = Field(default_factory=LabsConfig)
     absorption: MealDuration = Field(default_factory=MealDuration)
+    autosens: AutosensConfig = Field(default_factory=AutosensConfig)
     
     # Internal field to track update time from DB, not part of user input JSON usually
     updated_at: Optional[datetime] = None

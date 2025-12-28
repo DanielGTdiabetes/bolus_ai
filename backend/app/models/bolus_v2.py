@@ -66,6 +66,7 @@ class BolusRequestV2(BaseModel):
     ignore_iob: bool = Field(default=False, description="Modo Comida Grasa: Ignorar IOB para calcular corrección (Micro-bolos reactivos)")
     last_bolus_minutes: Optional[int] = Field(default=None, description="Minutes since last insulin bolus (for safety checks)")
     alcohol: bool = Field(default=False, description="Modo Alcohol: Se asume tendencia a baja a largo plazo, suprime correcciones agresivas.")
+    enable_autosens: bool = Field(default=True, description="Enable Autosens (Dynamic ISF/ICR)")
 
     model_config = ConfigDict(populate_by_name=True, extra="ignore")
 
@@ -85,6 +86,9 @@ class UsedParams(BaseModel):
     dia_hours: float
     insulin_model: str = "linear" # Added
     max_bolus_final: float
+    isf_base: Optional[float] = None
+    autosens_ratio: float = 1.0
+    autosens_reason: Optional[str] = None
 
 
 class BolusSuggestions(BaseModel):

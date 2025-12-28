@@ -9,6 +9,7 @@ from app.services.settings_service import get_user_settings_service
 from app.models.settings import UserSettings
 from app.services.nightscout_secrets_service import get_ns_config
 from app.services.nightscout_client import NightscoutClient
+from app.services.autosens_service import AutosensService
 
 router = APIRouter()
 
@@ -302,6 +303,25 @@ async def get_current_forecast(
                 icr=evt_icr,
                 absorption_minutes=evt_abs
             ))
+
+
+
+    # 3.4 Calculate Autosens (if enabled)
+    # We do this logic right before constructing final simulation params
+    autosens_ratio = 1.0
+    if user_settings.autosens.enabled:
+         try:
+             # We need to await it. Service is async.
+             res = await AutosensService.calculate_autosens(user.username, session, user_settings)
+             autosens_ratio = res.ratio
+             # Log or append to response warnings/info?
+             # For now just apply it silently to improve graph accuracy.
+         except Exception as e:
+             print(f"Forecast Autosens Error: {e}")
+             
+    # Apply to current params
+    curr_icr = curr_icr / autosens_ratio
+    curr_isf = curr_isf / autosens_ratio
 
     # 3.5. Add Future Planned Insulin (Dual Bolus Remainder)
     if future_insulin_u and future_insulin_u > 0:

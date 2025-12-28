@@ -105,16 +105,35 @@ def calculate_bolus_v2(
     settings: UserSettings,
     iob_u: float,
     glucose_info: GlucoseUsed,
+    autosens_ratio: float = 1.0,
+    autosens_reason: Optional[str] = None
 ) -> BolusResponseV2:
     explain = []
     warnings = []
     
-    # 1. Resolver parámetros
+    # 1. Resolver parámetros Base
     meal_slot = request.meal_slot
-    cr = getattr(settings.cr, meal_slot, 10.0)
-    isf = getattr(settings.cf, meal_slot, 30.0)
+    cr_base = getattr(settings.cr, meal_slot, 10.0)
+    isf_base = getattr(settings.cf, meal_slot, 30.0)
     target = request.target_mgdl or settings.targets.mid
 
+    # Autosens Application
+    # Ratio > 1 means Resistance -> Needs more insulin -> Lower ISF, Lower CR
+    # Ratio < 1 means Sensitivity -> Needs less insulin -> Higher ISF, Higher CR
+    
+    effective_ratio = autosens_ratio
+    # Safety clamp explicitly here just in case (though service does it)
+    if effective_ratio < 0.7: effective_ratio = 0.7
+    if effective_ratio > 1.3: effective_ratio = 1.3
+    
+    isf = isf_base / effective_ratio
+    cr = cr_base / effective_ratio
+    
+    if abs(effective_ratio - 1.0) > 0.01:
+        explain.append(f"🔍 Autosens: Factor {effective_ratio:.2f} ({autosens_reason or 'Ajuste dinámico'})")
+        explain.append(f"   ISF: {isf_base:.1f} -> {isf:.1f}")
+        explain.append(f"   CR:  {cr_base:.1f} -> {cr:.1f}")
+    
     # Protección de división
     if cr <= 0.1:
         cr = 10.0
@@ -124,12 +143,15 @@ def calculate_bolus_v2(
         warnings.append("ISF/CF inválido, usando 30.0 mg/dL/U")
         
     used_params = UsedParams(
-        cr_g_per_u=cr,
-        isf_mgdl_per_u=isf,
+        cr_g_per_u=round(cr, 1),
+        isf_mgdl_per_u=round(isf, 1),
         target_mgdl=target,
         dia_hours=settings.iob.dia_hours,
         insulin_model=settings.iob.curve,
-        max_bolus_final=settings.max_bolus_u
+        max_bolus_final=settings.max_bolus_u,
+        isf_base=isf_base,
+        autosens_ratio=effective_ratio,
+        autosens_reason=autosens_reason
     )
     
     # Global Warnings

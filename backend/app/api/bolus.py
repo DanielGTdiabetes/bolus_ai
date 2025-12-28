@@ -18,7 +18,7 @@ from app.models.bolus_split import (
 )
 from app.services.bolus_engine import calculate_bolus_v2
 from app.services.bolus_split import create_plan, recalc_second
-
+from app.services.autosens_service import AutosensService
 from app.services.iob import compute_iob_from_sources, compute_cob_from_sources
 from app.services.nightscout_client import NightscoutClient, NightscoutError
 from app.services.store import DataStore
@@ -87,7 +87,7 @@ async def calculate_bolus_stateless(
     if payload.settings:
         # Construct UserSettings adaptor from payload
         # This allows reusing existing engine logic without rewriting it all
-        from app.models.settings import MealFactors, CorrectionFactors, TargetRange, IOBConfig, NightscoutConfig
+        from app.models.settings import MealFactors, CorrectionFactors, TargetRange, IOBConfig, NightscoutConfig, AutosensConfig
         
         # We map meal slots to the structure UserSettings expects
         cr_settings = MealFactors(
@@ -129,7 +129,9 @@ async def calculate_bolus_stateless(
             cf=isf_settings,
             targets=target_settings,
             iob=iob_settings,
+            iob=iob_settings,
             nightscout=ns_settings,
+            autosens=AutosensConfig(enabled=payload.enable_autosens) if payload.enable_autosens is not None else AutosensConfig(), 
             max_bolus_u=payload.settings.max_bolus_u,
             max_correction_u=payload.settings.max_correction_u,
             round_step_u=payload.settings.round_step_u
@@ -303,6 +305,36 @@ async def calculate_bolus_stateless(
             timeout_seconds=5
          )
 
+    # 4. Autosens (if enabled)
+    autosens_ratio = 1.0
+    autosens_reason = None
+
+    # Determine if we should run Autosens
+    # Priority: Payload override > Settings > Default On
+    # Wait, payload.enable_autosens is default True in model?
+    # Let's check model default. If user explicitly sets it, we use it.
+    # Actually, let's treat payload.enable_autosens as "Request to use it".
+    # But we should respect global switch if payload didn't explicitly demand it?
+    # Simple logic: If settings say OFF, we default to OFF unless payload forces ON.
+    # Currently payload.enable_autosens defaults to True in Pydantic. 
+    # Let's use: should_run = user_settings.autosens.enabled
+    
+    should_run_autosens = user_settings.autosens.enabled
+    
+    if should_run_autosens and session:
+         try:
+             res = await AutosensService.calculate_autosens(
+                 username=user.username,
+                 session=session,
+                 settings=user_settings
+             )
+             autosens_ratio = res.ratio
+             autosens_reason = res.reason
+             logger.info(f"Autosens computed: {autosens_ratio} ({autosens_reason})")
+         except Exception as e:
+             logger.error(f"Autosens failed: {e}")
+             autosens_reason = "Error (usando 1.0)"
+
     try:
         now = datetime.now(timezone.utc)
         iob_u, breakdown, iob_info, iob_warning = await compute_iob_from_sources(
@@ -322,7 +354,9 @@ async def calculate_bolus_stateless(
             request=payload,
             settings=user_settings,
             iob_u=iob_u,
-            glucose_info=glucose_info
+            glucose_info=glucose_info,
+            autosens_ratio=autosens_ratio,
+            autosens_reason=autosens_reason
         )
 
         # Inject IOB Info
