@@ -2,7 +2,7 @@ from datetime import datetime
 
 from fastapi import APIRouter, Depends, Response, Request
 
-from app import __version__
+from app import __version__, jobs_state
 from app.core.settings import get_settings, Settings
 from app.services.nightscout_client import NightscoutClient
 
@@ -61,6 +61,11 @@ async def full_health(
 
     status["server"] = {"host": settings.server.host, "port": settings.server.port}
     return status
+
+
+@router.get("/jobs", summary="Background jobs state")
+async def jobs_health() -> dict:
+    return jobs_state.get_all_states()
 
 @router.get("/wake", summary="Keep-alive Endpoint")
 async def wake_endpoint():

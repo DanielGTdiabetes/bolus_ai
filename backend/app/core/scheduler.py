@@ -19,10 +19,11 @@ def schedule_task(func, trigger, task_id, replace=True):
     if not _scheduler:
         raise RuntimeError("Scheduler not initialized")
     
-    _scheduler.add_job(
+    job = _scheduler.add_job(
         func, 
         trigger, 
         id=task_id, 
         replace_existing=replace
     )
     logger.info(f"Scheduled task '{task_id}' with trigger: {trigger}")
+    return job
