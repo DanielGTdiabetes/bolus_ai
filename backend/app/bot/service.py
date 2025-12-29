@@ -1,6 +1,6 @@
 import logging
 import asyncio
-from typing import Optional
+from typing import Optional, Dict, Any
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, ContextTypes, filters, CallbackQueryHandler
@@ -8,6 +8,10 @@ from telegram import constants
 
 from app.core import config
 from app.bot import ai
+from app.bot import tools
+from app.bot import voice
+from app.bot.state import health, BotMode
+from app.bot import proactive
 
 # Sidecar dependencies
 from pathlib import Path
@@ -109,10 +113,12 @@ logger = logging.getLogger(__name__)
 
 # Global Application instance
 _bot_app: Optional[Application] = None
+_polling_task: Optional[asyncio.Task] = None
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Log the error and send a telegram message to notify the developer."""
     logger.error(f"Exception while handling an update: {context.error}")
+    health.mark_error(str(context.error))
     if update and isinstance(update, Update) and update.message:
         await update.message.reply_text(f"⚠️ Error interno del bot: {context.error}")
 
@@ -202,9 +208,15 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     if not await _check_auth(update): return
     
     user = update.effective_user
+    mode = health.mode.value if health else "unknown"
+    allowed = config.get_allowed_telegram_user_id()
+    whitelist_msg = "⚠️ ALLOWED_TELEGRAM_USER_ID falta: el bot responderá solo a /start" if not allowed else f"Usuario permitido: {allowed}"
     await update.message.reply_text(
         f"Hola {user.first_name}! Soy tu asistente de diabetes (Bolus AI).\n"
-        "Estoy listo w/ Gemini 3.0. Envíame una foto de comida o pregúntame algo."
+        f"Modo bot: {mode}.\n"
+        f"{whitelist_msg}\n"
+        "Puedes pedirme: calcular bolo, corrección, simulación what-if, ver estado o stats. "
+        "Envía texto libre o nota de voz."
     )
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -214,16 +226,20 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     text = update.message.text
     if not text: return
 
-    # --- Python Logic Layer (Router) ---
     cmd = text.lower().strip()
-    
+
     if cmd == "ping":
         await update.message.reply_text("Pong! 🏓 (Python Server is alive)")
         return
-        
+
     if cmd in ["status", "estado"]:
-        # Future: Call Nightscout service
-        await update.message.reply_text("📉 Estado: Simulando conexión a Nightscout... (Todo OK)")
+        res = await tools.execute_tool("get_status_context", {})
+        if isinstance(res, tools.ToolError):
+            await update.message.reply_text(f"⚠️ {res.message}")
+        else:
+            await update.message.reply_text(
+                f"📉 BG: {res.bg_mgdl} {res.direction or ''} Δ {res.delta} | IOB {res.iob_u} | COB {res.cob_g} | {res.quality}"
+            )
         return
 
     if cmd == "debug":
@@ -296,6 +312,48 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         # Send without markdown to avoid parsing errors (underscores in URLs, etc.)
         await update.message.reply_text("\n".join(out))
         return
+
+    # Quick heuristics -> direct tool usage
+    async def respond_tool(name: str, args: Dict[str, Any]):
+        result = await tools.execute_tool(name, args)
+        if isinstance(result, tools.ToolError):
+            await update.message.reply_text(f"⚠️ {result.message}")
+            return True
+        if name == "calculate_bolus":
+            await _handle_add_treatment_tool(update, context, {"carbs": args.get("carbs"), "notes": "Chat", "insulin": None})
+            await update.message.reply_text(f"Sugerencia: {result.units} U. {result.explanation[0] if result.explanation else ''}")
+            return True
+        if name == "calculate_correction":
+            await update.message.reply_text(f"Corrección sugerida: {result.units} U\n" + "\n".join(result.explanation))
+            return True
+        if name == "simulate_whatif":
+            await update.message.reply_text(result.summary)
+            return True
+        if name == "get_nightscout_stats":
+            await update.message.reply_text(
+                f"Stats {result.range_hours}h: Avg {result.avg_bg} | TIR {result.tir_pct}% | Lows {result.lows} | Highs {result.highs}"
+            )
+            return True
+        return False
+
+    if "voy a comer" in cmd or "g" in cmd:
+        import re
+        match = re.search(r"(\\d+)", cmd)
+        if match:
+            grams = float(match.group(1))
+            if await respond_tool("calculate_bolus", {"carbs": grams}):
+                return
+
+    if "corrige" in cmd or "corrección" in cmd:
+        if await respond_tool("calculate_correction", {}):
+            return
+
+    if "y si" in cmd or "simula" in cmd:
+        import re
+        match = re.search(r"(\\d+)", cmd)
+        grams = float(match.group(1)) if match else 30.0
+        if await respond_tool("simulate_whatif", {"carbs": grams}):
+            return
 
     # --- AI Layer (Fallthrough) ---
     # Show typing action
@@ -411,20 +469,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 # --- AI Tools Definition ---
 AI_TOOLS = [
     {
-        "function_declarations": [
-            {
-                "name": "add_treatment",
-                "description": "Registrar una comida (carbohidratos) o una dosis de insulina. El bot calculará la dosis necesaria y pedirá confirmación.",
-                "parameters": {
-                    "type": "OBJECT",
-                    "properties": {
-                        "carbs": {"type": "NUMBER", "description": "Gramos de carbohidratos (opcional)"},
-                        "insulin": {"type": "NUMBER", "description": "Unidades de insulina (opcional, si se especifica anula el cálculo)"},
-                        "notes": {"type": "STRING", "description": "Notas opcionales (ej: 'Pizza', 'Corrección')"}
-                    }
-                }
-            }
-        ]
+        "function_declarations": tools.AI_TOOL_DECLARATIONS
     }
 ]
 
@@ -544,7 +589,8 @@ async def _handle_add_treatment_tool(update: Update, context: ContextTypes.DEFAU
     keyboard = [
         [
             InlineKeyboardButton(f"✅ Registrar {rec_u} U", callback_data=f"chat_bolus_{rec_u}_{carbs}"),
-            InlineKeyboardButton("❌ Cancelar", callback_data="ignore")
+            InlineKeyboardButton("✏️ Editar", callback_data=f"chat_bolus_edit_{carbs}"),
+            InlineKeyboardButton("❌ Ignorar", callback_data="ignore")
         ]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -589,8 +635,18 @@ async def _handle_add_treatment_tool(update: Update, context: ContextTypes.DEFAU
             
             logger.info(f"AI triggered tool: {name} with {args}")
             
-            if name == "add_treatment":
+            result = await tools.execute_tool(name, args)
+            if isinstance(result, tools.ToolError):
+                await update.message.reply_text(f"⚠️ {result.message}")
+                did_action = True
+            elif name == "add_treatment":
                 await _handle_add_treatment_tool(update, context, args)
+                did_action = True
+            elif name == "calculate_bolus":
+                await _handle_add_treatment_tool(update, context, {"carbs": args.get("carbs"), "notes": "Chat", "insulin": None})
+                did_action = True
+            else:
+                await update.message.reply_text(str(result))
                 did_action = True
         
         # Always reply with text if present (AI often explains "He preparado la confirmación...")
@@ -630,6 +686,35 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         logger.error(f"Error handling photo: {e}")
         await update.message.reply_text("❌ Error procesando la imagen.")
 
+
+async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Voice note handler."""
+    if not await _check_auth(update):
+        return
+    voice_msg = update.message.voice
+    if not voice_msg:
+        return
+    await update.message.reply_text("🎙️ Procesando nota de voz...")
+    try:
+        file = await context.bot.get_file(voice_msg.file_id)
+        file_bytes = await file.download_as_bytearray()
+        result = await voice.transcribe_audio(file_bytes, mime_type=voice_msg.mime_type or "audio/ogg")
+        if result.error:
+            await update.message.reply_text(f"⚠️ {result.error}")
+            return
+        if not result.text:
+            await update.message.reply_text("No pude transcribir el audio.")
+            return
+        if result.confidence < config.get_voice_min_confidence():
+            await update.message.reply_text(f"¿Quisiste decir?: \"{result.text}\" ? Responde confirmando.")
+            return
+        # Re-route as text
+        update.message.text = result.text
+        await handle_message(update, context)
+    except Exception as exc:
+        logger.error("Voice handler failed: %s", exc)
+        await update.message.reply_text("❌ Error transcribiendo la nota de voz.")
+
 def create_bot_app() -> Application:
     """Factory to create and configure the PTB Application."""
     token = config.get_telegram_bot_token()
@@ -643,6 +728,7 @@ def create_bot_app() -> Application:
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
+    application.add_handler(MessageHandler(filters.VOICE, handle_voice))
     application.add_handler(CallbackQueryHandler(handle_callback))
     
     # Error Handler
@@ -656,20 +742,30 @@ async def initialize() -> None:
     Sets up the webhook if enabled.
     """
     global _bot_app
+    global _polling_task
     
     if not config.is_telegram_bot_enabled():
         logger.info("Telegram Bot is DISABLED via config.")
+        health.enabled = False
+        health.mode = BotMode.DISABLED
         return
+    health.enabled = True
 
     logger.info("Initializing Telegram Bot...")
+    logger.info("ENABLE_TELEGRAM_BOT=true. Allowed user: %s", config.get_allowed_telegram_user_id())
     _bot_app = create_bot_app()
     
     if not _bot_app:
+        health.mode = BotMode.ERROR
+        health.last_error = "No TELEGRAM_BOT_TOKEN"
         return
 
+    public_url = config.get_public_bot_url()
+    webhook_secret = config.get_telegram_webhook_secret()
+    use_webhook = bool(public_url)
+
     # Initialize the app (coroutines)
-    # Retry logic for robust startup
-    max_retries = 5
+    max_retries = 3
     for attempt in range(max_retries):
         try:
             await _bot_app.initialize()
@@ -685,25 +781,47 @@ async def initialize() -> None:
             else:
                 logger.critical("❌ All bot initialization attempts failed. Bot service will be unavailable.")
                 _bot_app = None
+                health.mode = BotMode.ERROR
+                health.last_error = str(e)
                 return
 
-    # Set Webhook logic
-    # We need the public URL. In Render, we can get it from env RENDER_EXTERNAL_URL or manual config.
-    public_url = config.get_env("RENDER_EXTERNAL_URL") or config.get_env("public_url")
-    webhook_secret = config.get_telegram_webhook_secret()
-    
-    if public_url:
+    if use_webhook:
         webhook_url = f"{public_url}/api/webhook/telegram"
         logger.info(f"Setting Telegram Webhook to: {webhook_url}")
-        await _bot_app.bot.set_webhook(url=webhook_url, secret_token=webhook_secret)
-    else:
-        logger.warning("No Public URL found. Webhook NOT set. Bot may not receive updates.")
+        try:
+            await _bot_app.bot.set_webhook(url=webhook_url, secret_token=webhook_secret, drop_pending_updates=True)
+            health.mode = BotMode.WEBHOOK
+            health.mode_reason = "public_url"
+            return
+        except Exception as exc:
+            logger.warning("Failed to set webhook, falling back to polling: %s", exc)
+
+    # Polling fallback
+    try:
+        poll_interval = config.get_bot_poll_interval()
+        read_timeout = config.get_bot_read_timeout()
+        await _bot_app.updater.start_polling(
+            poll_interval=poll_interval,
+            timeout=read_timeout,
+            bootstrap_retries=2,
+        )
+        health.mode = BotMode.POLLING
+        health.mode_reason = "no_public_url"
+        logger.info("Bot running in polling mode (interval=%s, timeout=%s).", poll_interval, read_timeout)
+    except Exception as exc:
+        logger.error("Failed to start polling: %s", exc)
+        health.mode = BotMode.ERROR
+        health.last_error = str(exc)
 
 async def shutdown() -> None:
     """Called on FastAPI shutdown."""
     global _bot_app
     if _bot_app:
         logger.info("Shutting down Telegram Bot...")
+        try:
+            await _bot_app.updater.stop()
+        except Exception:
+            pass
         await _bot_app.stop()
         await _bot_app.shutdown()
 
@@ -718,8 +836,13 @@ async def process_update(update_data: dict) -> None:
     try:
         update = Update.de_json(update_data, _bot_app.bot)
         await _bot_app.process_update(update)
+        health.mark_update()
     except Exception as e:
         logger.error(f"Error processing Telegram update: {e}")
+
+
+def get_bot_application() -> Optional[Application]:
+    return _bot_app
 
 async def on_new_meal_received(carbs: float, source: str) -> None:
     """
@@ -875,6 +998,26 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     if data == "ignore":
         await query.edit_message_text(text=f"{query.message.text}\n\n❌ *Ignorado*", parse_mode="Markdown")
         logger.info("User ignored bolus suggestion.")
+        return
+
+    if data.startswith("chat_bolus_edit_"):
+        try:
+            carbs = float(data.split("_")[-1])
+        except Exception:
+            carbs = 0
+        await query.edit_message_text(
+            text=f"{query.message.text}\n\n✏️ Envía nuevo valor de carbohidratos (actual {carbs}g) y especifica si bolo extendido.",
+            parse_mode="Markdown",
+        )
+        return
+
+    if data.startswith("basal_ack_"):
+        choice = data.split("_")[-1]
+        await query.edit_message_text(text=f"{query.message.text}\n\n✅ Basal marcada ({choice})", parse_mode="Markdown")
+        return
+
+    if data == "premeal_add":
+        await query.edit_message_text(text=f"{query.message.text}\n\n✏️ Escribe los gramos estimados para sugerir bolo.", parse_mode="Markdown")
         return
 
     if data.startswith("bolus_confirm_") or data.startswith("chat_bolus_"):

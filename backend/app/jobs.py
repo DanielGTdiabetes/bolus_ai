@@ -3,6 +3,7 @@ import logging
 from apscheduler.triggers.cron import CronTrigger
 from app.core.scheduler import init_scheduler, schedule_task
 from app.core.settings import get_settings
+from app.core import config
 from app.core.datastore import UserStore
 from pathlib import Path
 from app.services.basal_engine import scan_night_service
@@ -121,6 +122,35 @@ def setup_periodic_tasks():
     from app.bot.service import run_glucose_monitor_job
     guardian_trigger = CronTrigger(minute='*/5')
     schedule_task(run_glucose_monitor_job, guardian_trigger, "guardian_check")
+
+    # Light proactive v1 jobs (respect Render limits)
+    if config.is_telegram_bot_enabled():
+        from app.bot import proactive
+        from app.bot import service as bot_service
+        async def _run_morning():
+            bot_app = bot_service.get_bot_application()
+            bot = bot_app.bot if bot_app else None
+            await proactive.morning_summary(bot)
+
+        async def _run_basal():
+            bot_app = bot_service.get_bot_application()
+            bot = bot_app.bot if bot_app else None
+            await proactive.basal_reminder(bot)
+
+        async def _run_premeal():
+            bot_app = bot_service.get_bot_application()
+            bot = bot_app.bot if bot_app else None
+            await proactive.premeal_nudge(bot)
+
+        async def _run_combo():
+            bot_app = bot_service.get_bot_application()
+            bot = bot_app.bot if bot_app else None
+            await proactive.combo_followup(bot)
+
+        schedule_task(_run_morning, CronTrigger(hour=8, minute=5), "morning_summary")
+        schedule_task(_run_basal, CronTrigger(minute='*/45'), "basal_reminder")
+        schedule_task(_run_premeal, CronTrigger(minute='*/30'), "premeal_nudge")
+        schedule_task(_run_combo, CronTrigger(minute='*/30'), "combo_followup")
 
 
 async def run_data_cleanup():
