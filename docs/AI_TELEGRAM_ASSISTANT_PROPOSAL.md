@@ -107,6 +107,7 @@ Para cerrar el ciclo y motivar, el Bot envía un reporte breve cada mañana.
 1.  **Trigger**: 08:00 AM (o al despertar).
 2.  **Contenido**:
     *   Resumen de la noche: *"Noche estable (100-120). Sin alertas."*
+    *   **Evaluación Basal**: *"Tu basal de anoche (15u) te mantuvo plana (variación <10mg). Parece la dosis correcta."* (O avisará si hubo deriva hacia arriba/abajo).
     *   Estadística Ayer: *"Ayer estuviste un **85% en rango**. ¡Muy bien!"*
     *   Recordatorios hoy: *"Hoy es día de cambio de sensor/catéter."* (Si toca).
 
@@ -161,6 +162,14 @@ El sistema debe ser tolerante a fallos humanos y cambios de opinión, aprovechan
     *   *IA*: "Vale, borro el registro temporal de pizza. ¿Cuántos hidratos tiene la ensalada o quieres que la estime?"
 *   **Alternativas**:
     *   Si la IA duda (confianza baja en foto), ofrece opciones: *"No veo claro si es pan o patata. Si es pan son 30g, si es patata 45g. ¿Cuál elijo?"*
+
+### E. Comportamiento "Sombra Inteligente" (Iniciativa y Discreción)
+Para no ser intrusivo, el asistente aplica un filtro de relevancia antes de hablar:
+*   **Silencio por Defecto**: Si todo va bien, no dice nada. Su silencio es la confirmación de que estás seguro.
+*   **Filtro Anti-Fatiga**: Evita bombardear. Si ya notificó una subida leve, no volverá a avisar en 45 min salvo que la situación empeore drásticamente.
+*   **Iniciativa Autónoma**: No espera órdenes para proponer mejoras evidentes.
+    *   *Ejemplo*: Si detecta 3 noches seguidas de bajada, tomará la iniciativa de sugerir una reducción de basal en el resumen matutino, sin que tú lo pidas.
+    *   *Objetivo*: Que sientas que "alguien" piensa en tu diabetes para que tú no tengas que hacerlo tanto.
 
 ## 7. Próximos Pasos de Investigación
 *   Definir librería de Python para el Bot (`python-telegram-bot` o similar).
