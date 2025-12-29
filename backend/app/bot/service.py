@@ -47,19 +47,44 @@ async def get_bot_user_settings() -> UserSettings:
     """Helper to fetch 'admin' settings from DB (Single User assumption)."""
     settings = get_settings() # App settings
     
+    
     # Try DB
     engine = get_engine()
     if engine:
         async with AsyncSession(engine) as session:
-            # Assume 'admin' or get first user? 'admin' is safe default seed.
+            # 1. Try 'admin'
             res = await svc_settings.get_user_settings_service("admin", session)
+            db_settings = None
+            
             if res and res.get("settings"):
+                s = res["settings"]
+                # Check if it has NS URL
+                ns = s.get("nightscout", {})
+                if ns.get("url"):
+                    db_settings = s
+            
+            # 2. If admin has no URL, try finding ANY user with a URL (Single Tenant workaround)
+            if not db_settings:
+                # Raw query for speed
+                from sqlalchemy import text
+                stmt = text("SELECT settings FROM user_settings LIMIT 5")
+                rows = (await session.execute(stmt)).fetchall()
+                for r in rows:
+                    s = r[0] # settings json
+                    if s.get("nightscout", {}).get("url"):
+                         db_settings = s
+                         logger.info("Bot found Settings via fallback user search.")
+                         break
+            
+            if db_settings:
                 try:
-                    return UserSettings.model_validate(res["settings"])
+                    return UserSettings.model_validate(db_settings)
                 except Exception as e:
                     logger.error(f"Failed to validate DB settings: {e}")
     
     # Fallback to JSON Store
+    store = DataStore(Path(settings.data.data_dir))
+    return store.load_settings()
     store = DataStore(Path(settings.data.data_dir))
     return store.load_settings()
 
@@ -92,6 +117,41 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await update.message.reply_text("📉 Estado: Simulando conexión a Nightscout... (Todo OK)")
         return
 
+    if cmd == "debug":
+        # Diagnostics
+        out = ["🕵️ **Diagnóstico del Bot**"]
+        
+        try:
+            settings = await get_bot_user_settings()
+            ns = settings.nightscout
+            out.append(f"🔧 **Nightscout Conf:**")
+            out.append(f"URL: `{ns.url}`")
+            out.append(f"Enabled Check: {ns.enabled}")
+            
+            if ns.url:
+                client = NightscoutClient(ns.url, ns.token, timeout_seconds=5)
+                try:
+                    sgv = await client.get_latest_sgv()
+                    out.append(f"✅ **Conexión OK**")
+                    out.append(f"SGV: {sgv.sgv} ({sgv.direction or '-'})")
+                    out.append(f"Time: {sgv.dateString}")
+                except Exception as e:
+                     out.append(f"❌ **Fallo Conexión:** {e}")
+                finally:
+                    await client.aclose()
+            else:
+                 out.append("⚠️ **URL Vacía** (El bot no ve la URL)")
+                 
+            # Check DB IOB
+            engine = get_engine()
+            out.append(f"💾 **DB Local:** {'✅ Conectada' if engine else '❌ Sin Motor'}")
+                 
+        except Exception as e:
+            out.append(f"💥 **Error Crítico:** {e}")
+            
+        await update.message.reply_text("\n".join(out), parse_mode="Markdown")
+        return
+
     # --- AI Layer (Fallthrough) ---
     # Show typing action
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=constants.ChatAction.TYPING)
@@ -114,20 +174,30 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         user_settings = await get_bot_user_settings() # NEW (DB)
         
         # 1. Glucose (Nightscout)
+        # 1. Glucose (Nightscout)
         ns_client = None
-        if user_settings.nightscout.enabled and user_settings.nightscout.url:
-            ns_client = NightscoutClient(
+        # Robust check: If URL exists, try to use it even if enabled=False (warn user)
+        if user_settings.nightscout.url:
+             if not user_settings.nightscout.enabled:
+                 logger.warning("[HandeMsg] Nightscout DISABLED but URL present. Attempting connection.")
+             
+             ns_client = NightscoutClient(
                 base_url=user_settings.nightscout.url,
                 token=user_settings.nightscout.token,
                 timeout_seconds=5
-            )
+             )
+        
+        if ns_client:
             try:
                 sgv = await ns_client.get_latest_sgv()
                 arrow = sgv.direction or ""
                 delta = f"{sgv.delta:+.1f}" if sgv.delta is not None else "?"
                 context_lines.append(f"GLUCOSA: {sgv.sgv} {user_settings.nightscout.units} ({arrow}) Delta: {delta}")
             except Exception as e:
+                logger.error(f"Bot handle_message failed to get SGV: {e}")
                 context_lines.append(f"GLUCOSA: Error leyendo ({str(e)})")
+        else:
+            context_lines.append("GLUCOSA: No Configurada (Falta URL)")
 
         # 2. IOB & COB
         now_utc = datetime.now(timezone.utc)

@@ -3,8 +3,11 @@ from __future__ import annotations
 import logging
 import math
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Literal, Sequence
+
+from sqlalchemy import text
+from app.core.db import get_engine, AsyncSession
 
 from app.models.settings import UserSettings
 from app.services.store import DataStore
@@ -141,6 +144,43 @@ async def compute_iob_from_sources(
             logger.warning("Nightscout treatments unavailable", extra={"error": ns_error})
             # Fallback to local only for source label if NS failed completely
             iob_source = "local_db_fallback"
+            
+    # 1.5 Fetch Local DB (Active Records)
+    # Using SQL directly to avoid circular imports or complex deps
+    db_boluses = []
+    try:
+        engine = get_engine()
+        if engine:
+            async with AsyncSession(engine) as session:
+                # Look back dia_hours + buffer
+                cutoff = now - timedelta(hours=settings.iob.dia_hours + 1)
+                
+                # Query treatments table
+                query = text("""
+                    SELECT created_at, insulin 
+                    FROM treatments 
+                    WHERE created_at > :cutoff 
+                    AND insulin > 0
+                """)
+                
+                result = await session.execute(query, {"cutoff": cutoff})
+                rows = result.fetchall()
+                
+                for r in rows:
+                    if r.created_at and r.insulin:
+                        ts_iso = r.created_at.replace(tzinfo=timezone.utc).isoformat() if r.created_at.tzinfo is None else r.created_at.isoformat()
+                        db_boluses.append({
+                            "ts": ts_iso,
+                            "units": float(r.insulin)
+                        })
+    except Exception as e:
+        logger.error(f"Failed to fetch DB treatments for IOB: {e}")
+
+    # Merge into extra_boluses if present
+    if db_boluses:
+        if extra_boluses is None: extra_boluses = []
+        extra_boluses.extend(db_boluses)
+        if iob_source == "unknown": iob_source = "local_db"
             
     # 2. Fetch from Local Store (Always, to catch recent pending uploads)
     local_boluses = []
