@@ -40,6 +40,11 @@ class BotHealthState:
             self.last_error = message
         logger.error(message)
 
+    def clear_error(self) -> None:
+        with self._lock:
+            self.last_error = None
+            return self.last_error
+
     def mark_update(self) -> None:
         with self._lock:
             self.last_update_at = datetime.now(timezone.utc)
@@ -47,6 +52,10 @@ class BotHealthState:
     def set_started(self) -> None:
         with self._lock:
             self.started_at = datetime.now(timezone.utc)
+
+    def get_last_error(self) -> Optional[str]:
+        with self._lock:
+            return self.last_error
 
     def to_dict(self) -> Dict[str, Any]:
         return {

@@ -3,6 +3,7 @@ import asyncio
 import os
 import tempfile
 from typing import Optional, Dict, Any, Tuple
+from urllib.parse import urlparse, urlunparse
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, ContextTypes, filters, CallbackQueryHandler
@@ -136,10 +137,20 @@ def decide_bot_mode() -> Tuple[BotMode, str]:
 
     return BotMode.POLLING, "missing_public_url"
 
+
+def build_expected_webhook() -> Tuple[Optional[str], str]:
+    """
+    Returns (expected_url, source_env_key)
+    """
+    public_url, source = config.get_public_bot_url_with_source()
+    if not public_url:
+        return None, source
+    return f"{public_url}/api/webhook/telegram", source
+
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Log the error and send a telegram message to notify the developer."""
     logger.error(f"Exception while handling an update: {context.error}")
-    health.mark_error(str(context.error))
+    health.set_error(str(context.error))
     if update and isinstance(update, Update) and update.message:
         await update.message.reply_text(f"⚠️ Error interno del bot: {context.error}")
 
@@ -837,7 +848,8 @@ async def initialize() -> None:
 
     logger.info("Telegram bot: %s", "enabled" if health.enabled else "disabled")
     logger.info("Mode selected: %s (reason: %s)", mode.value, reason)
-    logger.info("Public URL detected: %s", "yes" if config.get_public_bot_url() else "no")
+    public_url_probe, public_url_source_probe = config.get_public_bot_url_with_source()
+    logger.info("Public URL detected: %s (source: %s)", "yes" if public_url_probe else "no", public_url_source_probe)
     logger.info("ENABLE_TELEGRAM_BOT=%s. Allowed user: %s", os.environ.get("ENABLE_TELEGRAM_BOT", "true"), config.get_allowed_telegram_user_id())
     voice_enabled = config.is_telegram_voice_enabled() and bool(config.get_google_api_key())
     logger.info("Voice notes: %s (provider: Gemini)", "enabled" if voice_enabled else "disabled")
@@ -856,7 +868,7 @@ async def initialize() -> None:
     # Track updates for both webhook and polling modes
     _bot_app.add_handler(MessageHandler(filters.ALL, _mark_update_handler), group=100)
 
-    public_url = config.get_public_bot_url()
+    public_url, public_url_source = config.get_public_bot_url_with_source()
     webhook_secret = config.get_telegram_webhook_secret()
 
     # Initialize the app (coroutines)
@@ -882,9 +894,10 @@ async def initialize() -> None:
 
     if mode == BotMode.WEBHOOK and public_url:
         webhook_url = f"{public_url}/api/webhook/telegram"
-        logger.info("Webhook URL configured: %s", webhook_url)
+        logger.info("Webhook URL configured: %s", _sanitize_url(webhook_url))
         try:
-            await _bot_app.bot.set_webhook(url=webhook_url, secret_token=webhook_secret, drop_pending_updates=True)
+            await _set_webhook(url=webhook_url, secret_token=webhook_secret)
+            health.clear_error()
             health.set_mode(BotMode.WEBHOOK, reason)
             return
         except Exception as exc:
@@ -953,14 +966,103 @@ async def process_update(update_data: dict) -> None:
         
     try:
         update = Update.de_json(update_data, _bot_app.bot)
-        await _bot_app.process_update(update)
         health.mark_update()
+        await _bot_app.process_update(update)
     except Exception as e:
         logger.error(f"Error processing Telegram update: {e}")
+        health.set_error(str(e))
+
+
+def _sanitize_url(url: Optional[str]) -> Optional[str]:
+    if not url:
+        return None
+    try:
+        parsed = urlparse(url)
+        sanitized = parsed._replace(query="", fragment="")
+        return urlunparse((sanitized.scheme, sanitized.netloc, sanitized.path, "", "", ""))
+    except Exception:
+        return url
 
 
 def get_bot_application() -> Optional[Application]:
     return _bot_app
+
+
+async def _set_webhook(url: str, secret_token: Optional[str]) -> None:
+    if not _bot_app:
+        raise RuntimeError("Bot application not initialized")
+
+    set_webhook_kwargs = {
+        "url": url,
+        "drop_pending_updates": True,
+    }
+    if secret_token:
+        set_webhook_kwargs["secret_token"] = secret_token
+
+    await _bot_app.bot.set_webhook(**set_webhook_kwargs)
+
+
+async def refresh_webhook_registration() -> Dict[str, Any]:
+    """
+    Recompute expected webhook URL and call setWebhook again.
+    Returns dict with ok/error and webhook info.
+    """
+    public_url, source = config.get_public_bot_url_with_source()
+    webhook_secret = config.get_telegram_webhook_secret()
+
+    expected_url = f"{public_url}/api/webhook/telegram" if public_url else None
+    if not expected_url:
+        return {
+            "ok": False,
+            "error": "missing_public_url",
+            "expected_webhook_url": None,
+            "public_url_source": source,
+            "telegram_webhook_info": None,
+        }
+
+    if not _bot_app:
+        return {
+            "ok": False,
+            "error": "bot_not_initialized",
+            "expected_webhook_url": _sanitize_url(expected_url),
+            "public_url_source": source,
+            "telegram_webhook_info": None,
+        }
+
+    try:
+        await _set_webhook(url=expected_url, secret_token=webhook_secret)
+        health.clear_error()
+        result_ok = True
+        log_msg = "webhook refreshed ok"
+    except Exception as exc:
+        health.set_error(str(exc))
+        result_ok = False
+        log_msg = f"webhook refreshed fail: {exc}"
+    logger.info(log_msg)
+
+    info = None
+    try:
+        info_obj = await _bot_app.bot.get_webhook_info()
+        info = {
+            "url": _sanitize_url(info_obj.url) if info_obj else None,
+            "has_custom_certificate": getattr(info_obj, "has_custom_certificate", None),
+            "pending_update_count": getattr(info_obj, "pending_update_count", None),
+            "last_error_date": getattr(info_obj, "last_error_date", None),
+            "last_error_message": getattr(info_obj, "last_error_message", None),
+            "max_connections": getattr(info_obj, "max_connections", None),
+            "ip_address": getattr(info_obj, "ip_address", None),
+        }
+    except Exception as exc:
+        if result_ok:
+            health.set_error(str(exc))
+
+    return {
+        "ok": result_ok,
+        "error": None if result_ok else health.last_error,
+        "expected_webhook_url": _sanitize_url(expected_url),
+        "public_url_source": source,
+        "telegram_webhook_info": info,
+    }
 
 
 async def _mark_update_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

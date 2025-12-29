@@ -1,6 +1,6 @@
 
 import os
-from typing import Optional
+from typing import Optional, Tuple
 
 def get_env(key: str, default: Optional[str] = None) -> Optional[str]:
     return os.environ.get(key, default)
@@ -31,14 +31,20 @@ def get_gemini_pro_model() -> str:
 def get_telegram_bot_token() -> Optional[str]:
     return get_env("TELEGRAM_BOT_TOKEN")
 
-def get_telegram_webhook_secret() -> str:
-    # Secret to verify updates come from Telegram
-    return get_env("TELEGRAM_WEBHOOK_SECRET") or "change-me-in-production"
-
-
-def get_public_bot_url() -> Optional[str]:
+def get_telegram_webhook_secret() -> Optional[str]:
     """
-    Return the public URL to use for Telegram webhooks.
+    Secret used by Telegram to sign webhook requests.
+
+    Returning None means no validation will be performed and secret_token will
+    not be sent during setWebhook.
+    """
+    val = get_env("TELEGRAM_WEBHOOK_SECRET")
+    return val.strip() if val else None
+
+
+def get_public_bot_url_with_source() -> Tuple[Optional[str], str]:
+    """
+    Return the public URL to use for Telegram webhooks and the source env key.
 
     Priority:
     1. BOT_PUBLIC_URL (explicit override)
@@ -47,16 +53,29 @@ def get_public_bot_url() -> Optional[str]:
     """
 
     candidates = [
-        get_env("BOT_PUBLIC_URL"),
-        get_env("RENDER_EXTERNAL_URL"),
-        get_env("PUBLIC_URL"),
-        get_env("public_url"),
+        (get_env("BOT_PUBLIC_URL"), "BOT_PUBLIC_URL"),
+        (get_env("RENDER_EXTERNAL_URL"), "RENDER_EXTERNAL_URL"),
+        (get_env("PUBLIC_URL"), "PUBLIC_URL"),
+        (get_env("public_url"), "PUBLIC_URL"),
     ]
 
-    for url in candidates:
+    for url, source in candidates:
         if url:
-            return url.rstrip("/")
-    return None
+            return url.rstrip("/"), source
+    return None, "none"
+
+
+def get_public_bot_url() -> Optional[str]:
+    url, _ = get_public_bot_url_with_source()
+    return url
+
+
+def get_admin_shared_secret() -> Optional[str]:
+    """
+    Shared secret for admin-like actions (e.g., webhook refresh).
+    """
+    val = get_env("ADMIN_SHARED_SECRET")
+    return val.strip() if val else None
 
 
 def get_bot_poll_interval() -> float:
