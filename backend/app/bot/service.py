@@ -1129,6 +1129,7 @@ def create_bot_app() -> Application:
     application.add_handler(CommandHandler("corrige", tool_wrapper_corrige))
     application.add_handler(CommandHandler("whatif", tool_wrapper_whatif))
     application.add_handler(CommandHandler("stats", tool_wrapper_stats))
+    application.add_handler(CommandHandler("btn", btn_command))
 
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
@@ -1559,6 +1560,24 @@ async def on_new_meal_received(carbs: float, source: str) -> None:
     except Exception as e:
         logger.error(f"Failed to send proactive message: {e}")
 
+async def btn_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Debug command to test inline buttons."""
+    if not await _check_auth(update, context): return
+    
+    test_id = str(uuid.uuid4())[:8]
+    keyboard = [
+        [
+            InlineKeyboardButton("✅ TEST", callback_data=f"test|{test_id}"),
+            InlineKeyboardButton("❌ CANCEL", callback_data=f"cancel|{test_id}")
+        ]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    logger.info(f"Sending /btn debug message with markup: {type(reply_markup).__name__}")
+    logger.info(f"Buttons: {[[b.callback_data for b in row] for row in keyboard]}")
+    
+    await reply_text(update, context, "🔘 **Botón de Pruebas**\nPulsa para verificar callback delivery.", reply_markup=reply_markup, parse_mode="Markdown")
+
+
 async def _handle_snapshot_callback(query, data: str) -> None:
     try:
         request_id = data.split("_")[-1]
@@ -1629,6 +1648,9 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     """Handles button clicks (Approve/Ignore)."""
     query = update.callback_query
     
+    # Debug Log
+    logger.info(f"[Callback] received data='{query.data}' from_user={query.from_user.id}")
+    
     # Always Answer to stop loading animation
     try:
         await query.answer()
@@ -1636,8 +1658,15 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         logger.warning(f"Failed to answer callback: {e}")
 
     data = query.data
-    logger.info(f"Callback received: {data}")
     
+    # 0. Test Button
+    if data.startswith("test|") or data.startswith("cancel|"):
+        action, uid = data.split("|", 1)
+        health.record_action(f"callback:{action}", True)
+        msg_out = f"Recibido ✅ {data}" if action == "test" else f"Cancelado ❌ {data}"
+        await query.edit_message_text(text=msg_out)
+        return
+
     # 1. Routing
     if data.startswith("accept_bolus_"):
         await _handle_snapshot_callback(query, data)
@@ -1678,6 +1707,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         health.record_action("callback:ignore", True)
         await query.edit_message_text(text=f"{query.message.text}\n\n❌ *Cancelado*", parse_mode="Markdown")
         return
+
 
 
     if data.startswith("chat_bolus_edit_"):
