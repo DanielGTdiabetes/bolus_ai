@@ -1560,9 +1560,20 @@ async def on_new_meal_received(carbs: float, source: str) -> None:
 async def _handle_snapshot_callback(query, data: str) -> None:
     try:
         request_id = data.split("_")[-1]
+        
+        # Determine strict action: accept or cancel?
+        is_accept = "accept_bolus_" in data
+        
+        if not is_accept: # It's a cancel via ID? Or generic cancel?
+             # Logic for specific cancel if we had cancel_bolus_{id}
+             # But current cancel button is just "ignore" (generic). 
+             pass
+
         snapshot = SNAPSHOT_STORAGE.get(request_id)
         
         if not snapshot:
+            health.record_action(f"callback:{'accept' if is_accept else 'cancel'}:{request_id}", False, "snapshot_missing")
+            await query.answer("Caducado, repite el cálculo", show_alert=True)
             await query.edit_message_text(f"⚠️ Error: No encuentro el snapshot ({request_id}). Recalcula.")
             return
             
@@ -1571,6 +1582,8 @@ async def _handle_snapshot_callback(query, data: str) -> None:
         units = rec.total_u_final
         
         if units < 0:
+             health.record_action(f"callback:accept:{request_id}", False, "negative_dose")
+             await query.answer("Error: Dosis negativa")
              await query.edit_message_text("⛔ Error: Dosis negativa.")
              return
 
@@ -1578,12 +1591,15 @@ async def _handle_snapshot_callback(query, data: str) -> None:
         if snapshot.get("source"):
              notes += f" ({snapshot['source']})"
         
+        # Execute Action
         add_args = {"insulin": units, "carbs": carbs, "notes": notes}
         result = await tools.add_treatment(add_args)
+        
         base_text = query.message.text if query.message else ""
 
         if isinstance(result, tools.ToolError) or not getattr(result, "ok", False):
             error_msg = result.message if isinstance(result, tools.ToolError) else (result.ns_error or "Error")
+            health.record_action(f"callback:accept:{request_id}", False, error_msg)
             await query.edit_message_text(text=f"{base_text}\n\n❌ Error: {error_msg}", parse_mode="Markdown")
             return
 
@@ -1600,24 +1616,32 @@ async def _handle_snapshot_callback(query, data: str) -> None:
 
         await query.edit_message_text(text=success_msg, parse_mode="Markdown")
         SNAPSHOT_STORAGE.pop(request_id, None)
+        health.record_action(f"callback:accept:{request_id}", True)
 
     except Exception as e:
         logger.error(f"Snapshot Callback error: {e}")
+        health.record_action(f"callback:error", False, str(e))
         await query.edit_message_text(text=f"Error fatal: {e}")
 
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-
     """Handles button clicks (Approve/Ignore)."""
     query = update.callback_query
-    await query.answer() # Ack the button press
     
-    data = query.data
+    # Always Answer to stop loading animation
+    try:
+        await query.answer()
+    except Exception as e:
+        logger.warning(f"Failed to answer callback: {e}")
 
+    data = query.data
+    logger.info(f"Callback received: {data}")
+    
+    # 1. Routing
     if data.startswith("accept_bolus_"):
         await _handle_snapshot_callback(query, data)
         return
 
-
+    # 2. Voice
     if data.startswith("voice_confirm_"):
         if not await _check_auth(update, context):
             return
@@ -1631,6 +1655,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             confirmation_update.message = query.message
             confirmation_update.message.text = pending_text
             await query.edit_message_text(text=f"{query.message.text}\n\n✅ Texto confirmado.")
+            health.record_action("callback:voice_confirm", True)
             await handle_message(confirmation_update, context)
             return
 
@@ -1638,16 +1663,20 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             await query.edit_message_text(
                 text=f"{query.message.text}\n\n✏️ Reenvía la nota de voz o escribe el mensaje."
             )
+            health.record_action("callback:voice_retry", True)
             return
 
         if data == "voice_confirm_cancel":
             await query.edit_message_text(text=f"{query.message.text}\n\n❌ Cancelado.")
+            health.record_action("callback:voice_cancel", True)
             return
     
+    # 3. Generic Ignore/Cancel
     if data == "ignore":
-        await query.edit_message_text(text=f"{query.message.text}\n\n❌ *Ignorado*", parse_mode="Markdown")
-        logger.info("User ignored bolus suggestion.")
+        health.record_action("callback:ignore", True)
+        await query.edit_message_text(text=f"{query.message.text}\n\n❌ *Cancelado*", parse_mode="Markdown")
         return
+
 
     if data.startswith("chat_bolus_edit_"):
         try:
