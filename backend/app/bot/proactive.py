@@ -65,7 +65,7 @@ async def basal_reminder(bot) -> None:
 
         latest = await get_latest_basal_dose(user_id=user_id)
         if latest:
-            age_hours = (datetime.utcnow() - latest.created_at).total_seconds() / 3600
+            age_hours = (datetime.utcnow() - latest["created_at"]).total_seconds() / 3600
             if age_hours < 18:
                 return
         cooldowns.touch("basal")
