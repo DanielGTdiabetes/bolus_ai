@@ -153,7 +153,9 @@ async def compute_iob_from_sources(
         if engine:
             async with AsyncSession(engine) as session:
                 # Look back dia_hours + buffer
-                cutoff = now - timedelta(hours=settings.iob.dia_hours + 1)
+                # Fix TZ mismatch: DB stores naive UTC usually.
+                cutoff_aware = now - timedelta(hours=settings.iob.dia_hours + 1)
+                cutoff_naive = cutoff_aware.replace(tzinfo=None) # Strip TZ for comparison
                 
                 # Query treatments table
                 query = text("""
@@ -163,7 +165,7 @@ async def compute_iob_from_sources(
                     AND insulin > 0
                 """)
                 
-                result = await session.execute(query, {"cutoff": cutoff})
+                result = await session.execute(query, {"cutoff": cutoff_naive})
                 rows = result.fetchall()
                 
                 for r in rows:
