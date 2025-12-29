@@ -24,3 +24,7 @@ async def test_bot_health_endpoint(monkeypatch):
     assert "enabled" in res
     assert "last_reply_at" in res
     assert "last_reply_error" in res
+    assert "last_action_at" in res
+    assert "last_action_type" in res
+    assert "last_action_ok" in res
+    assert "last_action_error" in res

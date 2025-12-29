@@ -26,6 +26,10 @@ class BotHealthState:
     started_at: Optional[datetime] = None
     last_reply_at: Optional[datetime] = None
     last_reply_error: Optional[str] = None
+    last_action_at: Optional[datetime] = None
+    last_action_type: Optional[str] = None
+    last_action_ok: Optional[bool] = None
+    last_action_error: Optional[str] = None
 
     # Internal lock to avoid races if multiple tasks mutate quickly
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
@@ -64,6 +68,13 @@ class BotHealthState:
         with self._lock:
             self.started_at = datetime.now(timezone.utc)
 
+    def record_action(self, action_type: str, ok: bool, error: Optional[str] = None) -> None:
+        with self._lock:
+            self.last_action_at = datetime.now(timezone.utc)
+            self.last_action_type = action_type
+            self.last_action_ok = ok
+            self.last_action_error = error if not ok else None
+
     def get_last_error(self) -> Optional[str]:
         with self._lock:
             return self.last_error
@@ -78,6 +89,10 @@ class BotHealthState:
             "last_error": self.last_error,
             "last_reply_at": self.last_reply_at.isoformat() if self.last_reply_at else None,
             "last_reply_error": self.last_reply_error,
+            "last_action_at": self.last_action_at.isoformat() if self.last_action_at else None,
+            "last_action_type": self.last_action_type,
+            "last_action_ok": self.last_action_ok,
+            "last_action_error": self.last_action_error,
         }
 
 

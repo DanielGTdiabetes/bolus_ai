@@ -1365,75 +1365,21 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 carbs = float(parts[3])
                 notes = "Bolus via Chat AI"
 
-            # Save the Bolus
-            import uuid
-            
-            # 1. DB Session
-            engine = get_engine()
-            if not engine:
-                 await query.edit_message_text(text="Error interno de base de datos.")
-                 return
+            add_args = {"insulin": units, "carbs": carbs, "notes": notes}
+            result = await tools.add_treatment(add_args)
+            base_text = query.message.text if query.message else ""
 
-            treatment_id = str(uuid.uuid4())
-            now_dt = datetime.now(timezone.utc)
-            
-            # Determine username (whitelist)
-            # Fetch from DB (Single Tenant Assumption)
-            username = "admin" 
-            async with AsyncSession(engine) as session:
-                from sqlalchemy import text
-                stmt = text("SELECT user_id FROM user_settings LIMIT 1")
-                row = (await session.execute(stmt)).fetchone()
-                if row:
-                    username = row.user_id
-            
-            success_msg = f"✅ *Tratamiento registrado*\nInsulina: {units} U"
+            if isinstance(result, tools.ToolError) or not getattr(result, "ok", False):
+                error_msg = result.message if isinstance(result, tools.ToolError) else (result.ns_error or "Error desconocido")
+                await query.edit_message_text(text=f"{base_text}\n\nNo he podido registrar: {error_msg}", parse_mode="Markdown")
+                return
+
+            success_msg = f"{base_text}\n\nRegistrado ✅ {units} U"
             if carbs > 0:
-                success_msg += f"\nCarbos: {carbs} g"
-            
-            async with AsyncSession(engine) as session:
-                # Save to DB
-                new_t = Treatment(
-                    id=treatment_id,
-                    user_id=username,
-                    event_type="Meal Bolus",
-                    created_at=now_dt.replace(tzinfo=None),
-                    insulin=units,
-                    carbs=carbs,
-                    fat=0,
-                    protein=0,
-                    notes=notes,
-                    entered_by="TelegramBot"
-                )
-                session.add(new_t)
-                await session.commit()
+                success_msg += f" / {carbs} g"
+            if getattr(result, "ns_uploaded", False):
+                success_msg += " (Nightscout)"
 
-                
-                # Upload to NS
-                settings = get_settings()
-                store = DataStore(Path(settings.data.data_dir))
-                user_settings = await get_bot_user_settings()
-                
-                if user_settings.nightscout.enabled and user_settings.nightscout.url:
-                    try:
-                        ns = NightscoutClient(user_settings.nightscout.url, user_settings.nightscout.token)
-                        await ns.upload_treatments([{
-                            "eventType": "Meal Bolus",
-                            "created_at": now_dt.isoformat(),
-                            "insulin": units,
-                            "carbs": carbs,
-                            "enteredBy": "TelegramBot",
-                            "notes": notes
-                        }])
-                        await ns.aclose()
-                        new_t.is_uploaded = True
-                        await session.commit()
-                        success_msg += " (subido a NS)"
-                    except Exception as exc:
-                        logger.error(f"NS upload failed: {exc}")
-                        success_msg += " (Error NS)"
-            
-            # Rotate Injection Site
             try:
                 settings = get_settings()
                 store = DataStore(Path(settings.data.data_dir))
@@ -1443,11 +1389,12 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             except Exception as e:
                 logger.error(f"Failed to rotate site: {e}")
 
-            await query.edit_message_text(text=f"{query.message.text}\n\n{success_msg}", parse_mode="Markdown")
-            
+            await query.edit_message_text(text=success_msg, parse_mode="Markdown")
+
         except Exception as e:
             logger.error(f"Callback error: {e}")
-            await query.edit_message_text(text=f"Error al registrar: {e}")
+            await query.edit_message_text(text=f"{query.message.text}\n\nNo he podido registrar: {e}")
+        return
 
 
 # --- Guardian Mode (Zero Cost Monitoring) ---

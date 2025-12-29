@@ -26,6 +26,7 @@ from app.core.db import get_db_session
 from app.services.nightscout_secrets_service import get_ns_config
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.security import CurrentUser
+from app.services.treatment_logger import log_treatment
 
 logger = logging.getLogger(__name__)
 
@@ -416,7 +417,6 @@ async def save_treatment(
     store: DataStore = Depends(_data_store),
     session: AsyncSession = Depends(get_db_session)
 ):
-    import uuid
     from app.services.learning_service import LearningService
     
     # Optional: Save Meal Learning Data
@@ -440,110 +440,42 @@ async def save_treatment(
         except Exception as e:
             logger.error(f"Failed to save meal learning entry: {e}")
 
-    # 1. Save locally (Always, as backup)
-    treatment_id = str(uuid.uuid4())
-    treatment_data = {
-        "_id": treatment_id,
-        "id": treatment_id,
-        "eventType": "Correction Bolus" if payload.carbs == 0 else "Meal Bolus",
-        "created_at": payload.created_at,
-        "insulin": payload.insulin,
-        "duration": payload.duration,
-        "carbs": payload.carbs,
-        "fat": payload.fat,
-        "protein": payload.protein,
-        "notes": payload.notes,
-        "enteredBy": payload.enteredBy,
-        "type": "bolus",
-        "ts": payload.created_at, 
-        "units": payload.insulin   
-    }
-    
-    events = store.load_events()
-    events.append(treatment_data)
-    if len(events) > 1000:
-        events = events[-1000:]
-    store.save_events(events)
-    
-    # 2. Save to Database (Robust Persistence)
-    # We use the same session provided by dependency
-    if session:
-        from app.models.treatment import Treatment
-        try:
-            # Parse date
-            # Parse date and ensure it is naive UTC (for timestamp without time zone)
-            dt_aware = datetime.fromisoformat(payload.created_at.replace('Z', '+00:00'))
-            dt = dt_aware.astimezone(timezone.utc).replace(tzinfo=None)
-            
-            db_treatment = Treatment(
-                id=treatment_id,
-                user_id=user.username,
-                event_type=treatment_data["eventType"],
-                created_at=dt,
-                insulin=payload.insulin,
-                duration=payload.duration,
-                carbs=payload.carbs,
-                fat=payload.fat,
-                protein=payload.protein,
-                notes=payload.notes,
-                entered_by=payload.enteredBy,
-                is_uploaded=False 
-            )
-            session.add(db_treatment)
-            await session.commit()
-            logger.info("Treatment saved to Database")
-        except Exception as db_err:
-            logger.error(f"Failed to save treatment to DB: {db_err}")
-            # Don't crash, we have local backup
-    
-    # 3. Upload to Nightscout if configured
-    ns_uploaded = False
-    error = None
-    
-    ns_config = await get_ns_config(session, user.username)
-    
-    if ns_config and ns_config.enabled and ns_config.url:
-        ns_url = ns_config.url
-        ns_token = ns_config.api_secret
-    else:
-        ns_url = payload.nightscout.get("url") if payload.nightscout else None
-        ns_token = payload.nightscout.get("token") if payload.nightscout else None
-    
-    if not ns_url:
-        error = "Nightscout not configured (neither in DB nor payload)"
+    # Resolve Nightscout config preference (payload overrides DB only when present)
+    ns_url = payload.nightscout.get("url") if payload.nightscout else None
+    ns_token = payload.nightscout.get("token") if payload.nightscout else None
 
-    if ns_url:
+    if session and (not ns_url):
         try:
-            client = NightscoutClient(ns_url, ns_token, timeout_seconds=5)
-            ns_payload = {
-                "eventType": treatment_data["eventType"],
-                "created_at": payload.created_at,
-                "insulin": payload.insulin,
-                "duration": payload.duration,
-                "carbs": payload.carbs,
-                "fat": payload.fat,
-                "protein": payload.protein,
-                "notes": payload.notes,
-                "enteredBy": payload.enteredBy,
-            }
-            await client.upload_treatments([ns_payload])
-            await client.aclose()
-            ns_uploaded = True
-            # Mark DB record as uploaded if we have it
-            try:
-                db_treatment.is_uploaded = True
-                await session.commit()
-            except Exception as e2:
-                logger.error(f"Failed to update upload flag in DB: {e2}")
-            
-        except Exception as e:
-            logger.error(f"Failed to upload treatment to NS: {e}")
-            error = str(e)
-            
+            ns_config = await get_ns_config(session, user.username)
+            if ns_config and ns_config.enabled and ns_config.url:
+                ns_url = ns_config.url
+                ns_token = ns_config.api_secret
+        except Exception as exc:
+            logger.error(f"Failed to fetch NS config for treatment save: {exc}")
+
+    created_dt = datetime.fromisoformat(payload.created_at.replace("Z", "+00:00"))
+    result = await log_treatment(
+        user_id=user.username,
+        insulin=payload.insulin,
+        carbs=payload.carbs,
+        notes=payload.notes,
+        entered_by=payload.enteredBy,
+        event_type="Correction Bolus" if payload.carbs == 0 else "Meal Bolus",
+        duration=payload.duration,
+        fat=payload.fat,
+        protein=payload.protein,
+        created_at=created_dt,
+        store=store,
+        session=session,
+        ns_url=ns_url,
+        ns_token=ns_token,
+    )
+
     return {
-        "success": True,
-        "ns_uploaded": ns_uploaded,
-        "ns_error": error
+        "success": result.ok,
+        "treatment_id": result.treatment_id,
+        "ns_uploaded": result.ns_uploaded,
+        "ns_error": result.ns_error,
     }
 
 
