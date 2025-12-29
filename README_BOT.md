@@ -77,3 +77,6 @@ Respuesta de ejemplo:
   - Si falta `GEMINI_API_KEY` o `ENABLE_TELEGRAM_VOICE=true`, el bot avisa: “El reconocimiento de voz no está configurado, envíame el texto.”
   - Si el audio es demasiado largo/pesado, responde con el límite configurado.
   - Para transcripciones dudosas, preguntará “¿Es correcto?” con botones para confirmar, repetir o cancelar.
+
+## TODO
+- Mapear el `chat_id` de Telegram a un `username/user_id` real para recordatorios (p.ej., basal) y eliminar el fallback hardcodeado a `admin`.
