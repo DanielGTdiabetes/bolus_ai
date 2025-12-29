@@ -1,5 +1,7 @@
 import logging
 import asyncio
+import os
+import tempfile
 from typing import Optional, Dict, Any
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -691,29 +693,94 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     """Voice note handler."""
     if not await _check_auth(update):
         return
-    voice_msg = update.message.voice
+
+    voice_msg = update.message.voice or update.message.audio
     if not voice_msg:
         return
+
+    if not config.is_telegram_voice_enabled() or not config.get_google_api_key():
+        await update.message.reply_text("El reconocimiento de voz no está configurado, envíame el texto.")
+        return
+
+    # Validations
+    duration = getattr(voice_msg, "duration", None)
+    if duration and duration > config.get_max_voice_seconds():
+        await update.message.reply_text(
+            f"La nota de voz es demasiado larga (> {config.get_max_voice_seconds()} s). Envía una más corta o texto."
+        )
+        return
+
+    max_bytes = config.get_max_voice_bytes()
+    file_size = getattr(voice_msg, "file_size", None)
+    if file_size and file_size > max_bytes:
+        await update.message.reply_text(
+            f"El audio supera el límite de {config.get_max_voice_mb()} MB. Envía una nota más corta."
+        )
+        return
+
     await update.message.reply_text("🎙️ Procesando nota de voz...")
+    tmp_path = None
     try:
         file = await context.bot.get_file(voice_msg.file_id)
         file_bytes = await file.download_as_bytearray()
-        result = await voice.transcribe_audio(file_bytes, mime_type=voice_msg.mime_type or "audio/ogg")
+
+        if not file_size and len(file_bytes) > max_bytes:
+            await update.message.reply_text(
+                f"El audio supera el límite de {config.get_max_voice_mb()} MB. Envía una nota más corta."
+            )
+            return
+
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".ogg") as tmp:
+            tmp.write(file_bytes)
+            tmp_path = tmp.name
+
+        mime_type = voice_msg.mime_type or "audio/ogg"
+        result = await voice.transcribe_audio(file_bytes, mime_type=mime_type)
+
         if result.error:
-            await update.message.reply_text(f"⚠️ {result.error}")
+            error_code = result.error
+            if error_code == "missing_key":
+                await update.message.reply_text("El reconocimiento de voz no está configurado, envíame el texto.")
+            elif error_code == "unsupported_format":
+                await update.message.reply_text("Formato de audio no soportado. Envía un OGG/OPUS o escribe el texto.")
+            elif error_code == "too_large":
+                await update.message.reply_text(
+                    f"La nota de voz supera el límite de {config.get_max_voice_mb()} MB. Envía una más corta."
+                )
+            else:
+                await update.message.reply_text("No se pudo transcribir la nota de voz. Inténtalo de nuevo o escribe el texto.")
             return
-        if not result.text:
-            await update.message.reply_text("No pude transcribir el audio.")
+
+        transcript = (result.text or "").strip()
+        confidence = result.confidence if result.confidence is not None else 1.0
+        if not transcript or confidence < config.get_voice_min_confidence():
+            context.user_data["pending_voice_text"] = transcript
+            display_text = transcript if transcript else "(sin texto)"
+            keyboard = [
+                [
+                    InlineKeyboardButton("✅ Sí", callback_data="voice_confirm_yes"),
+                    InlineKeyboardButton("✏️ Repetir", callback_data="voice_confirm_retry"),
+                    InlineKeyboardButton("❌ Cancelar", callback_data="voice_confirm_cancel"),
+                ]
+            ]
+            await update.message.reply_text(
+                f"No estoy seguro de haber entendido la nota de voz. He captado: “{display_text}”. ¿Es correcto?",
+                reply_markup=InlineKeyboardMarkup(keyboard),
+            )
             return
-        if result.confidence < config.get_voice_min_confidence():
-            await update.message.reply_text(f"¿Quisiste decir?: \"{result.text}\" ? Responde confirmando.")
-            return
+
         # Re-route as text
-        update.message.text = result.text
+        update.message.text = transcript
         await handle_message(update, context)
     except Exception as exc:
         logger.error("Voice handler failed: %s", exc)
         await update.message.reply_text("❌ Error transcribiendo la nota de voz.")
+    finally:
+        if tmp_path and os.path.exists(tmp_path):
+            try:
+                os.remove(tmp_path)
+            except Exception:
+                logger.debug("Failed to cleanup temp audio file %s", tmp_path)
 
 def create_bot_app() -> Application:
     """Factory to create and configure the PTB Application."""
@@ -728,7 +795,7 @@ def create_bot_app() -> Application:
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
-    application.add_handler(MessageHandler(filters.VOICE, handle_voice))
+    application.add_handler(MessageHandler(filters.VOICE | filters.AUDIO, handle_voice))
     application.add_handler(CallbackQueryHandler(handle_callback))
     
     # Error Handler
@@ -753,6 +820,8 @@ async def initialize() -> None:
 
     logger.info("Initializing Telegram Bot...")
     logger.info("ENABLE_TELEGRAM_BOT=true. Allowed user: %s", config.get_allowed_telegram_user_id())
+    voice_enabled = config.is_telegram_voice_enabled() and bool(config.get_google_api_key())
+    logger.info("Voice notes: %s (provider: Gemini)", "enabled" if voice_enabled else "disabled")
     _bot_app = create_bot_app()
     
     if not _bot_app:
@@ -994,6 +1063,32 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     await query.answer() # Ack the button press
     
     data = query.data
+
+    if data.startswith("voice_confirm_"):
+        if not await _check_auth(update):
+            return
+        pending_text = context.user_data.pop("pending_voice_text", None)
+
+        if data == "voice_confirm_yes":
+            if not pending_text:
+                await query.edit_message_text(text="No tengo texto confirmado. Envía la nota de voz de nuevo.")
+                return
+            confirmation_update = update
+            confirmation_update.message = query.message
+            confirmation_update.message.text = pending_text
+            await query.edit_message_text(text=f"{query.message.text}\n\n✅ Texto confirmado.")
+            await handle_message(confirmation_update, context)
+            return
+
+        if data == "voice_confirm_retry":
+            await query.edit_message_text(
+                text=f"{query.message.text}\n\n✏️ Reenvía la nota de voz o escribe el mensaje."
+            )
+            return
+
+        if data == "voice_confirm_cancel":
+            await query.edit_message_text(text=f"{query.message.text}\n\n❌ Cancelado.")
+            return
     
     if data == "ignore":
         await query.edit_message_text(text=f"{query.message.text}\n\n❌ *Ignorado*", parse_mode="Markdown")

@@ -74,7 +74,7 @@ def get_bot_read_timeout() -> int:
 
 
 def get_voice_transcriber_provider() -> str:
-    return (get_env("VOICE_TRANSCRIBER_PROVIDER") or "none").lower()
+    return (get_env("VOICE_TRANSCRIBER_PROVIDER") or "gemini").lower()
 
 
 def get_voice_min_confidence() -> float:
@@ -82,6 +82,28 @@ def get_voice_min_confidence() -> float:
         return float(get_env("VOICE_TRANSCRIBER_MIN_CONFIDENCE", "0.6"))
     except ValueError:
         return 0.6
+
+def get_gemini_transcribe_model() -> str:
+    return get_env("GEMINI_TRANSCRIBE_MODEL") or "gemini-1.5-flash"
+
+def is_telegram_voice_enabled() -> bool:
+    val = get_env("ENABLE_TELEGRAM_VOICE", "false")
+    return val.lower() == "true"
+
+def get_max_voice_seconds() -> int:
+    try:
+        return int(get_env("MAX_VOICE_SECONDS", "45"))
+    except ValueError:
+        return 45
+
+def get_max_voice_mb() -> float:
+    try:
+        return float(get_env("MAX_VOICE_MB", "10"))
+    except ValueError:
+        return 10.0
+
+def get_max_voice_bytes() -> int:
+    return int(get_max_voice_mb() * 1024 * 1024)
 
 def get_allowed_telegram_user_id() -> Optional[int]:
     # Security: Only allow this user ID to interact
