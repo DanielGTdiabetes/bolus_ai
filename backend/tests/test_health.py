@@ -53,3 +53,13 @@ def test_full_health_contains_fields(mocker):
         assert body["nightscout"]["reachable"] is True
     finally:
         app.dependency_overrides = {}
+
+
+def test_jobs_health_contains_basal():
+    response = client.get("/api/health/jobs")
+    assert response.status_code == 200
+    body = response.json()
+    assert "basal" in body
+    basal_state = body["basal"]
+    assert "last_run_at" in basal_state
+    assert basal_state["last_run_at"] is None or isinstance(basal_state["last_run_at"], str)

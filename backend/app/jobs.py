@@ -1,4 +1,4 @@
-from datetime import date, datetime, timedelta
+from datetime import date
 import logging
 from apscheduler.triggers.cron import CronTrigger
 from app.core.scheduler import init_scheduler, schedule_task
@@ -7,6 +7,7 @@ from app.core import config
 from app.core.datastore import UserStore
 from pathlib import Path
 from app.services.basal_engine import scan_night_service
+from app import jobs_state
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +57,7 @@ async def run_auto_night_scan():
     logger.info(f"Auto Night Scan Job Completed. Processed {count} users (dry-run).")
 
 
-async def run_learning_evaluation():
+async def _run_learning_evaluation_task():
     """
     Background Task: Evaluates outcomes of past meals (Effect Memory).
     """
@@ -103,6 +104,10 @@ async def run_learning_evaluation():
     logger.info("Learning Evaluation Job Completed.")
 
 
+async def run_learning_evaluation():
+    return await jobs_state.run_job("learning_eval", _run_learning_evaluation_task)
+
+
 def setup_periodic_tasks():
     init_scheduler()
     
@@ -117,11 +122,16 @@ def setup_periodic_tasks():
     # Run learning evaluation every 30 mins
     learning_trigger = CronTrigger(minute='*/30')
     schedule_task(run_learning_evaluation, learning_trigger, "learning_eval")
+    jobs_state.refresh_next_run("learning_eval")
 
     # Run Guardian Mode (Glucose Alert) every 5 mins
     from app.bot.service import run_glucose_monitor_job
     guardian_trigger = CronTrigger(minute='*/5')
-    schedule_task(run_glucose_monitor_job, guardian_trigger, "guardian_check")
+    async def _run_glucose_monitor():
+        await jobs_state.run_job("glucose_monitor", run_glucose_monitor_job)
+
+    schedule_task(_run_glucose_monitor, guardian_trigger, "guardian_check")
+    jobs_state.refresh_next_run("glucose_monitor")
 
     # Light proactive v1 jobs (respect Render limits)
     if config.is_telegram_bot_enabled():
@@ -130,17 +140,17 @@ def setup_periodic_tasks():
         async def _run_morning():
             bot_app = bot_service.get_bot_application()
             bot = bot_app.bot if bot_app else None
-            await proactive.morning_summary(bot)
+            await jobs_state.run_job("morning_summary", proactive.morning_summary, bot)
 
         async def _run_basal():
             bot_app = bot_service.get_bot_application()
             bot = bot_app.bot if bot_app else None
-            await proactive.basal_reminder(bot)
+            await jobs_state.run_job("basal", proactive.basal_reminder, bot)
 
         async def _run_premeal():
             bot_app = bot_service.get_bot_application()
             bot = bot_app.bot if bot_app else None
-            await proactive.premeal_nudge(bot)
+            await jobs_state.run_job("premeal", proactive.premeal_nudge, bot)
 
         async def _run_combo():
             bot_app = bot_service.get_bot_application()
@@ -148,8 +158,13 @@ def setup_periodic_tasks():
             await proactive.combo_followup(bot)
 
         schedule_task(_run_morning, CronTrigger(hour=8, minute=5), "morning_summary")
+        jobs_state.refresh_next_run("morning_summary")
+
         schedule_task(_run_basal, CronTrigger(minute='*/45'), "basal_reminder")
+        jobs_state.refresh_next_run("basal")
+
         schedule_task(_run_premeal, CronTrigger(minute='*/30'), "premeal_nudge")
+        jobs_state.refresh_next_run("premeal")
         schedule_task(_run_combo, CronTrigger(minute='*/30'), "combo_followup")
 
 
