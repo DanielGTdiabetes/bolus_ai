@@ -406,14 +406,19 @@ async def jobs_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         next_run = j.next_run_fn() if j.next_run_fn else "?"
         last_st = j.last_run_state_fn() if j.last_run_state_fn else None
         
-        status = "⚪"
-        if last_st:
-            status = "🟢" if last_st.get("last_run_ok") else "🔴"
+        status = "⚪ (PENDING)"
+        if last_st and last_st.get("last_run_at"):
+            if last_st.get("last_run_ok"):
+                status = "🟢 (OK)"
+            else:
+                status = "🔴 (ERR)"
             
         msg += f"{status} **{j.id}**\n  Next: {next_run}\n"
-        if last_st:
-             msg += f"  Last: {last_st.get('last_run_iso')} ({'OK' if last_st.get('last_run_ok') else 'ERR'})\n"
+        if last_st and last_st.get("last_run_at"):
+             iso = last_st.get('last_run_at')
+             msg += f"  Last: {iso} ({'OK' if last_st.get('last_run_ok') else 'ERR'})\n"
     await reply_text(update, context, msg)
+
 
 async def run_job_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """/run <job_id>: Manually trigger job."""
@@ -966,68 +971,8 @@ async def _handle_add_treatment_tool(update: Update, context: ContextTypes.DEFAU
     await reply_text(update, context, msg_text, reply_markup=reply_markup, parse_mode="Markdown")
 
 
-    # --- History Injection (Intelligent Context) ---
-    # Heuristic: If user talks about past/trends, inject history.
-    # Words: noche, ayer, resumen, tendencia, subida, bajada, dia, durmiendo
-    hist_keywords = ["noche", "ayer", "resumen", "tendencia", "subida", "bajada", "dia", "durmiendo", "pasó", "paso"]
-    if any(k in cmd for k in hist_keywords):
-        await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=constants.ChatAction.TYPING)
-        # Default 8h (Night) or 24h if "ayer"
-        h_lookback = 24 if "ayer" in cmd else 8
-        try:
-            hist_summary = await fetch_history_context(user_settings, hours=h_lookback)
-            if hist_summary:
-                context_lines.append("\n" + hist_summary)
-        except Exception as e:
-            logger.error(f"Failed to inject history: {e}")
 
-    try:
-        context_str = "\n".join(context_lines)
-        
-        logger.info("🤖 Calling AI (Chat Completion)...")
-        response_data = await ai.chat_completion(
-            text, 
-            context=context_str, 
-            mode=mode, 
-            tools=AI_TOOLS
-        )
-        logger.info(f"🤖 AI Response received: {str(response_data)[:100]}...")
 
-        # Handle Response
-        did_action = False
-        
-        if response_data.get("function_call"):
-            fn = response_data["function_call"]
-            name = fn["name"]
-            args = fn["args"]
-            
-            logger.info(f"AI triggered tool: {name} with {args}")
-            
-            result = await tools.execute_tool(name, args)
-            if isinstance(result, tools.ToolError):
-                await reply_text(update, context, f"⚠️ {result.message}")
-                did_action = True
-            elif name == "add_treatment":
-                await _handle_add_treatment_tool(update, context, args)
-                did_action = True
-            elif name == "calculate_bolus":
-                await _handle_add_treatment_tool(update, context, {"carbs": args.get("carbs"), "notes": "Chat", "insulin": None})
-                did_action = True
-            else:
-                await reply_text(update, context, str(result))
-                did_action = True
-        
-        # Always reply with text if present (AI often explains "He preparado la confirmación...")
-        # or if no action was taken
-        if response_data.get("text"):
-            await reply_text(update, context, response_data["text"])
-        elif not did_action:
-            # Fallback if AI returned nothing (rare)
-            await reply_text(update, context, "🤔 (Sin respuesta)")
-            
-    except Exception as e:
-        logger.error(f"Error AI processing: {e}")
-        await reply_text(update, context, "⚠️ Hubo un error procesando tu mensaje. Intenta de nuevo en unos segundos.")
 
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Photo Handler - Vision Layer."""
