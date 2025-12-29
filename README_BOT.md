@@ -23,6 +23,16 @@
 - **Webhook**: si hay URL pública disponible. Se registra en `/api/webhook/telegram` con `TELEGRAM_WEBHOOK_SECRET`.
 - **Polling (fallback)**: si no hay URL pública. Intervalo y timeout configurables con `TELEGRAM_POLL_INTERVAL` y `TELEGRAM_POLL_TIMEOUT`. No bloquea FastAPI.
 
+### Webhook diagnóstico
+- Verifica estado rápido: `curl https://<tu-app>.onrender.com/api/health/bot`
+- Diagnóstico detallado (público, sin token): `curl https://<tu-app>.onrender.com/api/bot/telegram/webhook`
+  - Revisa `mode`, `expected_webhook_url`, `public_url_source` y `telegram_webhook_info` (url, pending_update_count, last_error_message).
+  - Si `error=missing_token`, falta `TELEGRAM_BOT_TOKEN`.
+- Si `last_update_at` sigue `null` y Telegram no entrega:
+  - Observa `pending_update_count` y `last_error_message` en `telegram_webhook_info`.
+  - Refresca el registro del webhook: `curl -XPOST -H "X-Admin-Secret: <ADMIN_SHARED_SECRET>" https://<tu-app>.onrender.com/api/bot/telegram/webhook/refresh`
+  - Checklist de URL pública: `BOT_PUBLIC_URL` > `RENDER_EXTERNAL_URL` > `PUBLIC_URL`.
+
 ### Health check
 `curl https://<tu-app>.onrender.com/api/health/bot`
 

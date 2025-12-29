@@ -61,6 +61,7 @@ def health_check_direct():
 
 app.include_router(api_router, prefix="/api")
 app.include_router(bot_webhook.router, prefix="/api/webhook")
+app.include_router(bot_webhook.diag_router, prefix="/api/bot/telegram")
 
 
 @app.on_event("startup")
