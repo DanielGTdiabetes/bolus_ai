@@ -28,7 +28,7 @@ async def analyze_image(image_bytes: bytes, mime_type: str = "image/jpeg") -> st
     _configure_genai()
     
     # Always use Flash for Vision (Cost/Speed efficient)
-    model_name = config.get_gemini_model() # Default: gemini-3.0-flash
+    model_name = config.get_gemini_model() # Default: gemini-3-flash-preview
     
     try:
         model = genai.GenerativeModel(model_name)
@@ -72,9 +72,9 @@ async def chat_completion(
     
     # Select Model
     if mode == "pro":
-        model_name = config.get_gemini_pro_model() # gemini-3.0-pro
+        model_name = config.get_gemini_pro_model() # gemini-3-pro-preview
     else:
-        model_name = config.get_gemini_model() # gemini-3.0-flash
+        model_name = config.get_gemini_model() # gemini-3-flash-preview
         
     try:
         # System Prompt (Injected if history is empty or via system instruction if supported)

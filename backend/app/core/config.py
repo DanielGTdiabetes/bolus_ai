@@ -20,12 +20,12 @@ def get_google_api_key() -> str:
     return get_env("GOOGLE_API_KEY") or get_env("GEMINI_API_KEY") or ""
 
 def get_gemini_model() -> str:
-    # Updated default to 3.0 Flash as per 2025 standard
-    return get_env("GEMINI_MODEL") or "gemini-3.0-flash"
+    # Updated default to 3.0 Flash Preview as per Render config
+    return get_env("GEMINI_MODEL") or "gemini-3-flash-preview"
 
 def get_gemini_pro_model() -> str:
     # Dedicated model for reasoning/complex tasks
-    return get_env("GEMINI_MODEL_PRO") or "gemini-3.0-pro"
+    return get_env("GEMINI_MODEL_PRO") or "gemini-3-pro-preview"
 
 # --- Telegram Bot Config ---
 def get_telegram_bot_token() -> Optional[str]:

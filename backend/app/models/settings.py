@@ -129,7 +129,7 @@ class VisionConfig(BaseModel):
     
     # Gemini Config
     gemini_key: Optional[str] = None
-    gemini_model: str = "gemini-2.0-flash-exp" # Default recommended
+    gemini_model: str = "gemini-3-flash-preview" # Default recommended
     
     # OpenAI Config
     openai_key: Optional[str] = None
