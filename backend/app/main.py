@@ -8,6 +8,8 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 
 from app.api import api_router
+from app.bot import webhook as bot_webhook
+from app.bot import service as bot_service
 from app.core.logging import configure_logging
 from app.core.settings import get_settings
 
@@ -58,6 +60,7 @@ def health_check_direct():
     return {"status": "ok", "direct": True}
 
 app.include_router(api_router, prefix="/api")
+app.include_router(bot_webhook.router, prefix="/api/webhook")
 
 
 @app.on_event("startup")
@@ -103,9 +106,15 @@ async def startup_event() -> None:
         setup_periodic_tasks()
     except Exception as e:
         logger.error(f"Failed to setup background jobs: {e}")
+        
+    # Initialize Telegram Bot (Sidecar)
+    await bot_service.initialize()
 
 @app.on_event("shutdown")
 async def shutdown_event() -> None:
+    # Shutdown Telegram Bot
+    await bot_service.shutdown()
+    
     # placeholder for cleanup hooks
     return None
 
