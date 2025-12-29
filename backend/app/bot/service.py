@@ -18,6 +18,11 @@ from app.services.iob import compute_iob_from_sources, compute_cob_from_sources
 from app.services.bolus import recommend_bolus, BolusRequestData
 from app.services.injection_sites import InjectionManager
 
+# DB Access for Settings
+from app.core.db import get_engine, AsyncSession
+from app.services import settings_service as svc_settings
+from app.models.settings import UserSettings
+
 logger = logging.getLogger(__name__)
 
 # Global Application instance
@@ -37,6 +42,26 @@ async def _check_auth(update: Update) -> bool:
         await update.message.reply_text("⛔ Acceso denegado. Este bot es privado.")
         return False
     return True
+
+async def get_bot_user_settings() -> UserSettings:
+    """Helper to fetch 'admin' settings from DB (Single User assumption)."""
+    settings = get_settings() # App settings
+    
+    # Try DB
+    engine = get_engine()
+    if engine:
+        async with AsyncSession(engine) as session:
+            # Assume 'admin' or get first user? 'admin' is safe default seed.
+            res = await svc_settings.get_user_settings_service("admin", session)
+            if res and res.get("settings"):
+                try:
+                    return UserSettings.model_validate(res["settings"])
+                except Exception as e:
+                    logger.error(f"Failed to validate DB settings: {e}")
+    
+    # Fallback to JSON Store
+    store = DataStore(Path(settings.data.data_dir))
+    return store.load_settings()
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Standard /start command."""
@@ -85,7 +110,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     try:
         settings = get_settings()
         store = DataStore(Path(settings.data.data_dir))
-        user_settings = store.load_settings()
+        # user_settings = store.load_settings() # OLD
+        user_settings = await get_bot_user_settings() # NEW (DB)
         
         # 1. Glucose (Nightscout)
         ns_client = None
@@ -261,17 +287,29 @@ async def on_new_meal_received(carbs: float, source: str) -> None:
     # 1. Gather Context
     settings = get_settings()
     store = DataStore(Path(settings.data.data_dir))
-    user_settings = store.load_settings()
+    user_settings = await get_bot_user_settings() # NEW (DB)
     
     bg_val = None
     iob_u = 0.0
     ns_client = None
     
     # Init NS Client
-    if user_settings.nightscout.enabled and user_settings.nightscout.url:
-         ns_client = NightscoutClient(user_settings.nightscout.url, user_settings.nightscout.token)
+    # Init NS Client & Fetch BG
+    if user_settings.nightscout.url:
+        # Check enabled flag but proceed if URL exists (warn if disabled)
+        if not user_settings.nightscout.enabled:
+            logger.warning("Nightscout is DISABLED in settings but URL is present. Bot will try to use it.")
+            
+        ns_client = NightscoutClient(
+            base_url=user_settings.nightscout.url, 
+            token=user_settings.nightscout.token,
+            timeout_seconds=10 # More generous timeout for background job
+        )
+        logger.info(f"Bot connecting to NS: {user_settings.nightscout.url}")
     elif settings.nightscout.base_url:
+         # Fallback to Env
          ns_client = NightscoutClient(str(settings.nightscout.base_url), settings.nightscout.token)
+         logger.info("Bot connecting to NS (Env Fallback)")
     
     try:
         # Fetch BG
@@ -279,16 +317,21 @@ async def on_new_meal_received(carbs: float, source: str) -> None:
             try:
                 sgv = await ns_client.get_latest_sgv()
                 bg_val = float(sgv.sgv)
-            except: pass
+                logger.info(f"Bot obtained BG: {bg_val}")
+            except Exception as e:
+                logger.error(f"Bot failed to get latest SGV: {e}")
+                # Don't crash, proceed with BG=None
             
         # Calc IOB
-        now_utc = datetime.now(timezone.utc)
         # Note: compute_iob_from_sources will use the client we passed.
         # We must keep it open.
-        iob_u, _, _, _ = await compute_iob_from_sources(now_utc, user_settings, ns_client, store)
-    
+        try:
+            iob_u, _, _, _ = await compute_iob_from_sources(now_utc, user_settings, ns_client, store)
+        except Exception as e:
+            logger.error(f"Bot failed to calc IOB: {e}")
+
     except Exception as e:
-        logger.error(f"Error in meal context calc: {e}")
+        logger.error(f"Unexpected error in meal context calc: {e}")
         iob_u = 0.0
     finally:
         if ns_client:
@@ -412,7 +455,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 # Upload to NS
                 settings = get_settings()
                 store = DataStore(Path(settings.data.data_dir))
-                user_settings = store.load_settings()
+                user_settings = await get_bot_user_settings()
                 
                 if user_settings.nightscout.enabled and user_settings.nightscout.url:
                     try:
