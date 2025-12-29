@@ -21,6 +21,7 @@ from app.services.injection_sites import InjectionManager
 # DB Access for Settings
 from app.core.db import get_engine, AsyncSession
 from app.services import settings_service as svc_settings
+from app.services import nightscout_secrets_service as svc_ns_secrets
 from app.models.settings import UserSettings
 from app.models.treatment import Treatment
 
@@ -65,7 +66,22 @@ async def get_bot_user_settings() -> UserSettings:
             
             if res and res.get("settings"):
                 s = res["settings"]
-                # Check if it has NS URL
+                
+                # Overlay Nightscout Secrets (Source of Truth)
+                try:
+                    ns_secret = await svc_ns_secrets.get_ns_config(session, "admin")
+                    if ns_secret:
+                        if "nightscout" not in s: s["nightscout"] = {}
+                        s["nightscout"]["url"] = ns_secret.url
+                        s["nightscout"]["token"] = ns_secret.api_secret
+                        # s["nightscout"]["enabled"] = ns_secret.enabled # Respect secret enabled status? Or user pref?
+                        # Usually secret table enabled is the master switch for connection.
+                        # But Settings.nightscout.enabled might be the "User wants this feature" flag.
+                        # Let's trust the secret config for URL/Auth.
+                except Exception as e:
+                    logger.warning(f"Bot failed to fetch NS secrets: {e}")
+
+                # Check if it has NS URL (from Secrets or Legacy)
                 ns = s.get("nightscout", {})
                 if ns.get("url"):
                     db_settings = s
