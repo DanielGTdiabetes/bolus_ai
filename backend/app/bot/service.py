@@ -968,6 +968,7 @@ async def _handle_add_treatment_tool(update: Update, context: ContextTypes.DEFAU
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
+    logger.info(f"Bot creating inline keyboard for request_{request_id} with callback accept_bolus_{request_id}")
     await reply_text(update, context, msg_text, reply_markup=reply_markup, parse_mode="Markdown")
 
 
@@ -1301,6 +1302,7 @@ async def _set_webhook(url: str, secret_token: Optional[str]) -> None:
     set_webhook_kwargs = {
         "url": url,
         "drop_pending_updates": True,
+        "allowed_updates": ["message", "callback_query"],
     }
     if secret_token:
         set_webhook_kwargs["secret_token"] = secret_token
