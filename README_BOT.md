@@ -4,7 +4,7 @@
 - `ENABLE_TELEGRAM_BOT=true`
 - `TELEGRAM_BOT_TOKEN=<token>`
 - `ALLOWED_TELEGRAM_USER_ID=<id numérico>`
-- `BOT_PUBLIC_URL` / `RENDER_EXTERNAL_URL` / `PUBLIC_URL` (para webhook). Si faltan, el bot usa **polling** automáticamente.
+- URL pública para webhook (prioridad): `BOT_PUBLIC_URL` > `RENDER_EXTERNAL_URL` > `PUBLIC_URL`. Si ninguna está presente, el bot usa **polling** automáticamente.
 - `TELEGRAM_WEBHOOK_SECRET=<secreto>`
 - Voz (opcional):
   - `ENABLE_TELEGRAM_VOICE=true`
@@ -24,7 +24,19 @@
 - **Polling (fallback)**: si no hay URL pública. Intervalo y timeout configurables con `TELEGRAM_POLL_INTERVAL` y `TELEGRAM_POLL_TIMEOUT`. No bloquea FastAPI.
 
 ### Health check
-`curl http://localhost:8000/api/health/bot` → devuelve `enabled`, `mode (webhook|polling|disabled|error)`, `last_update_at`, `last_error`.
+`curl https://<tu-app>.onrender.com/api/health/bot`
+
+Respuesta de ejemplo:
+```json
+{
+  "enabled": true,
+  "mode": "polling",
+  "reason": "missing_public_url",
+  "started_at": "2024-01-01T00:00:00Z",
+  "last_update_at": null,
+  "last_error": null
+}
+```
 
 ## Probar localmente
 1. Exportar las env vars mínimas anteriores.
@@ -43,7 +55,12 @@
 - `add_treatment` (registro manual, siempre con confirmación)
 
 ## Troubleshooting
-- **No responde**: revisa `ENABLE_TELEGRAM_BOT`, `TELEGRAM_BOT_TOKEN`, `ALLOWED_TELEGRAM_USER_ID`. Si no hay URL pública, confirma que los logs indiquen `polling mode`.
+- **No responde** (checklist):
+  1) Abre `https://<tu-app>.onrender.com/api/health/bot` y revisa `mode` / `reason`.
+  2) Revisa logs de arranque: debería indicar si está en webhook o polling y por qué.
+  3) Valida `TELEGRAM_BOT_TOKEN`.
+  4) Valida `ALLOWED_TELEGRAM_USER_ID` (whitelist); si falta, el bot avisará en `/start`.
+  5) Si `reason=missing_public_url`, el bot está en **polling**: debería seguir respondiendo.
 - **Nightscout caído**: las herramientas devuelven error tipado y el bot contesta en modo degradado.
 - **Whitelist**: si `ALLOWED_TELEGRAM_USER_ID` falta, el bot solo avisa en `/start` y rechaza el resto.
 - **Notas de voz**:
