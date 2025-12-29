@@ -256,7 +256,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         # 3. Settings Snapshot (Key stats)
         # Use current time to find relevant CR/ISF (approximate to 'now' slot)
         # Simple Logic: morning/afternoon/night
-        h = now_utc.hour + 2 # CET roughly? Or just list all? List all is safer.
+        h = now_utc.hour + 1 # CET Winter (UTC+1). TODO: Dynamic User Timezone
         
         context_lines.append("\nCONF USUARIO:")
         context_lines.append(f"- ISF (Sensibilidad): {user_settings.cf.breakfast} (D) / {user_settings.cf.lunch} (A) / {user_settings.cf.dinner} (C)")
