@@ -40,6 +40,17 @@ Un servicio en el backend que monitoriza dos fuentes de información:
 ### Caso 3: Alerta de Tendencia (Sin Comida)
 *   Detecta subida rápida sin bolus/comida activa: *"Estás subiendo rápido (↑↑). ¿Estrés o fallo de infusión? Revisa cetonas si persiste."*
 
+### Caso 4: Monitorización de Bolo Doble (Combo/Extendido)
+Gestionar los recordatorios y ajustes de la segunda parte de un bolo extendido (ej. para comidas altas en proteínas/grasas como pizza).
+1.  **Detección**: El usuario registra un bolo combo (ej. 50% ahora, 50% en 2 horas).
+2.  **Vigilancia**: 15 minutos antes de la hora programada para la segunda dosis.
+3.  **Análisis Inteligente**:
+    *   **Escenario A (Subida Anticipada)**: Glucosa ya subiendo antes de tiempo.
+        *   *Mensaje*: "Faltan 15 min para tu bolo extendido, pero ya estás subiendo. ¿Quieres adelantarlo ahora?"
+    *   **Escenario B (Hipoglucemia)**: Glucosa bajando o demasiado baja.
+        *   *Mensaje*: "CUIDADO: Toca el resto del bolo en 15 min, pero estás en 80 mg/dL y estable. ¿Posponemos o cancelamos?"
+    *   **Escenario C (Estable)**: "Todo en orden. Recordatorio: el resto del bolo se administra en 15 min."
+
 ## 4. Consideraciones Técnicas y Limitaciones de Red
 
 Dado que la conectividad puede ser inestable:
@@ -48,7 +59,19 @@ Dado que la conectividad puede ser inestable:
 3.  **Fallbacks**: Si el asistente no responde, la App principal (local) siempre debe funcionar como respaldo manual completo.
 4.  **Seguridad**: El Bot solo responderá al ID de usuario específico (whitelisting) para evitar accesos no autorizados.
 
-## 5. Próximos Pasos de Investigación
+## 5. Aprendizaje y Adaptación de Horarios (Training)
+Para que las "Alertas Preventivas" (Caso 2) sean útiles y no molestas, el sistema debe aprender los hábitos del usuario.
+
+### Mecanismo de Aprendizaje
+*   **Análisis Histórico**: El sistema analizará las últimas semanas de registros de comidas en la base de datos para identificar patrones (clusters) de horarios.
+    *   *Ejemplo*: "Usuario suele comer lunes a viernes entre 13:45 y 14:15".
+    *   *Ejemplo*: "Sábados y domingos come entre 14:30 y 15:30".
+*   **Diferenciación Laboral/Festivo**: Distinguir comportamientos entre días de semana y fines de semana.
+*   **Feedback Loop (Refuerzo)**:
+    *   Si el bot sugiere adelantar el bolo a las 13:30 y el usuario dice "No voy a comer todavía", el sistema aprende que hoy es una excepción.
+    *   Si el usuario confirma, refuerza el patrón horario.
+
+## 6. Próximos Pasos de Investigación
 *   Definir librería de Python para el Bot (`python-telegram-bot` o similar).
 *   Diseñar el formato del JSON intermedio para intercambio de datos.
-*   Estudiar patrones de "aprendizaje" para que la IA detecte los horarios de comida automáticamente.
+*   Implementar algoritmo básico de clustering (K-Means simple) para deducir horarios habituales.
