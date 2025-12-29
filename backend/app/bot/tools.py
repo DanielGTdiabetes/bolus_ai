@@ -8,6 +8,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field, ValidationError
 
+from app.bot.state import health
 from app.core.settings import get_settings
 from app.core.db import get_engine, AsyncSession
 from app.services.store import DataStore
@@ -24,6 +25,7 @@ from app.models.forecast import (
     MomentumConfig,
 )
 from app.models.settings import UserSettings
+from app.services.treatment_logger import log_treatment
 
 logger = logging.getLogger(__name__)
 
@@ -89,6 +91,17 @@ class AddTreatmentRequest(BaseModel):
     notes: Optional[str] = None
 
 
+class AddTreatmentResult(BaseModel):
+    ok: bool
+    treatment_id: Optional[str] = None
+    insulin: Optional[float] = None
+    carbs: Optional[float] = None
+    ns_uploaded: Optional[bool] = None
+    ns_error: Optional[str] = None
+    saved_db: Optional[bool] = None
+    saved_local: Optional[bool] = None
+
+
 def _build_ns_client(settings: UserSettings | None) -> Optional[NightscoutClient]:
     if not settings or not settings.nightscout.url:
         return None
@@ -103,6 +116,33 @@ async def _load_user_settings() -> UserSettings:
     settings = get_settings()
     store = DataStore(Path(settings.data.data_dir))
     return store.load_settings()
+
+
+async def _resolve_user_id(session: AsyncSession | None = None) -> str:
+    engine = get_engine()
+    if not engine:
+        return "admin"
+
+    try:
+        if session:
+            from sqlalchemy import text
+
+            stmt = text("SELECT user_id FROM user_settings LIMIT 1")
+            row = (await session.execute(stmt)).fetchone()
+            if row and getattr(row, "user_id", None):
+                return row.user_id
+            return "admin"
+
+        async with AsyncSession(engine) as owned_session:
+            from sqlalchemy import text
+
+            stmt = text("SELECT user_id FROM user_settings LIMIT 1")
+            row = (await owned_session.execute(stmt)).fetchone()
+            if row and getattr(row, "user_id", None):
+                return row.user_id
+    except Exception as exc:
+        logger.debug("Failed to resolve user_id for treatment: %s", exc)
+    return "admin"
 
 
 async def get_status_context(user_settings: Optional[UserSettings] = None) -> StatusContext | ToolError:
@@ -299,6 +339,74 @@ async def set_temp_mode(temp: TempMode) -> dict[str, Any]:
     return {"mode": temp.mode, "expires_at": expires_at.isoformat()}
 
 
+async def add_treatment(tool_input: dict[str, Any]) -> AddTreatmentResult | ToolError:
+    try:
+        payload = AddTreatmentRequest.model_validate(tool_input)
+    except ValidationError as exc:
+        health.record_action("add_treatment", ok=False, error=str(exc))
+        return ToolError(type="validation_error", message=str(exc))
+
+    insulin = float(payload.insulin or 0)
+    carbs = float(payload.carbs or 0)
+    notes = payload.notes or "Chat Bot"
+    store = DataStore(Path(get_settings().data.data_dir))
+    engine = get_engine()
+    result = None
+
+    try:
+        if engine:
+            async with AsyncSession(engine) as session:
+                user_id = await _resolve_user_id(session=session)
+                result = await log_treatment(
+                    user_id=user_id,
+                    insulin=insulin,
+                    carbs=carbs,
+                    notes=notes,
+                    entered_by="TelegramBot",
+                    event_type="Correction Bolus" if carbs == 0 else "Meal Bolus",
+                    created_at=datetime.now(timezone.utc),
+                    store=store,
+                    session=session,
+                )
+        else:
+            user_id = await _resolve_user_id()
+            result = await log_treatment(
+                user_id=user_id,
+                insulin=insulin,
+                carbs=carbs,
+                notes=notes,
+                entered_by="TelegramBot",
+                event_type="Correction Bolus" if carbs == 0 else "Meal Bolus",
+                created_at=datetime.now(timezone.utc),
+                store=store,
+                session=None,
+            )
+    except Exception as exc:  # pragma: no cover - unexpected runtime errors
+        logger.exception("add_treatment execution failed")
+        health.record_action("add_treatment", ok=False, error=str(exc))
+        return ToolError(type="runtime_error", message=str(exc))
+
+    if not result:
+        err_msg = "No result from treatment logger"
+        health.record_action("add_treatment", ok=False, error=err_msg)
+        return ToolError(type="runtime_error", message=err_msg)
+
+    error_text = result.ns_error if not result.ok else None
+    if not result.ok and not error_text:
+        error_text = "Persistencia fallida"
+    health.record_action("add_treatment", ok=result.ok, error=error_text)
+    return AddTreatmentResult(
+        ok=result.ok,
+        treatment_id=result.treatment_id,
+        insulin=result.insulin,
+        carbs=result.carbs,
+        ns_uploaded=result.ns_uploaded,
+        ns_error=result.ns_error or error_text,
+        saved_db=result.saved_db,
+        saved_local=result.saved_local,
+    )
+
+
 AI_TOOL_DECLARATIONS = [
     {
         "name": "get_status_context",
@@ -403,7 +511,7 @@ async def execute_tool(name: str, args: Dict[str, Any]) -> Any:
             temp = TempMode.model_validate(args)
             return await set_temp_mode(temp)
         if name == "add_treatment":
-            return AddTreatmentRequest.model_validate(args)
+            return await add_treatment(args)
     except ValidationError as exc:
         return ToolError(type="validation_error", message=str(exc))
     except Exception as exc:  # pragma: no cover

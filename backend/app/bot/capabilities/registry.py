@@ -249,8 +249,18 @@ def _build_tools() -> list[ToolDef]:
             name="add_treatment",
             description="Registrar tratamiento manual (carbos/insulina).",
             input_schema={"type": "object", "properties": {"carbs": {"type": "number"}, "insulin": {"type": "number"}}},
-            output_schema="AddTreatmentRequest",
-            fn=bot_tools.AddTreatmentRequest.model_validate,
+            output_schema={
+                "type": "object",
+                "properties": {
+                    "ok": {"type": "boolean"},
+                    "treatment_id": {"type": "string"},
+                    "insulin": {"type": "number"},
+                    "carbs": {"type": "number"},
+                    "ns_uploaded": {"type": "boolean"},
+                    "ns_error": {"type": "string"},
+                },
+            },
+            fn=bot_tools.add_treatment,
             permission=Permission.user_write,
         ),
         ToolDef(
