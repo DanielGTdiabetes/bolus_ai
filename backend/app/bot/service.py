@@ -119,6 +119,47 @@ _bot_app: Optional[Application] = None
 _polling_task: Optional[asyncio.Task] = None
 
 
+async def bot_send(
+    chat_id: int,
+    text: str,
+    *,
+    bot=None,
+    log_context: str = "reply",
+    **kwargs: Any,
+) -> Optional[Any]:
+    """Centralized sender for Telegram replies with health tracking."""
+    logger.info("sending reply", extra={"chat_id": chat_id, "context": log_context})
+
+    target_bot = bot or (_bot_app.bot if _bot_app else None)
+    if not target_bot:
+        error_msg = "bot_unavailable"
+        logger.error(f"reply failed: {error_msg}")
+        health.set_reply_error(error_msg)
+        return None
+
+    try:
+        result = await target_bot.send_message(chat_id=chat_id, text=text, **kwargs)
+        health.mark_reply_success()
+        logger.info("reply ok", extra={"chat_id": chat_id, "context": log_context})
+        return result
+    except Exception as exc:
+        error_msg = f"{type(exc).__name__}: {exc}"
+        logger.error(f"reply failed: {error_msg}")
+        health.set_reply_error(error_msg)
+        return None
+
+
+async def reply_text(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str, **kwargs: Any) -> Optional[Any]:
+    """Convenience wrapper for message replies."""
+    return await bot_send(
+        chat_id=update.effective_chat.id,
+        text=text,
+        bot=context.bot,
+        log_context="reply_text",
+        **kwargs,
+    )
+
+
 def decide_bot_mode() -> Tuple[BotMode, str]:
     """
     Decide how the bot should run based on environment.
@@ -152,9 +193,9 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
     logger.error(f"Exception while handling an update: {context.error}")
     health.set_error(str(context.error))
     if update and isinstance(update, Update) and update.message:
-        await update.message.reply_text(f"⚠️ Error interno del bot: {context.error}")
+        await reply_text(update, context, f"⚠️ Error interno del bot: {context.error}")
 
-async def _check_auth(update: Update) -> bool:
+async def _check_auth(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
     """Returns True if user is authorized."""
     allowed_id = config.get_allowed_telegram_user_id()
     if not allowed_id:
@@ -162,7 +203,9 @@ async def _check_auth(update: Update) -> bool:
         # For this personal assistant, strict allow list is best.
         logger.error("ALLOWED_TELEGRAM_USER_ID is not configured. Bot will reject all requests.")
         if update and getattr(update, "message", None):
-            await update.message.reply_text(
+            await reply_text(
+                update,
+                context,
                 "⚠️ Bot sin configurar: falta ALLOWED_TELEGRAM_USER_ID. "
                 "Configura el ID autorizado para habilitar respuestas."
             )
@@ -171,7 +214,7 @@ async def _check_auth(update: Update) -> bool:
     user_id = update.effective_user.id
     if user_id != allowed_id:
         logger.warning(f"Unauthorized access attempt from ID: {user_id}")
-        await update.message.reply_text("⛔ Acceso denegado. Este bot es privado.")
+        await reply_text(update, context, "⛔ Acceso denegado. Este bot es privado.")
         return False
     return True
 
@@ -235,15 +278,25 @@ async def get_bot_user_settings() -> UserSettings:
     store = DataStore(Path(settings.data.data_dir))
     return store.load_settings()
 
+
+async def ping_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Lightweight liveness probe that bypasses AI and Nightscout."""
+    if not await _check_auth(update, context):
+        return
+    await reply_text(update, context, "pong")
+
+
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Standard /start command."""
-    if not await _check_auth(update): return
+    if not await _check_auth(update, context): return
     
     user = update.effective_user
     mode = health.mode.value if health else "unknown"
     allowed = config.get_allowed_telegram_user_id()
     whitelist_msg = "⚠️ ALLOWED_TELEGRAM_USER_ID falta: el bot responderá solo a /start" if not allowed else f"Usuario permitido: {allowed}"
-    await update.message.reply_text(
+    await reply_text(
+        update,
+        context,
         f"Hola {user.first_name}! Soy tu asistente de diabetes (Bolus AI).\n"
         f"Modo bot: {mode}.\n"
         f"{whitelist_msg}\n"
@@ -253,7 +306,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Text Handler - The Python Router."""
-    if not await _check_auth(update): return
+    if not await _check_auth(update, context): return
     
     text = update.message.text
     if not text: return
@@ -261,15 +314,17 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     cmd = text.lower().strip()
 
     if cmd == "ping":
-        await update.message.reply_text("Pong! 🏓 (Python Server is alive)")
+        await reply_text(update, context, "pong")
         return
 
     if cmd in ["status", "estado"]:
         res = await tools.execute_tool("get_status_context", {})
         if isinstance(res, tools.ToolError):
-            await update.message.reply_text(f"⚠️ {res.message}")
+            await reply_text(update, context, f"⚠️ {res.message}")
         else:
-            await update.message.reply_text(
+            await reply_text(
+                update,
+                context,
                 f"📉 BG: {res.bg_mgdl} {res.direction or ''} Δ {res.delta} | IOB {res.iob_u} | COB {res.cob_g} | {res.quality}"
             )
         return
@@ -342,27 +397,29 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             out.append(f"💥 **Error Script:** `{e}`")
             
         # Send without markdown to avoid parsing errors (underscores in URLs, etc.)
-        await update.message.reply_text("\n".join(out))
+        await reply_text(update, context, "\n".join(out))
         return
 
     # Quick heuristics -> direct tool usage
     async def respond_tool(name: str, args: Dict[str, Any]):
         result = await tools.execute_tool(name, args)
         if isinstance(result, tools.ToolError):
-            await update.message.reply_text(f"⚠️ {result.message}")
+            await reply_text(update, context, f"⚠️ {result.message}")
             return True
         if name == "calculate_bolus":
             await _handle_add_treatment_tool(update, context, {"carbs": args.get("carbs"), "notes": "Chat", "insulin": None})
-            await update.message.reply_text(f"Sugerencia: {result.units} U. {result.explanation[0] if result.explanation else ''}")
+            await reply_text(update, context, f"Sugerencia: {result.units} U. {result.explanation[0] if result.explanation else ''}")
             return True
         if name == "calculate_correction":
-            await update.message.reply_text(f"Corrección sugerida: {result.units} U\n" + "\n".join(result.explanation))
+            await reply_text(update, context, f"Corrección sugerida: {result.units} U\n" + "\n".join(result.explanation))
             return True
         if name == "simulate_whatif":
-            await update.message.reply_text(result.summary)
+            await reply_text(update, context, result.summary)
             return True
         if name == "get_nightscout_stats":
-            await update.message.reply_text(
+            await reply_text(
+                update,
+                context,
                 f"Stats {result.range_hours}h: Avg {result.avg_bg} | TIR {result.tir_pct}% | Lows {result.lows} | Highs {result.highs}"
             )
             return True
@@ -397,7 +454,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     mode = "flash" 
     if "profundo" in cmd or "piensa" in cmd:
         mode = "pro"
-        await update.message.reply_text("🧠 Activando Gemini 3.0 Pro (Razonamiento)...")
+        await reply_text(update, context, "🧠 Activando Gemini 3.0 Pro (Razonamiento)...")
 
     # Context Injection (Full Access)
     context_lines = []
@@ -517,7 +574,7 @@ async def _handle_add_treatment_tool(update: Update, context: ContextTypes.DEFAU
     
     chat_id = update.effective_chat.id
     
-    await update.message.reply_text("⚙️ Procesando solicitud de tratamiento...")
+    await reply_text(update, context, "⚙️ Procesando solicitud de tratamiento...")
     
     # 1. Fetch Context
     settings = get_settings()
@@ -627,7 +684,7 @@ async def _handle_add_treatment_tool(update: Update, context: ContextTypes.DEFAU
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
-    await update.message.reply_text(msg_text, reply_markup=reply_markup, parse_mode="Markdown")
+    await reply_text(update, context, msg_text, reply_markup=reply_markup, parse_mode="Markdown")
 
 
     # --- History Injection (Intelligent Context) ---
@@ -669,7 +726,7 @@ async def _handle_add_treatment_tool(update: Update, context: ContextTypes.DEFAU
             
             result = await tools.execute_tool(name, args)
             if isinstance(result, tools.ToolError):
-                await update.message.reply_text(f"⚠️ {result.message}")
+                await reply_text(update, context, f"⚠️ {result.message}")
                 did_action = True
             elif name == "add_treatment":
                 await _handle_add_treatment_tool(update, context, args)
@@ -678,29 +735,29 @@ async def _handle_add_treatment_tool(update: Update, context: ContextTypes.DEFAU
                 await _handle_add_treatment_tool(update, context, {"carbs": args.get("carbs"), "notes": "Chat", "insulin": None})
                 did_action = True
             else:
-                await update.message.reply_text(str(result))
+                await reply_text(update, context, str(result))
                 did_action = True
         
         # Always reply with text if present (AI often explains "He preparado la confirmación...")
         # or if no action was taken
         if response_data.get("text"):
-            await update.message.reply_text(response_data["text"])
+            await reply_text(update, context, response_data["text"])
         elif not did_action:
             # Fallback if AI returned nothing (rare)
-            await update.message.reply_text("🤔 (Sin respuesta)")
+            await reply_text(update, context, "🤔 (Sin respuesta)")
             
     except Exception as e:
         logger.error(f"Error AI processing: {e}")
-        await update.message.reply_text("⚠️ Hubo un error procesando tu mensaje. Intenta de nuevo en unos segundos.")
+        await reply_text(update, context, "⚠️ Hubo un error procesando tu mensaje. Intenta de nuevo en unos segundos.")
 
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Photo Handler - Vision Layer."""
-    if not await _check_auth(update): return
+    if not await _check_auth(update, context): return
     
     photo = update.message.photo[-1] # Largest size
     
     # Notify user
-    await update.message.reply_text("👀 Analizando plato con Gemini Vision...")
+    await reply_text(update, context, "👀 Analizando plato con Gemini Vision...")
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=constants.ChatAction.TYPING)
 
     try:
@@ -712,16 +769,16 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         json_response = await ai.analyze_image(image_bytes)
         
         # Reply (formatting the JSON for readability)
-        await update.message.reply_text(f"🍽️ Resultado:\n{json_response}")
+        await reply_text(update, context, f"🍽️ Resultado:\n{json_response}")
         
     except Exception as e:
         logger.error(f"Error handling photo: {e}")
-        await update.message.reply_text("❌ Error procesando la imagen.")
+        await reply_text(update, context, "❌ Error procesando la imagen.")
 
 
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Voice note handler."""
-    if not await _check_auth(update):
+    if not await _check_auth(update, context):
         return
 
     voice_msg = update.message.voice or update.message.audio
@@ -729,13 +786,15 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         return
 
     if not config.is_telegram_voice_enabled() or not config.get_google_api_key():
-        await update.message.reply_text("El reconocimiento de voz no está configurado, envíame el texto.")
+        await reply_text(update, context, "El reconocimiento de voz no está configurado, envíame el texto.")
         return
 
     # Validations
     duration = getattr(voice_msg, "duration", None)
     if duration and duration > config.get_max_voice_seconds():
-        await update.message.reply_text(
+        await reply_text(
+            update,
+            context,
             f"La nota de voz es demasiado larga (> {config.get_max_voice_seconds()} s). Envía una más corta o texto."
         )
         return
@@ -743,19 +802,23 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     max_bytes = config.get_max_voice_bytes()
     file_size = getattr(voice_msg, "file_size", None)
     if file_size and file_size > max_bytes:
-        await update.message.reply_text(
+        await reply_text(
+            update,
+            context,
             f"El audio supera el límite de {config.get_max_voice_mb()} MB. Envía una nota más corta."
         )
         return
 
-    await update.message.reply_text("🎙️ Procesando nota de voz...")
+    await reply_text(update, context, "🎙️ Procesando nota de voz...")
     tmp_path = None
     try:
         file = await context.bot.get_file(voice_msg.file_id)
         file_bytes = await file.download_as_bytearray()
 
         if not file_size and len(file_bytes) > max_bytes:
-            await update.message.reply_text(
+            await reply_text(
+                update,
+                context,
                 f"El audio supera el límite de {config.get_max_voice_mb()} MB. Envía una nota más corta."
             )
             return
@@ -770,15 +833,17 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         if result.error:
             error_code = result.error
             if error_code == "missing_key":
-                await update.message.reply_text("El reconocimiento de voz no está configurado, envíame el texto.")
+                await reply_text(update, context, "El reconocimiento de voz no está configurado, envíame el texto.")
             elif error_code == "unsupported_format":
-                await update.message.reply_text("Formato de audio no soportado. Envía un OGG/OPUS o escribe el texto.")
+                await reply_text(update, context, "Formato de audio no soportado. Envía un OGG/OPUS o escribe el texto.")
             elif error_code == "too_large":
-                await update.message.reply_text(
+                await reply_text(
+                    update,
+                    context,
                     f"La nota de voz supera el límite de {config.get_max_voice_mb()} MB. Envía una más corta."
                 )
             else:
-                await update.message.reply_text("No se pudo transcribir la nota de voz. Inténtalo de nuevo o escribe el texto.")
+                await reply_text(update, context, "No se pudo transcribir la nota de voz. Inténtalo de nuevo o escribe el texto.")
             return
 
         transcript = (result.text or "").strip()
@@ -793,7 +858,9 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                     InlineKeyboardButton("❌ Cancelar", callback_data="voice_confirm_cancel"),
                 ]
             ]
-            await update.message.reply_text(
+            await reply_text(
+                update,
+                context,
                 f"No estoy seguro de haber entendido la nota de voz. He captado: “{display_text}”. ¿Es correcto?",
                 reply_markup=InlineKeyboardMarkup(keyboard),
             )
@@ -804,7 +871,7 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         await handle_message(update, context)
     except Exception as exc:
         logger.error("Voice handler failed: %s", exc)
-        await update.message.reply_text("❌ Error transcribiendo la nota de voz.")
+        await reply_text(update, context, "❌ Error transcribiendo la nota de voz.")
     finally:
         if tmp_path and os.path.exists(tmp_path):
             try:
@@ -822,6 +889,7 @@ def create_bot_app() -> Application:
     application = Application.builder().token(token).build()
 
     # Register Handlers
+    application.add_handler(CommandHandler("ping", ping_command))
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
@@ -1209,7 +1277,14 @@ async def on_new_meal_received(carbs: float, source: str) -> None:
     reply_markup = InlineKeyboardMarkup(keyboard)
     
     try:
-        await _bot_app.bot.send_message(chat_id=chat_id, text=msg_text, reply_markup=reply_markup, parse_mode="Markdown")
+        await bot_send(
+            chat_id=chat_id,
+            text=msg_text,
+            bot=_bot_app.bot,
+            reply_markup=reply_markup,
+            parse_mode="Markdown",
+            log_context="proactive_meal",
+        )
     except Exception as e:
         logger.error(f"Failed to send proactive message: {e}")
 
@@ -1221,7 +1296,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     data = query.data
 
     if data.startswith("voice_confirm_"):
-        if not await _check_auth(update):
+        if not await _check_auth(update, context):
             return
         pending_text = context.user_data.pop("pending_voice_text", None)
 
@@ -1502,7 +1577,13 @@ async def run_glucose_monitor_job() -> None:
             if should_send:
                 # Send Message
                 try:
-                    await _bot_app.bot.send_message(chat_id=chat_id, text=msg, parse_mode="Markdown")
+                    await bot_send(
+                        chat_id=chat_id,
+                        text=msg,
+                        bot=_bot_app.bot,
+                        parse_mode="Markdown",
+                        log_context="guardian_alert",
+                    )
                     
                     # Update State
                     if state_row:

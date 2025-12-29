@@ -24,6 +24,8 @@ class BotHealthState:
     last_update_at: Optional[datetime] = None
     last_error: Optional[str] = None
     started_at: Optional[datetime] = None
+    last_reply_at: Optional[datetime] = None
+    last_reply_error: Optional[str] = None
 
     # Internal lock to avoid races if multiple tasks mutate quickly
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
@@ -49,6 +51,15 @@ class BotHealthState:
         with self._lock:
             self.last_update_at = datetime.now(timezone.utc)
 
+    def mark_reply_success(self) -> None:
+        with self._lock:
+            self.last_reply_at = datetime.now(timezone.utc)
+            self.last_reply_error = None
+
+    def set_reply_error(self, message: str) -> None:
+        with self._lock:
+            self.last_reply_error = message
+
     def set_started(self) -> None:
         with self._lock:
             self.started_at = datetime.now(timezone.utc)
@@ -65,6 +76,8 @@ class BotHealthState:
             "started_at": self.started_at.isoformat() if self.started_at else None,
             "last_update_at": self.last_update_at.isoformat() if self.last_update_at else None,
             "last_error": self.last_error,
+            "last_reply_at": self.last_reply_at.isoformat() if self.last_reply_at else None,
+            "last_reply_error": self.last_reply_error,
         }
 
 

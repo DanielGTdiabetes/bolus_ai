@@ -22,3 +22,5 @@ async def test_bot_health_endpoint(monkeypatch):
     res = await bot_health()
     assert "mode" in res
     assert "enabled" in res
+    assert "last_reply_at" in res
+    assert "last_reply_error" in res
