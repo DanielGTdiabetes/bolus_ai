@@ -1,4 +1,5 @@
 import logging
+import asyncio
 from typing import Optional
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -661,8 +662,24 @@ async def initialize() -> None:
         return
 
     # Initialize the app (coroutines)
-    await _bot_app.initialize()
-    await _bot_app.start()
+    # Retry logic for robust startup
+    max_retries = 5
+    for attempt in range(max_retries):
+        try:
+            await _bot_app.initialize()
+            await _bot_app.start()
+            logger.info("✅ Bot initialized and started successfully.")
+            break
+        except Exception as e:
+            logger.error(f"⚠️ Bot initialization attempt {attempt + 1}/{max_retries} failed: {e}")
+            if attempt < max_retries - 1:
+                wait_time = 2 * (attempt + 1)
+                logger.info(f"Retrying in {wait_time}s...")
+                await asyncio.sleep(wait_time)
+            else:
+                logger.critical("❌ All bot initialization attempts failed. Bot service will be unavailable.")
+                _bot_app = None
+                return
 
     # Set Webhook logic
     # We need the public URL. In Render, we can get it from env RENDER_EXTERNAL_URL or manual config.
