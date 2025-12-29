@@ -8,6 +8,14 @@ from telegram import constants
 from app.core import config
 from app.bot import ai
 
+# Sidecar dependencies
+from pathlib import Path
+from datetime import datetime, timezone
+from app.core.settings import get_settings
+from app.services.store import DataStore
+from app.services.nightscout_client import NightscoutClient
+from app.services.iob import compute_iob_from_sources, compute_cob_from_sources
+
 logger = logging.getLogger(__name__)
 
 # Global Application instance
@@ -69,7 +77,62 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         mode = "pro"
         await update.message.reply_text("🧠 Activando Gemini 3.0 Pro (Razonamiento)...")
 
-    response = await ai.chat_completion(text, mode=mode)
+    # Context Injection (Full Access)
+    context_lines = []
+    
+    try:
+        settings = get_settings()
+        store = DataStore(Path(settings.data.data_dir))
+        user_settings = store.load_settings()
+        
+        # 1. Glucose (Nightscout)
+        ns_client = None
+        if user_settings.nightscout.enabled and user_settings.nightscout.url:
+            ns_client = NightscoutClient(
+                base_url=user_settings.nightscout.url,
+                token=user_settings.nightscout.token,
+                timeout_seconds=5
+            )
+            try:
+                sgv = await ns_client.get_latest_sgv()
+                arrow = sgv.direction or ""
+                delta = f"{sgv.delta:+.1f}" if sgv.delta is not None else "?"
+                context_lines.append(f"GLUCOSA: {sgv.sgv} {user_settings.nightscout.units} ({arrow}) Delta: {delta}")
+            except Exception as e:
+                context_lines.append(f"GLUCOSA: Error leyendo ({str(e)})")
+
+        # 2. IOB & COB
+        now_utc = datetime.now(timezone.utc)
+        try:
+            iob_u, _, _, _ = await compute_iob_from_sources(now_utc, user_settings, ns_client, store)
+            cob_g = await compute_cob_from_sources(now_utc, ns_client, store) # Estimate
+            
+            context_lines.append(f"IOB (Insulina Activa): {iob_u:.2f} U")
+            context_lines.append(f"COB (Carbos Activos): {cob_g:.0f} g (aprox)")
+        except Exception as e:
+            logger.warning(f"Error computing IOB/COB: {e}")
+
+        # 3. Settings Snapshot (Key stats)
+        # Use current time to find relevant CR/ISF (approximate to 'now' slot)
+        # Simple Logic: morning/afternoon/night
+        h = now_utc.hour + 2 # CET roughly? Or just list all? List all is safer.
+        
+        context_lines.append("\nCONF USUARIO:")
+        context_lines.append(f"- ISF (Sensibilidad): {user_settings.cf.breakfast} (D) / {user_settings.cf.lunch} (A) / {user_settings.cf.dinner} (C)")
+        context_lines.append(f"- CR (Ratio): {user_settings.cr.breakfast} (D) / {user_settings.cr.lunch} (A) / {user_settings.cr.dinner} (C)")
+        context_lines.append(f"- Objetivo: {user_settings.targets.mid} mg/dL")
+        context_lines.append(f"- Basal Típica: {user_settings.tdd_u} U/día (aprox)")
+
+        if ns_client:
+            await ns_client.aclose()
+            
+    except Exception as e:
+        logger.warning(f"Bot failed to fetch detailed context: {e}")
+        context_lines.append(f"ERROR LECTURA DATOS: {e}")
+
+    context_str = "\n".join(context_lines)
+
+    response = await ai.chat_completion(text, context=context_str, mode=mode)
     await update.message.reply_text(response)
 
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

@@ -60,6 +60,7 @@ async def analyze_image(image_bytes: bytes, mime_type: str = "image/jpeg") -> st
 
 async def chat_completion(
     message: str, 
+    context: str = None,
     history: list = None, 
     mode: Literal["flash", "pro"] = "flash"
 ) -> str:
@@ -85,6 +86,9 @@ async def chat_completion(
             "Sé conciso, empático y basa tus respuestas en datos. "
             "Si no sabes algo, dilo."
         )
+
+        if context:
+            system_instruction += f"\n\nDATOS EN TIEMPO REAL:\n{context}"
         
         model = genai.GenerativeModel(
             model_name,
