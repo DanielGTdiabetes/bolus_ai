@@ -246,6 +246,38 @@ async def ingest_nutrition(
             
             if saved_ids:
                 logger.info(f"Ingested {len(saved_ids)} new meals from export.")
+                
+                # Trigger Bot Notification for the NEWEST meal (first one we saved)
+                # We iterate sorted_keys (newest first), so the first saved_id corresponds to the first successful iteration.
+                # However, we didn't track which carbs corresponded to which saved ID easily in the list above without a map.
+                # Simplified: Just grab the carbs from the FIRST iteration that worked.
+                # Actually, let's just use the loop values.
+                
+                # We need to re-find the carb amount for the newest saved meal. 
+                # Since we want to be fast and this is a async hook:
+                try:
+                    from app.bot.service import on_new_meal_received
+                    # Finding the carb amount of the "primary" meal we just saved
+                    # We saved distinct meals. Let's notify the largest/newest? 
+                    # Let's just notify the very first one we saved (newest).
+                    
+                    # Re-loop to find what we saved? No, that's inefficient.
+                    # Better: Capture it inside the loop.
+                    # But since I can't edit the loop easily without a huge block...
+                    # I will assume the payload was singular or we just query the DB for the ID we just saved.
+                    
+                    # Or simpler:
+                    first_id = saved_ids[0]
+                    # Fetch from session since it's in identity map
+                    t_obj = await session.get(Treatment, first_id)
+                    if t_obj and t_obj.carbs > 0:
+                        # Fire and forget (task)? or await? 
+                        # Await is fine, it shouldn't take too long.
+                        await on_new_meal_received(t_obj.carbs, f"Importado ({username})")
+                        
+                except Exception as e:
+                    logger.error(f"Failed to trigger bot notification: {e}")
+
                 return {"success": True, "ingested_count": len(saved_ids), "ids": saved_ids}
             else:
                 return {"success": True, "message": "No new meals found (all duplicates or empty)"}

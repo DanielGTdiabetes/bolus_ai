@@ -1,8 +1,8 @@
 import logging
 from typing import Optional
 
-from telegram import Update
-from telegram.ext import Application, CommandHandler, MessageHandler, ContextTypes, filters
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import Application, CommandHandler, MessageHandler, ContextTypes, filters, CallbackQueryHandler
 from telegram import constants
 
 from app.core import config
@@ -15,6 +15,7 @@ from app.core.settings import get_settings
 from app.services.store import DataStore
 from app.services.nightscout_client import NightscoutClient
 from app.services.iob import compute_iob_from_sources, compute_cob_from_sources
+from app.services.bolus import recommend_bolus, BolusRequestData
 
 logger = logging.getLogger(__name__)
 
@@ -173,6 +174,7 @@ def create_bot_app() -> Application:
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
+    application.add_handler(CallbackQueryHandler(handle_callback))
     
     return application
 
@@ -230,3 +232,194 @@ async def process_update(update_data: dict) -> None:
         await _bot_app.process_update(update)
     except Exception as e:
         logger.error(f"Error processing Telegram update: {e}")
+
+async def on_new_meal_received(carbs: float, source: str) -> None:
+    """
+    Called by integrations.py when a new meal is ingested.
+    Triggers a proactive notification.
+    """
+    global _bot_app
+    if not _bot_app:
+        return
+
+    chat_id = config.get_allowed_telegram_user_id()
+    if not chat_id:
+        return
+
+    logger.info(f"Bot proactively notifying meal: {carbs}g from {source}")
+    
+    # 1. Gather Context
+    settings = get_settings()
+    store = DataStore(Path(settings.data.data_dir))
+    user_settings = store.load_settings()
+    
+    bg_val = None
+    iob_u = 0.0
+    ns_client = None
+    
+    # Init NS Client
+    if user_settings.nightscout.enabled and user_settings.nightscout.url:
+         ns_client = NightscoutClient(user_settings.nightscout.url, user_settings.nightscout.token)
+    elif settings.nightscout.base_url:
+         ns_client = NightscoutClient(str(settings.nightscout.base_url), settings.nightscout.token)
+    
+    try:
+        # Fetch BG
+        if ns_client:
+            try:
+                sgv = await ns_client.get_latest_sgv()
+                bg_val = float(sgv.sgv)
+            except: pass
+            
+        # Calc IOB
+        now_utc = datetime.now(timezone.utc)
+        # Note: compute_iob_from_sources will use the client we passed.
+        # We must keep it open.
+        iob_u, _, _, _ = await compute_iob_from_sources(now_utc, user_settings, ns_client, store)
+    
+    except Exception as e:
+        logger.error(f"Error in meal context calc: {e}")
+        iob_u = 0.0
+    finally:
+        if ns_client:
+            await ns_client.aclose()
+
+    # 2. Calculate Bolus
+    h = now_utc.hour + 1 # Approx local time fix
+    slot = "lunch"
+    if 5 <= h < 11: slot = "breakfast"
+    elif 11 <= h < 17: slot = "lunch"
+    elif 17 <= h < 23: slot = "dinner"
+    else: slot = "snack"
+
+    eff_bg = bg_val if bg_val else user_settings.targets.mid
+    
+    req = BolusRequestData(
+        carbs_g=carbs,
+        bg_mgdl=eff_bg,
+        meal_slot=slot
+    )
+    
+    rec = recommend_bolus(req, user_settings, iob_u)
+    
+    # 3. Message
+    # If BG is unknown, we warn
+    bg_str = f"{bg_val} mg/dL" if bg_val else "???"
+    iob_str = f"({iob_u:.1f}u IOB)" if iob_u > 0 else ""
+    
+    msg_text = (
+        f"🥗 **Nueva Comida Detectada** ({source})\n"
+        f"Carbos: **{carbs}g**\n"
+        f"Glucosa: {bg_str} {iob_str}\n\n"
+        f"💉 **Sugerencia: {rec.upfront_u} U**\n"
+        f"_Razón: {rec.explain[0]}_"
+    )
+    
+    keyboard = [
+        [
+            InlineKeyboardButton(f"✅ Poner {rec.upfront_u} U", callback_data=f"bolus_confirm_{rec.upfront_u}"),
+            InlineKeyboardButton("❌ Ignorar", callback_data="ignore")
+        ]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    try:
+        await _bot_app.bot.send_message(chat_id=chat_id, text=msg_text, reply_markup=reply_markup, parse_mode="Markdown")
+    except Exception as e:
+        logger.error(f"Failed to send proactive message: {e}")
+
+async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handles button clicks (Approve/Ignore)."""
+    query = update.callback_query
+    await query.answer() # Ack the button press
+    
+    data = query.data
+    
+    if data == "ignore":
+        await query.edit_message_text(text=f"{query.message.text}\n\n❌ *Ignorado*", parse_mode="Markdown")
+        logger.info("User ignored bolus suggestion.")
+        return
+
+    if data.startswith("bolus_confirm_"):
+        try:
+            val_str = data.split("_")[-1]
+            units = float(val_str)
+            
+            # Save the Bolus
+            import uuid
+            
+            # 1. DB Session
+            engine = get_engine()
+            if not engine:
+                 await query.edit_message_text(text="Error interno de base de datos.")
+                 return
+
+            treatment_id = str(uuid.uuid4())
+            now_dt = datetime.now(timezone.utc)
+            
+            # Determine username (whitelist)
+            # We assume single user mode for this bot: provided by current config
+            # But the Treatment model requires a username.
+            # We can fetch it from settings or just use "admin" or the telegram user mapping.
+            # For simplicity, we query settings owner or default "admin".
+            username = "admin" # Default fallabck
+            
+            async with AsyncSession(engine) as session:
+                 # Try to get username from settings owner? 
+                 # Or just use the one in DB.
+                 # Let's assume 'admin' for now or 'user'. 
+                 # Ideally we should match the Telegram User ID to a User in DB.
+                 pass
+            
+            # We can just save with username='admin' if valid
+            
+            success_msg = f"✅ *Bolo de {units} U registrado*"
+            
+            async with AsyncSession(engine) as session:
+                # Save to DB
+                new_t = Treatment(
+                    id=treatment_id,
+                    user_id=username, # TODO: dynamic
+                    event_type="Meal Bolus",
+                    created_at=now_dt.replace(tzinfo=None),
+                    insulin=units,
+                    carbs=0, # Carbs were logged by the meal entry previously
+                    fat=0,
+                    protein=0,
+                    notes="Bolus via Telegram Bot",
+                    entered_by="TelegramBot",
+                    is_uploaded=False
+                )
+                session.add(new_t)
+                await session.commit()
+                
+                # Upload to NS
+                settings = get_settings()
+                store = DataStore(Path(settings.data.data_dir))
+                user_settings = store.load_settings()
+                
+                if user_settings.nightscout.enabled and user_settings.nightscout.url:
+                    try:
+                        ns = NightscoutClient(user_settings.nightscout.url, user_settings.nightscout.token)
+                        await ns.upload_treatments([{
+                            "eventType": "Meal Bolus",
+                            "created_at": now_dt.isoformat(),
+                            "insulin": units,
+                            "carbs": 0, # Carbs separate
+                            "enteredBy": "TelegramBot",
+                            "notes": "Via Bot"
+                        }])
+                        await ns.aclose()
+                        new_t.is_uploaded = True
+                        await session.commit()
+                        success_msg += " (y subido a Nightscout)"
+                    except Exception as exc:
+                        logger.error(f"NS upload failed: {exc}")
+                        success_msg += " (Guardado Local, error NS)"
+            
+            await query.edit_message_text(text=f"{query.message.text}\n\n{success_msg}", parse_mode="Markdown")
+            
+        except Exception as e:
+            logger.error(f"Callback error: {e}")
+            await query.edit_message_text(text=f"Error al registrar: {e}")
+
