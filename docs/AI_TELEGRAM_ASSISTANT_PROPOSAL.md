@@ -193,3 +193,20 @@ Los servicios gratuitos de Render se "duermen" tras inactividad.
 ### C. Procesamiento Asíncrono
 *   Evitar procesos pesados de IA en tiempo real.
 *   Los "re-cálculos" de curvas o aprendizajes de horarios se programarán para correr **una vez al día** (job nocturno) y guardar resultados estáticos, en lugar de calcularse cada vez que el usuario come.
+
+## 9. Análisis de Viabilidad Técnica (Reality Check)
+Tras revisar el stack actual (Python/FastAPI, Render Free, Neon, Gemini), el veredicto es: **PROYECTO VIABLE**.
+
+### Factores Críticos y Soluciones:
+1.  **Conexión Telegram (Sleep Mode)**:
+    *   *Riesgo*: En Render, el polling tradicional puede fallar si el proceso se duerme o reinicia.
+    *   *Solución*: Usar **Webhooks**. Telegram "despierta" a tu app enviando una petición HTTP cada vez que escribes. Para la iniciativa propia (alertas), el servicio de "Ping" externo garantiza que el proceso siga vivo.
+2.  **Memoria RAM (Límite 512MB)**:
+    *   *Riesgo*: Correr FastAPI + Bot + Análisis de Datos puede saturar la memoria gratuita.
+    *   *Mitigación*: Código eficiente. No cargar grandes librerías de Data Science innecesarias en memoria. Usar `asyncio` para compartir recursos.
+3.  **Costes IA (Gemini)**:
+    *   *Estado*: El tier gratuito de Gemini es más que suficiente para un uso personal (hasta 60 peticiones/minuto). No habrá cost.
+4.  **Latencia (Cold Starts)**:
+    *   *Realidad*: La primera respuesta tras un rato de silencio puede tardar 2-3 segundos (conexión a DB Neon "despertando"). Es asumible para un asistente personal.
+
+**Conclusión**: Es técnicamente posible construir este sistema sobre tu infraestructura actual sin pagar costes extra, siempre que se mantenga el código ligero y optimizado.
