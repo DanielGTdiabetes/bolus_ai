@@ -306,10 +306,180 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         logger.warning(f"Bot failed to fetch detailed context: {e}")
         context_lines.append(f"ERROR LECTURA DATOS: {e}")
 
+# --- AI Tools Definition ---
+AI_TOOLS = [
+    {
+        "function_declarations": [
+            {
+                "name": "add_treatment",
+                "description": "Registrar una comida (carbohidratos) o una dosis de insulina. El bot calculará la dosis necesaria y pedirá confirmación.",
+                "parameters": {
+                    "type": "OBJECT",
+                    "properties": {
+                        "carbs": {"type": "NUMBER", "description": "Gramos de carbohidratos (opcional)"},
+                        "insulin": {"type": "NUMBER", "description": "Unidades de insulina (opcional, si se especifica anula el cálculo)"},
+                        "notes": {"type": "STRING", "description": "Notas opcionales (ej: 'Pizza', 'Corrección')"}
+                    }
+                }
+            }
+        ]
+    }
+]
+
+async def _handle_add_treatment_tool(update: Update, context: ContextTypes.DEFAULT_TYPE, args: dict) -> None:
+    """
+    Called when AI asks to 'add_treatment'.
+    We calculate recommendations (if needed) and show a confirmation card.
+    """
+    carbs = float(args.get("carbs", 0) or 0)
+    insulin_req = args.get("insulin")
+    insulin_req = float(insulin_req) if insulin_req is not None else None
+    notes = args.get("notes", "Via Chat")
+    
+    chat_id = update.effective_chat.id
+    
+    await update.message.reply_text("⚙️ Procesando solicitud de tratamiento...")
+    
+    # 1. Fetch Context
+    settings = get_settings()
+    store = DataStore(Path(settings.data.data_dir))
+    user_settings = await get_bot_user_settings()
+    
+    bg_val = None
+    iob_u = 0.0
+    ns_client = None
+    
+    if user_settings.nightscout.url:
+         ns_client = NightscoutClient(
+            base_url=user_settings.nightscout.url,
+            token=user_settings.nightscout.token,
+            timeout_seconds=5
+         )
+    
+    try:
+        # Fetch BG
+        if ns_client:
+            try:
+                sgv = await ns_client.get_latest_sgv()
+                bg_val = float(sgv.sgv)
+            except Exception: pass
+            
+        # Fallback Local DB
+        if bg_val is None:
+            try:
+                engine = get_engine()
+                if engine:
+                    async with AsyncSession(engine) as session:
+                        from sqlalchemy import text
+                        stmt = text("SELECT sgv FROM entries ORDER BY date_string DESC LIMIT 1") 
+                        row = (await session.execute(stmt)).fetchone()
+                        if row: bg_val = float(row.sgv)
+            except Exception: pass
+
+        # Calc IOB
+        now_utc = datetime.now(timezone.utc)
+        try:
+            iob_u, _, _, _ = await compute_iob_from_sources(now_utc, user_settings, ns_client, store)
+        except Exception: pass
+        
+    finally:
+        if ns_client: await ns_client.aclose()
+        
+    # 2. Recommendation Logic
+    rec_u = 0.0
+    reason = "Manual"
+    
+    # Determine Meal Slot
+    h = datetime.now(timezone.utc).hour + 1 # Approx local time fix (Winter CET)
+    slot = "lunch"
+    if 5 <= h < 11: slot = "breakfast"
+    elif 11 <= h < 17: slot = "lunch"
+    elif 17 <= h < 23: slot = "dinner"
+    else: slot = "snack"
+
+    if insulin_req is not None:
+        rec_u = insulin_req
+        reason = f"Petición explícita ({notes})"
+    else:
+        # Run Calculator
+        eff_bg = bg_val if bg_val else user_settings.targets.mid
+        req_data = BolusRequestData(
+            carbs_g=carbs,
+            bg_mgdl=eff_bg,
+            meal_slot=slot
+        )
+        rec = recommend_bolus(req_data, user_settings, iob_u)
+        rec_u = rec.upfront_u
+        reason = rec.explain[0]
+
+    # 3. Send Card
+    # Get Site
+    injection_mgr = InjectionManager(store)
+    next_site = injection_mgr.get_next_site("bolus")
+    
+    bg_str = f"{bg_val} mg/dL" if bg_val else "???"
+    iob_str = f"({iob_u:.1f}u IOB)" if iob_u > 0 else ""
+    
+    msg_text = (
+        f"📝 **Confirmar Tratamiento**\n"
+        f"Carbos: **{carbs}g**\n"
+        f"Notas: _{notes}_\n"
+        f"Glucosa: {bg_str} {iob_str}\n\n"
+        f"💉 **Sugerencia: {rec_u} U**\n"
+        f"📍 **Lugar:** {next_site}\n"
+        f"_Razón: {reason}_"
+    )
+    
+    # Use special callback prefix to handle this confirmation
+    # Logic is same as proactive notification: save treatment.
+    # We can reuse 'bolus_confirm_' but we lose 'carbs' info if we use the old callback which hardcodes carbs=0.
+    # Old callback 'bolus_confirm_{units}' assumes carbs were already logged via 'on_new_meal_received' (external).
+    # HERE, carbs are NOT saved yet.
+    # So we need a NEW callback or modified one.
+    # Let's use 'chat_bolus_{units}_{carbs}'
+    # We will need to update handle_callback too.
+    
+    keyboard = [
+        [
+            InlineKeyboardButton(f"✅ Registrar {rec_u} U", callback_data=f"chat_bolus_{rec_u}_{carbs}"),
+            InlineKeyboardButton("❌ Cancelar", callback_data="ignore")
+        ]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await update.message.reply_text(msg_text, reply_markup=reply_markup, parse_mode="Markdown")
+
+
     context_str = "\n".join(context_lines)
 
-    response = await ai.chat_completion(text, context=context_str, mode=mode)
-    await update.message.reply_text(response)
+    response_data = await ai.chat_completion(
+        text, 
+        context=context_str, 
+        mode=mode, 
+        tools=AI_TOOLS
+    )
+    
+    # Handle Response
+    did_action = False
+    
+    if response_data.get("function_call"):
+        fn = response_data["function_call"]
+        name = fn["name"]
+        args = fn["args"]
+        
+        logger.info(f"AI triggered tool: {name} with {args}")
+        
+        if name == "add_treatment":
+            await _handle_add_treatment_tool(update, context, args)
+            did_action = True
+    
+    # Always reply with text if present (AI often explains "He preparado la confirmación...")
+    # or if no action was taken
+    if response_data.get("text"):
+        await update.message.reply_text(response_data["text"])
+    elif not did_action:
+        # Fallback if AI returned nothing (rare)
+        await update.message.reply_text("🤔 (Sin respuesta)")
 
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Photo Handler - Vision Layer."""
@@ -566,11 +736,25 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         logger.info("User ignored bolus suggestion.")
         return
 
-    if data.startswith("bolus_confirm_"):
+    if data.startswith("bolus_confirm_") or data.startswith("chat_bolus_"):
         try:
-            val_str = data.split("_")[-1]
-            units = float(val_str)
+            # Parse Data
+            units = 0.0
+            carbs = 0.0
+            notes = "Bolus via Telegram Bot"
             
+            if data.startswith("bolus_confirm_"):
+                # Format: bolus_confirm_{units}
+                val_str = data.split("_")[-1]
+                units = float(val_str)
+                carbs = 0 # Carbs already handled externally
+            else:
+                # Format: chat_bolus_{units}_{carbs}
+                parts = data.split("_")
+                units = float(parts[2])
+                carbs = float(parts[3])
+                notes = "Bolus via Chat AI"
+
             # Save the Bolus
             import uuid
             
@@ -584,35 +768,31 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             now_dt = datetime.now(timezone.utc)
             
             # Determine username (whitelist)
-            # We assume single user mode for this bot: provided by current config
-            # But the Treatment model requires a username.
-            # We can fetch it from settings or just use "admin" or the telegram user mapping.
-            # For simplicity, we query settings owner or default "admin".
-            username = "admin" # Default fallabck
-            
+            # Fetch from DB (Single Tenant Assumption)
+            username = "admin" 
             async with AsyncSession(engine) as session:
-                 # Try to get username from settings owner? 
-                 # Or just use the one in DB.
-                 # Let's assume 'admin' for now or 'user'. 
-                 # Ideally we should match the Telegram User ID to a User in DB.
-                 pass
+                from sqlalchemy import text
+                stmt = text("SELECT user_id FROM user_settings LIMIT 1")
+                row = (await session.execute(stmt)).fetchone()
+                if row:
+                    username = row.user_id
             
-            # We can just save with username='admin' if valid
-            
-            success_msg = f"✅ *Bolo de {units} U registrado*"
+            success_msg = f"✅ *Tratamiento registrado*\nInsulina: {units} U"
+            if carbs > 0:
+                success_msg += f"\nCarbos: {carbs} g"
             
             async with AsyncSession(engine) as session:
                 # Save to DB
                 new_t = Treatment(
                     id=treatment_id,
-                    user_id=username, # TODO: dynamic
+                    user_id=username,
                     event_type="Meal Bolus",
                     created_at=now_dt.replace(tzinfo=None),
                     insulin=units,
-                    carbs=0, # Carbs were logged by the meal entry previously
+                    carbs=carbs,
                     fat=0,
                     protein=0,
-                    notes="Bolus via Telegram Bot",
+                    notes=notes,
                     entered_by="TelegramBot",
                     is_uploaded=False
                 )
@@ -631,17 +811,17 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                             "eventType": "Meal Bolus",
                             "created_at": now_dt.isoformat(),
                             "insulin": units,
-                            "carbs": 0, # Carbs separate
+                            "carbs": carbs,
                             "enteredBy": "TelegramBot",
-                            "notes": "Via Bot"
+                            "notes": notes
                         }])
                         await ns.aclose()
                         new_t.is_uploaded = True
                         await session.commit()
-                        success_msg += " (y subido a Nightscout)"
+                        success_msg += " (subido a NS)"
                     except Exception as exc:
                         logger.error(f"NS upload failed: {exc}")
-                        success_msg += " (Guardado Local, error NS)"
+                        success_msg += " (Error NS)"
             
             # Rotate Injection Site
             try:

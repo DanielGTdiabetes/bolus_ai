@@ -62,12 +62,12 @@ async def chat_completion(
     message: str, 
     context: str = None,
     history: list = None, 
-    mode: Literal["flash", "pro"] = "flash"
-) -> str:
+    mode: Literal["flash", "pro"] = "flash",
+    tools: list = None
+) -> dict:
     """
     Chat with the AI.
-    - mode='flash': Fast, daily queries.
-    - mode='pro': Deep reasoning, medical doubts.
+    Returns: {"text": str, "function_call": dict | None}
     """
     _configure_genai()
     
@@ -78,8 +78,7 @@ async def chat_completion(
         model_name = config.get_gemini_model() # gemini-3-flash-preview
         
     try:
-        # System Prompt (Injected if history is empty or via system instruction if supported)
-        # Gemini 1.5+ supports system_instruction arg
+        # System Prompt
         system_instruction = (
             "Eres Bolus AI, un asistente experto en diabetes tipo 1. "
             "Tu objetivo es ayudar al usuario a gestionar su glucosa sin sustituir al médico. "
@@ -90,15 +89,39 @@ async def chat_completion(
         if context:
             system_instruction += f"\n\nDATOS EN TIEMPO REAL:\n{context}"
         
-        # Combine System Prompt + Context + User Message manually for robustness
         full_prompt = f"{system_instruction}\n\nUser: {message}"
 
-        model = genai.GenerativeModel(model_name)
+        # Initialize Model with Tools if provided
+        model = genai.GenerativeModel(model_name, tools=tools)
         
-        # GenerativeModel.generate_content_async is simpler for one-shot than chat session
         response = await model.generate_content_async(full_prompt)
-        return response.text
+        
+        # Parse Response safely
+        res_text = ""
+        fn_call = None
+        
+        if response.candidates and response.candidates[0].content.parts:
+            for part in response.candidates[0].content.parts:
+                if part.text:
+                    res_text += part.text
+                if part.function_call:
+                    fn_call = {
+                        "name": part.function_call.name,
+                        "args": dict(part.function_call.args)
+                    }
+        
+        # Fallack if simple text extraction fails but we have no function call (safety)
+        if not res_text and not fn_call:
+             try:
+                 res_text = response.text
+             except:
+                 pass
+
+        return {
+            "text": res_text,
+            "function_call": fn_call
+        }
         
     except Exception as e:
         logger.error(f"Gemini Chat Error ({mode}): {e}")
-        return "Lo siento, tuve un problema pensando. ¿Puedes repetirlo?"
+        return {"text": "Lo siento, tuve un problema pensando. ¿Puedes repetirlo?", "function_call": None}
