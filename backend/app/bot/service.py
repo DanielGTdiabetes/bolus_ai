@@ -262,8 +262,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         context_lines.append(f"- ISF (Sensibilidad): {user_settings.cf.breakfast} (D) / {user_settings.cf.lunch} (A) / {user_settings.cf.dinner} (C)")
         context_lines.append(f"- CR (Ratio): {user_settings.cr.breakfast} (D) / {user_settings.cr.lunch} (A) / {user_settings.cr.dinner} (C)")
         context_lines.append(f"- Objetivo: {user_settings.targets.mid} mg/dL")
-        context_lines.append(f"- DIA (Duración Insulina): {user_settings.model.dia_minutes / 60:.1f} horas")
-        context_lines.append(f"- Pico Insulina: {user_settings.model.peak_minutes} min")
+        context_lines.append(f"- DIA (Duración Insulina): {user_settings.iob.dia_hours:.1f} horas")
+        context_lines.append(f"- Pico Insulina: {user_settings.iob.peak_minutes} min")
         
         context_lines.append(f"- Basal Típica: {user_settings.tdd_u} U/día (aprox)")
 
