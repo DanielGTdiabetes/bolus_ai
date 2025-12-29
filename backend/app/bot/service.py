@@ -562,14 +562,16 @@ async def _handle_add_treatment_tool(update: Update, context: ContextTypes.DEFAU
 
     try:
         context_str = "\n".join(context_lines)
-
+        
+        logger.info("🤖 Calling AI (Chat Completion)...")
         response_data = await ai.chat_completion(
             text, 
             context=context_str, 
             mode=mode, 
             tools=AI_TOOLS
         )
-        
+        logger.info(f"🤖 AI Response received: {str(response_data)[:100]}...")
+
         # Handle Response
         did_action = False
         

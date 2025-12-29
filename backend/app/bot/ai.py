@@ -1,4 +1,5 @@
 import logging
+import asyncio
 import google.generativeai as genai
 from typing import Optional, Literal
 from app.core import config
@@ -51,9 +52,16 @@ async def analyze_image(image_bytes: bytes, mime_type: str = "image/jpeg") -> st
             'data': image_bytes
         }
         
-        response = await model.generate_content_async([prompt, cookie_picture])
+        # Add Timeout (25s)
+        response = await asyncio.wait_for(
+            model.generate_content_async([prompt, cookie_picture]),
+            timeout=25.0
+        )
         return response.text
         
+    except asyncio.TimeoutError:
+        logger.error("Gemini Vision Timeout")
+        return "⚠️ La imagen tardó mucho en procesarse. Intenta con una más pequeña."
     except Exception as e:
         logger.error(f"Gemini Vision Error: {e}")
         return "Error al analizar la imagen. Inténtalo de nuevo."
@@ -94,7 +102,11 @@ async def chat_completion(
         # Initialize Model with Tools if provided
         model = genai.GenerativeModel(model_name, tools=tools)
         
-        response = await model.generate_content_async(full_prompt)
+        # Add Timeout (20s) - Prevent infinite typing state
+        response = await asyncio.wait_for(
+            model.generate_content_async(full_prompt), 
+            timeout=20.0
+        )
         
         # Parse Response safely
         res_text = ""
@@ -121,6 +133,10 @@ async def chat_completion(
             "text": res_text,
             "function_call": fn_call
         }
+    
+    except asyncio.TimeoutError:
+        logger.error(f"Gemini Chat TIMEOUT ({mode})")
+        return {"text": "⏳ El cerebro de la IA está lento. Intenta de nuevo.", "function_call": None}
         
     except Exception as e:
         logger.error(f"Gemini Chat Error ({mode}): {e}")
