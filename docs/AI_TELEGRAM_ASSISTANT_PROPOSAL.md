@@ -5,7 +5,27 @@ Transformar la aplicación de una simple "calculadora de bolos" a un **Asistente
 
 El sistema no "toma el control" (no modifica rangos ni tratamientos automáticamente), sino que actúa como un copiloto que **sugiere y facilita**.
 
-## 2. Componentes Clave
+## 2. Principio de Seguridad: Separación de Responsabilidades
+Para mantener la seguridad médica y la precisión, establecemos una **línea roja** clara:
+
+*   **La App (Motor Matemático)**: Es la única autoridad para los cálculos. Contiene la lógica determinista (`curves.py`, `isf.py`) que ya ha sido validada.
+    *   *Responsabilidad*: Calcular bolos, determinar IOB, ajustar ISF.
+*   **La IA (El Asistente)**: Actúa como **interfaz** y **orquestador**.
+    *   *Responsabilidad*: Detectar el evento, limpiar los datos de entrada y **consultar** al motor matemático.
+    *   **REGLA DE ORO**: La IA nunca "inventa" ni recalcula una dosis. Si necesita un valor, invoca a la función de la App.
+    *   *Ejemplo*: La IA no calcula `60g / 10 ratio = 6u`. La IA llama a `calculate_bolus(carbs=60)` y la App devuelve `6u`.
+
+### C. Catálogo de Funciones Expuestas (Cobertura Total)
+El objetivo es que **cualquier cosa** que puedas hacer clicando en la web, puedas hacerla pidiéndosela al Bot. La IA tendrá "herramientas" (function calling) para:
+1.  **Calculadoras**: Bolus Estándar, Bolus Extendido, Corrección, Basal Retrasada.
+2.  **Simuladores**: "¿Qué pasaría si como 50g ahora?" (Llama al motor de curvas de predicción).
+3.  **Base de Datos**: Búsqueda de alimentos y conteo de hidratos.
+4.  **Análisis**: Generación de reportes (`get_nightscout_stats`) o diagnósticos (`iob_analysis`).
+5.  **Configuración**: Ajustes temporales de perfil (ej. "Activa modo deporte").
+6.  **Visión**: Procesamiento de imágenes (platos o etiquetas) para extracción automática de carbohidratos.
+7.  **Auditoría**: Acceso al motor de sugerencias (`suggestion_engine`) para proponer cambios en ratios o sensibilidad basados en historial.
+
+## 3. Componentes Clave
 
 ### A. Canal de Comunicación: Telegram Bot
 Se elige Telegram por su eficiencia y bajo consumo de recursos.
@@ -51,7 +71,37 @@ Gestionar los recordatorios y ajustes de la segunda parte de un bolo extendido (
         *   *Mensaje*: "CUIDADO: Toca el resto del bolo en 15 min, pero estás en 80 mg/dL y estable. ¿Posponemos o cancelamos?"
     *   **Escenario C (Estable)**: "Todo en orden. Recordatorio: el resto del bolo se administra en 15 min."
 
-## 4. Consideraciones Técnicas y Limitaciones de Red
+### Caso 5: Gestión Inteligente de Basal (Lenta)
+Evitar olvidos o dosis dobles de la insulina basal diaria (ej. Tresiba/Lantus).
+1.  **Recordatorio Contextual**:
+    *   Si a la hora habitual (ej. 22:00) no se ha registrado la dosis: *"Hola, son las 22:00. ¿Te pusiste la basal (15u)?"*
+    *   **Botón Rápido**: `[✅ Sí, registrar]` `[⏰ 15 min más tarde]`
+2.  **Seguridad (Anti-doble dosis)**:
+    *   Si el usuario intenta registrar una basal y el sistema ve que ya se puso una hace 2 horas: *"⚠️ ALERTA: Ya registraste una dosis de basal hoy a las 20:00. ¿Seguro que es otra?"*
+3.  **Recuperación de Olvidos (Integración con Función de Recálculo)**:
+    *   Si el usuario responde al recordatorio 3 horas tarde: *"Veo que han pasado 3 horas de tu hora habitual. He consultado a la App y recalculado la dosis para evitar solapamiento mañana."*
+    *   *Acción*: La IA invoca `calculate_late_basal(hours_late=3)` → La App devuelve `13.5u` (en lugar de 15u).
+    *   *Mensaje*: *"La dosis ajustada es 13.5u (reducida por el retraso). ¿Registramos esta cantidad?"*
+
+### Caso 6: Interacción Multimodal (Fotos de Comida)
+Eliminar la entrada manual de datos mediante visión artificial.
+1.  **Acción**: El usuario envía una foto del plato o etiqueta al chat.
+2.  **Enrutamiento**: La IA detecta la imagen e invoca directamente al servicio de "Escáner/Visión" de la App.
+3.  **Resultado**:
+    *   IA: "He analizado la foto: Plato de lentejas (aprox 300g) + Pan."
+    *   IA: "Estimación total: **45g Carbohidratos**."
+    *   IA: "¿Calculamos bolo para 45g?"
+4.  **Comparativa Carta vs Realidad**:
+    *   Si el usuario primero envía foto del menú y luego del plato servido, la IA compara: *"¡Ojo! El plato es más grande de lo esperado (+15g hidratos). Sugiero añadir 1.5u extra."* (Lógica basada en `restaurant.py`).
+
+### Caso 7: Asistencia de Microbolos (Gestión de Curva Fina)
+Actuar como un "Lazo Cerrado Asistido" para correcciones pequeñas y precisas.
+1.  **Escenario**: No hay hiperglucemia severa (ej. 135 mg/dL) pero hay una tendencia de subida lenta y constante.
+2.  **Análisis**: El sistema predice que en 1 hora estará en 180 mg/dL si no hace nada.
+3.  **Sugerencia de Precisión**: *"Veo una subida lenta sostenida. Para mantener la línea plana y no salir de rango, sugiero un microbolo de **0.35u** ahora."*
+4.  **Valor**: Permite al usuario "aplanar la curva" con seguridad, validando manualmente las micro-dosis que un sistema automático pondría solo.
+
+## 5. Consideraciones Técnicas y Limitaciones de Red
 
 Dado que la conectividad puede ser inestable:
 1.  **Comunicación Ligera**: Los mensajes de texto de Telegram consumen muy pocos datos.
@@ -92,7 +142,36 @@ Debe informar sobre el estado interno de estos cálculos:
 2.  **Estado de Absorción**: "Tus curvas de absorción indican que la pizza de anoche tardó 4h en digerirse, tenlo en cuenta para la próxima vez (quizás extender más el bolo)."
 3.  **Predicción de Riesgos**: "Hay riesgo de hipo *porque* tu IOB es alto (3.5u) y la comida anterior ya se absorbió casi toda."
 
+### D. Flexibilidad y Gestión de Errores (Conversación Natural)
+El sistema debe ser tolerante a fallos humanos y cambios de opinión, aprovechando la capacidad de la IA para entender el contexto.
+*   **Corrección de Errores**:
+    *   *Usuario*: "Te he pasado la foto mal, esa era la de mi amigo."
+    *   *IA*: "Entendido, descarto el cálculo anterior. Mándame tu foto correcta cuando quieras."
+*   **Reinicio de Contexto ("Reset")**:
+    *   *Usuario*: "Olvida todo lo de la pizza, al final voy a pedir ensalada."
+    *   *IA*: "Vale, borro el registro temporal de pizza. ¿Cuántos hidratos tiene la ensalada o quieres que la estime?"
+*   **Alternativas**:
+    *   Si la IA duda (confianza baja en foto), ofrece opciones: *"No veo claro si es pan o patata. Si es pan son 30g, si es patata 45g. ¿Cuál elijo?"*
+
 ## 7. Próximos Pasos de Investigación
 *   Definir librería de Python para el Bot (`python-telegram-bot` o similar).
 *   Diseñar el formato del JSON intermedio para intercambio de datos.
 *   Implementar algoritmo básico de clustering (K-Means simple) para deducir horarios habituales.
+
+## 8. Optimización para Entornos Gratuitos (Render/Neon)
+Dado que operamos en infraestructura "Free Tier", la eficiencia es crítica para evitar cortes por límites de uso.
+
+### A. Estrategia "Wake-on-Demand" (Render)
+Los servicios gratuitos de Render se "duermen" tras inactividad.
+*   **Problema**: Si el bot duerme, no puede avisar.
+*   **Solución Híbrida (VALIDADA)**:
+    *   Actualmente el usuario ya utiliza un **servicio externo "ping"** que mantiene activo el backend con éxito. Mantener esta estrategia.
+    *   **Polling Inteligente Nightscout**: No chequear cada minuto. Hacerlo cada 5 minutos (coincidiendo con las lecturas de Dexcom/Libre) para minimizar uso de CPU/RAM.
+
+### B. Base de Datos Ligera (Neon Postgres)
+*   **Limpieza de Datos**: No guardar "todo". Purgar logs antiguos de la conversación con el bot (retención de 7 días).
+*   **Caché en Memoria**: Cargar las curvas ISF/IC en memoria al inicio para no consultar a Neon en cada mensaje del chat. Solo escribir en DB cuando se confirma un tratamiento real.
+
+### C. Procesamiento Asíncrono
+*   Evitar procesos pesados de IA en tiempo real.
+*   Los "re-cálculos" de curvas o aprendizajes de horarios se programarán para correr **una vez al día** (job nocturno) y guardar resultados estáticos, en lugar de calcularse cada vez que el usuario come.
