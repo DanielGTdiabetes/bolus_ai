@@ -10,7 +10,7 @@ from app.bot import ai
 
 # Sidecar dependencies
 from pathlib import Path
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from app.core.settings import get_settings
 from app.services.store import DataStore
 from app.services.nightscout_client import NightscoutClient
@@ -24,6 +24,85 @@ from app.services import settings_service as svc_settings
 from app.services import nightscout_secrets_service as svc_ns_secrets
 from app.models.settings import UserSettings
 from app.models.treatment import Treatment
+
+async def fetch_history_context(user_settings: UserSettings, hours: int = 6) -> str:
+    """Fetches simplified glucose history context using Nightscout."""
+    if not user_settings.nightscout.url:
+        return ""
+
+    client = None
+    try:
+        client = NightscoutClient(
+            base_url=user_settings.nightscout.url,
+            token=user_settings.nightscout.token,
+            timeout_seconds=10
+        )
+        
+        # Calculate Time Range
+        now = datetime.now(timezone.utc)
+        start_time = now - timedelta(hours=hours)
+        
+        # Fetch Data (using existing get_sgv_range which accepts datetimes)
+        # Assuming ~12 entries/hour (5 min interval) => hours * 12 + buffer
+        count = int(hours * 12 * 1.5) 
+        entries = await client.get_sgv_range(start_dt=start_time, end_dt=now, count=count)
+        
+        if not entries:
+            return f"HISTORIA ({hours}h): No hay datos."
+
+        # Compute Stats
+        values = [e.sgv for e in entries if e.sgv is not None]
+        if not values: 
+            return f"HISTORIA ({hours}h): Datos vacíos."
+
+        avg = sum(values) / len(values)
+        min_v = min(values)
+        max_v = max(values)
+        
+        # Time in Range (70-180)
+        in_range = sum(1 for v in values if 70 <= v <= 180)
+        tir_pct = (in_range / len(values)) * 100
+        
+        # Mini-Graph (Every ~30 mins)
+        # We need to sort by date. Nightscout returns DESC usually? Let's sort by dateString/date.
+        # entries have 'date' (epoch).
+        sorted_entries = sorted(entries, key=lambda x: x.date)
+        
+        # Sample roughly every 30 mins
+        # If we have 12 entries/hour, 30 mins = 6 entries.
+        step = max(1, len(sorted_entries) // (hours * 2)) 
+        
+        graph_points = []
+        for i in range(0, len(sorted_entries), step):
+            e = sorted_entries[i]
+            # Simple ascii representation? No, just numbers is cleaner for LLM
+            # Maybe local time?
+            # AI is good with raw lists.
+            graph_points.append(str(e.sgv))
+            
+        # Limit graph points to ~20 to save tokens
+        if len(graph_points) > 20:
+             # Resample
+             step2 = len(graph_points) // 20 + 1
+             graph_points = graph_points[::step2]
+             
+        graph_str = " -> ".join(graph_points)
+        
+        summary = (
+            f"HISTORIA ({hours}h):\n"
+            f"- Promedio: {int(avg)} mg/dL\n"
+            f"- Rango (70-180): {int(tir_pct)}%\n"
+            f"- Min: {min_v} / Max: {max_v}\n"
+            f"- Tendencia (cada ~30m): {graph_str}"
+        )
+        return summary
+        
+    except Exception as e:
+        return f"HISTORIA: Error leyendo datos ({e})"
+    finally:
+        if client:
+            await client.aclose()
+
 
 logger = logging.getLogger(__name__)
 
@@ -466,36 +545,56 @@ async def _handle_add_treatment_tool(update: Update, context: ContextTypes.DEFAU
     await update.message.reply_text(msg_text, reply_markup=reply_markup, parse_mode="Markdown")
 
 
-    context_str = "\n".join(context_lines)
+    # --- History Injection (Intelligent Context) ---
+    # Heuristic: If user talks about past/trends, inject history.
+    # Words: noche, ayer, resumen, tendencia, subida, bajada, dia, durmiendo
+    hist_keywords = ["noche", "ayer", "resumen", "tendencia", "subida", "bajada", "dia", "durmiendo", "pasó", "paso"]
+    if any(k in cmd for k in hist_keywords):
+        await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=constants.ChatAction.TYPING)
+        # Default 8h (Night) or 24h if "ayer"
+        h_lookback = 24 if "ayer" in cmd else 8
+        try:
+            hist_summary = await fetch_history_context(user_settings, hours=h_lookback)
+            if hist_summary:
+                context_lines.append("\n" + hist_summary)
+        except Exception as e:
+            logger.error(f"Failed to inject history: {e}")
 
-    response_data = await ai.chat_completion(
-        text, 
-        context=context_str, 
-        mode=mode, 
-        tools=AI_TOOLS
-    )
-    
-    # Handle Response
-    did_action = False
-    
-    if response_data.get("function_call"):
-        fn = response_data["function_call"]
-        name = fn["name"]
-        args = fn["args"]
+    try:
+        context_str = "\n".join(context_lines)
+
+        response_data = await ai.chat_completion(
+            text, 
+            context=context_str, 
+            mode=mode, 
+            tools=AI_TOOLS
+        )
         
-        logger.info(f"AI triggered tool: {name} with {args}")
+        # Handle Response
+        did_action = False
         
-        if name == "add_treatment":
-            await _handle_add_treatment_tool(update, context, args)
-            did_action = True
-    
-    # Always reply with text if present (AI often explains "He preparado la confirmación...")
-    # or if no action was taken
-    if response_data.get("text"):
-        await update.message.reply_text(response_data["text"])
-    elif not did_action:
-        # Fallback if AI returned nothing (rare)
-        await update.message.reply_text("🤔 (Sin respuesta)")
+        if response_data.get("function_call"):
+            fn = response_data["function_call"]
+            name = fn["name"]
+            args = fn["args"]
+            
+            logger.info(f"AI triggered tool: {name} with {args}")
+            
+            if name == "add_treatment":
+                await _handle_add_treatment_tool(update, context, args)
+                did_action = True
+        
+        # Always reply with text if present (AI often explains "He preparado la confirmación...")
+        # or if no action was taken
+        if response_data.get("text"):
+            await update.message.reply_text(response_data["text"])
+        elif not did_action:
+            # Fallback if AI returned nothing (rare)
+            await update.message.reply_text("🤔 (Sin respuesta)")
+            
+    except Exception as e:
+        logger.error(f"Error AI processing: {e}")
+        await update.message.reply_text("⚠️ Hubo un error procesando tu mensaje. Intenta de nuevo en unos segundos.")
 
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Photo Handler - Vision Layer."""
@@ -810,10 +909,154 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                     protein=0,
                     notes=notes,
                     entered_by="TelegramBot",
-                    is_uploaded=False
-                )
-                session.add(new_t)
-                await session.commit()
+
+# --- Guardian Mode (Zero Cost Monitoring) ---
+
+async def run_glucose_monitor_job() -> None:
+    """
+    Background Task: Checks SGV every 5 mins and alerts if Low/High.
+    Uses 'check_glucose_service' logic but strictly for Telegram alerts.
+    """
+    global _bot_app
+    if not _bot_app:
+        return
+
+    # TODO: Multi-tenant loop. For now, Single User 'admin' is the focus.
+    user_id = "admin"
+    chat_id = config.get_allowed_telegram_user_id()
+    if not chat_id:
+        return
+
+    # 1. Get Settings & Secrets
+    try:
+        from app.core.db import get_engine
+        engine = get_engine()
+        if not engine: return
+        
+        async with AsyncSession(engine) as session:
+            # Secrets
+            ns_cfg = await svc_ns_secrets.get_ns_config(session, user_id)
+            if not ns_cfg or not ns_cfg.url:
+                return
+
+            # Client
+            # Low timeout for background check
+            client = NightscoutClient(ns_cfg.url, ns_cfg.api_secret, timeout_seconds=5)
+            
+            sgv_val = 0
+            direction = ""
+            delta = 0.0
+            date_str = ""
+            
+            try:
+                # 2. Fetch SGV
+                sgv = await client.get_latest_sgv()
+                sgv_val = float(sgv.sgv)
+                direction = sgv.direction or ""
+                delta = sgv.delta or 0.0
+                date_str = sgv.dateString
+            except Exception:
+                # Silent fail (connection issue)
+                await client.aclose()
+                return
+            
+            await client.aclose()
+            
+            # 3. Check Staleness (don't alert on old data)
+            # dateString is usually ISO.
+            import dateutil.parser
+            try:
+                reading_time = dateutil.parser.parse(date_str)
+                # Ensure UTC
+                if reading_time.tzinfo is None:
+                    reading_time = reading_time.replace(tzinfo=timezone.utc)
+                
+                now = datetime.now(timezone.utc)
+                age_min = (now - reading_time).total_seconds() / 60
+                
+                if age_min > 20:
+                    # Data is too old (>20 mins), don't alert (sensor might be warming up/dead)
+                    return
+            except Exception:
+                pass
+
+            # 4. Threshold Logic
+            # Hardcoded Safeties or Fetch from UserSettings
+            # We'll use "Safe" defaults: <70 and >250
+            # Ideally fetch from UserSettings.targets
+            
+            LOW_THRESH = 70
+            HIGH_THRESH = 260 
+            
+            alert_type = None
+            msg = ""
+            
+            if sgv_val <= LOW_THRESH:
+                alert_type = "low"
+                msg = f"🚨 **ALERTA BAJA: {int(sgv_val)}** {direction}\n📉 Delta: {delta:+.1f}"
+            elif sgv_val >= HIGH_THRESH:
+                alert_type = "high"
+                msg = f"⚠️ **ALERTA ALTA: {int(sgv_val)}** {direction}\n📈 Delta: {delta:+.1f}"
+            
+            if not alert_type:
+                # Normal range, clear any active state if needed?
+                # Actually, we rely on 'Snooze' for alerts.
+                return
+                
+            # 5. Anti-Spam (Snooze) Logic
+            # We don't want to alert every 5 mins.
+            # Low: Alert every 15 mins?
+            # High: Alert every 60 mins?
+            
+            # Use UserNotificationState to store 'last_alert_time'
+            from app.models.notifications import UserNotificationState
+            from sqlalchemy import select
+            
+            key = f"guardian_{alert_type}"
+            stmt = select(UserNotificationState).where(
+                UserNotificationState.user_id == user_id,
+                UserNotificationState.key == key
+            )
+            state_row = (await session.execute(stmt)).scalars().first()
+            
+            should_send = True
+            now_utc = datetime.now(timezone.utc)
+            
+            if state_row:
+                last_sent = state_row.seen_at # Reuse 'seen_at' as 'sent_at'
+                if last_sent.tzinfo is None:
+                    last_sent = last_sent.replace(tzinfo=timezone.utc)
+                
+                elapsed_min = (now_utc - last_sent).total_seconds() / 60
+                
+                snooze_time = 20 if alert_type == "low" else 60 # 20m for low, 1h for high
+                
+                if elapsed_min < snooze_time:
+                    should_send = False
+            
+            if should_send:
+                # Send Message
+                try:
+                    await _bot_app.bot.send_message(chat_id=chat_id, text=msg, parse_mode="Markdown")
+                    
+                    # Update State
+                    if state_row:
+                        state_row.seen_at = now_utc
+                    else:
+                        new_state = UserNotificationState(
+                            user_id=user_id,
+                            key=key,
+                            seen_at=now_utc
+                        )
+                        session.add(new_state)
+                    await session.commit()
+                    logger.info(f"Guardian Mode sent alert: {alert_type} ({sgv_val})")
+                except Exception as e:
+                    logger.error(f"Failed to send Guardian Alert: {e}")
+
+    except Exception as e:
+        logger.error(f"Guardian Job Error: {e}")
+
                 
                 # Upload to NS
                 settings = get_settings()
@@ -851,7 +1094,157 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
             await query.edit_message_text(text=f"{query.message.text}\n\n{success_msg}", parse_mode="Markdown")
             
+            await query.edit_message_text(text=f"{query.message.text}\n\n{success_msg}", parse_mode="Markdown")
+            
         except Exception as e:
             logger.error(f"Callback error: {e}")
             await query.edit_message_text(text=f"Error al registrar: {e}")
+
+
+# --- Guardian Mode (Zero Cost Monitoring) ---
+
+async def run_glucose_monitor_job() -> None:
+    """
+    Background Task: Checks SGV every 5 mins and alerts if Low/High.
+    Uses 'check_glucose_service' logic but strictly for Telegram alerts.
+    """
+    global _bot_app
+    if not _bot_app:
+        return
+
+    # TODO: Multi-tenant loop. For now, Single User 'admin' is the focus.
+    user_id = "admin"
+    chat_id = config.get_allowed_telegram_user_id()
+    if not chat_id:
+        return
+
+    # 1. Get Settings & Secrets
+    try:
+        from app.core.db import get_engine
+        engine = get_engine()
+        if not engine: return
+        
+        async with AsyncSession(engine) as session:
+            # Secrets
+            ns_cfg = await svc_ns_secrets.get_ns_config(session, user_id)
+            if not ns_cfg or not ns_cfg.url:
+                return
+
+            # Client
+            # Low timeout for background check
+            client = NightscoutClient(ns_cfg.url, ns_cfg.api_secret, timeout_seconds=5)
+            
+            sgv_val = 0
+            direction = ""
+            delta = 0.0
+            date_str = ""
+            
+            try:
+                # 2. Fetch SGV
+                sgv = await client.get_latest_sgv()
+                sgv_val = float(sgv.sgv)
+                direction = sgv.direction or ""
+                delta = sgv.delta or 0.0
+                date_str = sgv.dateString
+            except Exception:
+                # Silent fail (connection issue)
+                await client.aclose()
+                return
+            
+            await client.aclose()
+            
+            # 3. Check Staleness (don't alert on old data)
+            # dateString is usually ISO.
+            import dateutil.parser
+            try:
+                reading_time = dateutil.parser.parse(date_str)
+                # Ensure UTC
+                if reading_time.tzinfo is None:
+                    reading_time = reading_time.replace(tzinfo=timezone.utc)
+                
+                now = datetime.now(timezone.utc)
+                age_min = (now - reading_time).total_seconds() / 60
+                
+                if age_min > 20:
+                    # Data is too old (>20 mins), don't alert (sensor might be warming up/dead)
+                    return
+            except Exception:
+                pass
+
+            # 4. Threshold Logic
+            # Hardcoded Safeties or Fetch from UserSettings
+            # We'll use "Safe" defaults: <70 and >250
+            # Ideally fetch from UserSettings.targets
+            
+            LOW_THRESH = 70
+            HIGH_THRESH = 260 
+            
+            alert_type = None
+            msg = ""
+            
+            if sgv_val <= LOW_THRESH:
+                alert_type = "low"
+                msg = f"🚨 **ALERTA BAJA: {int(sgv_val)}** {direction}\n📉 Delta: {delta:+.1f}"
+            elif sgv_val >= HIGH_THRESH:
+                alert_type = "high"
+                msg = f"⚠️ **ALERTA ALTA: {int(sgv_val)}** {direction}\n📈 Delta: {delta:+.1f}"
+            
+            if not alert_type:
+                # Normal range, clear any active state if needed?
+                # Actually, we rely on 'Snooze' for alerts.
+                return
+                
+            # 5. Anti-Spam (Snooze) Logic
+            # We don't want to alert every 5 mins.
+            # Low: Alert every 15 mins?
+            # High: Alert every 60 mins?
+            
+            # Use UserNotificationState to store 'last_alert_time'
+            from app.models.notifications import UserNotificationState
+            from sqlalchemy import select
+            
+            key = f"guardian_{alert_type}"
+            stmt = select(UserNotificationState).where(
+                UserNotificationState.user_id == user_id,
+                UserNotificationState.key == key
+            )
+            state_row = (await session.execute(stmt)).scalars().first()
+            
+            should_send = True
+            now_utc = datetime.now(timezone.utc)
+            
+            if state_row:
+                last_sent = state_row.seen_at # Reuse 'seen_at' as 'sent_at'
+                if last_sent.tzinfo is None:
+                    last_sent = last_sent.replace(tzinfo=timezone.utc)
+                
+                elapsed_min = (now_utc - last_sent).total_seconds() / 60
+                
+                snooze_time = 20 if alert_type == "low" else 60 # 20m for low, 1h for high
+                
+                if elapsed_min < snooze_time:
+                    should_send = False
+            
+            if should_send:
+                # Send Message
+                try:
+                    await _bot_app.bot.send_message(chat_id=chat_id, text=msg, parse_mode="Markdown")
+                    
+                    # Update State
+                    if state_row:
+                        state_row.seen_at = now_utc
+                    else:
+                        new_state = UserNotificationState(
+                            user_id=user_id,
+                            key=key,
+                            seen_at=now_utc
+                        )
+                        session.add(new_state)
+                    await session.commit()
+                    logger.info(f"Guardian Mode sent alert: {alert_type} ({sgv_val})")
+                except Exception as e:
+                    logger.error(f"Failed to send Guardian Alert: {e}")
+
+    except Exception as e:
+        logger.error(f"Guardian Job Error: {e}")
 

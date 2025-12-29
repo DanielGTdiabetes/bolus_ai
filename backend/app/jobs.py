@@ -117,6 +117,11 @@ def setup_periodic_tasks():
     learning_trigger = CronTrigger(minute='*/30')
     schedule_task(run_learning_evaluation, learning_trigger, "learning_eval")
 
+    # Run Guardian Mode (Glucose Alert) every 5 mins
+    from app.bot.service import run_glucose_monitor_job
+    guardian_trigger = CronTrigger(minute='*/5')
+    schedule_task(run_glucose_monitor_job, guardian_trigger, "guardian_check")
+
 
 async def run_data_cleanup():
     """
