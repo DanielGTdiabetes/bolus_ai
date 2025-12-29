@@ -125,6 +125,7 @@ async def bot_send(
     *,
     bot=None,
     log_context: str = "reply",
+    propagate_exceptions: bool = False,
     **kwargs: Any,
 ) -> Optional[Any]:
     """Centralized sender for Telegram replies with health tracking."""
@@ -135,6 +136,8 @@ async def bot_send(
         error_msg = "bot_unavailable"
         logger.error(f"reply failed: {error_msg}")
         health.set_reply_error(error_msg)
+        if propagate_exceptions:
+            raise RuntimeError(error_msg)
         return None
 
     try:
@@ -146,6 +149,8 @@ async def bot_send(
         error_msg = f"{type(exc).__name__}: {exc}"
         logger.error(f"reply failed: {error_msg}")
         health.set_reply_error(error_msg)
+        if propagate_exceptions:
+            raise
         return None
 
 
@@ -1577,14 +1582,19 @@ async def run_glucose_monitor_job() -> None:
             if should_send:
                 # Send Message
                 try:
-                    await bot_send(
+                    send_result = await bot_send(
                         chat_id=chat_id,
                         text=msg,
                         bot=_bot_app.bot,
                         parse_mode="Markdown",
                         log_context="guardian_alert",
+                        propagate_exceptions=True,
                     )
-                    
+
+                    if not send_result:
+                        logger.error("Failed to send Guardian Alert: empty response from bot_send")
+                        return
+
                     # Update State
                     if state_row:
                         state_row.seen_at = now_utc

@@ -40,3 +40,16 @@ async def test_bot_send_failure_records_error():
 
     assert health.last_reply_error is not None
     assert health.last_reply_at is None
+
+
+@pytest.mark.asyncio
+async def test_bot_send_can_propagate_exceptions():
+    bot = DummyBot(should_raise=True)
+    health.last_reply_at = None
+    health.last_reply_error = None
+
+    with pytest.raises(RuntimeError):
+        await bot_send(chat_id=789, text="boom", bot=bot, propagate_exceptions=True)
+
+    assert health.last_reply_error is not None
+    assert health.last_reply_at is None
