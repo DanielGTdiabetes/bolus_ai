@@ -1,7 +1,9 @@
 import enum
 import logging
+import threading
 import time
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
 logger = logging.getLogger(__name__)
@@ -15,19 +17,46 @@ class BotMode(str, enum.Enum):
 
 
 @dataclass
-class BotHealth:
+class BotHealthState:
     enabled: bool = False
     mode: BotMode = BotMode.DISABLED
-    last_update_at: Optional[float] = None
+    reason: str = "feature_flag_off"
+    last_update_at: Optional[datetime] = None
     last_error: Optional[str] = None
-    mode_reason: Optional[str] = None
+    started_at: Optional[datetime] = None
+
+    # Internal lock to avoid races if multiple tasks mutate quickly
+    _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
+
+    def set_mode(self, mode: BotMode, reason: str) -> None:
+        with self._lock:
+            self.mode = mode
+            self.reason = reason
+            if mode != BotMode.ERROR:
+                self.last_error = None
+
+    def set_error(self, message: str) -> None:
+        with self._lock:
+            self.last_error = message
+        logger.error(message)
 
     def mark_update(self) -> None:
-        self.last_update_at = time.time()
+        with self._lock:
+            self.last_update_at = datetime.now(timezone.utc)
 
-    def mark_error(self, message: str) -> None:
-        logger.error(message)
-        self.last_error = message
+    def set_started(self) -> None:
+        with self._lock:
+            self.started_at = datetime.now(timezone.utc)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "enabled": self.enabled,
+            "mode": self.mode.value if isinstance(self.mode, BotMode) else self.mode,
+            "reason": self.reason,
+            "started_at": self.started_at.isoformat() if self.started_at else None,
+            "last_update_at": self.last_update_at.isoformat() if self.last_update_at else None,
+            "last_error": self.last_error,
+        }
 
 
 @dataclass
@@ -59,6 +88,5 @@ class CooldownState:
             self.cooldowns.pop(k, None)
 
 
-health = BotHealth()
+health = BotHealthState()
 cooldowns = CooldownState()
-

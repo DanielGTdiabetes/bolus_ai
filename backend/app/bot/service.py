@@ -2,7 +2,7 @@ import logging
 import asyncio
 import os
 import tempfile
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Tuple
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, ContextTypes, filters, CallbackQueryHandler
@@ -116,6 +116,25 @@ logger = logging.getLogger(__name__)
 # Global Application instance
 _bot_app: Optional[Application] = None
 _polling_task: Optional[asyncio.Task] = None
+
+
+def decide_bot_mode() -> Tuple[BotMode, str]:
+    """
+    Decide how the bot should run based on environment.
+    Returns (mode, reason)
+    """
+    if not config.is_telegram_bot_enabled():
+        return BotMode.DISABLED, "feature_flag_off"
+
+    token = config.get_telegram_bot_token()
+    if not token:
+        return BotMode.DISABLED, "missing_token"
+
+    public_url = config.get_public_bot_url()
+    if public_url:
+        return BotMode.WEBHOOK, "public_url_present"
+
+    return BotMode.POLLING, "missing_public_url"
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Log the error and send a telegram message to notify the developer."""
@@ -811,27 +830,34 @@ async def initialize() -> None:
     global _bot_app
     global _polling_task
     
-    if not config.is_telegram_bot_enabled():
-        logger.info("Telegram Bot is DISABLED via config.")
-        health.enabled = False
-        health.mode = BotMode.DISABLED
-        return
-    health.enabled = True
+    mode, reason = decide_bot_mode()
+    health.enabled = mode != BotMode.DISABLED
+    health.set_mode(mode, reason)
+    health.set_started()
 
-    logger.info("Initializing Telegram Bot...")
-    logger.info("ENABLE_TELEGRAM_BOT=true. Allowed user: %s", config.get_allowed_telegram_user_id())
+    logger.info("Telegram bot: %s", "enabled" if health.enabled else "disabled")
+    logger.info("Mode selected: %s (reason: %s)", mode.value, reason)
+    logger.info("Public URL detected: %s", "yes" if config.get_public_bot_url() else "no")
+    logger.info("ENABLE_TELEGRAM_BOT=%s. Allowed user: %s", os.environ.get("ENABLE_TELEGRAM_BOT", "true"), config.get_allowed_telegram_user_id())
     voice_enabled = config.is_telegram_voice_enabled() and bool(config.get_google_api_key())
     logger.info("Voice notes: %s (provider: Gemini)", "enabled" if voice_enabled else "disabled")
-    _bot_app = create_bot_app()
-    
-    if not _bot_app:
-        health.mode = BotMode.ERROR
-        health.last_error = "No TELEGRAM_BOT_TOKEN"
+    if not config.get_allowed_telegram_user_id():
+        logger.warning("ALLOWED_TELEGRAM_USER_ID missing; bot will warn user on /start.")
+
+    if mode == BotMode.DISABLED:
         return
+
+    _bot_app = create_bot_app()
+    if not _bot_app:
+        health.set_mode(BotMode.ERROR, reason)
+        health.set_error("No TELEGRAM_BOT_TOKEN")
+        return
+
+    # Track updates for both webhook and polling modes
+    _bot_app.add_handler(MessageHandler(filters.ALL, _mark_update_handler), group=100)
 
     public_url = config.get_public_bot_url()
     webhook_secret = config.get_telegram_webhook_secret()
-    use_webhook = bool(public_url)
 
     # Initialize the app (coroutines)
     max_retries = 3
@@ -843,6 +869,7 @@ async def initialize() -> None:
             break
         except Exception as e:
             logger.error(f"⚠️ Bot initialization attempt {attempt + 1}/{max_retries} failed: {e}")
+            health.set_error(str(e))
             if attempt < max_retries - 1:
                 wait_time = 2 * (attempt + 1)
                 logger.info(f"Retrying in {wait_time}s...")
@@ -850,37 +877,59 @@ async def initialize() -> None:
             else:
                 logger.critical("❌ All bot initialization attempts failed. Bot service will be unavailable.")
                 _bot_app = None
-                health.mode = BotMode.ERROR
-                health.last_error = str(e)
+                health.set_mode(BotMode.ERROR, reason)
                 return
 
-    if use_webhook:
+    if mode == BotMode.WEBHOOK and public_url:
         webhook_url = f"{public_url}/api/webhook/telegram"
-        logger.info(f"Setting Telegram Webhook to: {webhook_url}")
+        logger.info("Webhook URL configured: %s", webhook_url)
         try:
             await _bot_app.bot.set_webhook(url=webhook_url, secret_token=webhook_secret, drop_pending_updates=True)
-            health.mode = BotMode.WEBHOOK
-            health.mode_reason = "public_url"
+            health.set_mode(BotMode.WEBHOOK, reason)
             return
         except Exception as exc:
             logger.warning("Failed to set webhook, falling back to polling: %s", exc)
+            health.set_error(str(exc))
 
     # Polling fallback
-    try:
-        poll_interval = config.get_bot_poll_interval()
-        read_timeout = config.get_bot_read_timeout()
-        await _bot_app.updater.start_polling(
-            poll_interval=poll_interval,
-            timeout=read_timeout,
-            bootstrap_retries=2,
-        )
-        health.mode = BotMode.POLLING
-        health.mode_reason = "no_public_url"
-        logger.info("Bot running in polling mode (interval=%s, timeout=%s).", poll_interval, read_timeout)
-    except Exception as exc:
-        logger.error("Failed to start polling: %s", exc)
-        health.mode = BotMode.ERROR
-        health.last_error = str(exc)
+    poll_interval = config.get_bot_poll_interval()
+    read_timeout = config.get_bot_read_timeout()
+    fallback_reason = "missing_public_url" if not public_url else "webhook_failed"
+    backoff_schedule = [1, 2, 5, 10, 20, 30]
+
+    async def _start_polling_with_retry() -> None:
+        nonlocal backoff_schedule
+        for attempt, delay in enumerate(backoff_schedule, start=1):
+            try:
+                await _bot_app.updater.start_polling(
+                    poll_interval=poll_interval,
+                    timeout=read_timeout,
+                    bootstrap_retries=2,
+                )
+                health.set_mode(BotMode.POLLING, fallback_reason)
+                logger.info("Polling started (interval=%s, timeout=%s)", poll_interval, read_timeout)
+                return
+            except Exception as exc:
+                msg = f"Polling start attempt {attempt} failed: {exc}"
+                logger.warning(msg)
+                health.set_error(str(exc))
+                await asyncio.sleep(delay)
+        # Last attempt without further delay
+        try:
+            await _bot_app.updater.start_polling(
+                poll_interval=poll_interval,
+                timeout=read_timeout,
+                bootstrap_retries=2,
+            )
+            health.set_mode(BotMode.POLLING, fallback_reason)
+            logger.info("Polling started after retries (interval=%s, timeout=%s)", poll_interval, read_timeout)
+        except Exception as exc:
+            logger.error("Failed to start polling after retries: %s", exc)
+            health.set_mode(BotMode.ERROR, "polling_failed")
+            health.set_error(str(exc))
+
+    logger.info("Polling enabled (background).")
+    _polling_task = asyncio.create_task(_start_polling_with_retry(), name="telegram-bot-polling")
 
 async def shutdown() -> None:
     """Called on FastAPI shutdown."""
@@ -912,6 +961,11 @@ async def process_update(update_data: dict) -> None:
 
 def get_bot_application() -> Optional[Application]:
     return _bot_app
+
+
+async def _mark_update_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Passive handler to mark last update time without altering behaviour."""
+    health.mark_update()
 
 async def on_new_meal_received(carbs: float, source: str) -> None:
     """
