@@ -23,16 +23,39 @@ const ZONES = {
     ]
 };
 
-export function InjectionSiteSelector({ type, onSelect, selected, autoSelect = true }) {
+export function InjectionSiteSelector({ type, onSelect, selected, autoSelect = false }) {
     const [lastUsed, setLastUsed] = useState(null);
     const [recommended, setRecommended] = useState(null);
 
+    // --- API SYNC ---
+    const fetchState = async () => {
+         try {
+             // We need auth token. Assuming standard bearer token in localStorage from auth context?
+             // Or we rely on a global fetch wrapper. Since this is a specialized component, let's try reading token.
+             const token = localStorage.getItem('token'); 
+             if (!token) throw new Error("No auth token");
+             
+             const res = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/injection/state`, {
+                 headers: { "Authorization": `Bearer ${token}` }
+             });
+             if (res.ok) {
+                 const data = await res.json();
+                 // data = { bolus: "id", basal: "id" }
+                 return type === 'rapid' ? data.bolus : data.basal;
+             }
+         } catch(e) {
+             console.warn("API Sync failed, falling back to local", e);
+         }
+         // Fallback
+         const history = JSON.parse(localStorage.getItem('injection_history_v2') || '{}');
+         return history[type];
+    };
+
     // --- LOGIC: History & Recommendation ---
     useEffect(() => {
-        try {
-            const history = JSON.parse(localStorage.getItem('injection_history_v2') || '{}');
-            const lastStr = history[type];
-
+        const load = async () => {
+            const lastStr = await fetchState();
+            
             if (lastStr) {
                 setLastUsed(lastStr);
                 const [lZone, lPointStr] = lastStr.split(':');
@@ -50,9 +73,8 @@ export function InjectionSiteSelector({ type, onSelect, selected, autoSelect = t
             } else {
                 setRecommended(`${ZONES[type][0].id}:1`);
             }
-        } catch (e) {
-            console.warn("History load error", e);
-        }
+        };
+        load();
     }, [type]);
 
     useEffect(() => {
@@ -61,42 +83,44 @@ export function InjectionSiteSelector({ type, onSelect, selected, autoSelect = t
         }
     }, [recommended, autoSelect]);
 
-    const handlePointClick = (fullId) => {
+    const handlePointClick = async (fullId) => {
         if (onSelect) onSelect(fullId);
+        
+        // Notify Backend async
+        try {
+             const token = localStorage.getItem('token');
+             if(token) {
+                 await fetch(`${import.meta.env.VITE_API_URL || ''}/api/injection/rotate`, {
+                     method: 'POST',
+                     headers: { 
+                         "Authorization": `Bearer ${token}`,
+                         "Content-Type": "application/json"
+                     },
+                     body: JSON.stringify({ 
+                         type: type === 'rapid' ? 'bolus' : 'basal',
+                         target: fullId 
+                     })
+                 });
+             }
+        } catch(e) { console.error("Failed to sync rotation", e); }
     };
 
-    if (type === 'rapid') {
-        return (
-            <div className="injection-selector fade-in" style={{ textAlign: 'center' }}>
-                <div style={{ fontSize: '0.85rem', fontWeight: 600, color: '#64748b', marginBottom: '1rem' }}>
-                    📍 Rotación Abdomen
-                </div>
-                <AbdomenImageVisual
-                    selected={selected}
-                    recommended={recommended}
-                    lastUsed={lastUsed}
-                    onPointClick={handlePointClick}
-                />
-                <div style={{ marginTop: '0.5rem', fontSize: '0.75rem', color: '#94a3b8' }}>
-                    {selected ? getLabel('rapid', selected) : 'Selecciona un punto'}
-                </div>
-            </div>
-        );
-    }
+    const VisualComponent = type === 'rapid' ? AbdomenImageVisual : LegsImageVisual;
+    const label = type === 'rapid' ? '📍 Rotación Abdomen' : '📍 Rotación Piernas/Glúteos';
 
     return (
         <div className="injection-selector fade-in" style={{ textAlign: 'center' }}>
             <div style={{ fontSize: '0.85rem', fontWeight: 600, color: '#64748b', marginBottom: '1rem' }}>
-                📍 Rotación Piernas/Glúteos
+                {label}
             </div>
-            <LegsImageVisual
+            <VisualComponent
                 selected={selected}
                 recommended={recommended}
                 lastUsed={lastUsed}
                 onPointClick={handlePointClick}
             />
             <div style={{ marginTop: '0.5rem', fontSize: '0.75rem', color: '#94a3b8' }}>
-                {selected ? getLabel('basal', selected) : 'Selecciona un punto'}
+                {selected ? getLabel(type, selected) : 'Selecciona un punto'}
             </div>
         </div>
     );

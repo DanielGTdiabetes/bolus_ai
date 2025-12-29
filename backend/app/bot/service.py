@@ -16,6 +16,7 @@ from app.services.store import DataStore
 from app.services.nightscout_client import NightscoutClient
 from app.services.iob import compute_iob_from_sources, compute_cob_from_sources
 from app.services.bolus import recommend_bolus, BolusRequestData
+from app.services.injection_sites import InjectionManager
 
 logger = logging.getLogger(__name__)
 
@@ -122,7 +123,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         context_lines.append(f"- ISF (Sensibilidad): {user_settings.cf.breakfast} (D) / {user_settings.cf.lunch} (A) / {user_settings.cf.dinner} (C)")
         context_lines.append(f"- CR (Ratio): {user_settings.cr.breakfast} (D) / {user_settings.cr.lunch} (A) / {user_settings.cr.dinner} (C)")
         context_lines.append(f"- Objetivo: {user_settings.targets.mid} mg/dL")
+
         context_lines.append(f"- Basal Típica: {user_settings.tdd_u} U/día (aprox)")
+
+        # 4. Injection Sites
+        im = InjectionManager(store)
+        next_bolus = im.get_next_site("bolus")
+        next_basal = im.get_next_site("basal")
+        context_lines.append("\nSITIOS INYECCIÓN:")
+        context_lines.append(f"- Bolus (Siguiente): {next_bolus}")
+        context_lines.append(f"- Basal (Siguiente): {next_basal}")
 
         if ns_client:
             await ns_client.aclose()
@@ -300,7 +310,12 @@ async def on_new_meal_received(carbs: float, source: str) -> None:
         meal_slot=slot
     )
     
+    
     rec = recommend_bolus(req, user_settings, iob_u)
+
+    # 2.1 Get Injection Site (Proactive)
+    injection_mgr = InjectionManager(store)
+    next_site = injection_mgr.get_next_site("bolus")
     
     # 3. Message
     # If BG is unknown, we warn
@@ -312,6 +327,7 @@ async def on_new_meal_received(carbs: float, source: str) -> None:
         f"Carbos: **{carbs}g**\n"
         f"Glucosa: {bg_str} {iob_str}\n\n"
         f"💉 **Sugerencia: {rec.upfront_u} U**\n"
+        f"📍 **Lugar:** {next_site}\n"
         f"_Razón: {rec.explain[0]}_"
     )
     
@@ -417,6 +433,16 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                         logger.error(f"NS upload failed: {exc}")
                         success_msg += " (Guardado Local, error NS)"
             
+            # Rotate Injection Site
+            try:
+                settings = get_settings()
+                store = DataStore(Path(settings.data.data_dir))
+                im = InjectionManager(store)
+                new_next = im.rotate_site("bolus")
+                success_msg += f"\n\n📍 Rotado. Siguiente: {new_next}"
+            except Exception as e:
+                logger.error(f"Failed to rotate site: {e}")
+
             await query.edit_message_text(text=f"{query.message.text}\n\n{success_msg}", parse_mode="Markdown")
             
         except Exception as e:

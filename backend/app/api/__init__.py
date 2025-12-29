@@ -48,4 +48,7 @@ api_router.include_router(events_router, prefix="/events", tags=["events"])
 from .integrations import router as integrations_router
 api_router.include_router(integrations_router, prefix="/integrations", tags=["integrations"])
 
+from .injection import router as injection_router
+api_router.include_router(injection_router, prefix="/injection", tags=["injection"])
+
 __all__ = ["api_router"]
