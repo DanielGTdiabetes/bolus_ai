@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 from pathlib import Path
 
-from app.bot.state import cooldowns
+from app.bot.state import cooldowns, health
 from app.core import config
 from app.core.settings import get_settings
 from app.services.store import DataStore
@@ -44,31 +44,41 @@ async def _get_ns_client(user_id: str) -> Optional[NightscoutClient]:
 async def basal_reminder(bot) -> None:
     if bot is None:
         return
-    chat_id = await _get_chat_id()
-    if not chat_id or not cooldowns.is_ready("basal", COOLDOWN_MINUTES["basal"] * 60):
-        return
 
-    engine = get_engine()
-    if not engine:
-        return
+    # TODO: map Telegram chat_id to username/user_id once multi-user support exists.
+    user_id = "admin"
 
-    async with AsyncSession(engine) as session:
-        latest = await get_latest_basal_dose(session, "admin")
+    try:
+        chat_id = await _get_chat_id()
+        if not chat_id or not cooldowns.is_ready("basal", COOLDOWN_MINUTES["basal"] * 60):
+            return
+
+        engine = get_engine()
+        if not engine:
+            logger.info("Basal reminder running without database engine; using fallback storage.")
+
+        latest = await get_latest_basal_dose(user_id=user_id)
         if latest:
             age_hours = (datetime.utcnow() - latest.created_at).total_seconds() / 3600
             if age_hours < 18:
                 return
-    cooldowns.touch("basal")
-    keyboard = [
-        [{"text": "✅ Sí, ya puesta", "callback_data": "basal_ack_yes"}],
-        [{"text": "⏰ En 15 min", "callback_data": "basal_ack_later"}],
-        [{"text": "🙈 Ignorar", "callback_data": "ignore"}],
-    ]
-    await bot.send_message(
-        chat_id=chat_id,
-        text="⏰ ¿Basal diaria puesta? Marca 'Sí' para registrar.",
-        reply_markup={"inline_keyboard": keyboard},
-    )
+        cooldowns.touch("basal")
+        keyboard = [
+            [{"text": "✅ Sí, ya puesta", "callback_data": "basal_ack_yes"}],
+            [{"text": "⏰ En 15 min", "callback_data": "basal_ack_later"}],
+            [{"text": "🙈 Ignorar", "callback_data": "ignore"}],
+        ]
+        await bot.send_message(
+            chat_id=chat_id,
+            text="⏰ ¿Basal diaria puesta? Marca 'Sí' para registrar.",
+            reply_markup={"inline_keyboard": keyboard},
+        )
+    except Exception as exc:
+        logger.error("Basal reminder failed: %s", exc)
+        try:
+            health.set_error(f"Basal reminder failed: {exc}")
+        except Exception:
+            logger.debug("Unable to record bot health error for basal reminder.")
 
 
 async def premeal_nudge(bot) -> None:
