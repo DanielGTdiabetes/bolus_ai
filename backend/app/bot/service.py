@@ -22,11 +22,18 @@ from app.services.injection_sites import InjectionManager
 from app.core.db import get_engine, AsyncSession
 from app.services import settings_service as svc_settings
 from app.models.settings import UserSettings
+from app.models.treatment import Treatment
 
 logger = logging.getLogger(__name__)
 
 # Global Application instance
 _bot_app: Optional[Application] = None
+
+async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Log the error and send a telegram message to notify the developer."""
+    logger.error(f"Exception while handling an update: {context.error}")
+    if update and isinstance(update, Update) and update.message:
+        await update.message.reply_text(f"⚠️ Error interno del bot: {context.error}")
 
 async def _check_auth(update: Update) -> bool:
     """Returns True if user is authorized."""
@@ -184,7 +191,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         except Exception as e:
             out.append(f"💥 **Error Script:** `{e}`")
             
-        await update.message.reply_text("\n".join(out), parse_mode="Markdown")
+        # Send without markdown to avoid parsing errors (underscores in URLs, etc.)
+        await update.message.reply_text("\n".join(out))
         return
 
     # --- AI Layer (Fallthrough) ---
@@ -254,7 +262,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         context_lines.append(f"- ISF (Sensibilidad): {user_settings.cf.breakfast} (D) / {user_settings.cf.lunch} (A) / {user_settings.cf.dinner} (C)")
         context_lines.append(f"- CR (Ratio): {user_settings.cr.breakfast} (D) / {user_settings.cr.lunch} (A) / {user_settings.cr.dinner} (C)")
         context_lines.append(f"- Objetivo: {user_settings.targets.mid} mg/dL")
-
+        context_lines.append(f"- DIA (Duración Insulina): {user_settings.model.dia_minutes / 60:.1f} horas")
+        context_lines.append(f"- Pico Insulina: {user_settings.model.peak_minutes} min")
+        
         context_lines.append(f"- Basal Típica: {user_settings.tdd_u} U/día (aprox)")
 
         # 4. Injection Sites
@@ -268,7 +278,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         if ns_client:
             await ns_client.aclose()
 
-        # 5. Last Treatment (DB) - CRITICAL for user context
+            # 5. Recent Treatments (DB) - Last 3
         try:
              # Re-use engine if available (should be, we checked settings)
              engine = get_engine()
@@ -276,15 +286,19 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 async with AsyncSession(engine) as session:
                     from sqlalchemy import text
                     # Fetch latest bolus
-                    stmt = text("SELECT created_at, insulin, event_type FROM treatments ORDER BY created_at DESC LIMIT 1")
-                    row = (await session.execute(stmt)).fetchone()
+                    stmt = text("SELECT created_at, insulin, event_type, carbs, notes FROM treatments ORDER BY created_at DESC LIMIT 3")
+                    rows = (await session.execute(stmt)).fetchall()
                     
-                    if row:
-                        t_delta = (now_utc.replace(tzinfo=None) - row.created_at).total_seconds() / 60
-                        context_lines.append(f"\nÚLTIMO REGISTRO (DB):")
-                        context_lines.append(f"- {row.insulin} U ({row.event_type}) hace {int(t_delta)} min")
+                    context_lines.append(f"\nÚLTIMOS REGISTROS (DB):")
+                    if rows:
+                        for row in rows:
+                            t_delta = (now_utc.replace(tzinfo=None) - row.created_at).total_seconds() / 60
+                            info = f"{row.insulin}U"
+                            if row.carbs: info += f" + {row.carbs}g"
+                            if row.notes: info += f" ({row.notes})"
+                            context_lines.append(f"- {row.event_type}: {info} hace {int(t_delta)} min")
                     else:
-                        context_lines.append("\nÚLTIMO REGISTRO (DB): Ninguno")
+                        context_lines.append("Ninguno reciente")
         except Exception as e:
             logger.error(f"Failed to fetch last treatment: {e}")
             
@@ -336,6 +350,9 @@ def create_bot_app() -> Application:
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     application.add_handler(CallbackQueryHandler(handle_callback))
+    
+    # Error Handler
+    application.add_error_handler(error_handler)
     
     return application
 
