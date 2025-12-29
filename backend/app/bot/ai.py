@@ -90,16 +90,13 @@ async def chat_completion(
         if context:
             system_instruction += f"\n\nDATOS EN TIEMPO REAL:\n{context}"
         
-        model = genai.GenerativeModel(
-            model_name,
-            system_instruction=system_instruction
-        )
+        # Combine System Prompt + Context + User Message manually for robustness
+        full_prompt = f"{system_instruction}\n\nUser: {message}"
+
+        model = genai.GenerativeModel(model_name)
         
-        # TODO: Map custom history format to Gemini format if needed
-        # For now, simple generation
-        chat = model.start_chat(history=[]) # Stateless for now or implementing history mapping later
-        
-        response = await chat.send_message_async(message)
+        # GenerativeModel.generate_content_async is simpler for one-shot than chat session
+        response = await model.generate_content_async(full_prompt)
         return response.text
         
     except Exception as e:
