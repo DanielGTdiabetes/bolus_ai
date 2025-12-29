@@ -30,6 +30,12 @@ async def _get_chat_id() -> Optional[int]:
     return config.get_allowed_telegram_user_id()
 
 
+async def _send(bot, chat_id: int, text: str, *, log_context: str, **kwargs):
+    from app.bot.service import bot_send
+
+    await bot_send(chat_id=chat_id, text=text, bot=bot, log_context=log_context, **kwargs)
+
+
 async def _get_ns_client(user_id: str) -> Optional[NightscoutClient]:
     engine = get_engine()
     if not engine:
@@ -68,9 +74,11 @@ async def basal_reminder(bot) -> None:
             [{"text": "⏰ En 15 min", "callback_data": "basal_ack_later"}],
             [{"text": "🙈 Ignorar", "callback_data": "ignore"}],
         ]
-        await bot.send_message(
-            chat_id=chat_id,
-            text="⏰ ¿Basal diaria puesta? Marca 'Sí' para registrar.",
+        await _send(
+            bot,
+            chat_id,
+            "⏰ ¿Basal diaria puesta? Marca 'Sí' para registrar.",
+            log_context="proactive_basal",
             reply_markup={"inline_keyboard": keyboard},
         )
     except Exception as exc:
@@ -105,9 +113,11 @@ async def premeal_nudge(bot) -> None:
     if sgv.sgv < 140 or (sgv.delta or 0) < 2:
         return
     cooldowns.touch("premeal")
-    await bot.send_message(
-        chat_id=chat_id,
-        text=f"🍽️ Parece que se acerca comida (BG {sgv.sgv} {sgv.direction}). ¿Anotamos carbohidratos?",
+    await _send(
+        bot,
+        chat_id,
+        f"🍽️ Parece que se acerca comida (BG {sgv.sgv} {sgv.direction}). ¿Anotamos carbohidratos?",
+        log_context="proactive_premeal",
         reply_markup={
             "inline_keyboard": [
                 [
@@ -133,9 +143,11 @@ async def combo_followup(bot) -> None:
     if not pending:
         return
     cooldowns.touch("combo")
-    await bot.send_message(
-        chat_id=chat_id,
-        text="⏳ Seguimiento de bolo extendido. ¿Cómo va la glucosa? Responde con valor o usa /start.",
+    await _send(
+        bot,
+        chat_id,
+        "⏳ Seguimiento de bolo extendido. ¿Cómo va la glucosa? Responde con valor o usa /start.",
+        log_context="proactive_combo",
     )
 
 
@@ -163,7 +175,7 @@ async def morning_summary(bot) -> None:
     lows = sum(1 for v in values if v < 70)
     msg = f"🌅 Resumen noche: TIR {tir:.0f}% | Hipos {lows} | Último {values[-1] if values else '?'} mg/dL"
     cooldowns.touch("morning")
-    await bot.send_message(chat_id=chat_id, text=msg)
+    await _send(bot, chat_id, msg, log_context="proactive_morning")
 
 
 async def light_guardian(bot) -> None:

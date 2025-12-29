@@ -86,6 +86,8 @@ async def telegram_webhook_diagnostics():
         "telegram_webhook_info": webhook_info,
         "last_update_at": health.last_update_at.isoformat() if health.last_update_at else None,
         "last_error": health.last_error,
+        "last_reply_at": health.last_reply_at.isoformat() if health.last_reply_at else None,
+        "last_reply_error": health.last_reply_error,
         "error": error,
     }
 
