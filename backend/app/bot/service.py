@@ -4,6 +4,8 @@ import os
 import tempfile
 from typing import Optional, Dict, Any, Tuple
 from urllib.parse import urlparse, urlunparse
+import uuid
+
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, ContextTypes, filters, CallbackQueryHandler
@@ -24,7 +26,17 @@ from app.services.store import DataStore
 from app.services.nightscout_client import NightscoutClient
 from app.services.iob import compute_iob_from_sources, compute_cob_from_sources
 from app.services.bolus import recommend_bolus, BolusRequestData
+from app.services.bolus_engine import calculate_bolus_v2
+from app.models.bolus_v2 import BolusRequestV2, BolusResponseV2, GlucoseUsed
 from app.services.injection_sites import InjectionManager
+import uuid
+
+
+SNAPSHOT_STORAGE: Dict[str, Any] = {}
+
+
+
+
 
 # DB Access for Settings
 from app.core.db import get_engine, AsyncSession
@@ -621,65 +633,149 @@ async def _handle_add_treatment_tool(update: Update, context: ContextTypes.DEFAU
     finally:
         if ns_client: await ns_client.aclose()
         
-    # 2. Recommendation Logic
-    rec_u = 0.0
-    reason = "Manual"
+    # 2. Recommendation Logic (V2 Engine)
+    # ---------------------------------------------------------
+    # Generate Request ID
+    request_id = str(uuid.uuid4())[:8] # Short 8-char ID for UX
     
-    # Determine Meal Slot
-    h = datetime.now(timezone.utc).hour + 1 # Approx local time fix (Winter CET)
+    # Resolve Parameters
+    h = datetime.now(timezone.utc).hour + 1
     slot = "lunch"
     if 5 <= h < 11: slot = "breakfast"
     elif 11 <= h < 17: slot = "lunch"
     elif 17 <= h < 23: slot = "dinner"
     else: slot = "snack"
 
-    if insulin_req is not None:
-        rec_u = insulin_req
-        reason = f"Petición explícita ({notes})"
-    else:
-        # Run Calculator
-        eff_bg = bg_val if bg_val else user_settings.targets.mid
-        req_data = BolusRequestData(
-            carbs_g=carbs,
-            bg_mgdl=eff_bg,
-            meal_slot=slot
-        )
-        rec = recommend_bolus(req_data, user_settings, iob_u)
-        rec_u = rec.upfront_u
-        reason = rec.explain[0]
+    eff_bg = bg_val if bg_val else user_settings.targets.mid
+    
+    # Create Request V2
+    req_v2 = BolusRequestV2(
+        carbs_g=carbs,
+        target_mgdl=user_settings.targets.mid, # Default
+        meal_slot=slot,
+        fat_g=0, # Bot doesn't support macros yet in this tool
+        protein_g=0,
+        current_bg=bg_val,
+        # If user asked for specific insulin, we still calculate standard
+        # but we might override later? No, tool says 'calculate'.
+        # If user provided 'insulin' arg, usually it means 'log this'.
+        # But this tool is _handle_add_treatment which implies calculation if insulin is None.
+    )
 
-    # 3. Send Card
-    # Get Site
+    # Manual Insulin Override?
+    if insulin_req is not None:
+         # If user GAVE insulin amount, we treat it as a direct log request?
+         # Or we show it as "Requested".
+         # For consistency with "Snapshot", we should simulate a calculation 
+         # that results in this amount? Or just bypass calculation?
+         # The requirement says: "Bot calls function... receives object... The button uses THAT snapshot"
+         # If user explicitly said "Add 5U", maybe we shouldn't fail validation.
+         # But the logic below was calculating if insulin=None.
+         pass
+
+    # Autosens (Default OFF for bot unless specified? Let's assume OFF to match Web default or User Settings)
+    # We just pass 1.0/None for now or fetch.
+    # To be safe/fast: 1.0
+    
+    glucose_info = GlucoseUsed(
+        mgdl=bg_val,
+        source="nightscout" if ns_client else "manual",
+        trend=None, # Todo: fetch trend
+        is_stale=False
+    )
+    
+    # Execute V2
+    rec = calculate_bolus_v2(
+        request=req_v2,
+        settings=user_settings,
+        iob_u=iob_u,
+        glucose_info=glucose_info
+    )
+
+    # Override if manual input was given (but keep breakdown for reference if possible, or just overwrite)
+    if insulin_req is not None:
+        rec.total_u_final = insulin_req
+        rec.total_u = insulin_req
+        rec.explain.append(f"Override: Usuario solicitó explícitamente {insulin_req} U")
+
+    # 3. Store Snapshot
+    # ---------------------------------------------------------
+    SNAPSHOT_STORAGE[request_id] = {
+        "rec": rec,
+        "carbs": carbs,
+        "notes": notes,
+        "ts": datetime.now()
+    }
+
+    # 4. Message Generation (Strict Format)
+    # ---------------------------------------------------------
+    # Sugerencia: **2.5 U**
+    # - Carbos: 22.5g → 2.25 U
+    # - Corrección: +0.25 U (131 → target 110)
+    # - IOB: −0.0 U
+    # - Redondeo: 0.5 U
+    # (request abc123)
+
+    lines = []
+    lines.append(f"Sugerencia: **{rec.total_u_final} U**")
+    
+    # Breakdown Analysis
+    # We can try to reconstruct lines from 'explain' or use raw values
+    # Rec has: meal_bolus_u, correction_u, iob_u.
+    
+    # A) Carbs
+    if carbs > 0:
+        cr = rec.used_params.cr_g_per_u
+        lines.append(f"- Carbos: {carbs}g → {rec.meal_bolus_u:.2f} U")
+    else:
+        lines.append(f"- Carbos: 0g")
+
+    # B) Correction
+    # Logic: (Current - Target). 
+    # Rec has correction_u.
+    targ_val = rec.used_params.target_mgdl
+    if rec.correction_u != 0:
+        sign = "+" if rec.correction_u > 0 else ""
+        lines.append(f"- Corrección: {sign}{rec.correction_u:.2f} U ({bg_val:.0f} → {targ_val:.0f})")
+    elif bg_val is not None:
+         # Explicit "0 U" if bg known
+         lines.append(f"- Corrección: 0.0 U ({bg_val:.0f} → {targ_val:.0f})")
+    else:
+         lines.append(f"- Corrección: 0.0 U (Falta Glucosa)")
+
+    # C) IOB
+    # Rec IOB is positive, but we subtract it.
+    if rec.iob_u > 0:
+        lines.append(f"- IOB: −{rec.iob_u:.2f} U")
+    else:
+        lines.append(f"- IOB: −0.0 U")
+
+    # D) Rounding / Adjustment
+    # Total Raw vs Total Final
+    # Raw = Meal + Corr - IOB
+    starting = rec.meal_bolus_u + rec.correction_u - rec.iob_u
+    if starting < 0: starting = 0
+    
+    diff = rec.total_u_final - starting
+    if abs(diff) > 0.01:
+         sign = "+" if diff > 0 else ""
+         lines.append(f"- Ajuste/Redondeo: {sign}{diff:.2f} U")
+    
+    # Request ID
+    lines.append(f"(`{request_id}`)")
+    
+    msg_text = "\n".join(lines)
+    
+    # 5. Send Card
+    # ---------------------------------------------------------
     injection_mgr = InjectionManager(store)
     next_site = injection_mgr.get_next_site("bolus")
     
-    bg_str = f"{bg_val} mg/dL" if bg_val else "???"
-    iob_str = f"({iob_u:.1f}u IOB)" if iob_u > 0 else ""
-    
-    msg_text = (
-        f"📝 **Confirmar Tratamiento**\n"
-        f"Carbos: **{carbs}g**\n"
-        f"Notas: _{notes}_\n"
-        f"Glucosa: {bg_str} {iob_str}\n\n"
-        f"💉 **Sugerencia: {rec_u} U**\n"
-        f"📍 **Lugar:** {next_site}\n"
-        f"_Razón: {reason}_"
-    )
-    
-    # Use special callback prefix to handle this confirmation
-    # Logic is same as proactive notification: save treatment.
-    # We can reuse 'bolus_confirm_' but we lose 'carbs' info if we use the old callback which hardcodes carbs=0.
-    # Old callback 'bolus_confirm_{units}' assumes carbs were already logged via 'on_new_meal_received' (external).
-    # HERE, carbs are NOT saved yet.
-    # So we need a NEW callback or modified one.
-    # Let's use 'chat_bolus_{units}_{carbs}'
-    # We will need to update handle_callback too.
-    
+    # Callback: "accept_bolus_{request_id}"
     keyboard = [
         [
-            InlineKeyboardButton(f"✅ Registrar {rec_u} U", callback_data=f"chat_bolus_{rec_u}_{carbs}"),
-            InlineKeyboardButton("✏️ Editar", callback_data=f"chat_bolus_edit_{carbs}"),
-            InlineKeyboardButton("❌ Ignorar", callback_data="ignore")
+            InlineKeyboardButton(f"✅ Poner {rec.total_u_final} U", callback_data=f"accept_bolus_{request_id}"),
+            InlineKeyboardButton("❌ Cancelar", callback_data="ignore")
         ]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -1231,46 +1327,77 @@ async def on_new_meal_received(carbs: float, source: str) -> None:
         if ns_client:
             await ns_client.aclose()
 
-    # 2. Calculate Bolus
+    
+    # 2. Calculate Bolus V2 (Snapshot Safe)
+    # -----------------------------------------------------
+    request_id = str(uuid.uuid4())[:8]
+
     h = now_utc.hour + 1 # Approx local time fix
     slot = "lunch"
     if 5 <= h < 11: slot = "breakfast"
     elif 11 <= h < 17: slot = "lunch"
     elif 17 <= h < 23: slot = "dinner"
     else: slot = "snack"
-
-    eff_bg = bg_val if bg_val else user_settings.targets.mid
     
-    req = BolusRequestData(
+    glucose_info = GlucoseUsed(
+        mgdl=bg_val,
+        source="nightscout" if ns_client else ( "manual" if bg_val else "none"),
+        trend=None,
+        is_stale=False
+    )
+    
+    req_v2 = BolusRequestV2(
         carbs_g=carbs,
-        bg_mgdl=eff_bg,
-        meal_slot=slot
+        meal_slot=slot,
+        current_bg=bg_val,
+        target_mgdl=user_settings.targets.mid
     )
     
-    
-    rec = recommend_bolus(req, user_settings, iob_u)
+    rec = calculate_bolus_v2(
+        request=req_v2,
+        settings=user_settings,
+        iob_u=iob_u,
+        glucose_info=glucose_info
+    )
 
-    # 2.1 Get Injection Site (Proactive)
-    injection_mgr = InjectionManager(store)
-    next_site = injection_mgr.get_next_site("bolus")
+    # Store Snapshot
+    SNAPSHOT_STORAGE[request_id] = {
+        "rec": rec,
+        "carbs": carbs,
+        "source": source,
+        "ts": datetime.now()
+    }
+
+    # 3. Message (Strict Format)
+    # -----------------------------------------------------
+    rec_u = rec.total_u_final
     
-    # 3. Message
-    # If BG is unknown, we warn
-    bg_str = f"{bg_val} mg/dL" if bg_val else "???"
-    iob_str = f"({iob_u:.1f}u IOB)" if iob_u > 0 else ""
+    lines = []
+    lines.append(f"🥗 **Nueva Comida Detectada** ({source})")
+    lines.append(f"Sugerencia: **{rec_u} U**")
     
-    msg_text = (
-        f"🥗 **Nueva Comida Detectada** ({source})\n"
-        f"Carbos: **{carbs}g**\n"
-        f"Glucosa: {bg_str} {iob_str}\n\n"
-        f"💉 **Sugerencia: {rec.upfront_u} U**\n"
-        f"📍 **Lugar:** {next_site}\n"
-        f"_Razón: {rec.explain[0]}_"
-    )
+    # A) Carbs
+    if carbs > 0:
+        lines.append(f"- Carbos: {carbs}g → {rec.meal_bolus_u:.2f} U")
+    
+    # B) Correction
+    if bg_val:
+        sign = "+" if rec.correction_u > 0 else ""
+        lines.append(f"- Corrección: {sign}{rec.correction_u:.2f} U ({bg_val:.0f} → {req_v2.target_mgdl:.0f})")
+    else:
+        lines.append("- Corrección: 0.0 U (Falta BG)")
+        
+    # C) IOB
+    if rec.iob_u > 0:
+        lines.append(f"- IOB: −{rec.iob_u:.2f} U")
+    
+    lines.append(f"(`{request_id}`)")
+
+    msg_text = "\n".join(lines)
     
     keyboard = [
         [
-            InlineKeyboardButton(f"✅ Poner {rec.upfront_u} U", callback_data=f"bolus_confirm_{rec.upfront_u}"),
+            InlineKeyboardButton(f"✅ Poner {rec_u} U", callback_data=f"accept_bolus_{request_id}"),
             InlineKeyboardButton("❌ Ignorar", callback_data="ignore")
         ]
     ]
@@ -1288,12 +1415,66 @@ async def on_new_meal_received(carbs: float, source: str) -> None:
     except Exception as e:
         logger.error(f"Failed to send proactive message: {e}")
 
+async def _handle_snapshot_callback(query, data: str) -> None:
+    try:
+        request_id = data.split("_")[-1]
+        snapshot = SNAPSHOT_STORAGE.get(request_id)
+        
+        if not snapshot:
+            await query.edit_message_text(f"⚠️ Error: No encuentro el snapshot ({request_id}). Recalcula.")
+            return
+            
+        rec: BolusResponseV2 = snapshot["rec"]
+        carbs = snapshot["carbs"]
+        units = rec.total_u_final
+        
+        if units < 0:
+             await query.edit_message_text("⛔ Error: Dosis negativa.")
+             return
+
+        notes = snapshot.get("notes", "Bolus Bot V2")
+        if snapshot.get("source"):
+             notes += f" ({snapshot['source']})"
+        
+        add_args = {"insulin": units, "carbs": carbs, "notes": notes}
+        result = await tools.add_treatment(add_args)
+        base_text = query.message.text if query.message else ""
+
+        if isinstance(result, tools.ToolError) or not getattr(result, "ok", False):
+            error_msg = result.message if isinstance(result, tools.ToolError) else (result.ns_error or "Error")
+            await query.edit_message_text(text=f"{base_text}\n\n❌ Error: {error_msg}", parse_mode="Markdown")
+            return
+
+        success_msg = f"{base_text}\n\nRegistrado ✅ {units} U"
+        if carbs > 0: success_msg += f" / {carbs} g"
+        
+        try:
+            settings = get_settings()
+            store = DataStore(Path(settings.data.data_dir))
+            im = InjectionManager(store)
+            new_next = im.rotate_site("bolus")
+            success_msg += f"\n\n📍 Rotado. Siguiente: {new_next}"
+        except Exception: pass
+
+        await query.edit_message_text(text=success_msg, parse_mode="Markdown")
+        SNAPSHOT_STORAGE.pop(request_id, None)
+
+    except Exception as e:
+        logger.error(f"Snapshot Callback error: {e}")
+        await query.edit_message_text(text=f"Error fatal: {e}")
+
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+
     """Handles button clicks (Approve/Ignore)."""
     query = update.callback_query
     await query.answer() # Ack the button press
     
     data = query.data
+
+    if data.startswith("accept_bolus_"):
+        await _handle_snapshot_callback(query, data)
+        return
+
 
     if data.startswith("voice_confirm_"):
         if not await _check_auth(update, context):
