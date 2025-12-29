@@ -29,6 +29,7 @@ from app.services.bolus import recommend_bolus, BolusRequestData
 from app.services.bolus_engine import calculate_bolus_v2
 from app.models.bolus_v2 import BolusRequestV2, BolusResponseV2, GlucoseUsed
 from app.services.injection_sites import InjectionManager
+from app.bot.capabilities.registry import build_registry, Permission
 import uuid
 
 
@@ -287,8 +288,190 @@ async def get_bot_user_settings() -> UserSettings:
     # Fallback to JSON Store
     store = DataStore(Path(settings.data.data_dir))
     return store.load_settings()
-    store = DataStore(Path(settings.data.data_dir))
-    return store.load_settings()
+
+def _is_admin(user_id: int) -> bool:
+    allowed = config.get_allowed_telegram_user_id()
+    return allowed is not None and user_id == allowed
+
+async def _exec_tool(update: Update, context: ContextTypes.DEFAULT_TYPE, name: str, args: dict) -> None:
+    registry = build_registry()
+    tool = next((t for t in registry.tools if t.name == name), None)
+    
+    if not tool:
+        await reply_text(update, context, f"❌ Tool no encontrada: {name}")
+        return
+
+    # Permission Check
+    user_id = update.effective_user.id
+    if tool.permission == Permission.admin_only and not _is_admin(user_id):
+         await reply_text(update, context, "⛔ Requiere permisos de Admin.")
+         health.record_action(f"tool:{name}", False, "permission_denied")
+         return
+    
+    try:
+        if name == "calculate_bolus":
+            # Special wrapper for interactive bolus
+            await _handle_add_treatment_tool(update, context, {"carbs": args.get("carbs"), "notes": "Command", "insulin": None})
+            health.record_action(f"tool:{name}", True)
+            return
+
+        res = tool.fn(**args)
+        if hasattr(res, "__await__"):
+            res = await res
+            
+        # Format output
+        text = f"🔧 **{name}**\nResult: `{res}`"
+        # Special formatting for some tools
+        if name == "get_status_context":
+             text = f"📉 BG: {res.bg_mgdl} {res.direction or ''} Δ {res.delta}\nIOB: {res.iob_u} | COB: {res.cob_g}\nQuality: {res.quality}"
+        elif name == "simulate_whatif":
+             text = f"🔮 **Simulación**\n{res.summary}"
+        elif name == "calculate_correction":
+             text = f"💉 **Corrección**\n{res.units} U\n" + "\n".join(res.explanation)
+        elif name == "get_nightscout_stats":
+             text = f"📊 **Stats ({args.get('range_hours')}h)**\nAvg: {res.avg_bg} | TIR: {res.tir_pct}%"
+
+        await reply_text(update, context, text)
+        health.record_action(f"tool:{name}", True)
+        
+    except Exception as e:
+        logger.error(f"Tool exec error: {e}")
+        await reply_text(update, context, f"💥 Error ejecutando {name}: {e}")
+        health.record_action(f"tool:{name}", False, str(e))
+
+async def _exec_job(update: Update, context: ContextTypes.DEFAULT_TYPE, job_id: str) -> None:
+    registry = build_registry()
+    job = next((j for j in registry.jobs if j.id == job_id), None)
+    
+    if not job:
+         await reply_text(update, context, f"❌ Job no encontrado: {job_id}")
+         return
+
+    if not _is_admin(update.effective_user.id):
+         await reply_text(update, context, "⛔ Solo admin.")
+         return
+         
+    if not job.run_now_fn:
+         await reply_text(update, context, f"⚠️ El job {job_id} no es ejecutable manualmente.")
+         return
+
+    await reply_text(update, context, f"⏳ Ejecutando job: {job_id}...")
+    try:
+        res = job.run_now_fn()
+        if hasattr(res, "__await__"):
+            await res
+        await reply_text(update, context, f"✅ Job {job_id} completado.")
+        health.record_action(f"job:{job_id}", True)
+    except Exception as e:
+        logger.error(f"Job exec error: {e}")
+        await reply_text(update, context, f"💥 Error job {job_id}: {e}")
+        health.record_action(f"job:{job_id}", False, str(e))
+
+# --- Operational Commands ---
+
+async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/status: Minimal context."""
+    if not await _check_auth(update, context): return
+    await _exec_tool(update, context, "get_status_context", {})
+
+async def capabilities_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/capabilities: List top tools/jobs."""
+    if not await _check_auth(update, context): return
+    reg = build_registry()
+    msg = "semáforo de capacidades:\n\n**Tools:**\n"
+    for t in reg.tools[:5]:
+        msg += f"- /{t.name}: {t.description[:40]}...\n"
+    msg += "\n**Jobs:**\n"
+    for j in reg.jobs[:5]:
+        msg += f"- {j.id}: {j.description[:40]}...\n"
+    msg += "\nUsa /tools o /jobs para ver todo."
+    await reply_text(update, context, msg)
+
+async def tools_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/tools: Full list."""
+    if not await _check_auth(update, context): return
+    reg = build_registry()
+    msg = "🛠️ **Herramientas Disponibles**\n"
+    for t in reg.tools:
+        args = ", ".join(t.input_schema.get("properties", {}).keys())
+        msg += f"/{t.name} [{args}]\n  _{t.description}_\n"
+    await reply_text(update, context, msg)
+
+async def jobs_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/jobs: Full list + state."""
+    if not await _check_auth(update, context): return
+    reg = build_registry()
+    msg = "⚙️ **Jobs del Sistema**\n"
+    for j in reg.jobs:
+        next_run = j.next_run_fn() if j.next_run_fn else "?"
+        last_st = j.last_run_state_fn() if j.last_run_state_fn else None
+        
+        status = "⚪"
+        if last_st:
+            status = "🟢" if last_st.get("last_run_ok") else "🔴"
+            
+        msg += f"{status} **{j.id}**\n  Next: {next_run}\n"
+        if last_st:
+             msg += f"  Last: {last_st.get('last_run_iso')} ({'OK' if last_st.get('last_run_ok') else 'ERR'})\n"
+    await reply_text(update, context, msg)
+
+async def run_job_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/run <job_id>: Manually trigger job."""
+    if not await _check_auth(update, context): return
+    if not context.args:
+        await reply_text(update, context, "Uso: /run <job_id>")
+        return
+    job_id = context.args[0]
+    await _exec_job(update, context, job_id)
+
+# --- Tool Wrappers ---
+
+async def tool_wrapper_bolo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/bolo <carbs>"""
+    if not await _check_auth(update, context): return
+    if not context.args:
+        await reply_text(update, context, "Uso: /bolo <carbs_g>")
+        return
+    try:
+        carbs = float(context.args[0])
+        await _exec_tool(update, context, "calculate_bolus", {"carbs": carbs})
+    except ValueError:
+        await reply_text(update, context, "Error: carbs debe ser número.")
+
+async def tool_wrapper_corrige(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/corrige [target]"""
+    if not await _check_auth(update, context): return
+    target = None
+    if context.args:
+        try:
+            target = float(context.args[0])
+        except ValueError:
+            await reply_text(update, context, "Error: target debe ser número (opcional).")
+            return
+    await _exec_tool(update, context, "calculate_correction", {"target_bg": target})
+
+async def tool_wrapper_whatif(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/whatif <carbs>"""
+    if not await _check_auth(update, context): return
+    if not context.args:
+        await reply_text(update, context, "Uso: /whatif <carbs>")
+        return
+    try:
+        carbs = float(context.args[0])
+        await _exec_tool(update, context, "simulate_whatif", {"carbs": carbs})
+    except ValueError:
+        await reply_text(update, context, "Error: carbs debe ser número.")
+
+async def tool_wrapper_stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/stats [hours]"""
+    if not await _check_auth(update, context): return
+    hours = 24
+    if context.args:
+        try:
+            hours = int(context.args[0])
+        except ValueError: pass
+    await _exec_tool(update, context, "get_nightscout_stats", {"range_hours": hours})
+
 
 
 async def ping_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -987,6 +1170,20 @@ def create_bot_app() -> Application:
     # Register Handlers
     application.add_handler(CommandHandler("ping", ping_command))
     application.add_handler(CommandHandler("start", start_command))
+    
+    # Operational Commands (Capability Registry)
+    application.add_handler(CommandHandler("status", status_command))
+    application.add_handler(CommandHandler("capabilities", capabilities_command))
+    application.add_handler(CommandHandler("tools", tools_command))
+    application.add_handler(CommandHandler("jobs", jobs_command))
+    application.add_handler(CommandHandler("run", run_job_command))
+    
+    # Tool Wrappers
+    application.add_handler(CommandHandler("bolo", tool_wrapper_bolo))
+    application.add_handler(CommandHandler("corrige", tool_wrapper_corrige))
+    application.add_handler(CommandHandler("whatif", tool_wrapper_whatif))
+    application.add_handler(CommandHandler("stats", tool_wrapper_stats))
+
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     application.add_handler(MessageHandler(filters.VOICE | filters.AUDIO, handle_voice))

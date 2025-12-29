@@ -7,7 +7,8 @@ from typing import Any, Awaitable, Callable, Optional
 from app import jobs_state
 from app.bot import tools as bot_tools
 from app.bot import proactive as bot_proactive
-from app.bot.service import run_glucose_monitor_job, fetch_history_context
+from app.bot import proactive as bot_proactive
+
 from app.core.scheduler import get_scheduler
 from app.services import bolus as bolus_service
 from app.services import bolus_engine, bolus_split
@@ -196,6 +197,7 @@ def _build_data_sources() -> list[DataSourceDef]:
 
 
 def _build_tools() -> list[ToolDef]:
+    from app.bot.service import fetch_history_context
     return [
         ToolDef(
             name="get_status_context",
@@ -283,6 +285,7 @@ def _build_tools() -> list[ToolDef]:
 
 
 def _build_jobs() -> list[JobDef]:
+    from app.bot.service import run_glucose_monitor_job
     return [
         JobDef(
             id="glucose_monitor",
