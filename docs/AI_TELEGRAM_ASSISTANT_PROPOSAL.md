@@ -209,4 +209,15 @@ Tras revisar el stack actual (Python/FastAPI, Render Free, Neon, Gemini), el ver
 4.  **Latencia (Cold Starts)**:
     *   *Realidad*: La primera respuesta tras un rato de silencio puede tardar 2-3 segundos (conexión a DB Neon "despertando"). Es asumible para un asistente personal.
 
-**Conclusión**: Es técnicamente posible construir este sistema sobre tu infraestructura actual sin pagar costes extra, siempre que se mantenga el código ligero y optimizado.
+### Estrategia de Modelos IA: Selección Dinámica (Gemini 3.0)
+El sistema utilizará la nueva suite Gemini 3.0 para balancear velocidad e inteligencia profunda.
+
+1.  **Modelo "Táctico" (`gemini-3.0-flash`)**:
+    *   *Uso*: Visión (Escáner de comida), Chat diario, Respuestas rápidas (<1s).
+    *   *Ventaja*: Máxima eficiencia de tokens. Será el "caballo de batalla" (95% de las peticiones).
+
+2.  **Modelo "Estratégico" (`gemini-3.0-pro`)**:
+    *   *Uso*: "Razonamiento Profundo". Solo se invoca para análisis complejos de patrones, dudas médicas difíciles o cuando el modelo Flash tiene baja confianza.
+    *   *Filosofía*: Reservar la potencia máxima para los momentos críticos.
+
+**Conclusión Final**: El proyecto es técnicamente robusto, económicamente viable (Free Tier) y utiliza tecnología de vanguardia (Gemini 3.0) con una arquitectura de seguridad por capas.
