@@ -953,6 +953,16 @@ async def _handle_add_treatment_tool(update: Update, context: ContextTypes.DEFAU
     lines.append(f"(`{request_id}`)")
     
     msg_text = "\n".join(lines)
+
+    # 4. Save Snapshot
+    SNAPSHOT_STORAGE[request_id] = {
+        "rec": rec,
+        "carbs": carbs,
+        "bg": bg_val,
+        "notes": notes,
+        "source": "CalculateBolus"
+    }
+    logger.info(f"Snapshot saved for request_{request_id}. Keys: {len(SNAPSHOT_STORAGE)}")
     
     # 5. Send Card
     # ---------------------------------------------------------
@@ -1580,19 +1590,23 @@ async def btn_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
 async def _handle_snapshot_callback(query, data: str) -> None:
     try:
-        request_id = data.split("_")[-1]
-        
-        # Determine strict action: accept or cancel?
-        is_accept = "accept_bolus_" in data
-        
-        if not is_accept: # It's a cancel via ID? Or generic cancel?
-             # Logic for specific cancel if we had cancel_bolus_{id}
-             # But current cancel button is just "ignore" (generic). 
-             pass
+        # Support "accept|{uuid}" (new) and "accept_bolus_{uuid}" (legacy)
+        if "|" in data:
+            action_prefix, request_id = data.split("|", 1)
+            is_accept = (action_prefix == "accept")
+        else:
+            # Legacy fallback
+            request_id = data.split("_")[-1]
+            is_accept = "accept_bolus_" in data
 
         snapshot = SNAPSHOT_STORAGE.get(request_id)
         
         if not snapshot:
+            # Try looking up by full data just in case it was stored weirdly
+            snapshot = SNAPSHOT_STORAGE.get(data)
+        
+        if not snapshot:
+            logger.warning(f"Snapshot missing for req={request_id}. Available count={len(SNAPSHOT_STORAGE)}")
             health.record_action(f"callback:{'accept' if is_accept else 'cancel'}:{request_id}", False, "snapshot_missing")
             await query.answer("Caducado, repite el cálculo", show_alert=True)
             await query.edit_message_text(f"⚠️ Error: No encuentro el snapshot ({request_id}). Recalcula.")
