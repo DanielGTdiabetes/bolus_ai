@@ -119,35 +119,70 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     if cmd == "debug":
         # Diagnostics
-        out = ["🕵️ **Diagnóstico del Bot**"]
+        out = ["🕵️ **Diagnóstico Avanzado**"]
         
+        # 1. Global Env
+        settings = get_settings()
+        env_url = settings.nightscout.base_url
+        out.append(f"🌍 **ENV Var URL:** `{env_url}`")
+        
+        # 2. User Settings (DB)
         try:
-            settings = await get_bot_user_settings()
-            ns = settings.nightscout
-            out.append(f"🔧 **Nightscout Conf:**")
-            out.append(f"URL: `{ns.url}`")
-            out.append(f"Enabled Check: {ns.enabled}")
+            bot_settings = await get_bot_user_settings()
+            ns = bot_settings.nightscout
+            out.append(f"👤 **User DB URL:** `{ns.url}` (Enabled: {ns.enabled})")
             
-            if ns.url:
-                client = NightscoutClient(ns.url, ns.token, timeout_seconds=5)
+            # DB Discovery Detail
+            engine = get_engine()
+            if engine:
+                async with AsyncSession(engine) as session:
+                    # List all users
+                    from sqlalchemy import text
+                    stmt = text("SELECT user_id, settings FROM user_settings")
+                    rows = (await session.execute(stmt)).fetchall()
+                    out.append(f"📊 **Usuarios en DB:** {len(rows)}")
+                    for r in rows:
+                        uid = r.user_id
+                        raw = r.settings
+                        ns_raw = raw.get("nightscout", {})
+                        url_raw = ns_raw.get("url", "EMPTY")
+                        out.append(f"- User `{uid}`: NS_URL={url_raw}")
+            else:
+                out.append("⚠️ **DB Desconectada.**")
+
+            # 3. Connection Test
+            target_url = ns.url or (str(env_url) if env_url else None)
+            
+            if target_url:
+                out.append(f"📡 **Probando:** `{target_url}`")
+                client = NightscoutClient(target_url, ns.token, timeout_seconds=5)
                 try:
                     sgv = await client.get_latest_sgv()
-                    out.append(f"✅ **Conexión OK**")
-                    out.append(f"SGV: {sgv.sgv} ({sgv.direction or '-'})")
-                    out.append(f"Time: {sgv.dateString}")
+                    out.append(f"✅ **Conexión EXITOSA**")
+                    out.append(f"SGV: {sgv.sgv} mg/dL")
                 except Exception as e:
-                     out.append(f"❌ **Fallo Conexión:** {e}")
+                     out.append(f"❌ **Fallo:** {e}")
                 finally:
                     await client.aclose()
             else:
-                 out.append("⚠️ **URL Vacía** (El bot no ve la URL)")
-                 
-            # Check DB IOB
+                 out.append("🛑 **No hay URL para probar.**")
+
+            # 4. Check DB History
             engine = get_engine()
-            out.append(f"💾 **DB Local:** {'✅ Conectada' if engine else '❌ Sin Motor'}")
-                 
+            if engine:
+                 async with AsyncSession(engine) as session:
+                    from sqlalchemy import text
+                    stmt = text("SELECT created_at, insulin FROM treatments ORDER BY created_at DESC LIMIT 1")
+                    row = (await session.execute(stmt)).fetchone() 
+                    if row:
+                         out.append(f"💉 **Último Bolo (DB):** {row.insulin} U ({row.created_at.strftime('%H:%M')})")
+                    else:
+                         out.append(f"💉 **Último Bolo (DB):** (Vacío)")
+            else:
+                 out.append("⚠️ **Sin acceso a Historial DB**")
+
         except Exception as e:
-            out.append(f"💥 **Error Crítico:** {e}")
+            out.append(f"💥 **Error Script:** {e}")
             
         await update.message.reply_text("\n".join(out), parse_mode="Markdown")
         return
@@ -232,6 +267,26 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
         if ns_client:
             await ns_client.aclose()
+
+        # 5. Last Treatment (DB) - CRITICAL for user context
+        try:
+             # Re-use engine if available (should be, we checked settings)
+             engine = get_engine()
+             if engine:
+                async with AsyncSession(engine) as session:
+                    from sqlalchemy import text
+                    # Fetch latest bolus
+                    stmt = text("SELECT created_at, insulin, event_type FROM treatments ORDER BY created_at DESC LIMIT 1")
+                    row = (await session.execute(stmt)).fetchone()
+                    
+                    if row:
+                        t_delta = (now_utc.replace(tzinfo=None) - row.created_at).total_seconds() / 60
+                        context_lines.append(f"\nÚLTIMO REGISTRO (DB):")
+                        context_lines.append(f"- {row.insulin} U ({row.event_type}) hace {int(t_delta)} min")
+                    else:
+                        context_lines.append("\nÚLTIMO REGISTRO (DB): Ninguno")
+        except Exception as e:
+            logger.error(f"Failed to fetch last treatment: {e}")
             
     except Exception as e:
         logger.warning(f"Bot failed to fetch detailed context: {e}")
@@ -391,6 +446,31 @@ async def on_new_meal_received(carbs: float, source: str) -> None:
             except Exception as e:
                 logger.error(f"Bot failed to get latest SGV: {e}")
                 # Don't crash, proceed with BG=None
+
+        # 1.1 DB Fallback for Glucose (SGV)
+        if bg_val is None:
+            try:
+                engine = get_engine()
+                if engine:
+                    async with AsyncSession(engine) as session:
+                        from sqlalchemy import text
+                        # Try fetch local SGV if entries table exists
+                        # "entries" table might store SGV from background jobs
+                        stmt = text("SELECT sgv, date_string FROM entries ORDER BY date_string DESC LIMIT 1") 
+                        # Note: date_string is string ISO. or `date` (epoch). 
+                        # Assuming entries table mirrors NS schema roughly or app schema.
+                        # If "entries" doesn't exist, this throws.
+                        
+                        try:
+                            row = (await session.execute(stmt)).fetchone()
+                            if row:
+                                bg_val = float(row.sgv)
+                                logger.info(f"Bot obtained BG from LOCAL DB: {bg_val}")
+                        except Exception:
+                            # Table might not exist or be empty
+                            pass
+            except Exception as e:
+                 logger.warning(f"DB SGV Fallback failed: {e}")
             
         # Calc IOB
         # Note: compute_iob_from_sources will use the client we passed.
