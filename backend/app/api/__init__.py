@@ -51,4 +51,7 @@ api_router.include_router(integrations_router, prefix="/integrations", tags=["in
 from .injection import router as injection_router
 api_router.include_router(injection_router, prefix="/injection", tags=["injection"])
 
+from .bot_capabilities import router as bot_capabilities_router
+api_router.include_router(bot_capabilities_router)
+
 __all__ = ["api_router"]

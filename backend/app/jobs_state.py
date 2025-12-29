@@ -13,6 +13,9 @@ JOB_KEYS_TO_SCHEDULER_IDS: dict[str, str] = {
     "basal": "basal_reminder",
     "morning_summary": "morning_summary",
     "learning_eval": "learning_eval",
+    "auto_night_scan": "auto_night_scan",
+    "data_cleanup": "data_cleanup",
+    "combo_followup": "combo_followup",
 }
 
 
