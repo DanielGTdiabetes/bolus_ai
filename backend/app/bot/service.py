@@ -146,7 +146,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                         raw = r.settings
                         ns_raw = raw.get("nightscout", {})
                         url_raw = ns_raw.get("url", "EMPTY")
-                        out.append(f"- User `{uid}`: NS_URL={url_raw}")
+                        out.append(f"- User `{uid}`: NS_URL=`{url_raw}`")
             else:
                 out.append("⚠️ **DB Desconectada.**")
 
@@ -161,7 +161,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                     out.append(f"✅ **Conexión EXITOSA**")
                     out.append(f"SGV: {sgv.sgv} mg/dL")
                 except Exception as e:
-                     out.append(f"❌ **Fallo:** {e}")
+                     out.append(f"❌ **Fallo:** `{e}`")
                 finally:
                     await client.aclose()
             else:
@@ -182,7 +182,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                  out.append("⚠️ **Sin acceso a Historial DB**")
 
         except Exception as e:
-            out.append(f"💥 **Error Script:** {e}")
+            out.append(f"💥 **Error Script:** `{e}`")
             
         await update.message.reply_text("\n".join(out), parse_mode="Markdown")
         return
