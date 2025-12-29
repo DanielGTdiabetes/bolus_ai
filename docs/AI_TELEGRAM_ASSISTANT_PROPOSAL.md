@@ -71,7 +71,28 @@ Para que las "Alertas Preventivas" (Caso 2) sean útiles y no molestas, el siste
     *   Si el bot sugiere adelantar el bolo a las 13:30 y el usuario dice "No voy a comer todavía", el sistema aprende que hoy es una excepción.
     *   Si el usuario confirma, refuerza el patrón horario.
 
-## 6. Próximos Pasos de Investigación
+## 6. Filosofía del Asistente: "El Compañero Transparente"
+
+Más que un bot de alertas, buscamos un **"Compañero de Fatiga"** que reduzca la carga mental diaria.
+
+### A. Explicabilidad ("El Porqué")
+El asistente nunca debe dar una orden "caja negra". Siempre debe justificar su razonamiento para educar y dar tranquilidad al usuario.
+*   *Mal ejemplo*: "Ponte 2 unidades ahora."
+*   *Buen ejemplo*: "Sugiero adelantar 2u del bolo *porque* tu glucosa de partida es más alta de lo habitual (150) y el cálculo de IOB muestra que no tienes insulina activa suficiente para cubrirlo."
+
+### B. Tranquilidad y Carga Mental
+El asistente debe usar un lenguaje que transmita seguridad y control.
+*   *Frase clave*: "No te preocupes, yo te monitorizo y te aviso si la predicción de hipoglucemia se confirma. Descansa."
+*   *Objetivo*: Que el usuario pueda dejar de mirar el monitor cada 5 minutos, sabiendo que "alguien" está vigilando.
+
+### C. Integración Profunda y Auditoría
+El asistente no es solo una capa superficial; tiene acceso directo a los motores matemáticos de la app (`autotune`, `curves`, `isf_calc`). 
+Debe informar sobre el estado interno de estos cálculos:
+1.  **Auditoría de Cambios**: "He detectado mayor sensibilidad esta semana. He ajustado tu ISF de 40 a 45 para los cálculos de hoy. ¿Te parece correcto?"
+2.  **Estado de Absorción**: "Tus curvas de absorción indican que la pizza de anoche tardó 4h en digerirse, tenlo en cuenta para la próxima vez (quizás extender más el bolo)."
+3.  **Predicción de Riesgos**: "Hay riesgo de hipo *porque* tu IOB es alto (3.5u) y la comida anterior ya se absorbió casi toda."
+
+## 7. Próximos Pasos de Investigación
 *   Definir librería de Python para el Bot (`python-telegram-bot` o similar).
 *   Diseñar el formato del JSON intermedio para intercambio de datos.
 *   Implementar algoritmo básico de clustering (K-Means simple) para deducir horarios habituales.
