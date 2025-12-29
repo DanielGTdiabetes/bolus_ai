@@ -122,6 +122,12 @@ async def _check_auth(update: Update) -> bool:
     if not allowed_id:
         # If no ID set, maybe allow all? Better safe than sorry: Allow NONE or Log warning
         # For this personal assistant, strict allow list is best.
+        logger.error("ALLOWED_TELEGRAM_USER_ID is not configured. Bot will reject all requests.")
+        if update and getattr(update, "message", None):
+            await update.message.reply_text(
+                "⚠️ Bot sin configurar: falta ALLOWED_TELEGRAM_USER_ID. "
+                "Configura el ID autorizado para habilitar respuestas."
+            )
         return False
         
     user_id = update.effective_user.id
@@ -729,6 +735,7 @@ async def on_new_meal_received(carbs: float, source: str) -> None:
         return
 
     logger.info(f"Bot proactively notifying meal: {carbs}g from {source}")
+    now_utc = datetime.now(timezone.utc)
     
     # 1. Gather Context
     settings = get_settings()
@@ -969,8 +976,6 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
             await query.edit_message_text(text=f"{query.message.text}\n\n{success_msg}", parse_mode="Markdown")
             
-            await query.edit_message_text(text=f"{query.message.text}\n\n{success_msg}", parse_mode="Markdown")
-            
         except Exception as e:
             logger.error(f"Callback error: {e}")
             await query.edit_message_text(text=f"Error al registrar: {e}")
@@ -1122,4 +1127,3 @@ async def run_glucose_monitor_job() -> None:
 
     except Exception as e:
         logger.error(f"Guardian Job Error: {e}")
-
