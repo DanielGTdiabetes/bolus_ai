@@ -36,3 +36,16 @@ async def telegram_webhook(
         logger.error(f"Error reading webhook payload: {e}")
         # Return 200 to telegram to prevent retries of bad payloads
         return {"status": "error", "message": str(e)}
+
+
+@router.get("/health/bot", include_in_schema=False)
+async def bot_health():
+    from app.bot.state import health as bot_health_state
+    mode = bot_health_state.mode.value if bot_health_state else "unknown"
+    return {
+        "enabled": bot_health_state.enabled,
+        "mode": mode,
+        "last_update_at": bot_health_state.last_update_at,
+        "last_error": bot_health_state.last_error,
+        "reason": bot_health_state.mode_reason,
+    }

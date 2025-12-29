@@ -35,6 +35,54 @@ def get_telegram_webhook_secret() -> str:
     # Secret to verify updates come from Telegram
     return get_env("TELEGRAM_WEBHOOK_SECRET") or "change-me-in-production"
 
+
+def get_public_bot_url() -> Optional[str]:
+    """
+    Return the public URL to use for Telegram webhooks.
+
+    Priority:
+    1. BOT_PUBLIC_URL (explicit override)
+    2. RENDER_EXTERNAL_URL (Render auto-env)
+    3. PUBLIC_URL / public_url (legacy naming)
+    """
+
+    candidates = [
+        get_env("BOT_PUBLIC_URL"),
+        get_env("RENDER_EXTERNAL_URL"),
+        get_env("PUBLIC_URL"),
+        get_env("public_url"),
+    ]
+
+    for url in candidates:
+        if url:
+            return url.rstrip("/")
+    return None
+
+
+def get_bot_poll_interval() -> float:
+    try:
+        return float(get_env("TELEGRAM_POLL_INTERVAL", "1.5"))
+    except ValueError:
+        return 1.5
+
+
+def get_bot_read_timeout() -> int:
+    try:
+        return int(get_env("TELEGRAM_POLL_TIMEOUT", "20"))
+    except ValueError:
+        return 20
+
+
+def get_voice_transcriber_provider() -> str:
+    return (get_env("VOICE_TRANSCRIBER_PROVIDER") or "none").lower()
+
+
+def get_voice_min_confidence() -> float:
+    try:
+        return float(get_env("VOICE_TRANSCRIBER_MIN_CONFIDENCE", "0.6"))
+    except ValueError:
+        return 0.6
+
 def get_allowed_telegram_user_id() -> Optional[int]:
     # Security: Only allow this user ID to interact
     val = get_env("ALLOWED_TELEGRAM_USER_ID")
