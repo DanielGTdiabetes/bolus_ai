@@ -34,6 +34,7 @@ Se elige Telegram por su eficiencia y bajo consumo de recursos.
     *   Interfaz tipo chat familiar.
     *   Notificaciones "Push" nativas.
     *   Botones de acción rápida (Callback buttons) para confirmar acciones con un solo clic.
+    *   **Notas de Voz**: Capacidad de hablarle al Bot ("Me como un plátano") y que transcriba y procese el audio automáticamente.
 
 ### B. El "Vigilante" (The Watcher)
 Un servicio en el backend que monitoriza dos fuentes de información:
@@ -100,6 +101,14 @@ Actuar como un "Lazo Cerrado Asistido" para correcciones pequeñas y precisas.
 2.  **Análisis**: El sistema predice que en 1 hora estará en 180 mg/dL si no hace nada.
 3.  **Sugerencia de Precisión**: *"Veo una subida lenta sostenida. Para mantener la línea plana y no salir de rango, sugiero un microbolo de **0.35u** ahora."*
 4.  **Valor**: Permite al usuario "aplanar la curva" con seguridad, validando manualmente las micro-dosis que un sistema automático pondría solo.
+
+### Caso 8: Resumen Matutino (Feedback Diario)
+Para cerrar el ciclo y motivar, el Bot envía un reporte breve cada mañana.
+1.  **Trigger**: 08:00 AM (o al despertar).
+2.  **Contenido**:
+    *   Resumen de la noche: *"Noche estable (100-120). Sin alertas."*
+    *   Estadística Ayer: *"Ayer estuviste un **85% en rango**. ¡Muy bien!"*
+    *   Recordatorios hoy: *"Hoy es día de cambio de sensor/catéter."* (Si toca).
 
 ## 5. Consideraciones Técnicas y Limitaciones de Red
 
