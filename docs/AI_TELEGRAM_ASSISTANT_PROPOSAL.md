@@ -220,4 +220,22 @@ El sistema utilizará la nueva suite Gemini 3.0 para balancear velocidad e intel
     *   *Uso*: "Razonamiento Profundo". Solo se invoca para análisis complejos de patrones, dudas médicas difíciles o cuando el modelo Flash tiene baja confianza.
     *   *Filosofía*: Reservar la potencia máxima para los momentos críticos.
 
+3.  **¿Por qué no un modelo Local (Llama 2) en Render?**:
+    *   **Imposibilidad Física**: Render Free ofrece **0.5 GB** de RAM. Un modelo como Llama 2 (incluso pequeño) requiere mínimo **4 GB**.
+    *   *Resultado*: Intentar correrlo tumbaría tu servidor al instante (`Out Of Memory`).
+    *   *Veredicto*: Nos quedamos con Gemini Flash/Pro. Es la única opción viable, inteligente y gratuita para tu infraestructura actual.
+
 **Conclusión Final**: El proyecto es técnicamente robusto, económicamente viable (Free Tier) y utiliza tecnología de vanguardia (Gemini 3.0) con una arquitectura de seguridad por capas.
+
+## 10. Estrategia de Implantación Segura (Risk Zero)
+Para garantizar que la App actual (crítica para la salud) no sufra interrupciones, seguiremos un despliegue "Quirúrgico":
+
+1.  **Código Aditivo (No Invasivo)**:
+    *   Todo el código del asistente irá en un nuevo módulo aislado (`app/bot/`).
+    *   Los servicios "Core" actuales (`bolus_engine`, `isf`, `curves`) se tratarán como **Solo Lectura**. El bot los "usa" importándolos, pero no modifica ni una línea de su lógica interna.
+2.  **Feature Flag (Interruptor de Apagado)**:
+    *   El bot se encenderá mediante una variable de entorno (`ENABLE_TELEGRAM_BOT=true`).
+    *   Si surge cualquier problema de rendimiento o memoria, con solo cambiar esa variable a `false`, el sistema apaga el bot y la app sigue funcionando como siempre.
+3.  **Fases de Despliegue**:
+    *   *Fase 1 (Observador Pasivo)*: El bot solo lee (Nightscout, IOB) y te contesta, pero **NO** tiene permiso para escribir tratamientos en la base de datos.
+    *   *Fase 2 (Escritura)*: Solo tras verificar que la Fase 1 no afecta a la RAM ni a la estabilidad, habilitaremos la capacidad de registrar bolos.
