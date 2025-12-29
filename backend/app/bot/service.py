@@ -959,11 +959,11 @@ async def _handle_add_treatment_tool(update: Update, context: ContextTypes.DEFAU
     injection_mgr = InjectionManager(store)
     next_site = injection_mgr.get_next_site("bolus")
     
-    # Callback: "accept_bolus_{request_id}"
+    # Callback: "accept|{request_id}"
     keyboard = [
         [
-            InlineKeyboardButton(f"✅ Poner {rec.total_u_final} U", callback_data=f"accept_bolus_{request_id}"),
-            InlineKeyboardButton("❌ Cancelar", callback_data="ignore")
+            InlineKeyboardButton(f"✅ Poner {rec.total_u_final} U", callback_data=f"accept|{request_id}"),
+            InlineKeyboardButton("❌ Cancelar", callback_data=f"cancel|{request_id}")
         ]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -1659,17 +1659,21 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
     data = query.data
     
-    # 0. Test Button
-    if data.startswith("test|") or data.startswith("cancel|"):
-        action, uid = data.split("|", 1)
-        health.record_action(f"callback:{action}", True)
-        msg_out = f"Recibido ✅ {data}" if action == "test" else f"Cancelado ❌ {data}"
-        await query.edit_message_text(text=msg_out)
+    # 0. Test Button (Simple Echo)
+    if data.startswith("test|"):
+        health.record_action("callback:test", True)
+        await query.edit_message_text(text=f"Recibido ✅ {data}")
         return
 
-    # 1. Routing
-    if data.startswith("accept_bolus_"):
+    # 1. Routing Accept
+    if data.startswith("accept|"):
         await _handle_snapshot_callback(query, data)
+        return
+
+    # 2. Routing Cancel (Universal)
+    if data.startswith("cancel|"):
+        health.record_action("callback:cancel", True)
+        await query.edit_message_text(text=f"❌ Cancelado (ref: {data.split('|')[-1]})")
         return
 
     # 2. Voice
