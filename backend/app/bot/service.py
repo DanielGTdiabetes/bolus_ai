@@ -139,7 +139,7 @@ def decide_bot_mode() -> Tuple[BotMode, str]:
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Log the error and send a telegram message to notify the developer."""
     logger.error(f"Exception while handling an update: {context.error}")
-    health.mark_error(str(context.error))
+    health.set_error(str(context.error))
     if update and isinstance(update, Update) and update.message:
         await update.message.reply_text(f"⚠️ Error interno del bot: {context.error}")
 
