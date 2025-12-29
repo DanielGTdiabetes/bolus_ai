@@ -18,3 +18,11 @@ config/config.json
 *.log
 backend/test_logs.txt
 backend/test_output.txt
+backend/**/*.sqlite
+backend/**/*.sqlite3
+backend/**/*.db
+backend/**/*.bin
+backend/**/*.png
+backend/**/*.jpg
+backend/var/
+backend/.runtime/
