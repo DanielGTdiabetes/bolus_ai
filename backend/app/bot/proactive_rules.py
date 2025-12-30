@@ -1,7 +1,8 @@
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, time
 from typing import Dict, Optional
 from app.bot.state import health
+from app.core.settings import get_settings
 
 # Store last event timestamps in memory
 # Key: event_type, Value: datetime (UTC)
@@ -23,17 +24,43 @@ class SilenceResult:
     remaining_min: Optional[int] = None
     window_min: Optional[int] = None
 
+def _is_quiet_hours(start_str: str, end_str: str) -> bool:
+    try:
+        now_time = datetime.now().time()
+        start = datetime.strptime(start_str, "%H:%M").time()
+        end = datetime.strptime(end_str, "%H:%M").time()
+        
+        if start < end:
+            return start <= now_time <= end
+        else: # Crosses midnight
+            return now_time >= start or now_time <= end
+    except Exception:
+        return False
+
 def check_silence(event_type: str) -> SilenceResult:
     """
     Checks if event should be silenced. Returns detailed result.
     """
+    settings = get_settings()
     now = datetime.now(timezone.utc)
+    
+    # 1. Quiet Hours Check (Specific to combo_followup for now)
+    if event_type == "combo_followup":
+        conf = settings.proactive.combo_followup
+        if conf.quiet_hours_start and conf.quiet_hours_end:
+            if _is_quiet_hours(conf.quiet_hours_start, conf.quiet_hours_end):
+                return SilenceResult(True, "silenced_quiet_hours(combo_followup)")
+                
+        window = conf.silence_minutes
+    else:
+        window = SILENCE_WINDOWS_MINUTES.get(event_type, 60)
+
+    # 2. Cooldown Check
     last_at = _LAST_EVENTS.get(event_type)
     
     if not last_at:
         return SilenceResult(False, "no_previous_event")
         
-    window = SILENCE_WINDOWS_MINUTES.get(event_type, 60)
     delta_min = (now - last_at).total_seconds() / 60
     
     if delta_min < window:

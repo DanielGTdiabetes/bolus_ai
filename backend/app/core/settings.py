@@ -71,8 +71,35 @@ class Settings(BaseModel):
     data: DataConfig
     vision: VisionConfig = Field(default_factory=VisionConfig)
     database: DatabaseConfig = Field(default_factory=DatabaseConfig)
+    proactive: "ProactiveGlobalConfig" = Field(default_factory=lambda: ProactiveGlobalConfig())
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
+
+
+class ComboFollowupConfig(BaseModel):
+    enabled: bool = False
+    delay_minutes: int = 120
+    window_hours: int = 6
+    silence_minutes: int = 180
+    quiet_hours_start: Optional[str] = "23:00"
+    quiet_hours_end: Optional[str] = "07:00"
+
+class PremealConfig(BaseModel):
+    enabled: bool = False
+    chat_id: Optional[int] = None
+    silence_minutes: int = 60
+    bg_threshold_mgdl: float = 160.0
+    delta_threshold_mgdl: float = 5.0
+
+class BasalConfig(BaseModel):
+    enabled: bool = False
+    chat_id: Optional[int] = None
+    time_local: Optional[str] = None # e.g. "22:00"
+
+class ProactiveGlobalConfig(BaseModel):
+    combo_followup: ComboFollowupConfig = Field(default_factory=ComboFollowupConfig)
+    premeal: PremealConfig = Field(default_factory=PremealConfig)
+    basal: BasalConfig = Field(default_factory=BasalConfig)
 
 
 DEFAULT_CONFIG_PATH = Path(os.environ.get("CONFIG_PATH", "config/config.json"))

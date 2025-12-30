@@ -271,48 +271,142 @@ async def premeal_nudge(username: str = "admin", chat_id: Optional[int] = None) 
         health.record_event("premeal", True, "sent")
 
 async def combo_followup(username: str = "admin", chat_id: Optional[int] = None) -> None:
+    settings = get_settings()
+    conf = settings.proactive.combo_followup
+    if not conf.enabled:
+        return
+
+    # Resolve Chat ID
     if chat_id is None:
         chat_id = await _get_chat_id()
     if not chat_id:
         return
-    if not cooldowns.is_ready("combo", COOLDOWN_MINUTES["combo"] * 60):
-        health.record_event("combo_followup", False, "cooldown")
+
+    # Check Silence (Rules) including Quiet Hours
+    # We check rules manually to log specific reason to health
+    from app.bot.proactive_rules import check_silence
+    res = check_silence("combo_followup")
+    if res.should_silence:
+         health.record_event("combo_followup", False, res.reason)
+         return
+
+    # Fetch Treatments
+    ns_url = settings.nightscout.base_url
+    ns_token = settings.nightscout.token
+    if not ns_url:
+         health.record_event("combo_followup", False, "missing_ns_config")
+         return
+         
+    client = NightscoutClient(str(ns_url), ns_token)
+    treatments = []
+    try:
+        # Check window equal to configured window
+        treatments = await client.get_recent_treatments(hours=conf.window_hours)
+    except Exception as e:
+        logger.error(f"Combo check NS error: {e}")
+        health.record_event("combo_followup", False, f"ns_error: {e}")
         return
-    settings = get_settings()
+    finally:
+        await client.aclose()
+
+    # Find Candidate Bolus
+    # Sort descending by created_at
+    treatments.sort(key=lambda x: x.created_at, reverse=True)
+    
+    candidate = None
+    for t in treatments:
+        if (t.insulin and t.insulin > 0) or t.eventType in ("Meal Bolus", "Correction Bolus", "Bolus"):
+            candidate = t
+            break
+            
+    if not candidate:
+        health.record_event("combo_followup", False, "heuristic_no_candidate_bolus")
+        return
+
+    # Check Persisted State (Already Asked?)
     store = DataStore(Path(settings.data.data_dir))
     events = store.load_events()
-    now_utc = datetime.now(timezone.utc)
     
-    # Handle potentially naive stored dates gracefully (assume UTC if naive)
-    def parse_event_time(ts_str):
-        try:
-            dt = datetime.fromisoformat(ts_str)
-            if dt.tzinfo is None:
-                dt = dt.replace(tzinfo=timezone.utc)
-            return dt
-        except ValueError:
-            return now_utc + timedelta(days=365) # Filter out invalid
+    tid = candidate.id
+    if not tid:
+         health.record_event("combo_followup", False, "heuristic_no_treatment_id")
+         return
 
-    pending = [e for e in events if e.get("type") == "combo" and parse_event_time(e["notify_at"]) <= now_utc]
-    if not pending:
-        return
+    previous_record = next((e for e in events if e.get("treatment_id") == tid and e.get("type") == "combo_followup_record"), None)
     
+    if previous_record:
+        status = previous_record.get("status")
+        if status == "snoozed":
+             snooze_until_str = previous_record.get("snooze_until")
+             if snooze_until_str:
+                 try:
+                     snooze_dt = datetime.fromisoformat(snooze_until_str)
+                     if snooze_dt.tzinfo is None:
+                         snooze_dt = snooze_dt.replace(tzinfo=timezone.utc)
+                     
+                     if now_utc < snooze_dt:
+                         return # Still snoozed
+                 except ValueError:
+                     pass # Invalid date, treat as expired
+        else:
+             # asked, done, dismissed
+             health.record_event("combo_followup", False, "heuristic_already_followed_up")
+             return
+
+    # Check Time Delay
+    now_utc = datetime.now(timezone.utc)
+    ts = candidate.created_at
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=timezone.utc)
+    
+    diff_min = (now_utc - ts).total_seconds() / 60
+    
+    if diff_min < conf.delay_minutes:
+         health.record_event("combo_followup", False, f"heuristic_too_soon(minutes_since={int(diff_min)}, delay={conf.delay_minutes})")
+         return
+
+    # Pass to Router
+    payload = {
+        "treatment_id": tid,
+        "bolus_units": candidate.insulin,
+        "timestamp": ts.isoformat(),
+        "minutes_since": int(diff_min),
+        "carbs": candidate.carbs
+    }
+
     from app.bot.llm import router
     
     reply = await router.handle_event(
-        username="admin",
+        username=username,
         chat_id=chat_id,
         event_type="combo_followup",
-        payload={"pending_events": len(pending)}
+        payload=payload
     )
     
     if reply and reply.text:
+        # Persist as "asked" to avoid repeating
+        events.append({
+             "type": "combo_followup_record",
+             "treatment_id": tid,
+             "status": "asked",
+             "asked_at": now_utc.isoformat()
+        })
+        store.save_events(events)
+        
+        # Buttons
+        keyboard = [
+            [InlineKeyboardButton("💉 Sí, registrar", callback_data=f"combo_yes|{tid}")],
+            [InlineKeyboardButton("❌ No", callback_data=f"combo_no|{tid}")],
+            [InlineKeyboardButton("⏰ +30 min", callback_data=f"combo_later|{tid}")]
+        ]
+        
         await _send(
-        None,
-        chat_id,
-        reply.text,
-        log_context="proactive_combo",
-    )
+            None,
+            chat_id,
+            reply.text,
+            log_context="proactive_combo",
+            reply_markup=InlineKeyboardMarkup(keyboard),
+        )
 
 
 async def morning_summary(username: str = "admin", chat_id: Optional[int] = None) -> None:

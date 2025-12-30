@@ -1669,6 +1669,56 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         await query.edit_message_text(text=f"{query.message.text}\n\n✅ Basal marcada ({choice})", parse_mode="Markdown")
         return
 
+    # --- Combo Followup Callbacks ---
+    if data.startswith("combo_yes|"):
+        # tid = data.split("|")[-1]
+        await query.edit_message_text(text=f"{query.message.text}\n\n✏️ Introduce las unidades para la 2da parte:", parse_mode="Markdown")
+        return
+
+    if data.startswith("combo_no|"):
+        tid = data.split("|")[-1]
+        try:
+             settings = get_settings()
+             store = DataStore(Path(settings.data.data_dir))
+             events = store.load_events()
+             for e in events:
+                 if e.get("treatment_id") == tid and e.get("type") == "combo_followup_record":
+                     e["status"] = "dismissed"
+                     e["updated_at"] = datetime.now(timezone.utc).isoformat()
+             store.save_events(events)
+        except Exception as e:
+            logger.error(f"Combo dismiss failed: {e}")
+            
+        await query.edit_message_text(text=f"{query.message.text}\n\n❌ Descartado.", parse_mode="Markdown")
+        return
+
+    if data.startswith("combo_later|"):
+        tid = data.split("|")[-1]
+        try:
+             settings = get_settings()
+             store = DataStore(Path(settings.data.data_dir))
+             events = store.load_events()
+             found = False
+             for e in events:
+                 if e.get("treatment_id") == tid and e.get("type") == "combo_followup_record":
+                     e["status"] = "snoozed"
+                     e["snooze_until"] = (datetime.now(timezone.utc) + timedelta(minutes=30)).isoformat()
+                     e["updated_at"] = datetime.now(timezone.utc).isoformat()
+                     found = True
+             if not found:
+                 events.append({
+                     "type": "combo_followup_record",
+                     "treatment_id": tid,
+                     "status": "snoozed",
+                     "snooze_until": (datetime.now(timezone.utc) + timedelta(minutes=30)).isoformat()
+                 })
+             store.save_events(events)
+        except Exception as e:
+            logger.error(f"Combo snooze failed: {e}")
+            
+        await query.edit_message_text(text=f"{query.message.text}\n\n⏰ Recordaré en 30 min.", parse_mode="Markdown")
+        return
+
     if data == "premeal_add":
         await query.edit_message_text(text=f"{query.message.text}\n\n✏️ Escribe los gramos estimados para sugerir bolo.", parse_mode="Markdown")
         return
