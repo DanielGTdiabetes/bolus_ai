@@ -37,17 +37,18 @@ def to_gemini_schema(json_schema: Dict[str, Any]) -> Dict[str, Any]:
     """
     # 1. Type Mapping
     original_type = json_schema.get("type", "object")
+    # Google API expects uppercased strings for type in JSON definition
     type_map = {
-        "string": content.Type.STRING,
-        "number": content.Type.NUMBER,
-        "integer": content.Type.INTEGER,
-        "boolean": content.Type.BOOLEAN,
-        "array": content.Type.ARRAY,
-        "object": content.Type.OBJECT,
+        "string": "STRING",
+        "number": "NUMBER",
+        "integer": "INTEGER",
+        "boolean": "BOOLEAN",
+        "array": "ARRAY",
+        "object": "OBJECT",
     }
     
-    # Defaults to OBJECT if unknown, or STRING if primitive context implied but missing
-    gemini_type = type_map.get(original_type, content.Type.OBJECT)
+    # Defaults to OBJECT if unknown
+    gemini_type = type_map.get(original_type, "OBJECT")
 
     result = {
         "type": gemini_type,
