@@ -403,14 +403,21 @@ async def handle_event(username: str, chat_id: int, event_type: str, payload: Di
         window = payload.get("window_minutes", 30)
         delta_arrow = payload.get("delta_arrow", f"{delta_total:+}")
         
+        micro_u = payload.get("suggested_micro_u")
+        buttons = []
+        
         if direction == "rise":
              text = (
                  f"📈 **Subida rápida sin comida/bolo reciente**\n\n"
                  f"Ahora: **{curr}** mg/dL ({delta_arrow})\n"
-                 f"Últimos {window} min: +{abs(delta_total)} (≈ {slope:+.2f} mg/dL/min)\n\n"
-                 f"¿Ha habido estrés, fallo de infusión o comida no registrada?"
+                 f"Últimos {window} min: +{abs(delta_total)} (≈ {slope:+.2f} mg/dL/min)\n"
              )
-             reason = f"sent_trend_rise(slope={slope}, delta={delta_total}, window={window})"
+             if micro_u:
+                 text += f"\n💡 **Sugerencia:** Un micro-bolo de **{micro_u} U** podría aplanar la curva."
+                 buttons.append([InlineKeyboardButton("💉 Calcular Corrección", callback_data="chat_bolus_edit_0")])
+                 
+             text += f"\n\n¿Ha habido estrés, fallo de infusión o comida no registrada?"
+             reason = f"sent_trend_rise(slope={slope}, delta={delta_total}, window={window}, micro={micro_u})"
         else:
              text = (
                  f"📉 **Bajada rápida sin comida/bolo reciente**\n\n"
@@ -423,7 +430,7 @@ async def handle_event(username: str, chat_id: int, event_type: str, payload: Di
         # Log success reason
         health.record_event(event_type, True, reason)
         
-        return BotReply(text=text)
+        return BotReply(text=text, buttons=buttons if buttons else None)
 
     if event_type == "combo_followup":
         tid = payload.get("treatment_id", "unknown")

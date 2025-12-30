@@ -1016,5 +1016,38 @@ async def trend_alert(username: str = "admin", chat_id: Optional[int] = None, tr
         "points_used": len(values)
     }
     
+    # CASE 7: Micro-Bolus Assistance (Experimental)
+    # Detect slow persistent rise and suggest small bump
+    if direction == "rise" and bg_last > 140:
+        try:
+             # Fetch ISF/CF
+            cf = 30.0 # Default
+            if user_settings.cf:
+                # Use lunch or average?
+                cf = getattr(user_settings.cf, "lunch", 30.0)
+            
+            # Target
+            target = 110.0
+            if user_settings.targets: target = user_settings.targets.mid or 110.0
+            
+            # Calc needed
+            diff = bg_last - target
+            if diff > 0:
+                needed = diff / cf
+                # Safety: Suggest only 30-40% of full correction for a "nudge"
+                safeguarded = needed * 0.4 
+                
+                # Round to 0.5 step (USER REQUEST)
+                step = 0.5
+                micro_u = round(safeguarded / step) * step
+                
+                # Minimum effective dose
+                if micro_u >= 0.5:
+                     # Cap at 1.0u for safety in proactive mode
+                     if micro_u > 1.0: micro_u = 1.0
+                     payload["suggested_micro_u"] = micro_u
+        except Exception as e:
+            logger.error(f"Microbolus calc error: {e}")
+
     from app.bot.llm import router
     await router.handle_event(username, chat_id, "trend_alert", payload)
