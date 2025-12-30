@@ -214,7 +214,19 @@ async def calculate_bolus(carbs: float, meal_type: Optional[str] = None, split: 
     if isinstance(status, ToolError):
         return status
 
-    meal_slot = meal_type or "lunch"
+    if meal_type:
+        meal_slot = meal_type
+    else:
+        # Infer from system local time
+        h = datetime.now().hour
+        if 5 <= h < 12:
+            meal_slot = "breakfast"
+        elif 12 <= h < 18:
+            meal_slot = "lunch"
+        elif 18 <= h < 24:
+            meal_slot = "dinner"
+        else:
+            meal_slot = "snack"
     now_utc = datetime.now(timezone.utc)
     try:
         iob_u = status.iob_u or 0.0
