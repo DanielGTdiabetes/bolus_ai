@@ -145,8 +145,18 @@ class BasalReminderConfig(BaseModel):
     username: str = "admin"
     chat_id: Optional[int] = None
 
+class PremealConfig(BaseModel):
+    enabled: bool = True
+    bg_threshold_mgdl: int = 150
+    delta_threshold_mgdl: int = 2
+    window_minutes: int = 60
+    silence_minutes: int = 90
+    username: str = "admin"
+    chat_id: Optional[int] = None
+
 class ProactiveConfig(BaseModel):
     basal: BasalReminderConfig = Field(default_factory=BasalReminderConfig)
+    premeal: PremealConfig = Field(default_factory=PremealConfig)
 
 class BotConfig(BaseModel):
     proactive: ProactiveConfig = Field(default_factory=ProactiveConfig)

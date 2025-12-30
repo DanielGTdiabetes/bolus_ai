@@ -167,39 +167,49 @@ async def premeal_nudge(username: str = "admin", chat_id: Optional[int] = None) 
         from app.core import config
         username = config.get_bot_default_username()
 
-    if chat_id is None:
-        chat_id = await _get_chat_id()
+    # 1. Load Config (for thresholds)
+    try:
+        from app.bot import tools
+        # Load settings for this user (with DB overlay if available)
+        user_settings = await tools._load_user_settings(username)
+        premeal_conf = user_settings.bot.proactive.premeal
+    except Exception as e:
+        logger.error(f"Premeal config load failed: {e}")
+        health.record_event("premeal", False, f"config_error: {e}")
+        return
+
+    # 2. Check Enabled (Config)
+    if not premeal_conf.enabled:
+        return
+
+    # 3. Resolve Chat ID (Config Priority)
+    chat_id = chat_id or premeal_conf.chat_id or await _get_chat_id()
     if not chat_id:
         return
 
-    if not cooldowns.is_ready("premeal", COOLDOWN_MINUTES["premeal"] * 60):
-        health.record_event("premeal", False, "cooldown")
+    # 4. Check Cooldown (Dynamic from Config)
+    silence_sec = premeal_conf.silence_minutes * 60
+    if not cooldowns.is_ready("premeal", silence_sec):
+        health.record_event("premeal", False, f"silenced_recent(premeal,{premeal_conf.silence_minutes}m)")
         return
         
-    # Use Tool for Context (No DB dependency here)
+    # 5. Fetch Context (Tool)
     try:
-        # Pass explicit username from job context
         status_res = await tools.execute_tool("get_status_context", {"username": username})
         if isinstance(status_res, tools.ToolError):
             health.record_event("premeal", False, f"error_tool: {status_res.message}")
-            return
-            
+            return  
     except Exception as e:
         logger.error(f"Premeal check failed: {e}")
         health.record_event("premeal", False, f"error_tool: {e}")
         return
 
-    # Robust Data Extraction
-    # Convert Pydantic to dict for safe access and aliasing
+    # 6. Data Extraction
     stats_dict = {}
-    if hasattr(status_res, "model_dump"):
-        stats_dict = status_res.model_dump()
-    elif hasattr(status_res, "dict"):
-        stats_dict = status_res.dict()
-    elif isinstance(status_res, dict):
-        stats_dict = status_res
+    if hasattr(status_res, "model_dump"): stats_dict = status_res.model_dump()
+    elif hasattr(status_res, "dict"): stats_dict = status_res.dict()
+    elif isinstance(status_res, dict): stats_dict = status_res
     else:
-        # Fallback attribute access
         stats_dict = {
             "bg_mgdl": getattr(status_res, "bg_mgdl", None),
             "sgv": getattr(status_res, "sgv", None),
@@ -207,38 +217,39 @@ async def premeal_nudge(username: str = "admin", chat_id: Optional[int] = None) 
             "direction": getattr(status_res, "direction", None)
         }
 
-    # Normalize fields
-    bg = stats_dict.get("bg_mgdl")
-    if bg is None:
-        bg = stats_dict.get("sgv") # Compat fallback
-        
+    bg = stats_dict.get("bg_mgdl") or stats_dict.get("sgv")
     delta = stats_dict.get("delta")
     direction = stats_dict.get("direction")
     
-    # Observability
-    logger.info(f"[PREMEAL] bg={bg} delta={delta} direction={direction}")
+    logger.info(f"[PREMEAL] username={username} bg={bg} delta={delta} direction={direction}")
 
-    # SAFETY: Check for missing data
     if bg is None:
-         logger.warning(f"[PREMEAL] missing bg in status_context keys={list(stats_dict.keys())}")
+         logger.warning(f"[PREMEAL] missing bg keys={list(stats_dict.keys())}")
          health.record_event("premeal", False, "skipped_missing_bg")
          return
 
-    # Heuristic
-    # Explicitly handle None delta
+    # 7. Heuristic (Configurable Thresholds)
     delta_val = delta if delta is not None else 0
     bg_val = float(bg)
     
-    if bg_val < 140 or delta_val < 2:
-        health.record_event("premeal", False, "heuristic_low_bg")
+    th_bg = premeal_conf.bg_threshold_mgdl
+    th_delta = premeal_conf.delta_threshold_mgdl
+    
+    if bg_val < th_bg:
+        health.record_event("premeal", False, f"heuristic_low_bg(bg={int(bg_val)}<th={th_bg})")
+        return
+
+    if delta_val < th_delta:
+        health.record_event("premeal", False, f"heuristic_low_delta(delta={delta_val}<th={th_delta})")
         return
         
     payload = {"bg": bg_val, "trend": direction, "delta": delta_val}
 
+    # 8. Delegate to Router
     from app.bot.llm import router
 
     reply = await router.handle_event(
-        username="admin",
+        username=username,
         chat_id=chat_id,
         event_type="premeal",
         payload=payload
@@ -250,13 +261,18 @@ async def premeal_nudge(username: str = "admin", chat_id: Optional[int] = None) 
             [InlineKeyboardButton("⏳ Luego", callback_data="ignore")],
         ]
         await _send(
-            None, # bot resolved internally
+            None, 
             chat_id,
             reply.text,
             log_context="proactive_premeal",
             reply_markup=InlineKeyboardMarkup(keyboard),
         )
-
+        # Mark sent
+        from app.bot.proactive_rules import mark_event_sent
+        mark_event_sent("premeal")
+        health.record_event("premeal", True, "sent")
+    else:
+        health.record_event("premeal", False, "router_silenced")
 
 async def combo_followup(username: str = "admin", chat_id: Optional[int] = None) -> None:
     if chat_id is None:
