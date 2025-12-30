@@ -529,6 +529,27 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await reply_text(update, context, "pong")
         return
 
+    # 0. Intercept Pending Inputs (Combo Followup)
+    pending_combo_tid = context.user_data.get("pending_combo_tid")
+    if pending_combo_tid:
+        try:
+            units = float(text.replace(",", "."))
+            # Clear pending
+            del context.user_data["pending_combo_tid"]
+            
+            # Ask Confirm
+            keyboard = [
+                [
+                    InlineKeyboardButton(f"✅ Registrar {units} U", callback_data=f"combo_confirm|{units}|{pending_combo_tid}"),
+                    InlineKeyboardButton("❌ Cancelar", callback_data=f"combo_no|{pending_combo_tid}")
+                ]
+            ]
+            await reply_text(update, context, f"¿Registrar **{units} U** para la 2ª parte del bolo?", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+            return
+        except ValueError:
+            await reply_text(update, context, "⚠️ Por favor, introduce un número válido (ej. 2.5).")
+            return
+
     if cmd in ["status", "estado"]:
         res = await tools.execute_tool("get_status_context", {})
         if isinstance(res, tools.ToolError):
@@ -1670,13 +1691,54 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         return
 
     # --- Combo Followup Callbacks ---
+    # --- Combo Followup Callbacks ---
     if data.startswith("combo_yes|"):
-        # tid = data.split("|")[-1]
-        await query.edit_message_text(text=f"{query.message.text}\n\n✏️ Introduce las unidades para la 2da parte:", parse_mode="Markdown")
+        tid = data.split("|")[-1]
+        context.user_data["pending_combo_tid"] = tid
+        await query.edit_message_text(text=f"{query.message.text}\n\n✏️ **Introduce las unidades** para la 2ª parte (ej. 3.5):", parse_mode="Markdown")
+        health.record_action(f"callback:combo_yes:{tid}", True)
+        return
+
+    if data.startswith("combo_confirm|"):
+        try:
+            _, units_str, tid = data.split("|")
+            units = float(units_str)
+            
+            # Execute Action
+            add_args = {"insulin": units, "notes": f"Combo Followup 2nd part (ref:{tid})"}
+            result = await tools.add_treatment(add_args)
+            
+            if isinstance(result, tools.ToolError) or not getattr(result, "ok", False):
+                 error_msg = result.message if isinstance(result, tools.ToolError) else (result.ns_error or "Error")
+                 await query.edit_message_text(text=f"❌ Error al registrar: {error_msg}")
+                 health.record_action(f"callback:combo_confirm:{tid}", False, error_msg)
+            else:
+                 # Mark as done in store
+                 try:
+                     settings = get_settings()
+                     store = DataStore(Path(settings.data.data_dir))
+                     events = store.load_events()
+                     for e in events:
+                         if e.get("treatment_id") == tid and e.get("type") == "combo_followup_record":
+                             e["status"] = "done"
+                             e["updated_at"] = datetime.now(timezone.utc).isoformat()
+                     store.save_events(events)
+                 except Exception as ex:
+                     logger.error(f"Combo confirm persistence error: {ex}")
+                 
+                 await query.edit_message_text(text=f"✅ **Registrado:** {units} U (2ª parte).")
+                 health.record_action(f"callback:combo_confirm:{tid}", True, "action_done")
+
+        except Exception as e:
+            logger.error(f"Combo confirm error: {e}")
+            await query.edit_message_text(text=f"❌ Error interno: {e}")
         return
 
     if data.startswith("combo_no|"):
         tid = data.split("|")[-1]
+        # Clean pending if any
+        context.user_data.pop("pending_combo_tid", None)
+        
         try:
              settings = get_settings()
              store = DataStore(Path(settings.data.data_dir))
@@ -1690,34 +1752,35 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             logger.error(f"Combo dismiss failed: {e}")
             
         await query.edit_message_text(text=f"{query.message.text}\n\n❌ Descartado.", parse_mode="Markdown")
+        health.record_action(f"callback:combo_no:{tid}", True, "action_dismissed")
         return
 
     if data.startswith("combo_later|"):
         tid = data.split("|")[-1]
+        # Clean pending
+        context.user_data.pop("pending_combo_tid", None)
+        
         try:
              settings = get_settings()
              store = DataStore(Path(settings.data.data_dir))
              events = store.load_events()
-             found = False
+             
+             # Snooze for 30 min
+             snooze_until = (datetime.now(timezone.utc) + timedelta(minutes=30)).isoformat()
+             
              for e in events:
                  if e.get("treatment_id") == tid and e.get("type") == "combo_followup_record":
                      e["status"] = "snoozed"
-                     e["snooze_until"] = (datetime.now(timezone.utc) + timedelta(minutes=30)).isoformat()
+                     e["snooze_until"] = snooze_until
                      e["updated_at"] = datetime.now(timezone.utc).isoformat()
-                     found = True
-             if not found:
-                 events.append({
-                     "type": "combo_followup_record",
-                     "treatment_id": tid,
-                     "status": "snoozed",
-                     "snooze_until": (datetime.now(timezone.utc) + timedelta(minutes=30)).isoformat()
-                 })
              store.save_events(events)
         except Exception as e:
-            logger.error(f"Combo snooze failed: {e}")
-            
+             logger.error(f"Combo snooze failed: {e}")
+
         await query.edit_message_text(text=f"{query.message.text}\n\n⏰ Recordaré en 30 min.", parse_mode="Markdown")
+        health.record_action(f"callback:combo_later:{tid}", True, "action_snoozed(30m)")
         return
+
 
     if data == "premeal_add":
         await query.edit_message_text(text=f"{query.message.text}\n\n✏️ Escribe los gramos estimados para sugerir bolo.", parse_mode="Markdown")

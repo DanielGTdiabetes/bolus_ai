@@ -273,20 +273,33 @@ async def handle_event(username: str, chat_id: int, event_type: str, payload: Di
     # Mark as seen immediately for observability
     health.mark_event_seen(event_type)
 
-    # 0. Check Heuristic Hint (Pre-calculated reason to skip)
+    # 0. Check Heuristic Hint (Pre-calculated reason to skip OR proceed without LLM)
     if payload.get("reason_hint"):
         reason = payload["reason_hint"]
-        health.record_event(event_type, False, reason)
-        logger.info(f"Event {event_type} skipped by heuristic: {reason}")
-        return None
+        
+        # Special Case: Eligible Candidate for Combo Followup -> Proceed to Manual Construction
+        if reason == "eligible_candidate" and event_type == "combo_followup":
+            # Proceed to silence check
+            pass
+        else:
+            # Default behavior: hint means "skip and log this reason"
+            health.record_event(event_type, False, reason)
+            logger.info(f"Event {event_type} skipped by heuristic: {reason}")
+            return None
 
     # 1. Check Noise Rules
     silence_res = rules.check_silence(event_type)
     if silence_res.should_silence:
+        # Check if we should override silence (e.g. high urgency), but for combo we respect it.
+        # Construct detailed reason
+        detailed_reason = silence_res.reason
+        if event_type == "combo_followup":
+            detailed_reason = f"silenced_recent(combo_followup, remaining={silence_res.remaining_min}, window={silence_res.window_min})"
+            
         health.record_event(
             event_type, 
             False, 
-            silence_res.reason,
+            detailed_reason,
             cooldown_min=silence_res.remaining_min,
             cooldown_details={
                 "event_type": event_type,
@@ -294,10 +307,45 @@ async def handle_event(username: str, chat_id: int, event_type: str, payload: Di
                 "remaining_min": silence_res.remaining_min
             }
         )
-        logger.info(f"Event {event_type} silenced: {silence_res.reason}")
+        logger.info(f"Event {event_type} silenced: {detailed_reason}")
         return None
 
-    # 2. Build Context
+    # 2. Manual Construction for Specific Events (Bypass LLM)
+    if event_type == "combo_followup":
+        tid = payload.get("treatment_id", "unknown")
+        # Format the message deterministically
+        bolus_at = payload.get("bolus_at", "?")
+        units = payload.get("bolus_units", "?")
+        
+        # Try to parse date for friendly display
+        try:
+            from datetime import datetime
+            dt = datetime.fromisoformat(bolus_at.replace("Z", "+00:00"))
+            time_str = dt.strftime("%H:%M")
+        except:
+            time_str = bolus_at
+            
+        text = (
+            f"🔄 **Seguimiento Bolo Extendido**\n\n"
+            f"Detectado bolo de **{units} U** a las {time_str}.\n"
+            f"¿Quieres registrar la 2ª parte ahora?"
+        )
+        
+        buttons = [
+            [InlineKeyboardButton("💉 Registrar 2ª parte", callback_data=f"combo_yes|{tid}")],
+            [InlineKeyboardButton("⏰ +30 min", callback_data=f"combo_later|{tid}"), 
+             InlineKeyboardButton("❌ No", callback_data=f"combo_no|{tid}")]
+        ]
+        
+        # Update health as "sending"
+        health.record_event(event_type, True, f"sent_combo_followup(treatment_id={tid})")
+        
+        # Mark as sent in rules to trigger cooldown
+        rules.mark_event_sent(event_type)
+        
+        return BotReply(text=text, buttons=buttons)
+
+    # 3. Build Context (For LLM)
     ctx = await context_builder.build_context(username, chat_id)
     
     # 3. Build Prompt

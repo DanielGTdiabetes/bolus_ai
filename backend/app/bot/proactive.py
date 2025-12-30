@@ -294,15 +294,39 @@ async def combo_followup(username: str = "admin", chat_id: Optional[int] = None)
     from app.bot.llm import router
     
     async def _route(payload_inner: dict):
-        cid = chat_id or await _get_chat_id()
+        # Resolve chat_id if not present (though we expect final_chat_id to be set by caller time)
+        # Use final_chat_id from outer scope which is set before this is called
+        cid = final_chat_id 
         if not cid:
              return
-        await router.handle_event(
+
+        reply = await router.handle_event(
             username=username,
             chat_id=cid,
             event_type="combo_followup",
             payload=payload_inner
         )
+        
+        if reply and reply.text:
+            # Mark asked in DataStore (Persistence)
+            # 'store' and 'events' are captured from outer scope
+            events.append({
+                 "type": "combo_followup_record",
+                 "treatment_id": payload_inner.get("treatment_id"),
+                 "status": "asked",
+                 "asked_at": datetime.now(timezone.utc).isoformat()
+            })
+            store.save_events(events)
+            
+            # Send Message
+            from telegram import InlineKeyboardMarkup
+            await _send(
+                None, 
+                cid,
+                reply.text,
+                log_context="proactive_combo",
+                reply_markup=InlineKeyboardMarkup(reply.buttons) if reply.buttons else None,
+            )
 
     # 2. Config Check
     if not conf.enabled:
