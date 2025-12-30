@@ -840,13 +840,21 @@ function VisionPanel() {
 
 
 function BotPanel() {
-    const [config, setConfig] = useState({
+    const [premealConfig, setPremealConfig] = useState({
         enabled: true,
         bg_threshold_mgdl: 150,
         delta_threshold_mgdl: 2,
         window_minutes: 60,
         silence_minutes: 90
     });
+
+    const [comboConfig, setComboConfig] = useState({
+        enabled: false,
+        delay_minutes: 120,
+        window_hours: 6,
+        silence_minutes: 180
+    });
+
     const [loading, setLoading] = useState(true);
     const [status, setStatus] = useState(null);
 
@@ -854,20 +862,32 @@ function BotPanel() {
         import('../modules/core/store').then(({ getCalcParams }) => {
             const params = getCalcParams() || {};
             // Safely access deep property
-            const premeal = params.bot?.proactive?.premeal;
-            if (premeal) {
-                setConfig(prev => ({ ...prev, ...premeal }));
+            const proactive = params.bot?.proactive || {};
+            
+            if (proactive.premeal) {
+                setPremealConfig(prev => ({ ...prev, ...proactive.premeal }));
+            }
+            if (proactive.combo_followup) {
+                setComboConfig(prev => ({ ...prev, ...proactive.combo_followup }));
             }
             setLoading(false);
         });
     }, []);
 
-    const handleChange = (field, value) => {
+    const handlePremealChange = (field, value) => {
         let val = value;
         if (field !== 'enabled') {
             val = parseInt(value) || 0;
         }
-        setConfig(prev => ({ ...prev, [field]: val }));
+        setPremealConfig(prev => ({ ...prev, [field]: val }));
+    };
+
+    const handleComboChange = (field, value) => {
+        let val = value;
+        if (field !== 'enabled') {
+            val = parseInt(value) || 0;
+        }
+        setComboConfig(prev => ({ ...prev, [field]: val }));
     };
 
     const handleSave = () => {
@@ -879,7 +899,8 @@ function BotPanel() {
                     ...(current.bot || {}),
                     proactive: {
                         ...(current.bot?.proactive || {}),
-                        premeal: config
+                        premeal: premealConfig,
+                        combo_followup: comboConfig
                     }
                 }
             };
@@ -893,56 +914,111 @@ function BotPanel() {
 
     return (
         <div className="stack">
-            <h3 style={{ marginTop: 0 }}>Bot / Pre-comida (Premeal)</h3>
+            <h3 style={{ marginTop: 0 }}>Bot / Proactivo</h3>
             <p className="text-muted text-sm">
-                Configura cuándo el bot debe sugerir bolo pre-comida si detecta subida.
+                Configura los comportamientos proactivos del asistente.
             </p>
 
+            {/* PREMEAL SECTION */}
             <div style={{ background: '#f8fafc', padding: '1rem', borderRadius: '8px', border: '1px solid #e2e8f0', marginBottom: '1rem' }}>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '0.8rem', fontWeight: 600, color: config.enabled ? '#0f172a' : '#64748b', cursor: 'pointer', marginBottom: '1rem' }}>
+                <h4 style={{ margin: '0 0 1rem 0', color: '#334155' }}>🥣 Aviso Pre-comida (Premeal)</h4>
+                
+                <label style={{ display: 'flex', alignItems: 'center', gap: '0.8rem', fontWeight: 600, color: premealConfig.enabled ? '#0f172a' : '#64748b', cursor: 'pointer', marginBottom: '1rem' }}>
                     <input
                         type="checkbox"
-                        checked={config.enabled}
-                        onChange={e => handleChange('enabled', e.target.checked)}
+                        checked={premealConfig.enabled}
+                        onChange={e => handlePremealChange('enabled', e.target.checked)}
                         style={{ width: '1.2rem', height: '1.2rem' }}
                     />
-                    Activar Recordatorio Pre-Comida
+                    Activar
                 </label>
 
-                {config.enabled && (
+                {premealConfig.enabled && (
                     <div className="stack" style={{ gap: '1rem' }}>
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
                             <Input
                                 label="Umbral Glucosa (mg/dL)"
                                 type="number"
-                                value={config.bg_threshold_mgdl}
-                                onChange={e => handleChange('bg_threshold_mgdl', e.target.value)}
+                                value={premealConfig.bg_threshold_mgdl}
+                                onChange={e => handlePremealChange('bg_threshold_mgdl', e.target.value)}
                                 placeholder="150"
                             />
                             <Input
                                 label="Umbral Delta (+mg/dL)"
                                 type="number"
-                                value={config.delta_threshold_mgdl}
-                                onChange={e => handleChange('delta_threshold_mgdl', e.target.value)}
+                                value={premealConfig.delta_threshold_mgdl}
+                                onChange={e => handlePremealChange('delta_threshold_mgdl', e.target.value)}
                                 placeholder="2"
                             />
                         </div>
                         <p className="text-xs text-muted" style={{ marginTop: '-0.5rem' }}>
-                            Se activa si Glucosa {'>'} {config.bg_threshold_mgdl} Y Delta {'>'} +{config.delta_threshold_mgdl}.
+                            Se activa si Glucosa {'>'} {premealConfig.bg_threshold_mgdl} Y Delta {'>'} +{premealConfig.delta_threshold_mgdl}.
                         </p>
 
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
                             <Input
                                 label="Ventana Análisis (min)"
                                 type="number"
-                                value={config.window_minutes}
-                                onChange={e => handleChange('window_minutes', e.target.value)}
+                                value={premealConfig.window_minutes}
+                                onChange={e => handlePremealChange('window_minutes', e.target.value)}
                             />
                             <Input
                                 label="Silenciar tras aviso (min)"
                                 type="number"
-                                value={config.silence_minutes}
-                                onChange={e => handleChange('silence_minutes', e.target.value)}
+                                value={premealConfig.silence_minutes}
+                                onChange={e => handlePremealChange('silence_minutes', e.target.value)}
+                            />
+                        </div>
+                    </div>
+                )}
+            </div>
+
+            {/* COMBO FOLLOWUP SECTION */}
+            <div style={{ background: '#f8fafc', padding: '1rem', borderRadius: '8px', border: '1px solid #e2e8f0', marginBottom: '1rem' }}>
+                <h4 style={{ margin: '0 0 1rem 0', color: '#334155' }}>🔁 Combo Follow-up</h4>
+                <p className="text-xs text-muted" style={{ marginBottom: '1rem' }}>
+                   Pregunta si quieres registrar la 2ª parte de un bolo extendido si ha pasado tiempo.
+                </p>
+
+                <label style={{ display: 'flex', alignItems: 'center', gap: '0.8rem', fontWeight: 600, color: comboConfig.enabled ? '#0f172a' : '#64748b', cursor: 'pointer', marginBottom: '1rem' }}>
+                    <input
+                        type="checkbox"
+                        checked={comboConfig.enabled}
+                        onChange={e => handleComboChange('enabled', e.target.checked)}
+                        style={{ width: '1.2rem', height: '1.2rem' }}
+                    />
+                    Activar Recordatorio 2ª Parte
+                </label>
+
+                {comboConfig.enabled && (
+                    <div className="stack" style={{ gap: '1rem' }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                             <Input
+                                label="Esperar tras bolo (min)"
+                                type="number"
+                                min="5"
+                                max="480"
+                                value={comboConfig.delay_minutes}
+                                onChange={e => handleComboChange('delay_minutes', e.target.value)}
+                                placeholder="120"
+                            />
+                            <Input
+                                label="Mirar últimos (horas)"
+                                type="number"
+                                min="1"
+                                max="24"
+                                value={comboConfig.window_hours}
+                                onChange={e => handleComboChange('window_hours', e.target.value)}
+                            />
+                        </div>
+                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                             <Input
+                                label="Silenciar / Cooldown (min)"
+                                type="number"
+                                min="0"
+                                max="720"
+                                value={comboConfig.silence_minutes}
+                                onChange={e => handleComboChange('silence_minutes', e.target.value)}
                             />
                         </div>
                     </div>
