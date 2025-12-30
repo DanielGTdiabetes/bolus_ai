@@ -48,16 +48,16 @@ async def _get_ns_client(user_id: str) -> Optional[NightscoutClient]:
         return NightscoutClient(cfg.url, cfg.api_secret, timeout_seconds=8)
 
 
-async def basal_reminder(bot) -> None:
-    if bot is None:
-        return
-
-    # TODO: map Telegram chat_id to username/user_id once multi-user support exists.
-    user_id = "admin"
-
-    try:
+async def basal_reminder(username: str = "admin", chat_id: Optional[int] = None) -> None:
+    # 1. Resolve Chat ID
+    if chat_id is None:
         chat_id = await _get_chat_id()
-        if not chat_id or not cooldowns.is_ready("basal", COOLDOWN_MINUTES["basal"] * 60):
+    
+    if not chat_id:
+        return
+        
+    try:
+        if not cooldowns.is_ready("basal", COOLDOWN_MINUTES["basal"] * 60):
             return
 
         engine = get_engine()
@@ -107,10 +107,9 @@ async def basal_reminder(bot) -> None:
             logger.debug("Unable to record bot health error for basal reminder.")
 
 
-async def premeal_nudge(bot) -> None:
-    if bot is None:
-        return
-    chat_id = await _get_chat_id()
+async def premeal_nudge(username: str = "admin", chat_id: Optional[int] = None) -> None:
+    if chat_id is None:
+        chat_id = await _get_chat_id()
     if not chat_id or not cooldowns.is_ready("premeal", COOLDOWN_MINUTES["premeal"] * 60):
         return
     user_id = "admin"
@@ -146,7 +145,7 @@ async def premeal_nudge(bot) -> None:
             [InlineKeyboardButton("⏳ Luego", callback_data="ignore")],
         ]
         await _send(
-            bot,
+            None, # bot resolved internally
             chat_id,
             reply.text,
             log_context="proactive_premeal",
@@ -154,10 +153,9 @@ async def premeal_nudge(bot) -> None:
         )
 
 
-async def combo_followup(bot) -> None:
-    if bot is None:
-        return
-    chat_id = await _get_chat_id()
+async def combo_followup(username: str = "admin", chat_id: Optional[int] = None) -> None:
+    if chat_id is None:
+        chat_id = await _get_chat_id()
     if not chat_id or not cooldowns.is_ready("combo", COOLDOWN_MINUTES["combo"] * 60):
         return
     settings = get_settings()
@@ -190,17 +188,16 @@ async def combo_followup(bot) -> None:
     
     if reply and reply.text:
         await _send(
-            bot,
-            chat_id,
-            reply.text,
-            log_context="proactive_combo",
-        )
+        None,
+        chat_id,
+        "⏳ Seguimiento de bolo extendido. ¿Cómo va la glucosa? Responde con valor o usa /start.",
+        log_context="proactive_combo",
+    )
 
 
-async def morning_summary(bot) -> None:
-    if bot is None:
-        return
-    chat_id = await _get_chat_id()
+async def morning_summary(username: str = "admin", chat_id: Optional[int] = None) -> None:
+    if chat_id is None:
+        chat_id = await _get_chat_id()
     if not chat_id or not cooldowns.is_ready("morning", COOLDOWN_MINUTES["morning"] * 60):
         return
     user_id = "admin"
@@ -237,10 +234,10 @@ async def morning_summary(bot) -> None:
     )
     
     if reply and reply.text:
-        await _send(bot, chat_id, reply.text, log_context="proactive_morning")
+        await _send(None, chat_id, reply.text, log_context="proactive_morning")
 
 
-async def light_guardian(bot) -> None:
+async def light_guardian(username: str = "admin", chat_id: Optional[int] = None) -> None:
     """
     Wrapper around existing glucose monitor job using same bot instance.
     """
