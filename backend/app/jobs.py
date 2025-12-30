@@ -137,24 +137,19 @@ def setup_periodic_tasks():
         from app.bot import proactive
         from app.bot import service as bot_service
         async def _run_morning():
-            bot_app = bot_service.get_bot_application()
-            bot = bot_app.bot if bot_app else None
-            await jobs_state.run_job("morning_summary", proactive.morning_summary, bot)
+            # bot is not needed anymore, internally resolved or passed explicitly to loggers if needed
+            # proactive functions signature: (username="admin", chat_id=None)
+            await jobs_state.run_job("morning_summary", proactive.morning_summary)
 
         async def _run_basal():
-            bot_app = bot_service.get_bot_application()
-            bot = bot_app.bot if bot_app else None
-            await jobs_state.run_job("basal", proactive.basal_reminder, bot)
+            await jobs_state.run_job("basal", proactive.basal_reminder)
 
         async def _run_premeal():
-            bot_app = bot_service.get_bot_application()
-            bot = bot_app.bot if bot_app else None
-            await jobs_state.run_job("premeal", proactive.premeal_nudge, bot)
+            await jobs_state.run_job("premeal", proactive.premeal_nudge)
 
         async def _run_combo():
-            bot_app = bot_service.get_bot_application()
-            bot = bot_app.bot if bot_app else None
-            await proactive.combo_followup(bot)
+             # combo_followup might also follow the pattern
+            await proactive.combo_followup()
 
         schedule_task(_run_morning, CronTrigger(hour=8, minute=5), "morning_summary")
         jobs_state.refresh_next_run("morning_summary")
