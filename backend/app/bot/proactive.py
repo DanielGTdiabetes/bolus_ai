@@ -52,6 +52,9 @@ async def basal_reminder(username: str = "admin", chat_id: Optional[int] = None)
         health.record_action("job:basal", False, error=f"config_load_error: {e}")
         return
 
+    if not user_settings.bot.enabled:
+        return
+
     if not basal_conf.enabled:
         return
 
@@ -495,6 +498,9 @@ async def combo_followup(username: str = "admin", chat_id: Optional[int] = None)
         health.record_event("combo_followup", False, f"config_load_err: {e}")
         return
 
+    if not user_settings.bot.enabled:
+        return
+
     # Helper to route safely at exit
     from app.bot.llm import router
     
@@ -884,6 +890,9 @@ async def trend_alert(username: str = "admin", chat_id: Optional[int] = None, tr
         return
 
     # Check Enabled
+    if not user_settings.bot.enabled:
+        return
+
     if not conf.enabled and trigger == "auto":
         return
 

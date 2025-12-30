@@ -865,6 +865,7 @@ function BotPanel() {
         recent_carbs_minutes: 180
     });
 
+    const [botEnabled, setBotEnabled] = useState(true);
     const [loading, setLoading] = useState(true);
     const [status, setStatus] = useState(null);
 
@@ -872,6 +873,8 @@ function BotPanel() {
         import('../modules/core/store').then(({ getCalcParams }) => {
             const params = getCalcParams() || {};
             // Safely access deep property
+            setBotEnabled(params.bot?.enabled !== false);
+
             const proactive = params.bot?.proactive || {};
 
             if (proactive.premeal) {
@@ -918,6 +921,7 @@ function BotPanel() {
                 ...current,
                 bot: {
                     ...(current.bot || {}),
+                    enabled: botEnabled,
                     proactive: {
                         ...(current.bot?.proactive || {}),
                         premeal: premealConfig,
@@ -940,6 +944,22 @@ function BotPanel() {
             <p className="text-muted text-sm">
                 Configura los comportamientos proactivos del asistente.
             </p>
+
+            {/* MASTER SWITCH */}
+            <div style={{ background: '#fff', padding: '1rem', borderRadius: '8px', border: '1px solid #cbd5e1', marginBottom: '1.5rem', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '0.8rem', fontWeight: 700, fontSize: '1.1rem', cursor: 'pointer', color: botEnabled ? '#166534' : '#64748b' }}>
+                    <input
+                        type="checkbox"
+                        checked={botEnabled}
+                        onChange={e => setBotEnabled(e.target.checked)}
+                        style={{ width: '1.4rem', height: '1.4rem' }}
+                    />
+                    {botEnabled ? "🟢 Bot Activado" : "🔴 Bot Desactivado"}
+                </label>
+                <div style={{ fontSize: '0.85rem', color: '#64748b', marginTop: '0.5rem', marginLeft: '2.2rem' }}>
+                    Interruptor maestro. Si está desactivado, el bot no responderá a nada ni enviará alertas.
+                </div>
+            </div>
 
             {/* PREMEAL SECTION */}
             <div style={{ background: '#f8fafc', padding: '1rem', borderRadius: '8px', border: '1px solid #e2e8f0', marginBottom: '1rem' }}>

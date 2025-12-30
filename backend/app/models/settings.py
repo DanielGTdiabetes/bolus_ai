@@ -183,6 +183,7 @@ class ProactiveConfig(BaseModel):
     trend_alert: TrendAlertConfig = Field(default_factory=TrendAlertConfig)
 
 class BotConfig(BaseModel):
+    enabled: bool = Field(default=True, description="Master switch for the Telegram Bot")
     proactive: ProactiveConfig = Field(default_factory=ProactiveConfig)
 
 

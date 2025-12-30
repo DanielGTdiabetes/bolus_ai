@@ -521,6 +521,22 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     """Text Handler - The Python Router."""
     if not await _check_auth(update, context): return
     
+    # Check Master Switch
+    try:
+        user_settings = await get_bot_user_settings()
+        if not user_settings.bot.enabled:
+             # Only allow specific commands or silence?
+             # Let's silence or short reply.
+             # Check if it is a command we might want to allow? No, "Totalmente desactivado".
+             # But /start should probably work to at least say "I am here but disabled".
+             if update.message.text and update.message.text.startswith("/"):
+                 pass # Allow commands to potentially proceed or just generic reply.
+                 # Actually, let's just block text chat with a message.
+             await reply_text(update, context, "😴 Bot desactivado desde la App.")
+             return
+    except Exception as e:
+        logger.error(f"Failed to check bot status: {e}")
+
     text = update.message.text
     if not text: return
 
