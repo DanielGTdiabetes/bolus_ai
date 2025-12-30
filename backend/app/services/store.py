@@ -83,12 +83,22 @@ class DataStore:
         with path.open("w", encoding="utf-8") as fh:
             json.dump(data, fh, indent=2, ensure_ascii=False)
 
-    def load_settings(self) -> UserSettings:
-        raw = self.read_json("settings.json", UserSettings.default().model_dump())
+    def load_settings(self, username: str = "admin") -> UserSettings:
+        # Backward compatibility: "admin" maps to settings.json
+        # New users map to settings_<username>.json
+        filename = "settings.json"
+        if username and username != "admin":
+             filename = f"settings_{username}.json"
+             
+        raw = self.read_json(filename, UserSettings.default().model_dump())
         return UserSettings.migrate(raw)
 
-    def save_settings(self, settings: UserSettings) -> UserSettings:
-        self.write_json("settings.json", settings.model_dump())
+    def save_settings(self, settings: UserSettings, username: str = "admin") -> UserSettings:
+        filename = "settings.json"
+        if username and username != "admin":
+             filename = f"settings_{username}.json"
+             
+        self.write_json(filename, settings.model_dump())
         return settings
 
     def load_events(self) -> list[dict[str, Any]]:

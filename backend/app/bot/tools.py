@@ -115,9 +115,30 @@ def _build_ns_client(settings: UserSettings | None) -> Optional[NightscoutClient
 async def _load_user_settings(username: str = "admin") -> UserSettings:
     settings = get_settings()
     store = DataStore(Path(settings.data.data_dir))
-    # Todo: support multi-user loading from store if applicable
-    # content = store.get_user(username) ...
-    return store.load_settings()
+    
+    # Base settings from file
+    user_settings = store.load_settings(username)
+    
+    # Overlay from DB Secrets if available (Source of Truth for connection)
+    try:
+        from app.services.nightscout_secrets_service import get_ns_config
+        # We need a session? get_ns_config requires session?
+        # Check signature of get_ns_config.
+        # If it requires session, we need to create one.
+        from app.core.db import get_engine, AsyncSession
+        engine = get_engine()
+        if engine:
+             async with AsyncSession(engine) as session:
+                 ns_conf = await get_ns_config(session, username)
+                 if ns_conf:
+                      user_settings.nightscout.url = ns_conf.url
+                      user_settings.nightscout.token = ns_conf.api_secret
+                      # Also set proactively.basal settings if we have them in DB? 
+                      # For now just NS connection is critical for premeal.
+    except Exception as e:
+        logger.warning(f"Failed to overlay DB settings for {username}: {e}")
+        
+    return user_settings
 
 
 async def get_status_context(username: str = "admin", user_settings: Optional[UserSettings] = None) -> StatusContext | ToolError:
