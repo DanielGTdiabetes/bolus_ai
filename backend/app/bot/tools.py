@@ -173,7 +173,8 @@ async def get_status_context(username: str = "admin", user_settings: Optional[Us
             bg_val = float(sgv.sgv)
             direction = sgv.direction or None
             delta = sgv.delta
-            timestamp_str = sgv.dateString or timestamp_str
+            ts = datetime.fromtimestamp(sgv.date / 1000, timezone.utc)
+            timestamp_str = ts.isoformat()
             quality = "live"
         except Exception as exc:
             logger.warning("NS sgv fetch failed: %s", exc)
