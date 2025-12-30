@@ -529,6 +529,32 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await reply_text(update, context, "pong")
         return
 
+    # 0. Intercept Pending Inputs (Manual Bolus Edit)
+    pending_bolus_req = context.user_data.get("editing_bolus_request")
+    if pending_bolus_req:
+        try:
+            val = float(text.replace(",", "."))
+            del context.user_data["editing_bolus_request"]
+            
+            # Confirm Card
+            keyboard = [
+                [
+                    InlineKeyboardButton(f"✅ Confirmar {val} U", callback_data=f"accept_manual|{val}|{pending_bolus_req}"),
+                    InlineKeyboardButton("❌ Cancelar", callback_data=f"cancel|{pending_bolus_req}")
+                ]
+            ]
+            await reply_text(
+                update, 
+                context, 
+                f"¿Confirmas el cambio a **{val} U**?", 
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode="Markdown"
+            )
+            return
+        except ValueError:
+            await reply_text(update, context, "⚠️ Por favor, introduce un número válido.")
+            return
+
     # 0. Intercept Pending Inputs (Combo Followup)
     pending_combo_tid = context.user_data.get("pending_combo_tid")
     if pending_combo_tid:
@@ -911,6 +937,7 @@ async def _handle_add_treatment_tool(update: Update, context: ContextTypes.DEFAU
     keyboard = [
         [
             InlineKeyboardButton(f"✅ Poner {rec.total_u_final} U", callback_data=f"accept|{request_id}"),
+            InlineKeyboardButton("✏️ Editar", callback_data=f"edit_dose|{rec.total_u_final}|{request_id}"),
             InlineKeyboardButton("❌ Cancelar", callback_data=f"cancel|{request_id}")
         ]
     ]
@@ -1346,7 +1373,7 @@ async def _mark_update_handler(update: Update, context: ContextTypes.DEFAULT_TYP
     """Passive handler to mark last update time without altering behaviour."""
     health.mark_update()
 
-async def on_new_meal_received(carbs: float, source: str) -> None:
+async def on_new_meal_received(carbs: float, fat: float, protein: float, source: str) -> None:
     """
     Called by integrations.py when a new meal is ingested.
     Triggers a proactive notification.
@@ -1359,11 +1386,18 @@ async def on_new_meal_received(carbs: float, source: str) -> None:
     if not chat_id:
         return
 
-    logger.info(f"Bot proactively notifying meal: {carbs}g from {source}")
+    logger.info(f"Bot proactively notifying meal: {carbs}g F:{fat} P:{protein} from {source}")
     now_utc = datetime.now(timezone.utc)
+    settings = get_settings()
+
+    # Warsaw Observability
+    try:
+        if hasattr(settings, "warsaw") and settings.warsaw.enabled:
+             if (fat or 0) + (protein or 0) < 1.0:
+                 logger.info("mfp_missing_kcal_warsaw_skipped: Low/Missing Fat/Protein data from MFP")
+    except Exception: pass
     
     # 1. Gather Context
-    settings = get_settings()
     store = DataStore(Path(settings.data.data_dir))
     user_settings = await get_bot_user_settings() # NEW (DB)
     
@@ -1371,23 +1405,17 @@ async def on_new_meal_received(carbs: float, source: str) -> None:
     iob_u = 0.0
     ns_client = None
     
-    # Init NS Client
     # Init NS Client & Fetch BG
     if user_settings.nightscout.url:
-        # Check enabled flag but proceed if URL exists (warn if disabled)
-        if not user_settings.nightscout.enabled:
-            logger.warning("Nightscout is DISABLED in settings but URL is present. Bot will try to use it.")
-            
+        # Check enabled flag but proceed if URL exists
         ns_client = NightscoutClient(
             base_url=user_settings.nightscout.url, 
             token=user_settings.nightscout.token,
-            timeout_seconds=10 # More generous timeout for background job
+            timeout_seconds=10 
         )
-        logger.info(f"Bot connecting to NS: {user_settings.nightscout.url}")
     elif settings.nightscout.base_url:
          # Fallback to Env
          ns_client = NightscoutClient(str(settings.nightscout.base_url), settings.nightscout.token)
-         logger.info("Bot connecting to NS (Env Fallback)")
     
     try:
         # Fetch BG
@@ -1398,7 +1426,6 @@ async def on_new_meal_received(carbs: float, source: str) -> None:
                 logger.info(f"Bot obtained BG: {bg_val}")
             except Exception as e:
                 logger.error(f"Bot failed to get latest SGV: {e}")
-                # Don't crash, proceed with BG=None
 
         # 1.1 DB Fallback for Glucose (SGV)
         if bg_val is None:
@@ -1407,27 +1434,13 @@ async def on_new_meal_received(carbs: float, source: str) -> None:
                 if engine:
                     async with AsyncSession(engine) as session:
                         from sqlalchemy import text
-                        # Try fetch local SGV if entries table exists
-                        # "entries" table might store SGV from background jobs
-                        stmt = text("SELECT sgv, date_string FROM entries ORDER BY date_string DESC LIMIT 1") 
-                        # Note: date_string is string ISO. or `date` (epoch). 
-                        # Assuming entries table mirrors NS schema roughly or app schema.
-                        # If "entries" doesn't exist, this throws.
-                        
-                        try:
-                            row = (await session.execute(stmt)).fetchone()
-                            if row:
-                                bg_val = float(row.sgv)
-                                logger.info(f"Bot obtained BG from LOCAL DB: {bg_val}")
-                        except Exception:
-                            # Table might not exist or be empty
-                            pass
-            except Exception as e:
-                 logger.warning(f"DB SGV Fallback failed: {e}")
+                        stmt = text("SELECT sgv FROM entries ORDER BY date_string DESC LIMIT 1") 
+                        row = (await session.execute(stmt)).fetchone()
+                        if row:
+                            bg_val = float(row.sgv)
+            except Exception: pass
             
         # Calc IOB
-        # Note: compute_iob_from_sources will use the client we passed.
-        # We must keep it open.
         try:
             iob_u, _, _, _ = await compute_iob_from_sources(now_utc, user_settings, ns_client, store)
         except Exception as e:
@@ -1461,6 +1474,8 @@ async def on_new_meal_received(carbs: float, source: str) -> None:
     
     req_v2 = BolusRequestV2(
         carbs_g=carbs,
+        fat_g=fat,
+        protein_g=protein,
         meal_slot=slot,
         current_bg=bg_val,
         target_mgdl=user_settings.targets.mid
@@ -1477,41 +1492,39 @@ async def on_new_meal_received(carbs: float, source: str) -> None:
     SNAPSHOT_STORAGE[request_id] = {
         "rec": rec,
         "carbs": carbs,
+        "fat": fat,
+        "protein": protein,
         "source": source,
         "ts": datetime.now()
     }
 
-    # 3. Message (Strict Format)
+    # 3. Message (Strict Format matching Core Engine)
     # -----------------------------------------------------
     rec_u = rec.total_u_final
     
     lines = []
-    lines.append(f"🥗 **Nueva Comida Detectada** ({source})")
-    lines.append(f"Sugerencia: **{rec_u} U**")
+    lines.append(f"🍽️ **Nueva Comida Detectada** (MFP)")
+    lines.append("")
+    lines.append(f"Resultado: **{rec_u} U**")
+    lines.append("")
     
-    # A) Carbs
-    if carbs > 0:
-        lines.append(f"- Carbos: {carbs}g → {rec.meal_bolus_u:.2f} U")
+    # Use the explanation from the core engine to match App exactly
+    if rec.explain:
+        for ex in rec.explain:
+            lines.append(f"• {ex}")
+            
+    lines.append("")
+    lines.append(f"Redondeo final: {rec.total_u_raw:.2f} → {rec.total_u_final} U")
+    lines.append("")
+    lines.append(f"¿Registrar {rec_u} U?")
     
-    # B) Correction
-    if bg_val:
-        sign = "+" if rec.correction_u > 0 else ""
-        lines.append(f"- Corrección: {sign}{rec.correction_u:.2f} U ({bg_val:.0f} → {req_v2.target_mgdl:.0f})")
-    else:
-        lines.append("- Corrección: 0.0 U (Falta BG)")
-        
-    # C) IOB
-    if rec.iob_u > 0:
-        lines.append(f"- IOB: −{rec.iob_u:.2f} U")
-    
-    lines.append(f"(`{request_id}`)")
-
     msg_text = "\n".join(lines)
     
     keyboard = [
         [
-            InlineKeyboardButton(f"✅ Poner {rec_u} U", callback_data=f"accept_bolus_{request_id}"),
-            InlineKeyboardButton("❌ Ignorar", callback_data="ignore")
+            InlineKeyboardButton(f"✅ Poner {rec_u} U", callback_data=f"accept|{request_id}"),
+            InlineKeyboardButton("✏️ Editar", callback_data=f"edit_dose|{rec_u}|{request_id}"),
+            InlineKeyboardButton("❌ Ignorar", callback_data=f"cancel|{request_id}")
         ]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -1548,8 +1561,15 @@ async def btn_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
 async def _handle_snapshot_callback(query, data: str) -> None:
     try:
-        # Support "accept|{uuid}" (new) and "accept_bolus_{uuid}" (legacy)
-        if "|" in data:
+        units_override = None
+        
+        if data.startswith("accept_manual|"):
+            # accept_manual|units|uuid
+            parts = data.split("|")
+            units_override = float(parts[1])
+            request_id = parts[2]
+            is_accept = True
+        elif "|" in data:
             action_prefix, request_id = data.split("|", 1)
             is_accept = (action_prefix == "accept")
         else:
@@ -1573,10 +1593,10 @@ async def _handle_snapshot_callback(query, data: str) -> None:
         if "rec" in snapshot:
              rec: BolusResponseV2 = snapshot["rec"]
              carbs = snapshot["carbs"]
-             units = rec.total_u_final
+             units = units_override if units_override is not None else rec.total_u_final
         elif "units" in snapshot:
              # AI Router Snapshot
-             units = snapshot["units"]
+             units = units_override if units_override is not None else snapshot["units"]
              carbs = snapshot.get("carbs", 0)
         else:
              await query.edit_message_text("⚠️ Error: Snapshot irreconocible.")
@@ -1592,8 +1612,11 @@ async def _handle_snapshot_callback(query, data: str) -> None:
         if snapshot.get("source"):
              notes += f" ({snapshot['source']})"
         
+        fat = snapshot.get("fat", 0.0)
+        protein = snapshot.get("protein", 0.0)
+        
         # Execute Action
-        add_args = {"insulin": units, "carbs": carbs, "notes": notes}
+        add_args = {"insulin": units, "carbs": carbs, "fat": fat, "protein": protein, "notes": notes}
         result = await tools.add_treatment(add_args)
         
         base_text = query.message.text if query.message else ""
@@ -1646,7 +1669,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         return
 
     # 1. Routing Accept
-    if data.startswith("accept|"):
+    if data.startswith("accept"):
         await _handle_snapshot_callback(query, data)
         return
 
@@ -1654,6 +1677,20 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     if data.startswith("cancel|"):
         health.record_action("callback:cancel", True)
         await query.edit_message_text(text=f"❌ Cancelado (ref: {data.split('|')[-1]})")
+        return
+
+    # 3. Routing Edit (Manual Override)
+    if data.startswith("edit_dose|"):
+        try:
+            _, current_u, req_id = data.split("|")
+            context.user_data["editing_bolus_request"] = req_id
+            await query.edit_message_text(
+                text=f"{query.message.text}\n\n✏️ **Modo Edición**\nEscribe la nueva cantidad de insulina (sugerida: {current_u} U):",
+                parse_mode="Markdown"
+            )
+            health.record_action(f"callback:edit:{req_id}", True)
+        except Exception as e:
+            logger.error(f"Edit callback error: {e}")
         return
 
     # 2. Voice

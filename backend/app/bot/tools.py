@@ -88,6 +88,8 @@ class TempMode(BaseModel):
 class AddTreatmentRequest(BaseModel):
     carbs: Optional[float] = None
     insulin: Optional[float] = None
+    fat: Optional[float] = None
+    protein: Optional[float] = None
     notes: Optional[str] = None
 
 
@@ -382,6 +384,8 @@ async def add_treatment(tool_input: dict[str, Any]) -> AddTreatmentResult | Tool
                     user_id=user_id,
                     insulin=insulin,
                     carbs=carbs,
+                    fat=float(payload.fat or 0),
+                    protein=float(payload.protein or 0),
                     notes=notes,
                     entered_by="TelegramBot",
                     event_type="Correction Bolus" if carbs == 0 else "Meal Bolus",
@@ -395,6 +399,8 @@ async def add_treatment(tool_input: dict[str, Any]) -> AddTreatmentResult | Tool
                 user_id=user_id,
                 insulin=insulin,
                 carbs=carbs,
+                fat=float(payload.fat or 0),
+                protein=float(payload.protein or 0),
                 notes=notes,
                 entered_by="TelegramBot",
                 event_type="Correction Bolus" if carbs == 0 else "Meal Bolus",
