@@ -183,6 +183,7 @@ function CalcParamsPanel() {
         dinner: { icr: 10, isf: 50, target: 110 },
         snack: { icr: 10, isf: 50, target: 110 },
         absorption: { breakfast: 180, lunch: 180, dinner: 240, snack: 120 },
+        schedule: { breakfast_start_hour: 5, lunch_start_hour: 13, dinner_start_hour: 20 },
         dia_hours: 4,
         round_step_u: 0.5,
         max_bolus_u: 10,
@@ -256,6 +257,11 @@ function CalcParamsPanel() {
             }
         });
         clean.dia_hours = p(clean.dia_hours);
+        if (clean.schedule) {
+            clean.schedule.breakfast_start_hour = parseInt(clean.schedule.breakfast_start_hour);
+            clean.schedule.lunch_start_hour = parseInt(clean.schedule.lunch_start_hour);
+            clean.schedule.dinner_start_hour = parseInt(clean.schedule.dinner_start_hour);
+        }
         clean.max_bolus_u = p(clean.max_bolus_u);
 
         saveCalcParams(clean);
@@ -272,6 +278,7 @@ function CalcParamsPanel() {
 
     return (
         <div className="stack">
+            <SchedulePanel settings={params} onChange={setParams} />
             <h3 style={{ marginTop: 0 }}>Parámetros Clínicos</h3>
             <p className="text-muted text-sm warning-text">Ajusta con ayuda médica profesional.</p>
 
@@ -950,6 +957,35 @@ function BotPanel() {
     );
 }
 
+
+function SchedulePanel({ settings, onChange }) {
+    const s = settings.schedule || { breakfast_start_hour: 5, lunch_start_hour: 13, dinner_start_hour: 20 };
+
+    const update = (field, val) => {
+        const num = parseInt(val) || 0;
+        // Ensure within 0-23
+        const clamped = Math.min(23, Math.max(0, num));
+
+        onChange(prev => ({
+            ...prev,
+            schedule: { ...(prev.schedule || s), [field]: clamped }
+        }));
+    };
+
+    return (
+        <div style={{ background: '#f8fafc', padding: '1rem', borderRadius: '8px', border: '1px solid #e2e8f0', marginBottom: '1.5rem' }}>
+            <h4 style={{ marginTop: 0, marginBottom: '0.8rem', color: '#334155', fontSize: '1rem' }}>⏰ Horarios de Comidas (Inicio)</h4>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.8rem' }}>
+                <Input label="Desayuno (H)" type="number" value={s.breakfast_start_hour} onChange={e => update('breakfast_start_hour', e.target.value)} />
+                <Input label="Comida (H)" type="number" value={s.lunch_start_hour} onChange={e => update('lunch_start_hour', e.target.value)} />
+                <Input label="Cena (H)" type="number" value={s.dinner_start_hour} onChange={e => update('dinner_start_hour', e.target.value)} />
+            </div>
+            <p className="text-xs text-muted" style={{ marginTop: '0.5rem' }}>
+                Determina qué perfil (ICR/ISF) se aplica según la hora.
+            </p>
+        </div>
+    );
+}
 
 function LabsPanel() {
     const [enabled, setEnabled] = React.useState(false);

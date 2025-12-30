@@ -172,10 +172,17 @@ class InsulinSettings(BaseModel):
     pre_bolus_min: int = Field(default=15, description="Recommended wait time before eating after bolus")
 
 
+class MealSchedule(BaseModel):
+    breakfast_start_hour: int = Field(default=5, ge=0, le=23, description="Hora inicio Desayuno (0-23)")
+    lunch_start_hour: int = Field(default=13, ge=0, le=23, description="Hora inicio Comida (0-23)")
+    dinner_start_hour: int = Field(default=20, ge=0, le=23, description="Hora inicio Cena (0-23)")
+
+
 class UserSettings(BaseModel):
     schema_version: int = 1
     units: Literal["mg/dL"] = "mg/dL"
     targets: TargetRange = Field(default_factory=TargetRange)
+    schedule: MealSchedule = Field(default_factory=MealSchedule)
     cf: CorrectionFactors = Field(default_factory=lambda: CorrectionFactors(breakfast=30, lunch=30, dinner=30, snack=30)) # Default CF 30
     cr: MealFactors = Field(default_factory=MealFactors)
     max_bolus_u: float = 10.0
