@@ -55,78 +55,61 @@ async def basal_reminder(username: str = "admin", chat_id: Optional[int] = None)
     # 1. Resolve Chat ID
     final_chat_id = chat_id or basal_conf.chat_id or await _get_chat_id()
     if not final_chat_id:
-        health.record_event("basal", False, "missing_chat_id")
+        # health.record_event("basal", False, "missing_chat_id")
+        # Router can check this too, but we need it to CALL router.
         return
 
-    # 2. Check Persistence (Anti-spam)
+    # 2. Check Persistence (Pass to Router)
+    persistence_status = "ok"
+    persistence_reason = None
+    today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+    entry = None
     try:
         store = DataStore(Path(global_settings.data.data_dir))
         events = store.load_events()
-        # Key: Date localized to user? Basal acts on local day.
-        # Check Local Time for date string
-        # Assuming admin/default timezone Europe/Madrid for now or simple UTC date if user acts on UTC.
-        # Basal is checking local status usually.
-        # Let's use UTC date for key to be safe or local date if we knew it easily.
-        # Proactive runs often.
-        today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d") # Simplified
         
+        # Check today's status
         entry = next((e for e in events if e.get("type") == "basal_daily_status" and e.get("date") == today_str), None)
         
         if entry:
              st = entry.get("status")
              if st in ("done", "dismissed"):
-                 # health.record_event("basal", False, f"heuristic_already_{st}") 
-                 # Reduce noise: don't record every minute.
-                 return
-                 
-             if st == "snoozed":
+                 persistence_status = "blocked"
+                 persistence_reason = f"heuristic_already_{st}"
+             elif st == "snoozed":
                  until = entry.get("snooze_until")
                  if until:
                      try:
                          if datetime.now(timezone.utc) < datetime.fromisoformat(until):
-                             # health.record_event("basal", False, "heuristic_snoozed_until")
-                             return
+                             persistence_status = "blocked"
+                             persistence_reason = "heuristic_snoozed_until"
                      except: pass
     except Exception as e:
         logger.error(f"Basal persistence check failed: {e}")
 
-    # 3. Check Cooldown (System)
-    if not cooldowns.is_ready("basal", COOLDOWN_MINUTES["basal"] * 60):
-        # health.record_event("basal", False, "cooldown")
-        return
-
+    # 3. Fetch Deep Basal Context (Always needed for router decision)
     try:
-        # 4. Fetch Deep Basal Context
         from app.services import basal_context_service
         basal_ctx = await basal_context_service.get_basal_status(username, 0)
-        status = basal_ctx.status
+    except Exception as e:
+        logger.error(f"Basal context fetch failed: {e}")
+        return
 
-        # 5. Logic Branching
-        should_send = False
-        if status == "late":
-            should_send = True
-        elif status == "due_soon" and basal_conf.enabled: 
-            # Could prompt if enabled explicitly for soon?
-            # User requirement: "Cuando el router decida enviar recordatorio basal"
-            # Usually only on late? Or if we want to be proactive on time.
-            # Let's stick to 'late' for alerts, or 'due_soon' if we want reminder.
-            pass
-        
-        if not should_send:
-            # health.record_event("basal", False, f"status_{status}")
-            return
+    # 4. Context & Data Collection (BG/Trend)
+    status_res = await tools.execute_tool("get_status_context", {})
+    
+    # 5. Prepare Payload & Route (ALWAYS)
+    payload = {
+        "basal_status": basal_ctx.to_dict(),
+        "bg": getattr(status_res, "bg_mgdl", None),
+        "trend": getattr(status_res, "direction", None),
+        "today_str": today_str,
+        "persistence_status": persistence_status,
+        "persistence_reason": persistence_reason
+    }
 
-        # 6. Prepare Payload & Route
-        # Fetch Context (BG) for the message
-        status_res = await tools.execute_tool("get_status_context", {})
-        
-        payload = {
-            "basal_status": basal_ctx.to_dict(),
-            "bg": getattr(status_res, "bg_mgdl", None),
-            "trend": getattr(status_res, "direction", None),
-            "today_str": today_str # Pass this to callback logic
-        }
-
+    try:
         from app.bot.llm import router
 
         reply = await router.handle_event(
@@ -137,12 +120,7 @@ async def basal_reminder(username: str = "admin", chat_id: Optional[int] = None)
         )
         
         if reply and reply.text:
-            # Mark persistence as 'asked' if not exists?
-            # Or just send. The buttons will update persistence.
-            # Ideally mark 'asked' to avoid double sends if job runs again quickly?
-            # But COOLDOWN handles that.
-            
-            # Send (Router provides buttons now)
+            # Send
             await _send(
                 None,
                 final_chat_id,
@@ -150,13 +128,12 @@ async def basal_reminder(username: str = "admin", chat_id: Optional[int] = None)
                 log_context="proactive_basal",
                 reply_markup=InlineKeyboardMarkup(reply.buttons) if reply.buttons else None,
             )
-            # Mark event success
+            # Mark sent (Rules update)
             from app.bot.proactive_rules import mark_event_sent
-            mark_event_sent("basal") # Updates Cooldown
+            mark_event_sent("basal")
             
-            # Update Persistence to 'asked' to track state?
-            # Optional but good for UX (so "no hoy" works relative to "asked").
-            if not entry:
+            # Update Persistence to 'asked' to track state
+            if not entry and persistence_status == "ok":
                 events.append({
                     "type": "basal_daily_status",
                     "date": today_str,
@@ -166,7 +143,7 @@ async def basal_reminder(username: str = "admin", chat_id: Optional[int] = None)
                 store.save_events(events)
 
     except Exception as exc:
-        logger.error("Basal reminder failed: %s", exc)
+        logger.error("Basal routing failed: %s", exc)
         health.record_action("job:basal", False, error=str(exc))
 
 

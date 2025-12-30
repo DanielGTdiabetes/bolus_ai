@@ -347,6 +347,11 @@ async def handle_event(username: str, chat_id: int, event_type: str, payload: Di
     # 2. Manual Construction for Specific Events (Bypass LLM)
     if event_type == "morning_summary":
         mode = payload.get("mode", "full")
+    # 1. Observability: Mark seen immediately
+    health.mark_event_seen(event_type)
+
+    if event_type == "morning_summary":
+        mode = payload.get("mode", "full")  # full or alerts
         range_hours = payload.get("range_hours", 8)
         highlights = payload.get("highlights", [])
         
@@ -463,15 +468,38 @@ async def handle_event(username: str, chat_id: int, event_type: str, payload: Di
         return BotReply(text=text, buttons=buttons)
 
     if event_type == "basal":
+        # 1. Check Persistence Blocking
+        p_status = payload.get("persistence_status")
+        if p_status == "blocked":
+            reason = payload.get("persistence_reason", "heuristic_persistence_blocked")
+            health.record_event(event_type, False, reason)
+            return None
+
+        # 2. Check Logic Status
+        status_dict = payload.get("basal_status", {})
+        status = status_dict.get("status")
+        
+        if status == "taken_today":
+            health.record_event(event_type, False, "heuristic_already_taken")
+            return None
+        
+        if status == "not_due_yet":
+             health.record_event(event_type, False, "heuristic_not_due")
+             return None
+
+        # Allow 'late' or 'due_soon' (if enabled)
+        if status not in ["late", "due_soon"]:
+             # E.g. insufficient_history
+             health.record_event(event_type, False, f"heuristic_status_{status}")
+             return None
+
+        # 3. Check System Cooldown / Quiet Hours
         silence_res = rules.check_silence(event_type)
         if silence_res.should_silence:
             health.record_event(event_type, False, f"silenced_recent({event_type}, remaining={silence_res.remaining_min})")
             return None
 
         # Format Message
-        status_dict = payload.get("basal_status", {})
-        # Try to customize if we have dosage info?
-        # For now, generic reminder as requested.
         text = "🔔 **Recordatorio de Basal**\n\nEs hora de tu dosis diaria.\n¿Quieres registrarla?"
         
         buttons = [
