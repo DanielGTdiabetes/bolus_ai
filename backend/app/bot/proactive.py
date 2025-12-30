@@ -65,7 +65,13 @@ async def basal_reminder(bot) -> None:
 
         latest = await get_latest_basal_dose(user_id=user_id)
         if latest:
-            age_hours = (datetime.utcnow() - latest["created_at"]).total_seconds() / 3600
+            # Ensure safe comparison aware vs aware or naive vs naive
+            now_utc = datetime.now(timezone.utc)
+            created_at = latest["created_at"]
+            if created_at.tzinfo is None:
+                created_at = created_at.replace(tzinfo=timezone.utc)
+            
+            age_hours = (now_utc - created_at).total_seconds() / 3600
             if age_hours < 18:
                 return
         cooldowns.touch("basal")
@@ -138,8 +144,19 @@ async def combo_followup(bot) -> None:
     settings = get_settings()
     store = DataStore(Path(settings.data.data_dir))
     events = store.load_events()
-    now = datetime.utcnow()
-    pending = [e for e in events if e.get("type") == "combo" and datetime.fromisoformat(e["notify_at"]) <= now]
+    now_utc = datetime.now(timezone.utc)
+    
+    # Handle potentially naive stored dates gracefully (assume UTC if naive)
+    def parse_event_time(ts_str):
+        try:
+            dt = datetime.fromisoformat(ts_str)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return dt
+        except ValueError:
+            return now_utc + timedelta(days=365) # Filter out invalid
+
+    pending = [e for e in events if e.get("type") == "combo" and parse_event_time(e["notify_at"]) <= now_utc]
     if not pending:
         return
     cooldowns.touch("combo")
