@@ -52,6 +52,7 @@ async def basal_reminder(username: str = "admin", chat_id: Optional[int] = None)
         
     try:
         if not cooldowns.is_ready("basal", COOLDOWN_MINUTES["basal"] * 60):
+            health.record_event("basal_reminder", False, "cooldown")
             return
 
         # No local DB check for basal. Delegate to Router.
@@ -98,26 +99,34 @@ async def basal_reminder(username: str = "admin", chat_id: Optional[int] = None)
 async def premeal_nudge(username: str = "admin", chat_id: Optional[int] = None) -> None:
     if chat_id is None:
         chat_id = await _get_chat_id()
-    if not chat_id or not cooldowns.is_ready("premeal", COOLDOWN_MINUTES["premeal"] * 60):
+    if not chat_id:
         return
+
+    if not cooldowns.is_ready("premeal", COOLDOWN_MINUTES["premeal"] * 60):
+        health.record_event("premeal", False, "cooldown")
+        return
+        
+    # Use Tool for Context (No DB dependency here)
     # Use Tool for Context (No DB dependency here)
     try:
         status_res = await tools.execute_tool("get_status_context", {})
         if isinstance(status_res, tools.ToolError):
             return # Fail silently
             
-        # bg_mgdl, delta, direction
-        stats = status_res # It's a StatusContext object
-        
-        # Heuristic
-        if stats.bg_mgdl < 140 or (stats.delta or 0) < 2:
-            return
-            
-        payload = {"bg": stats.bg_mgdl, "trend": stats.direction, "delta": stats.delta}
-        
     except Exception as e:
         logger.error(f"Premeal check failed: {e}")
+        health.record_event("premeal", False, f"error_tool: {e}")
         return
+
+    # bg_mgdl, delta, direction
+    stats = status_res # It's a StatusContext object
+    
+    # Heuristic
+    if stats.bg_mgdl < 140 or (stats.delta or 0) < 2:
+        health.record_event("premeal", False, "heuristic_low_bg")
+        return
+        
+    payload = {"bg": stats.bg_mgdl, "trend": stats.direction, "delta": stats.delta}
 
     from app.bot.llm import router
 
@@ -145,7 +154,10 @@ async def premeal_nudge(username: str = "admin", chat_id: Optional[int] = None) 
 async def combo_followup(username: str = "admin", chat_id: Optional[int] = None) -> None:
     if chat_id is None:
         chat_id = await _get_chat_id()
-    if not chat_id or not cooldowns.is_ready("combo", COOLDOWN_MINUTES["combo"] * 60):
+    if not chat_id:
+        return
+    if not cooldowns.is_ready("combo", COOLDOWN_MINUTES["combo"] * 60):
+        health.record_event("combo_followup", False, "cooldown")
         return
     settings = get_settings()
     store = DataStore(Path(settings.data.data_dir))
@@ -187,7 +199,10 @@ async def combo_followup(username: str = "admin", chat_id: Optional[int] = None)
 async def morning_summary(username: str = "admin", chat_id: Optional[int] = None) -> None:
     if chat_id is None:
         chat_id = await _get_chat_id()
-    if not chat_id or not cooldowns.is_ready("morning", COOLDOWN_MINUTES["morning"] * 60):
+    if not chat_id:
+        return
+    if not cooldowns.is_ready("morning", COOLDOWN_MINUTES["morning"] * 60):
+        health.record_event("morning_summary", False, "cooldown")
         return
     # Use Tool
     try:
