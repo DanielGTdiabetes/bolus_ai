@@ -1160,6 +1160,31 @@ async def morning_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         mode=mode
     )
 
+async def run_glucose_monitor_job() -> None:
+    """
+    Lightweight wrapper to run the proactive glucose monitoring pipeline.
+    Keeps health metrics updated and no-ops when the bot is disabled.
+    """
+    logger.info("Running glucose monitor job...")
+    try:
+        user_settings = await context_builder.get_bot_user_settings_safe()
+    except Exception as exc:
+        logger.error("Glucose monitor job failed to load settings: %s", exc)
+        health.record_action("job:glucose_monitor", False, f"settings_error:{exc}")
+        return
+
+    if not user_settings.bot.enabled:
+        health.record_action("job:glucose_monitor", False, "bot_disabled")
+        return
+
+    try:
+        await proactive.trend_alert(trigger="auto")
+        health.record_action("job:glucose_monitor", True)
+    except Exception as exc:
+        logger.error("Glucose monitor job failed: %s", exc)
+        health.record_action("job:glucose_monitor", False, str(exc))
+        raise
+
 def create_bot_app() -> Application:
     """Factory to create and configure the PTB Application."""
     token = config.get_telegram_bot_token()
@@ -1959,7 +1984,6 @@ async def _handle_voice_callback(update, context):
     """Placeholder for voice confirmation logic."""
     query = update.callback_query
     await query.edit_message_text("Función de voz en mantenimiento.")
-
 
 
 
