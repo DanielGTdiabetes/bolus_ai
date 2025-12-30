@@ -131,6 +131,7 @@ class BotHealthState:
                 self.last_event_sent_at = None
                 self.last_cooldown_applied = cooldown_details
                 
+            self.last_event_seen_at = datetime.now(timezone.utc)
             self.last_update_at = datetime.now(timezone.utc)
 
     def get_last_error(self) -> Optional[str]:
