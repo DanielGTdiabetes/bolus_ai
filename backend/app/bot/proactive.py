@@ -679,3 +679,159 @@ async def light_guardian(username: str = "admin", chat_id: Optional[int] = None)
         await run_glucose_monitor_job()
     except Exception as exc:
         logger.warning("Guardian job failed: %s", exc)
+
+async def trend_alert(username: str = "admin", chat_id: Optional[int] = None, trigger: str = "auto") -> None:
+    # 1. Load User Config & Defaults
+    try:
+        user_settings = await context_builder.get_bot_user_settings_safe()
+        
+        # Load trend config (or default if missing)
+        if hasattr(user_settings.bot.proactive, "trend_alert"):
+            conf = user_settings.bot.proactive.trend_alert
+        else:
+             from app.models.settings import TrendAlertConfig
+             conf = TrendAlertConfig()
+             
+        global_settings = get_settings()
+        ns_url = user_settings.nightscout.url or global_settings.nightscout.base_url
+        ns_token = user_settings.nightscout.token or global_settings.nightscout.token
+    except Exception as e:
+        logger.error(f"TrendAlert config load failed: {e}")
+        health.record_event("trend_alert", False, f"config_error: {e}")
+        return
+
+    # Check Enabled
+    if not conf.enabled and trigger == "auto":
+        return
+
+    # Resolve Chat ID
+    if chat_id is None:
+        chat_id = await _get_chat_id()
+    if not chat_id:
+        return
+
+    # 2. Fetch Data (Nightscout)
+    from app.services.nightscout_client import NightscoutClient
+    
+    if not ns_url:
+        health.record_event("trend_alert", False, "missing_ns_config")
+        return
+
+    client = NightscoutClient(str(ns_url), ns_token)
+    entries = []
+    try:
+        now_utc = datetime.now(timezone.utc)
+        start_dt = now_utc - timedelta(minutes=conf.window_minutes)
+        # Fetch slightly more to be safe
+        entries = await client.get_sgv_range(start_dt, now_utc, count=20)
+    except Exception as e:
+        logger.error(f"TrendAlert NS fetch failed: {e}")
+        health.record_event("trend_alert", False, f"ns_error: {e}")
+        try: await client.aclose()
+        except: pass
+        return
+    finally:
+         try: await client.aclose()
+         except: pass
+
+    # 3. Analyze Trend
+    if not entries or len(entries) < conf.sample_points_min:
+         health.record_event("trend_alert", False, f"heuristic_insufficient_data(points={len(entries)}, min={conf.sample_points_min})")
+         return
+
+    # Sort ASC
+    entries_sorted = sorted(entries, key=lambda x: x.date)
+    values = [e.sgv for e in entries_sorted if e.sgv is not None]
+    if not values: return
+    
+    bg_first = values[0]
+    bg_last = values[-1]
+    
+    first_date = entries_sorted[0].date / 1000.0
+    last_date = entries_sorted[-1].date / 1000.0
+    minutes_diff = (last_date - first_date) / 60.0
+    
+    if minutes_diff < 5: # Too short duration
+         return
+
+    slope = (bg_last - bg_first) / minutes_diff
+    delta_total = bg_last - bg_first
+    
+    direction = "stable"
+    is_alert = False
+    
+    # Check Conditions
+    if slope >= conf.rise_mgdl_per_min and delta_total >= conf.min_delta_total_mgdl:
+        direction = "rise"
+        is_alert = True
+    elif slope <= conf.drop_mgdl_per_min and delta_total <= -conf.min_delta_total_mgdl:
+        direction = "drop"
+        is_alert = True
+        
+    if not is_alert:
+        health.record_event("trend_alert", False, f"heuristic_below_threshold(slope={slope:.2f}, delta={delta_total})")
+        return
+
+    # 4. Gating: Check Recent Treatments (Carbs/Bolus) from DB
+    from app.core.db import get_engine, AsyncSession
+    
+    engine = get_engine()
+    has_recent_carbs = False
+    has_recent_bolus = False
+    
+    # We check treatments in MAX(recent_carbs, recent_bolus) window
+    search_window = max(conf.recent_carbs_minutes, conf.recent_bolus_minutes)
+    cutoff = now_utc - timedelta(minutes=search_window)
+    
+    from app.models.treatment import Treatment
+    from sqlalchemy import select
+    
+    if engine:
+        try:
+            async with AsyncSession(engine) as session:
+                stmt = (
+                    select(Treatment)
+                    .where(Treatment.user_id == username)
+                    .where(Treatment.created_at >= cutoff.replace(tzinfo=None))
+                    .order_by(Treatment.created_at.desc())
+                )
+                res = await session.execute(stmt)
+                rows = res.scalars().all()
+                
+                # Check Carbs
+                for r in rows:
+                    c_time = r.created_at
+                    if c_time.tzinfo is None: c_time = c_time.replace(tzinfo=timezone.utc)
+                    c_mins = (now_utc - c_time).total_seconds() / 60.0
+                    
+                    if r.carbs and r.carbs > 0 and c_mins <= conf.recent_carbs_minutes:
+                         has_recent_carbs = True
+                    
+                    if r.insulin and r.insulin > 0 and c_mins <= conf.recent_bolus_minutes:
+                         has_recent_bolus = True
+        except Exception as e:
+            logger.error(f"Trend check DB error: {e}")
+            pass
+
+    # Evaluate Heuristics
+    if has_recent_carbs:
+         health.record_event("trend_alert", False, f"heuristic_recent_carbs(minutes={conf.recent_carbs_minutes})")
+         return
+         
+    if has_recent_bolus:
+         health.record_event("trend_alert", False, f"heuristic_recent_bolus(minutes={conf.recent_bolus_minutes})")
+         return
+
+    # 5. Dispatch
+    payload = {
+        "trigger": trigger,
+        "current_bg": bg_last,
+        "slope": round(slope, 2),
+        "delta_total": delta_total,
+        "window_minutes": int(minutes_diff),
+        "direction": direction,
+        "points_used": len(values)
+    }
+    
+    from app.bot.llm import router
+    await router.handle_event(username, chat_id, "trend_alert", payload)
