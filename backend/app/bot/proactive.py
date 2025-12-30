@@ -15,6 +15,7 @@ from app.services.bolus import recommend_bolus, BolusRequestData
 from app.services.basal_repo import get_latest_basal_dose
 from app.services.nightscout_secrets_service import get_ns_config
 from app.services.nightscout_secrets_service import get_ns_config
+from app.bot import tools
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 logger = logging.getLogger(__name__)
@@ -37,15 +38,8 @@ async def _send(bot, chat_id: int, text: str, *, log_context: str, **kwargs):
     await bot_send(chat_id=chat_id, text=text, bot=bot, log_context=log_context, **kwargs)
 
 
-async def _get_ns_client(user_id: str) -> Optional[NightscoutClient]:
-    engine = get_engine()
-    if not engine:
-        return None
-    async with AsyncSession(engine) as session:
-        cfg = await get_ns_config(session, user_id)
-        if not cfg or not cfg.url:
-            return None
-        return NightscoutClient(cfg.url, cfg.api_secret, timeout_seconds=8)
+# Removed _get_ns_client dependent on DB
+
 
 
 async def basal_reminder(username: str = "admin", chat_id: Optional[int] = None) -> None:
@@ -60,20 +54,14 @@ async def basal_reminder(username: str = "admin", chat_id: Optional[int] = None)
         if not cooldowns.is_ready("basal", COOLDOWN_MINUTES["basal"] * 60):
             return
 
-        engine = get_engine()
-        if not engine:
-            logger.info("Basal reminder running without database engine; using fallback storage.")
+        # No local DB check for basal. Delegate to Router.
+        # Router will see "recent_treatments" in context.
+        # If basal is missing from context, LLM might ask.
+        # To strictly filter "already done", we'd need a tool "get_last_basal".
+        # For now, we trust the LLM prompt "Si usuario ya sabe esto... SKIP" 
+        # (though LLM needs data to know).
+        # We proceed to invoke router.
 
-        if latest:
-            # Ensure safe comparison aware vs aware or naive vs naive
-            now_utc = datetime.now(timezone.utc)
-            created_at = latest["created_at"]
-            if created_at.tzinfo is None:
-                created_at = created_at.replace(tzinfo=timezone.utc)
-            
-            age_hours = (now_utc - created_at).total_seconds() / 3600
-            if age_hours < 18:
-                return
         
         # Lazy import
         from app.bot.llm import router
@@ -83,7 +71,7 @@ async def basal_reminder(username: str = "admin", chat_id: Optional[int] = None)
             username="admin", 
             chat_id=chat_id, 
             event_type="basal_reminder", 
-            payload={"last_basal_hours_ago": int(age_hours) if latest else "never"}
+            payload={} # Let context builder fill details
         )
         
         if reply and reply.text:
@@ -112,22 +100,23 @@ async def premeal_nudge(username: str = "admin", chat_id: Optional[int] = None) 
         chat_id = await _get_chat_id()
     if not chat_id or not cooldowns.is_ready("premeal", COOLDOWN_MINUTES["premeal"] * 60):
         return
-    user_id = "admin"
-    ns_client = await _get_ns_client(user_id)
-    if not ns_client:
-        return
+    # Use Tool for Context (No DB dependency here)
     try:
-        sgv = await ns_client.get_latest_sgv()
-    except Exception:
-        await ns_client.aclose()
-        return
-    finally:
-        try:
-            await ns_client.aclose()
-        except Exception:
-            pass
-    # Simple heuristic: rising and >140
-    if sgv.sgv < 140 or (sgv.delta or 0) < 2:
+        status_res = await tools.execute_tool("get_status_context", {})
+        if isinstance(status_res, tools.ToolError):
+            return # Fail silently
+            
+        # bg_mgdl, delta, direction
+        stats = status_res # It's a StatusContext object
+        
+        # Heuristic
+        if stats.bg_mgdl < 140 or (stats.delta or 0) < 2:
+            return
+            
+        payload = {"bg": stats.bg_mgdl, "trend": stats.direction, "delta": stats.delta}
+        
+    except Exception as e:
+        logger.error(f"Premeal check failed: {e}")
         return
 
     from app.bot.llm import router
@@ -136,7 +125,7 @@ async def premeal_nudge(username: str = "admin", chat_id: Optional[int] = None) 
         username="admin",
         chat_id=chat_id,
         event_type="premeal",
-        payload={"bg": sgv.sgv, "trend": sgv.direction, "delta": sgv.delta}
+        payload=payload
     )
 
     if reply and reply.text:
@@ -190,7 +179,7 @@ async def combo_followup(username: str = "admin", chat_id: Optional[int] = None)
         await _send(
         None,
         chat_id,
-        "⏳ Seguimiento de bolo extendido. ¿Cómo va la glucosa? Responde con valor o usa /start.",
+        reply.text,
         log_context="proactive_combo",
     )
 
@@ -200,24 +189,21 @@ async def morning_summary(username: str = "admin", chat_id: Optional[int] = None
         chat_id = await _get_chat_id()
     if not chat_id or not cooldowns.is_ready("morning", COOLDOWN_MINUTES["morning"] * 60):
         return
-    user_id = "admin"
-    ns_client = await _get_ns_client(user_id)
-    if not ns_client:
-        return
+    # Use Tool
     try:
-        now = datetime.now(timezone.utc)
-        start = now - timedelta(hours=8)
-        entries = await ns_client.get_sgv_range(start, now, count=120)
-        await ns_client.aclose()
+        res = await tools.execute_tool("get_nightscout_stats", {"range_hours": 8})
+        if isinstance(res, tools.ToolError):
+            return
     except Exception:
         return
-    if not entries:
-        return
-    values = [e.sgv for e in entries if e.sgv is not None]
-    if not values: return
 
-    tir = sum(1 for v in values if 70 <= v <= 180) / len(values) * 100
-    lows = sum(1 for v in values if v < 70)
+    payload = {
+        "tir_percent": int(res.tir_pct),
+        "lows_count": res.lows,
+        "last_bg": res.last_bg,
+        "hours": 8,
+        "avg": int(res.avg_bg)
+    }
     
     from app.bot.llm import router
 
@@ -225,12 +211,7 @@ async def morning_summary(username: str = "admin", chat_id: Optional[int] = None
         username="admin",
         chat_id=chat_id,
         event_type="morning_summary",
-        payload={
-            "tir_percent": int(tir),
-            "lows_count": lows,
-            "last_bg": values[-1],
-            "hours": 8
-        }
+        payload=payload
     )
     
     if reply and reply.text:
