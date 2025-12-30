@@ -271,15 +271,29 @@ async def premeal_nudge(username: str = "admin", chat_id: Optional[int] = None) 
         health.record_event("premeal", True, "sent")
 
 async def combo_followup(username: str = "admin", chat_id: Optional[int] = None) -> None:
-    settings = get_settings()
-    conf = settings.proactive.combo_followup
+    # 1. Load User Config (DB Overlay)
+    try:
+        user_settings = await context_builder.get_bot_user_settings_safe()
+        # Ensure we have the structure, though model_validate usually handles defaults
+        if not user_settings.bot.proactive.combo_followup:
+             # Fallback if model missing field (should reflect Pydantic default)
+             from app.models.settings import ComboFollowupConfig
+             conf = ComboFollowupConfig()
+        else:
+             conf = user_settings.bot.proactive.combo_followup
+             
+        # Also need global settings for Nightscout Client fallback or data_dir
+        global_settings = get_settings()
+        
+    except Exception as e:
+        logger.error(f"Combo config load failed: {e}")
+        health.record_event("combo_followup", False, f"config_load_err: {e}")
+        return
 
     # Helper to route safely at exit
     from app.bot.llm import router
     
     async def _route(payload_inner: dict):
-        # Always resolve chat_id before routing only if we haven't yet?
-        # The router needs a chat_id. 
         cid = chat_id or await _get_chat_id()
         if not cid:
              return
@@ -290,26 +304,35 @@ async def combo_followup(username: str = "admin", chat_id: Optional[int] = None)
             payload=payload_inner
         )
 
-    # 1. Config Check
+    # 2. Config Check
     if not conf.enabled:
         await _route({"reason_hint": "heuristic_disabled"})
         return
 
-    # 2. Silence Check (Rules) - Let router handle this OR we hint it
-    # Ideally router.handle_event does check_silence, but we want to be explicit about reason
-    # if we already know it's "quiet hours" or "too soon" at job level?
-    # Router check_silence handles basic cooldowns.
-    # We will let Router check basic cooldowns.
-    # But for "Quiet Hours", it's specific to this job config, so we check it here.
-    
-    # Resolve Chat ID early for logic
+    # Resolve Chat ID
     final_chat_id = chat_id or await _get_chat_id()
     if not final_chat_id:
-        return # Cannot do anything without chat_id
+        return
 
-    # 3. Fetch Treatments
-    ns_url = settings.nightscout.base_url
-    ns_token = settings.nightscout.token
+    # 3. Check Silence (Rules)
+    # We pass explicit reason if needed, but Router also does cooldown check.
+    # We check Quiet Hours here if specific to combo.
+    from app.bot.proactive_rules import check_silence
+    # Note: check_silence reads Global Settings for quiet hours currently.
+    # We should trust UserSettings 'conf' here.
+    
+    if conf.quiet_hours_start and conf.quiet_hours_end:
+        from app.bot.proactive_rules import _is_quiet_hours
+        if _is_quiet_hours(conf.quiet_hours_start, conf.quiet_hours_end):
+             await _route({"reason_hint": "silenced_quiet_hours(combo_followup)"})
+             return
+
+    # 4. Fetch Treatments
+    # Use UserSettings NS config first, then Global
+    ns_url = user_settings.nightscout.url or global_settings.nightscout.base_url
+    # Note: UserSettings token is usually api_secret, global is token.
+    ns_token = user_settings.nightscout.token or global_settings.nightscout.token
+    
     if not ns_url:
          await _route({"reason_hint": "missing_ns_config"})
          return
@@ -329,7 +352,7 @@ async def combo_followup(username: str = "admin", chat_id: Optional[int] = None)
         await _route({"reason_hint": f"ns_error: {fetch_error}"})
         return
 
-    # 4. Find Candidate
+    # 5. Find Candidate
     treatments.sort(key=lambda x: x.created_at, reverse=True)
     candidate = None
     for t in treatments:
@@ -341,8 +364,8 @@ async def combo_followup(username: str = "admin", chat_id: Optional[int] = None)
         await _route({"reason_hint": "heuristic_no_candidate_bolus"})
         return
 
-    # 5. Check Persistence
-    store = DataStore(Path(settings.data.data_dir))
+    # 6. Check Persistence
+    store = DataStore(Path(global_settings.data.data_dir))
     events = store.load_events()
     tid = candidate.id
     if not tid:
@@ -356,21 +379,20 @@ async def combo_followup(username: str = "admin", chat_id: Optional[int] = None)
         should_skip = True
         
         if status == "snoozed":
-             # Check snooze time
              snooze_str = previous_record.get("snooze_until")
              if snooze_str:
                  try:
                      sno = datetime.fromisoformat(snooze_str)
                      if sno.tzinfo is None: sno = sno.replace(tzinfo=timezone.utc)
                      if datetime.now(timezone.utc) >= sno:
-                         should_skip = False # Snooze expired, re-ask?
-                 except: pass # invalid, skip
+                         should_skip = False 
+                 except: pass
         
         if should_skip:
             await _route({"reason_hint": "heuristic_already_followed_up"})
             return
 
-    # 6. Check Time & Rules
+    # 7. Check Time
     now_utc = datetime.now(timezone.utc)
     ts = candidate.created_at
     if ts.tzinfo is None: ts = ts.replace(tzinfo=timezone.utc)
@@ -380,49 +402,24 @@ async def combo_followup(username: str = "admin", chat_id: Optional[int] = None)
     if diff_min < conf.delay_minutes:
          await _route({
              "reason_hint": f"heuristic_too_soon(minutes_since={int(diff_min)}, delay={conf.delay_minutes})",
-             "treatment_id": tid
+             "minutes_since": int(diff_min),
+             "delay_minutes": conf.delay_minutes
          })
          return
 
-    # 7. Valid Candidate -> Pass to Router (Router will do Silence/Cooldown check)
+    # 8. Success: Candidate Eligible
+    # Do NOT send message yet. Log as eligible_candidate.
     payload = {
+        "reason_hint": "eligible_candidate",
         "treatment_id": tid,
         "bolus_units": candidate.insulin,
-        "timestamp": ts.isoformat(),
+        "bolus_at": ts.isoformat(),
         "minutes_since": int(diff_min),
-        "carbs": candidate.carbs
+        "delay_minutes": conf.delay_minutes
     }
     
-    reply = await router.handle_event(
-        username=username,
-        chat_id=final_chat_id,
-        event_type="combo_followup",
-        payload=payload
-    )
-    
-    if reply and reply.text:
-        # Mark asked
-        events.append({
-             "type": "combo_followup_record",
-             "treatment_id": tid,
-             "status": "asked",
-             "asked_at": now_utc.isoformat()
-        })
-        store.save_events(events)
-        
-        keyboard = [
-            [InlineKeyboardButton("💉 Sí, registrar", callback_data=f"combo_yes|{tid}")],
-            [InlineKeyboardButton("❌ No", callback_data=f"combo_no|{tid}")],
-            [InlineKeyboardButton("⏰ +30 min", callback_data=f"combo_later|{tid}")]
-        ]
-        
-        await _send(
-            None,
-            final_chat_id,
-            reply.text,
-            log_context="proactive_combo",
-            reply_markup=InlineKeyboardMarkup(keyboard),
-        )
+    await _route(payload)
+    # End here. No message sent. No buttons.
 
 
 async def morning_summary(username: str = "admin", chat_id: Optional[int] = None) -> None:

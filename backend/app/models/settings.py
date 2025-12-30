@@ -154,9 +154,18 @@ class PremealConfig(BaseModel):
     username: str = "admin"
     chat_id: Optional[int] = None
 
+class ComboFollowupConfig(BaseModel):
+    enabled: bool = False
+    window_hours: int = 6
+    delay_minutes: int = 120
+    silence_minutes: int = 180
+    quiet_hours_start: Optional[str] = "23:00"
+    quiet_hours_end: Optional[str] = "07:00"
+
 class ProactiveConfig(BaseModel):
     basal: BasalReminderConfig = Field(default_factory=BasalReminderConfig)
     premeal: PremealConfig = Field(default_factory=PremealConfig)
+    combo_followup: ComboFollowupConfig = Field(default_factory=ComboFollowupConfig)
 
 class BotConfig(BaseModel):
     proactive: ProactiveConfig = Field(default_factory=ProactiveConfig)
