@@ -42,7 +42,7 @@ async def _send(bot, chat_id: int, text: str, *, log_context: str, **kwargs):
 
 
 
-async def basal_reminder(username: str = "admin", chat_id: Optional[int] = None) -> None:
+async def basal_reminder(username: str = "admin", chat_id: Optional[int] = None, force: bool = False) -> None:
     # 0. Load Config
     try:
         user_settings = await context_builder.get_bot_user_settings_safe()
@@ -130,7 +130,7 @@ async def basal_reminder(username: str = "admin", chat_id: Optional[int] = None)
             diff_min = (now_local - target_dt).total_seconds() / 60.0
             
             # Allow window: from -30 min (early warning) to +X hours (late)
-            if diff_min < -30:
+            if not force and diff_min < -30:
                 continue # Too early
                 
             # If it's effectively "tomorrow" because target is 23:00 and now is 01:00?
