@@ -349,12 +349,18 @@ async def handle_event(username: str, chat_id: int, event_type: str, payload: Di
         bolus_at = payload.get("bolus_at", "?")
         units = payload.get("bolus_units", "?")
         
-        # Try to parse date for friendly display
+        # Try to parse date for friendly display (Timezone Corrected)
         try:
             from datetime import datetime
+            import zoneinfo
+            # Assuming 'bolus_at' is ISO format from Nightscout (likely UTC or with offset)
             dt = datetime.fromisoformat(bolus_at.replace("Z", "+00:00"))
-            time_str = dt.strftime("%H:%M")
-        except:
+            
+            # Convert to Madrid
+            tz = zoneinfo.ZoneInfo("Europe/Madrid")
+            dt_local = dt.astimezone(tz)
+            time_str = dt_local.strftime("%H:%M")
+        except Exception:
             time_str = bolus_at
             
         text = (

@@ -403,16 +403,41 @@ async def combo_followup(username: str = "admin", chat_id: Optional[int] = None)
         await _route({"reason_hint": f"ns_error: {fetch_error}"})
         return
 
-    # 5. Find Candidate
+    # 5. Find Candidate (Strict Combo Gating)
     treatments.sort(key=lambda x: x.created_at, reverse=True)
     candidate = None
+    
+    def is_combo_bolus(t) -> bool:
+        # Must be a bolus with insulin
+        if not (t.insulin and t.insulin > 0) and t.eventType not in ("Meal Bolus", "Correction Bolus", "Bolus"):
+            return False
+            
+        # Check notes for markers
+        notes = (t.notes or "").lower()
+        markers = ["#dual", "#combo", "#extendido", "bolo_dual", "combo_followup"]
+        if any(m in notes for m in markers):
+            return True
+            
+        # Check metadata/JSON in notes if applicable (Nightscout sometimes puts JSON in notes)
+        # Or if "is_combo" is a separate field if we had full dict access, but NightscoutTreatment pydantic model 
+        # usually has 'notes'.
+        # Assuming notes is valid place.
+        return False
+
     for t in treatments:
-        if (t.insulin and t.insulin > 0) or t.eventType in ("Meal Bolus", "Correction Bolus", "Bolus"):
+        if is_combo_bolus(t):
             candidate = t
             break
             
     if not candidate:
-        await _route({"reason_hint": "heuristic_no_candidate_bolus"})
+        # Check if we have ANY bolus, just to distinguish "no bolus" vs "no combo bolus"
+        # Optional refinement, but user asked for "heuristic_not_combo_bolus"
+        # If there are boluses but none are combo, use that reason.
+        recent_bolus = next((t for t in treatments if (t.insulin and t.insulin > 0)), None)
+        if recent_bolus:
+             await _route({"reason_hint": "heuristic_not_combo_bolus"})
+        else:
+             await _route({"reason_hint": "heuristic_no_candidate_bolus"})
         return
 
     # 6. Check Persistence
