@@ -137,6 +137,21 @@ class VisionConfig(BaseModel):
 
 
 
+
+class BasalReminderConfig(BaseModel):
+    enabled: bool = False
+    time_local: Optional[str] = None  # HH:MM
+    expected_units: Optional[float] = None
+    username: str = "admin"
+    chat_id: Optional[int] = None
+
+class ProactiveConfig(BaseModel):
+    basal: BasalReminderConfig = Field(default_factory=BasalReminderConfig)
+
+class BotConfig(BaseModel):
+    proactive: ProactiveConfig = Field(default_factory=ProactiveConfig)
+
+
 class LabsConfig(BaseModel):
     shadow_mode_enabled: bool = False
 
@@ -168,6 +183,7 @@ class UserSettings(BaseModel):
     labs: LabsConfig = Field(default_factory=LabsConfig)
     absorption: MealDuration = Field(default_factory=MealDuration)
     autosens: AutosensConfig = Field(default_factory=AutosensConfig)
+    bot: BotConfig = Field(default_factory=BotConfig)
     
     # Internal field to track update time from DB, not part of user input JSON usually
     updated_at: Optional[datetime] = None
