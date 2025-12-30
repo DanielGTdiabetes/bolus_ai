@@ -28,11 +28,13 @@ export default function SettingsPage() {
                         <TabButton label="Análisis" active={activeTab === 'analysis'} onClick={() => setActiveTab('analysis')} />
                         <TabButton label="Datos" active={activeTab === 'data'} onClick={() => setActiveTab('data')} />
                         <TabButton label="Labs" active={activeTab === 'labs'} onClick={() => setActiveTab('labs')} />
+                        <TabButton label="Bot" active={activeTab === 'bot'} onClick={() => setActiveTab('bot')} />
                     </div>
 
                     {activeTab === 'ns' && <NightscoutPanel />}
                     {activeTab === 'calc' && <CalcParamsPanel />}
                     {activeTab === 'vision' && <VisionPanel />}
+                    {activeTab === 'bot' && <BotPanel />}
                     {activeTab === 'analysis' && <IsfAnalyzer />}
                     {activeTab === 'data' && <DataPanel />}
                     {activeTab === 'labs' && <LabsPanel />}
@@ -828,6 +830,126 @@ function VisionPanel() {
         </div>
     );
 }
+
+
+function BotPanel() {
+    const [config, setConfig] = useState({
+        enabled: true,
+        bg_threshold_mgdl: 150,
+        delta_threshold_mgdl: 2,
+        window_minutes: 60,
+        silence_minutes: 90
+    });
+    const [loading, setLoading] = useState(true);
+    const [status, setStatus] = useState(null);
+
+    useEffect(() => {
+        import('../modules/core/store').then(({ getCalcParams }) => {
+            const params = getCalcParams() || {};
+            // Safely access deep property
+            const premeal = params.bot?.proactive?.premeal;
+            if (premeal) {
+                setConfig(prev => ({ ...prev, ...premeal }));
+            }
+            setLoading(false);
+        });
+    }, []);
+
+    const handleChange = (field, value) => {
+        let val = value;
+        if (field !== 'enabled') {
+            val = parseInt(value) || 0;
+        }
+        setConfig(prev => ({ ...prev, [field]: val }));
+    };
+
+    const handleSave = () => {
+        import('../modules/core/store').then(({ getCalcParams, saveCalcParams }) => {
+            const current = getCalcParams() || {};
+            const newParams = {
+                ...current,
+                bot: {
+                    ...(current.bot || {}),
+                    proactive: {
+                        ...(current.bot?.proactive || {}),
+                        premeal: config
+                    }
+                }
+            };
+            saveCalcParams(newParams);
+            setStatus("✅ Configuración de Bot guardada.");
+            setTimeout(() => setStatus(null), 3000);
+        });
+    };
+
+    if (loading) return <div className="p-4 text-center">Cargando Bot...</div>;
+
+    return (
+        <div className="stack">
+            <h3 style={{ marginTop: 0 }}>Bot Proactivo (Telegram)</h3>
+            <p className="text-muted text-sm">
+                Configura cuándo el bot debe sugerir bolo pre-comida si detecta subida.
+            </p>
+
+            <div style={{ background: '#f8fafc', padding: '1rem', borderRadius: '8px', border: '1px solid #e2e8f0', marginBottom: '1rem' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '0.8rem', fontWeight: 600, color: config.enabled ? '#0f172a' : '#64748b', cursor: 'pointer', marginBottom: '1rem' }}>
+                    <input
+                        type="checkbox"
+                        checked={config.enabled}
+                        onChange={e => handleChange('enabled', e.target.checked)}
+                        style={{ width: '1.2rem', height: '1.2rem' }}
+                    />
+                    Activar Recordatorio Pre-Comida
+                </label>
+
+                {config.enabled && (
+                    <div className="stack" style={{ gap: '1rem' }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                            <Input
+                                label="Umbral Glucosa (mg/dL)"
+                                type="number"
+                                value={config.bg_threshold_mgdl}
+                                onChange={e => handleChange('bg_threshold_mgdl', e.target.value)}
+                                placeholder="150"
+                            />
+                            <Input
+                                label="Umbral Delta (+mg/dL)"
+                                type="number"
+                                value={config.delta_threshold_mgdl}
+                                onChange={e => handleChange('delta_threshold_mgdl', e.target.value)}
+                                placeholder="2"
+                            />
+                        </div>
+                        <p className="text-xs text-muted" style={{ marginTop: '-0.5rem' }}>
+                            Se activa si Glucosa {'>'} {config.bg_threshold_mgdl} Y Delta {'>'} +{config.delta_threshold_mgdl}.
+                        </p>
+
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                            <Input
+                                label="Ventana Análisis (min)"
+                                type="number"
+                                value={config.window_minutes}
+                                onChange={e => handleChange('window_minutes', e.target.value)}
+                            />
+                            <Input
+                                label="Silenciar tras aviso (min)"
+                                type="number"
+                                value={config.silence_minutes}
+                                onChange={e => handleChange('silence_minutes', e.target.value)}
+                            />
+                        </div>
+                    </div>
+                )}
+            </div>
+
+            <div style={{ marginTop: '0.5rem' }}>
+                <Button onClick={handleSave}>Guardar Configuración Bot</Button>
+            </div>
+            {status && <div className="text-teal text-center text-sm" style={{ marginTop: '1rem' }}>{status}</div>}
+        </div>
+    );
+}
+
 
 function LabsPanel() {
     const [enabled, setEnabled] = React.useState(false);
