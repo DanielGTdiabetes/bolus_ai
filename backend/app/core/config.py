@@ -139,3 +139,6 @@ def get_vision_timeout() -> int:
         return int(get_env("GEMINI_TIMEOUT_SECONDS") or get_env("VISION_TIMEOUT_SECONDS") or "60")
     except ValueError:
         return 60
+
+def get_bot_default_username() -> str:
+    return get_env("BOT_DEFAULT_USERNAME", "admin")

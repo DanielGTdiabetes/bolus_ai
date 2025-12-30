@@ -162,6 +162,11 @@ async def basal_reminder(username: str = "admin", chat_id: Optional[int] = None)
 
 
 async def premeal_nudge(username: str = "admin", chat_id: Optional[int] = None) -> None:
+    # Resolve default user
+    if username == "admin":
+        from app.core import config
+        username = config.get_bot_default_username()
+
     if chat_id is None:
         chat_id = await _get_chat_id()
     if not chat_id:
@@ -173,7 +178,8 @@ async def premeal_nudge(username: str = "admin", chat_id: Optional[int] = None) 
         
     # Use Tool for Context (No DB dependency here)
     try:
-        status_res = await tools.execute_tool("get_status_context", {})
+        # Pass explicit username from job context
+        status_res = await tools.execute_tool("get_status_context", {"username": username})
         if isinstance(status_res, tools.ToolError):
             health.record_event("premeal", False, f"error_tool: {status_res.message}")
             return

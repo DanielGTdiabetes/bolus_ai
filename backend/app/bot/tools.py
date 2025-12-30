@@ -112,42 +112,17 @@ def _build_ns_client(settings: UserSettings | None) -> Optional[NightscoutClient
     )
 
 
-async def _load_user_settings() -> UserSettings:
+async def _load_user_settings(username: str = "admin") -> UserSettings:
     settings = get_settings()
     store = DataStore(Path(settings.data.data_dir))
+    # Todo: support multi-user loading from store if applicable
+    # content = store.get_user(username) ...
     return store.load_settings()
 
 
-async def _resolve_user_id(session: AsyncSession | None = None) -> str:
-    engine = get_engine()
-    if not engine:
-        return "admin"
-
+async def get_status_context(username: str = "admin", user_settings: Optional[UserSettings] = None) -> StatusContext | ToolError:
     try:
-        if session:
-            from sqlalchemy import text
-
-            stmt = text("SELECT user_id FROM user_settings LIMIT 1")
-            row = (await session.execute(stmt)).fetchone()
-            if row and getattr(row, "user_id", None):
-                return row.user_id
-            return "admin"
-
-        async with AsyncSession(engine) as owned_session:
-            from sqlalchemy import text
-
-            stmt = text("SELECT user_id FROM user_settings LIMIT 1")
-            row = (await owned_session.execute(stmt)).fetchone()
-            if row and getattr(row, "user_id", None):
-                return row.user_id
-    except Exception as exc:
-        logger.debug("Failed to resolve user_id for treatment: %s", exc)
-    return "admin"
-
-
-async def get_status_context(user_settings: Optional[UserSettings] = None) -> StatusContext | ToolError:
-    try:
-        user_settings = user_settings or await _load_user_settings()
+        user_settings = user_settings or await _load_user_settings(username)
     except Exception as exc:
         return ToolError(type="config_error", message=f"No se pudo leer configuración: {exc}")
 
@@ -491,7 +466,7 @@ AI_TOOL_DECLARATIONS = [
 async def execute_tool(name: str, args: Dict[str, Any]) -> Any:
     try:
         if name == "get_status_context":
-            return await get_status_context()
+            return await get_status_context(username=args.get("username", "admin"))
         if name == "calculate_bolus":
             return await calculate_bolus(
                 carbs=float(args.get("carbs")),
