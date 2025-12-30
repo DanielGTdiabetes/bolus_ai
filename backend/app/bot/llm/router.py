@@ -13,6 +13,8 @@ from app.bot.capabilities.registry import build_registry, Permission
 from app.bot.tools import execute_tool, ToolError
 from app.bot.llm.prompt import get_system_prompt
 from app.bot.llm.memory import memory
+from app.bot import context_builder
+from app.bot import proactive_rules as rules
 
 logger = logging.getLogger(__name__)
 
@@ -253,8 +255,78 @@ async def handle_text(username: str, chat_id: int, user_text: str, context_data:
         health.record_llm(False, error=str(e))
         return BotReply("😵‍💫 Mi cerebro está desconectado. Intenta comandos directos.")
 
+
     # Memory Update
     memory.add(chat_id, "user", user_text)
     memory.add(chat_id, "assistant", reply_text)
     
     return BotReply(reply_text, final_buttons)
+
+async def handle_event(username: str, chat_id: int, event_type: str, payload: Dict[str, Any]) -> Optional[BotReply]:
+    """
+    Handle proactive events via LLM.
+    Returns BotReply if message should be sent, None otherwise.
+    """
+    # 1. Check Noise Rules
+    if rules.should_silence(event_type):
+        health.record_event(event_type, False, "silenced")
+        logger.info(f"Event {event_type} silenced.")
+        return None
+
+    # 2. Build Context
+    ctx = await context_builder.build_context(username, chat_id)
+    
+    # 3. Build Prompt
+    # Special system prompt or injected instruction
+    system_prompt = get_system_prompt()
+    
+    event_prompt = (
+        f"EVENTO AUTOMÁTICO: {event_type}\n"
+        f"DATOS: {json.dumps(payload, indent=2)}\n\n"
+        "INSTRUCCIONES:\n"
+        "- Decide si es necesario hablar con el usuario.\n"
+        "- Sé muy breve y directo.\n"
+        "- Usa tono útil y amigable.\n"
+        "- Si el usuario ya sabe esto o no es importante, responde 'SKIP'.\n"
+        "- Si necesitas acción (ej. bolo), sugiérelo pero NO uses herramientas todavía (solo texto).\n"
+        "- Contexto actual adjunto arriba.\n"
+    )
+    
+    # 4. LLM Call (One Shot)
+    # We use a simple generation here, no tool loop for simplicity unless needed?
+    # Actually, the user requirement implies "router decides". It might want to use tools?
+    # "El router decide... si pedir acción".
+    # Let's use the same `genai` setup but single prompt.
+    
+    api_key = config.get_google_api_key()
+    if not api_key:
+        return None
+    genai.configure(api_key=api_key)
+    model_name = config.get_gemini_model()
+    model = genai.GenerativeModel(model_name) # No tools needed for decision phase usually, or we can add them.
+    
+    # Combine prompts
+    full_prompt = f"{system_prompt}\n\nCONTEXTO:\n{json.dumps(ctx, default=str)}\n\n{event_prompt}"
+    
+    try:
+        response = await model.generate_content_async(full_prompt)
+        text = response.text.strip()
+        
+        if text == "SKIP" or not text:
+             health.record_event(event_type, False, "skipped_by_llm")
+             return None
+             
+        # Mark as sent
+        rules.mark_event_sent(event_type)
+        health.record_event(event_type, True, "sent")
+        
+        # Add to memory so chat knows
+        memory.add(chat_id, "system", f"Event triggered: {event_type}")
+        memory.add(chat_id, "assistant", text)
+        
+        return BotReply(text)
+
+    except Exception as e:
+        logger.error(f"Event LLM Error: {e}")
+        health.record_event(event_type, False, f"error: {e}")
+        return None

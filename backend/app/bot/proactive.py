@@ -14,7 +14,8 @@ from app.services.iob import compute_iob_from_sources
 from app.services.bolus import recommend_bolus, BolusRequestData
 from app.services.basal_repo import get_latest_basal_dose
 from app.services.nightscout_secrets_service import get_ns_config
-from app.core.db import get_engine, AsyncSession
+from app.bot.llm import router
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 logger = logging.getLogger(__name__)
 
@@ -63,7 +64,6 @@ async def basal_reminder(bot) -> None:
         if not engine:
             logger.info("Basal reminder running without database engine; using fallback storage.")
 
-        latest = await get_latest_basal_dose(user_id=user_id)
         if latest:
             # Ensure safe comparison aware vs aware or naive vs naive
             now_utc = datetime.now(timezone.utc)
@@ -74,19 +74,28 @@ async def basal_reminder(bot) -> None:
             age_hours = (now_utc - created_at).total_seconds() / 3600
             if age_hours < 18:
                 return
-        cooldowns.touch("basal")
-        keyboard = [
-            [{"text": "✅ Sí, ya puesta", "callback_data": "basal_ack_yes"}],
-            [{"text": "⏰ En 15 min", "callback_data": "basal_ack_later"}],
-            [{"text": "🙈 Ignorar", "callback_data": "ignore"}],
-        ]
-        await _send(
-            bot,
-            chat_id,
-            "⏰ ¿Basal diaria puesta? Marca 'Sí' para registrar.",
-            log_context="proactive_basal",
-            reply_markup={"inline_keyboard": keyboard},
+
+        # LLM ROUTING
+        reply = await router.handle_event(
+            username="admin", 
+            chat_id=chat_id, 
+            event_type="basal_reminder", 
+            payload={"last_basal_hours_ago": int(age_hours) if latest else "never"}
         )
+        
+        if reply and reply.text:
+            keyboard = [
+                [InlineKeyboardButton("✅ Sí, ya puesta", callback_data="basal_ack_yes")],
+                [InlineKeyboardButton("⏰ En 15 min", callback_data="basal_ack_later")],
+                [InlineKeyboardButton("🙈 Ignorar", callback_data="ignore")],
+            ]
+            await _send(
+                bot,
+                chat_id,
+                reply.text,
+                log_context="proactive_basal",
+                reply_markup=InlineKeyboardMarkup(keyboard),
+            )
     except Exception as exc:
         logger.error("Basal reminder failed: %s", exc)
         try:
@@ -118,21 +127,26 @@ async def premeal_nudge(bot) -> None:
     # Simple heuristic: rising and >140
     if sgv.sgv < 140 or (sgv.delta or 0) < 2:
         return
-    cooldowns.touch("premeal")
-    await _send(
-        bot,
-        chat_id,
-        f"🍽️ Parece que se acerca comida (BG {sgv.sgv} {sgv.direction}). ¿Anotamos carbohidratos?",
-        log_context="proactive_premeal",
-        reply_markup={
-            "inline_keyboard": [
-                [
-                    {"text": "✅ Registrar", "callback_data": "premeal_add"},
-                    {"text": "⏳ Luego", "callback_data": "ignore"},
-                ]
-            ]
-        },
+
+    reply = await router.handle_event(
+        username="admin",
+        chat_id=chat_id,
+        event_type="premeal",
+        payload={"bg": sgv.sgv, "trend": sgv.direction, "delta": sgv.delta}
     )
+
+    if reply and reply.text:
+        keyboard = [
+            [InlineKeyboardButton("✅ Registrar", callback_data="premeal_add")],
+            [InlineKeyboardButton("⏳ Luego", callback_data="ignore")],
+        ]
+        await _send(
+            bot,
+            chat_id,
+            reply.text,
+            log_context="proactive_premeal",
+            reply_markup=InlineKeyboardMarkup(keyboard),
+        )
 
 
 async def combo_followup(bot) -> None:
@@ -159,13 +173,21 @@ async def combo_followup(bot) -> None:
     pending = [e for e in events if e.get("type") == "combo" and parse_event_time(e["notify_at"]) <= now_utc]
     if not pending:
         return
-    cooldowns.touch("combo")
-    await _send(
-        bot,
-        chat_id,
-        "⏳ Seguimiento de bolo extendido. ¿Cómo va la glucosa? Responde con valor o usa /start.",
-        log_context="proactive_combo",
+    
+    reply = await router.handle_event(
+        username="admin",
+        chat_id=chat_id,
+        event_type="combo_followup",
+        payload={"pending_events": len(pending)}
     )
+    
+    if reply and reply.text:
+        await _send(
+            bot,
+            chat_id,
+            reply.text,
+            log_context="proactive_combo",
+        )
 
 
 async def morning_summary(bot) -> None:
@@ -188,11 +210,25 @@ async def morning_summary(bot) -> None:
     if not entries:
         return
     values = [e.sgv for e in entries if e.sgv is not None]
-    tir = sum(1 for v in values if 70 <= v <= 180) / len(values) * 100 if values else 0
+    if not values: return
+
+    tir = sum(1 for v in values if 70 <= v <= 180) / len(values) * 100
     lows = sum(1 for v in values if v < 70)
-    msg = f"🌅 Resumen noche: TIR {tir:.0f}% | Hipos {lows} | Último {values[-1] if values else '?'} mg/dL"
-    cooldowns.touch("morning")
-    await _send(bot, chat_id, msg, log_context="proactive_morning")
+    
+    reply = await router.handle_event(
+        username="admin",
+        chat_id=chat_id,
+        event_type="morning_summary",
+        payload={
+            "tir_percent": int(tir),
+            "lows_count": lows,
+            "last_bg": values[-1],
+            "hours": 8
+        }
+    )
+    
+    if reply and reply.text:
+        await _send(bot, chat_id, reply.text, log_context="proactive_morning")
 
 
 async def light_guardian(bot) -> None:

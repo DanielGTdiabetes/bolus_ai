@@ -36,8 +36,12 @@ class BotHealthState:
     last_action_error: Optional[str] = None
     last_llm_at: Optional[datetime] = None
     last_llm_ok: Optional[bool] = None
+    last_llm_ok: Optional[bool] = None
     last_llm_error: Optional[str] = None
     last_tool_calls: list[str] = field(default_factory=list)
+    last_event_type: Optional[str] = None
+    last_event_sent: Optional[bool] = None
+    last_event_reason: Optional[str] = None
 
     # Internal lock to avoid races if multiple tasks mutate quickly
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
@@ -98,6 +102,12 @@ class BotHealthState:
             if tools_used:
                 self.last_tool_calls = tools_used[:10]  # Keep last 10
 
+    def record_event(self, event_type: str, sent: bool, reason: str) -> None:
+        with self._lock:
+            self.last_event_type = event_type
+            self.last_event_sent = sent
+            self.last_event_reason = reason
+
     def get_last_error(self) -> Optional[str]:
         with self._lock:
             return self.last_error
@@ -124,6 +134,9 @@ class BotHealthState:
             "last_llm_ok": self.last_llm_ok,
             "last_llm_error": self.last_llm_error,
             "last_tool_calls": self.last_tool_calls,
+            "last_event_type": self.last_event_type,
+            "last_event_sent": self.last_event_sent,
+            "last_event_reason": self.last_event_reason,
         }
 
 
