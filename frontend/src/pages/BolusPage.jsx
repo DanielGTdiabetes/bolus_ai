@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Header } from '../components/layout/Header';
 import { BottomNav } from '../components/layout/BottomNav';
 import { Card, Button, Input } from '../components/ui/Atoms';
@@ -60,6 +60,7 @@ export default function BolusPage() {
 
     // Result State
     const [result, setResult] = useState(null); // The raw API response
+    const [calcUsedParams, setCalcUsedParams] = useState(null);
     const [loading, setLoading] = useState(false);
     const [calculating, setCalculating] = useState(false);
     const [saving, setSaving] = useState(false);
@@ -415,6 +416,8 @@ export default function BolusPage() {
             }
 
             setResult(res);
+            const used = res?.calc?.used_params || res?.used_params || res?.calc?.usedParams || res?.usedParams;
+            setCalcUsedParams(used || null);
         } catch (e) {
             alert("Error: " + e.message);
         } finally {
@@ -991,19 +994,23 @@ export default function BolusPage() {
 
                 {/* RESULT SECTION */}
                 {result && (
-                    <ResultView
-                        result={result}
-                        slot={slot} // Pass slot for fallback
-                        onBack={() => setResult(null)}
-                        onSave={handleSave}
-                        saving={saving}
-                        currentCarbs={carbs}
-                        foodName={foodName}
-                        favorites={favorites} // Pass favorites for checking existence
-                        onFavoriteAdded={(newFav) => setFavorites(prev => [...prev, newFav])} // Optimistic update or reload
-                        alcoholEnabled={alcoholEnabled}
-                    />
-                )}
+                <ResultView
+                    result={result}
+                    slot={slot} // Pass slot for fallback
+                    usedParams={calcUsedParams}
+                    onBack={() => {
+                        setResult(null);
+                        setCalcUsedParams(null);
+                    }}
+                    onSave={handleSave}
+                    saving={saving}
+                    currentCarbs={carbs}
+                    foodName={foodName}
+                    favorites={favorites} // Pass favorites for checking existence
+                    onFavoriteAdded={(newFav) => setFavorites(prev => [...prev, newFav])} // Optimistic update or reload
+                    alcoholEnabled={alcoholEnabled}
+                />
+            )}
 
             </main>
             <BottomNav activeTab="bolus" />
@@ -1011,7 +1018,7 @@ export default function BolusPage() {
     );
 }
 
-function ResultView({ result, slot, onBack, onSave, saving, currentCarbs, foodName, favorites, onFavoriteAdded, alcoholEnabled }) {
+function ResultView({ result, slot, usedParams, onBack, onSave, saving, currentCarbs, foodName, favorites, onFavoriteAdded, alcoholEnabled }) {
     // Local state for edit before confirm
     const [finalDose, setFinalDose] = useState(result.upfront_u);
     const [injectionSite, setInjectionSite] = useState(null);
@@ -1035,9 +1042,17 @@ function ResultView({ result, slot, onBack, onSave, saving, currentCarbs, foodNa
 
     const [predictionData, setPredictionData] = useState(null);
     const [simulating, setSimulating] = useState(false);
+    const resolvedParams = useMemo(
+        () => usedParams || result?.calc?.used_params || result?.used_params || result?.usedParams,
+        [usedParams, result]
+    );
+    const later = parseFloat(result.later_u || 0);
+    const upfront = parseFloat(finalDose || 0);
+    const total = upfront + later;
 
     // Auto-Simulation Debounced
     useEffect(() => {
+        if (!resolvedParams) return;
         const timer = setTimeout(() => {
             const dose = parseFloat(finalDose);
             if (!isNaN(dose) && dose >= 0) {
@@ -1045,55 +1060,36 @@ function ResultView({ result, slot, onBack, onSave, saving, currentCarbs, foodNa
             }
         }, 800);
         return () => clearTimeout(timer);
-    }, [finalDose]);
+    }, [finalDose, resolvedParams, currentCarbs, later]);
 
     const runSimulation = async (doseNow, doseLater, carbsVal) => {
         setSimulating(true);
         setPredictionData(null);
         try {
-            // Get glucose from result (calculated context) OR manual fallback if needed?
-            // Usually result.glucose has the used glucose.
-            // If missing (e.g. user entered carbs only without BG), default to Target or 100 to show "Relative" effect.
-            let bgVal = result.glucose?.mgdl;
+            const params = resolvedParams;
+            if (!params) throw new Error("Parámetros de cálculo no disponibles.");
 
-            if (!bgVal || bgVal <= 0) {
-                // Fallback to target for simulation baseline
-                bgVal = result.used_params?.target_mgdl || 100;
+            const isf = params.isf_mgdl_per_u ?? params.isfMgdlPerU ?? params.isf;
+            const icr = params.cr_g_per_u ?? params.crGPerU ?? params.icr;
+            const dia = params.dia_hours ?? params.diaHours;
+            const insulinModel = params.insulin_model || 'linear';
+            const targetMgdl = params.target_mgdl ?? params.target;
+
+            if ([isf, icr, dia].some(v => v === undefined || v === null)) {
+                throw new Error("Parámetros incompletos para simular (ICR/ISF/DIA).");
             }
 
-            console.log("DEBUG RESULT OBJ:", result);
-            let params = result.calc?.used_params || result.calc?.usedParams || result.used_params || result.usedParams;
-
-            if (!params) {
-                console.warn("Params missing in result, trying fallback from store...");
-                const allParams = getCalcParams();
-                if (allParams && slot) {
-                    params = allParams[slot];
-                    // Normalise store format to expected format if needed, or rely on loose access below
-                    // Store has { icr, isf, target ... }
-                    // Code below expects { isf_mgdl_per_u, ... }
-                    // We need to map it if we use fallback.
-                    if (params) {
-                        params = {
-                            isf_mgdl_per_u: params.isf,
-                            cr_g_per_u: params.icr,
-                            dia_hours: allParams.dia_hours || 4,
-                            insulin_model: allParams.insulin_model // Fallback mapping
-                        };
-                    }
+            // Get glucose from result (calculated context) OR target if missing
+            let bgVal = result.glucose?.mgdl;
+            if (!bgVal || bgVal <= 0) {
+                if (targetMgdl) {
+                    bgVal = targetMgdl;
+                } else {
+                    throw new Error("No hay glucosa ni objetivo para simular.");
                 }
             }
 
-            if (!params) throw new Error("Parámetros de cálculo no disponibles.");
-
-            // Robust extraction with fallbacks for legacy/alternative naming
-            // The simulation crashing to LOW usually implies Default ICR (10) was used instead of Custom (e.g. 2.5)
-            // causing the insulin (calculated for 2.5) to crush the carbs (simulated for 10).
-            const isf = params.isf_mgdl_per_u || params.isfMgdlPerU || params.isf || 30;
-            const icr = params.cr_g_per_u || params.crGPerU || params.icr || 10;
-            const dia = params.dia_hours || params.diaHours || 4;
-
-            console.log("Input Params for Sim:", { isf, icr, dia });
+            console.info("Simulación con parámetros calculados:", { isf, icr, dia_hours: dia, insulin_model: insulinModel, targetMgdl });
 
             // Build events
             const boluses = [];
@@ -1118,7 +1114,7 @@ function ResultView({ result, slot, onBack, onSave, saving, currentCarbs, foodNa
                     icr: icr,
                     dia_minutes: dia * 60,
                     carb_absorption_minutes: 180,
-                    insulin_model: params.insulin_model || 'linear'
+                    insulin_model: insulinModel
                 },
                 events: events
             };
@@ -1166,10 +1162,6 @@ function ResultView({ result, slot, onBack, onSave, saving, currentCarbs, foodNa
         onSave(finalDose, injectionSite);
     };
 
-    const later = parseFloat(result.later_u || 0);
-    const upfront = parseFloat(finalDose || 0);
-    const total = upfront + later;
-
     return (
         <div className="card result-card fade-in" style={{ border: '2px solid var(--primary)', padding: '1.5rem' }}>
             {showAlcoholWarning && (
@@ -1210,6 +1202,25 @@ function ResultView({ result, slot, onBack, onSave, saving, currentCarbs, foodNa
 
                 {/* Pre-Bolus Timer / Advisory */}
                 <PreBolusTimer />
+
+                {resolvedParams && (
+                    <div style={{
+                        display: 'inline-flex',
+                        gap: '8px',
+                        alignItems: 'center',
+                        background: '#eef2ff',
+                        color: '#312e81',
+                        padding: '8px 12px',
+                        borderRadius: '12px',
+                        border: '1px solid #c7d2fe',
+                        margin: '0.5rem 0'
+                    }}>
+                        <span style={{ fontWeight: 700 }}>⚙️ Parámetros usados</span>
+                        <span style={{ fontSize: '0.85rem' }}>
+                            ICR {resolvedParams.cr_g_per_u}g/U · ISF {resolvedParams.isf_mgdl_per_u} mg/dL/U · DIA {resolvedParams.dia_hours}h · Modelo {resolvedParams.insulin_model || 'linear'}
+                        </span>
+                    </div>
+                )}
 
                 {/* Immediate Input */}
                 <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'baseline', gap: '8px' }}>
