@@ -138,10 +138,21 @@ class VisionConfig(BaseModel):
 
 
 
+import uuid
+
+class BasalScheduleItem(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4())[:8])
+    name: str = "Dosis"
+    time: str = "22:00"
+    units: float = 0.0
+
 class BasalReminderConfig(BaseModel):
     enabled: bool = False
-    time_local: Optional[str] = None  # HH:MM
+    schedule: list[BasalScheduleItem] = Field(default_factory=list)
+    # Legacy fields
+    time_local: Optional[str] = None
     expected_units: Optional[float] = None
+    
     username: str = "admin"
     chat_id: Optional[int] = None
 

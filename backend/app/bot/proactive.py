@@ -63,108 +63,133 @@ async def basal_reminder(username: str = "admin", chat_id: Optional[int] = None)
     if not final_chat_id:
         return
 
-    # 2. Check Persistence (DataStore)
-    persistence_status = "ok"
-    persistence_reason = None
+    # 2. Prepare Schedules (Multi-dose support)
+    schedules = basal_conf.schedule
+    # Fallback to legacy single dose if schedule list is empty but time_local exists
+    if not schedules and basal_conf.time_local:
+        from app.models.settings import BasalScheduleItem
+        # Use a stable ID for legacy fallback to avoid resetting status on restarts
+        legacy_item = BasalScheduleItem(
+            id="legacy_default", 
+            name="Basal", 
+            time=basal_conf.time_local, 
+            units=basal_conf.expected_units or 0.0
+        )
+        schedules = [legacy_item]
     
-    # We use local date for the key
-    import zoneinfo
-    tz_str = "Europe/Madrid" # Default fallback
-    try:
-        # Try to infer from settings if possible, otherwise default
-        # Ideally user_settings would have timezone.
-        pass
-    except: pass
-    
-    tz = zoneinfo.ZoneInfo(tz_str)
-    now_local = datetime.now(tz)
-    today_str = now_local.strftime("%Y-%m-%d") # Key basal:YYYY-MM-DD
-    
-    # Store Loading
+    if not schedules:
+        return
+
+    # 3. Setup Context
     store = DataStore(Path(global_settings.data.data_dir))
     events = store.load_events()
     
-    # Find entry: type=basal_daily_status, date=today_str
-    entry = next((e for e in events if e.get("type") == "basal_daily_status" and e.get("date") == today_str), None)
-    
-    if entry:
-        st = entry.get("status")
-        if st in ("done", "dismissed"):
-             # NO volver a preguntar hoy
-             health.record_event("basal", False, "heuristic_already_done_today" if st == "done" else "heuristic_dismissed_today")
-             return
-        elif st == "snoozed":
-             until_str = entry.get("snooze_until")
-             if until_str:
-                 try:
-                     until_dt = datetime.fromisoformat(until_str)
-                     if datetime.now(timezone.utc) < until_dt:
-                         health.record_event("basal", False, f"heuristic_snoozed_until(remaining_min={int((until_dt - datetime.now(timezone.utc)).total_seconds()/60)})")
-                         return
-                 except: pass # invalid date, ignore
-        elif st == "asked":
-             # Router cooldown will handle it, but we can flag it
-             persistence_status = "asked"
-    
-    # 3. Check Deep Basal Context (Logic from active basal) (Optional but good for 'late')
-    try:
-        from app.services import basal_context_service
-        basal_ctx = await basal_context_service.get_basal_status(username, 0)
-        # We can use basal_ctx.status (taken_today, late, etc)
-        # But our local persistence is the source of truth for "did I ask/do via bot".
-        # If basal_ctx says "taken_today" (via other means), we should respect it?
-        # User requirement: "basal job ya detecta: already_taken...".
-        # Let's trust basal_ctx as well.
-        if basal_ctx.status == "taken_today":
-             health.record_event("basal", False, "heuristic_already_taken")
-             return
-    except Exception as e:
-        logger.warning(f"Basal context fetch failed: {e}")
-        basal_ctx = None
+    import zoneinfo
+    tz = zoneinfo.ZoneInfo("Europe/Madrid")
+    now_local = datetime.now(tz)
+    today_str = now_local.strftime("%Y-%m-%d")
 
-    # 4. Payload for Router
-    # Router will handle quiet hours and cooldown
-    
-    payload = {
-        "persistence_status": persistence_status,
-        "entry_status": entry.get("status") if entry else None,
-        "today_str": today_str,
-        "hours_late": basal_ctx.hours_late if basal_ctx else 0.0,
-        "scheduled_time": basal_conf.time_local,
-        "expected_units": basal_conf.expected_units
-    }
-    
-    # 5. Delegate to Router
-    from app.bot.llm import router
-    reply = await router.handle_event(
-        username=username,
-        chat_id=final_chat_id,
-        event_type="basal", 
-        payload=payload
-    )
-    
-    if reply and reply.text:
-         # Send message
-        await _send(
-            None,
-            final_chat_id,
-            reply.text,
-            log_context="proactive_basal",
-            reply_markup=InlineKeyboardMarkup(reply.buttons) if reply.buttons else None,
-        )
-        # Mark sent in rules (cooldown)
-        from app.bot.proactive_rules import mark_event_sent
-        mark_event_sent("basal")
+    # 4. Iterate Schedules
+    for item in schedules:
+        # Key: basal_daily_status:{date}:{item.id}
+        # For legacy compatibility, if item.id is 'legacy_default', check old key format first?
+        # Actually, let's look for specific entry for this item.
         
-        # Update persistence to 'asked' if new
-        if not entry:
-            events.append({
-                "type": "basal_daily_status",
-                "date": today_str,
-                "status": "asked",
-                "updated_at": datetime.now(timezone.utc).isoformat()
-            })
-            store.save_events(events)
+        entry = next((e for e in events 
+                      if e.get("type") == "basal_daily_status" 
+                      and e.get("date") == today_str 
+                      and e.get("schedule_id") == item.id), None)
+        
+        # Backward compatibility: look for entry without schedule_id if this is legacy item
+        if not entry and item.id == "legacy_default":
+             entry = next((e for e in events 
+                      if e.get("type") == "basal_daily_status" 
+                      and e.get("date") == today_str 
+                      and not e.get("schedule_id")), None)
+
+        if entry:
+            st = entry.get("status")
+            if st in ("done", "dismissed"):
+                 continue # This dose is done
+            elif st == "snoozed":
+                 until_str = entry.get("snooze_until")
+                 if until_str:
+                     try:
+                         until_dt = datetime.fromisoformat(until_str)
+                         if datetime.now(timezone.utc) < until_dt:
+                             continue # Still snoozed
+                     except: pass
+        
+        # 5. Check Timing (Is it due?)
+        try:
+            target_h, target_m = map(int, item.time.split(":"))
+            target_dt = now_local.replace(hour=target_h, minute=target_m, second=0, microsecond=0)
+            
+            # If target is in future > 30 min, skip (too early)
+            # If target is in past, check if "hours_late" logic needed
+            diff_min = (now_local - target_dt).total_seconds() / 60.0
+            
+            # Allow window: from -30 min (early warning) to +X hours (late)
+            if diff_min < -30:
+                continue # Too early
+                
+            # If it's effectively "tomorrow" because target is 23:00 and now is 01:00?
+            # Complexity: Basal usually same day. If user has 01:00 am basal, 'today_str' matches.
+            # If now is 01:00 and target is 01:00, diff is 0.
+            
+        except ValueError:
+            continue
+
+        # 6. Execute Trigger for this Item
+        # Prepare payload
+        payload = {
+            "persistence_status": entry.get("status") if entry else None,
+            "today_str": today_str,
+            "schedule_id": item.id,
+            "schedule_name": item.name,
+            "scheduled_time": item.time,
+            "expected_units": item.units,
+            "hours_late": max(0, diff_min / 60.0)
+        }
+        
+        from app.bot.llm import router
+        # We need a unique event_type or handle logic in router?
+        # Router 'basal' logic expects single fields. We pass more context.
+        reply = await router.handle_event(
+            username=username,
+            chat_id=final_chat_id,
+            event_type="basal", 
+            payload=payload
+        )
+        
+        if reply and reply.text:
+             # Send message
+            from app.bot.service import bot_send
+            await bot_send(
+                chat_id=final_chat_id, 
+                text=reply.text, 
+                bot=None, # will resolve global
+                log_context=f"proactive_basal_{item.id}",
+                reply_markup=InlineKeyboardMarkup(reply.buttons) if reply.buttons else None
+            )
+            
+            # Mark sent & Update Persistence
+            from app.bot.proactive_rules import mark_event_sent
+            mark_event_sent("basal") # Global anti-spam for type
+            
+            if not entry:
+                events.append({
+                    "type": "basal_daily_status",
+                    "date": today_str,
+                    "schedule_id": item.id,
+                    "status": "asked",
+                    "updated_at": datetime.now(timezone.utc).isoformat()
+                })
+                store.save_events(events)
+            
+            # Return after sending ONE reminder to avoid spamming multiple at once?
+            # Yes, let's handle one at a time per check interval.
+            return
 
 async def trend_alert(username: str = "admin", chat_id: Optional[int] = None, trigger: str = "auto") -> None:
     # 1. Load Config

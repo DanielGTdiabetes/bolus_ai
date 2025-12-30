@@ -840,29 +840,9 @@ function VisionPanel() {
 
 
 function BotPanel() {
-    const [premealConfig, setPremealConfig] = useState({
-        enabled: true,
-        bg_threshold_mgdl: 150,
-        delta_threshold_mgdl: 2,
-        window_minutes: 60,
-        silence_minutes: 90
-    });
-
-    const [comboConfig, setComboConfig] = useState({
+    const [basalConfig, setBasalConfig] = useState({
         enabled: false,
-        delay_minutes: 120,
-        window_hours: 6,
-        silence_minutes: 180
-    });
-
-    const [trendConfig, setTrendConfig] = useState({
-        enabled: false,
-        rise_mgdl_per_min: 2.0,
-        drop_mgdl_per_min: -2.0,
-        min_delta_total_mgdl: 35,
-        window_minutes: 30,
-        silence_minutes: 60,
-        recent_carbs_minutes: 180
+        schedule: [] // [{id, name, time, units}]
     });
 
     const [botEnabled, setBotEnabled] = useState(true);
@@ -872,46 +852,80 @@ function BotPanel() {
     useEffect(() => {
         import('../modules/core/store').then(({ getCalcParams }) => {
             const params = getCalcParams() || {};
-            // Safely access deep property
             setBotEnabled(params.bot?.enabled !== false);
 
             const proactive = params.bot?.proactive || {};
 
-            if (proactive.premeal) {
-                setPremealConfig(prev => ({ ...prev, ...proactive.premeal }));
+            if (proactive.premeal) setPremealConfig(prev => ({ ...prev, ...proactive.premeal }));
+            if (proactive.combo_followup) setComboConfig(prev => ({ ...prev, ...proactive.combo_followup }));
+            if (proactive.trend_alert) setTrendConfig(prev => ({ ...prev, ...proactive.trend_alert }));
+            
+            // Basal Config Loading
+            if (proactive.basal) {
+                let b = proactive.basal;
+                // Migration catch: if schedule empty but legacy fields exist, create one
+                if ((!b.schedule || b.schedule.length === 0) && b.time_local) {
+                    b = {
+                        ...b,
+                        schedule: [{
+                            id: 'legacy_' + Date.now(),
+                            name: 'Basal',
+                            time: b.time_local,
+                            units: b.expected_units || 0
+                        }]
+                    };
+                }
+                setBasalConfig(prev => ({ ...prev, ...b }));
             }
-            if (proactive.combo_followup) {
-                setComboConfig(prev => ({ ...prev, ...proactive.combo_followup }));
-            }
-            if (proactive.trend_alert) {
-                setTrendConfig(prev => ({ ...prev, ...proactive.trend_alert }));
-            }
+
             setLoading(false);
         });
     }, []);
 
     const handlePremealChange = (field, value) => {
         let val = value;
-        if (field !== 'enabled') {
-            val = parseInt(value) || 0;
-        }
+        if (field !== 'enabled') val = parseInt(value) || 0;
         setPremealConfig(prev => ({ ...prev, [field]: val }));
     };
 
     const handleComboChange = (field, value) => {
         let val = value;
-        if (field !== 'enabled') {
-            val = parseInt(value) || 0;
-        }
+        if (field !== 'enabled') val = parseInt(value) || 0;
         setComboConfig(prev => ({ ...prev, [field]: val }));
     };
 
     const handleTrendChange = (field, value) => {
         let val = value;
-        if (field !== 'enabled') {
-            val = parseFloat(value) || 0;
-        }
+        if (field !== 'enabled') val = parseFloat(value) || 0;
         setTrendConfig(prev => ({ ...prev, [field]: val }));
+    };
+    
+    // Basal Handlers
+    const handleBasalChange = (field, value) => {
+        setBasalConfig(prev => ({ ...prev, [field]: value }));
+    };
+    
+    const addBasalSchedule = () => {
+        setBasalConfig(prev => ({
+            ...prev,
+            schedule: [...(prev.schedule || []), { id: Date.now().toString(), name: 'Dosis', time: '22:00', units: 0 }]
+        }));
+    };
+    
+    const updateBasalSchedule = (idx, field, value) => {
+        setBasalConfig(prev => {
+            const copy = [...(prev.schedule || [])];
+            copy[idx] = { ...copy[idx], [field]: value };
+            return { ...prev, schedule: copy };
+        });
+    };
+    
+    const removeBasalSchedule = (idx) => {
+        setBasalConfig(prev => {
+            const copy = [...(prev.schedule || [])];
+            copy.splice(idx, 1);
+            return { ...prev, schedule: copy };
+        });
     };
 
     const handleSave = () => {
@@ -926,7 +940,8 @@ function BotPanel() {
                         ...(current.bot?.proactive || {}),
                         premeal: premealConfig,
                         combo_followup: comboConfig,
-                        trend_alert: trendConfig
+                        trend_alert: trendConfig,
+                        basal: basalConfig
                     }
                 }
             };
@@ -956,9 +971,55 @@ function BotPanel() {
                     />
                     {botEnabled ? "🟢 Bot Activado" : "🔴 Bot Desactivado"}
                 </label>
-                <div style={{ fontSize: '0.85rem', color: '#64748b', marginTop: '0.5rem', marginLeft: '2.2rem' }}>
-                    Interruptor maestro. Si está desactivado, el bot no responderá a nada ni enviará alertas.
-                </div>
+            </div>
+            
+            {/* BASAL SECTION */}
+            <div style={{ background: '#f8fafc', padding: '1rem', borderRadius: '8px', border: '1px solid #e2e8f0', marginBottom: '1rem' }}>
+                <h4 style={{ margin: '0 0 1rem 0', color: '#334155' }}>💉 Recordatorio Basal (Lenta)</h4>
+                
+                <label style={{ display: 'flex', alignItems: 'center', gap: '0.8rem', fontWeight: 600, color: basalConfig.enabled ? '#0f172a' : '#64748b', cursor: 'pointer', marginBottom: '1rem' }}>
+                    <input
+                        type="checkbox"
+                        checked={basalConfig.enabled}
+                        onChange={e => handleBasalChange('enabled', e.target.checked)}
+                        style={{ width: '1.2rem', height: '1.2rem' }}
+                    />
+                    Activar Recordatorios
+                </label>
+
+                {basalConfig.enabled && (
+                    <div className="stack" style={{ gap: '0.5rem' }}>
+                        {(basalConfig.schedule || []).map((item, idx) => (
+                            <div key={item.id || idx} style={{ display: 'grid', gridTemplateColumns: '2fr 1.5fr 1fr auto', gap: '0.5rem', alignItems: 'center', background: 'white', padding: '0.5rem', borderRadius: '6px', border: '1px solid #cbd5e1' }}>
+                                <Input 
+                                    label={idx === 0 ? "Nombre" : ""} 
+                                    value={item.name} 
+                                    onChange={e => updateBasalSchedule(idx, 'name', e.target.value)} 
+                                    placeholder="Ej. Lantus Mañana"
+                                />
+                                <Input 
+                                    label={idx === 0 ? "Hora" : ""} 
+                                    type="time" 
+                                    value={item.time} 
+                                    onChange={e => updateBasalSchedule(idx, 'time', e.target.value)} 
+                                />
+                                <Input 
+                                    label={idx === 0 ? "U" : ""} 
+                                    type="number" 
+                                    value={item.units} 
+                                    onChange={e => updateBasalSchedule(idx, 'units', parseFloat(e.target.value))} 
+                                />
+                                <button 
+                                    onClick={() => removeBasalSchedule(idx)}
+                                    style={{ marginTop: idx === 0 ? '1.4rem' : '0', color: '#ef4444', border: 'none', background: 'none', cursor: 'pointer', fontSize: '1.2rem' }}
+                                >
+                                    &times;
+                                </button>
+                            </div>
+                        ))}
+                        <Button variant="secondary" onClick={addBasalSchedule} style={{ marginTop: '0.5rem' }}>+ Añadir Dosis</Button>
+                    </div>
+                )}
             </div>
 
             {/* PREMEAL SECTION */}
