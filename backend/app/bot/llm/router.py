@@ -9,7 +9,6 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 from app.core import config
 from app.bot.state import health
-from app.bot.capabilities.registry import build_registry, Permission
 from app.bot.tools import execute_tool, ToolError
 from app.bot.llm.prompt import get_system_prompt
 from app.bot.llm.memory import memory
@@ -106,6 +105,9 @@ async def handle_text(username: str, chat_id: int, user_text: str, context_data:
         return BotReply("⚠️ Error: API Key de IA no configurada.")
     
     genai.configure(api_key=api_key)
+    
+    # Lazy import to avoid circular dependency
+    from app.bot.capabilities.registry import build_registry, Permission
     registry = build_registry()
     
     # 2. Filter Tools

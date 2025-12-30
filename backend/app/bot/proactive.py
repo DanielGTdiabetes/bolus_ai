@@ -14,7 +14,7 @@ from app.services.iob import compute_iob_from_sources
 from app.services.bolus import recommend_bolus, BolusRequestData
 from app.services.basal_repo import get_latest_basal_dose
 from app.services.nightscout_secrets_service import get_ns_config
-from app.bot.llm import router
+from app.services.nightscout_secrets_service import get_ns_config
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 logger = logging.getLogger(__name__)
@@ -74,6 +74,9 @@ async def basal_reminder(bot) -> None:
             age_hours = (now_utc - created_at).total_seconds() / 3600
             if age_hours < 18:
                 return
+        
+        # Lazy import
+        from app.bot.llm import router
 
         # LLM ROUTING
         reply = await router.handle_event(
@@ -128,6 +131,8 @@ async def premeal_nudge(bot) -> None:
     if sgv.sgv < 140 or (sgv.delta or 0) < 2:
         return
 
+    from app.bot.llm import router
+
     reply = await router.handle_event(
         username="admin",
         chat_id=chat_id,
@@ -174,6 +179,8 @@ async def combo_followup(bot) -> None:
     if not pending:
         return
     
+    from app.bot.llm import router
+    
     reply = await router.handle_event(
         username="admin",
         chat_id=chat_id,
@@ -215,6 +222,8 @@ async def morning_summary(bot) -> None:
     tir = sum(1 for v in values if 70 <= v <= 180) / len(values) * 100
     lows = sum(1 for v in values if v < 70)
     
+    from app.bot.llm import router
+
     reply = await router.handle_event(
         username="admin",
         chat_id=chat_id,
