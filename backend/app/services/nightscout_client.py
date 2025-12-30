@@ -213,18 +213,45 @@ class NightscoutClient:
             for item in data:
                 try:
                     # 'created_at' usually contains ISO string: "2023-10-27T10:00:00.000Z"
-                    created_at_str = item.get("created_at")
-                    if not created_at_str:
-                        continue
+                    created_at_val = item.get("created_at")
+                    if not created_at_val:
+                        # Fallback to 'timestamp' if available
+                        created_at_val = item.get("timestamp")
                     
-                    # Robust parsing
-                    # Replace Z with +00:00 for fromisoformat compatibility
-                    clean_ts = created_at_str.replace("Z", "+00:00")
+                    if not created_at_val:
+                        continue
+
+                    dt = None
                     try:
-                        dt = datetime.fromisoformat(clean_ts)
-                    except ValueError:
-                        # Fallback for simple format if needed
-                         dt = datetime.strptime(clean_ts, "%Y-%m-%dT%H:%M:%S")
+                        # Handle numeric timestamp (ms or s)
+                        if isinstance(created_at_val, (int, float)):
+                            ts_val = float(created_at_val)
+                            # Simple heuristic: if > 1e11 implying ms
+                            if ts_val > 100000000000: 
+                                ts_val /= 1000.0
+                            dt = datetime.fromtimestamp(ts_val, timezone.utc)
+                        else:
+                            # Handle String
+                            s_val = str(created_at_val).strip()
+                            # Replace Z -> +00:00
+                            clean_ts = s_val.replace("Z", "+00:00")
+                            try:
+                                dt = datetime.fromisoformat(clean_ts)
+                            except ValueError:
+                                # Fallback formats
+                                try:
+                                    dt = datetime.strptime(clean_ts, "%Y-%m-%dT%H:%M:%S")
+                                except ValueError:
+                                     # Try with milliseconds
+                                    dt = datetime.strptime(clean_ts, "%Y-%m-%dT%H:%M:%S.%f")
+
+                    except Exception as e:
+                         # Log parsing error but skip item
+                         logger.debug(f"Failed to parse created_at: {created_at_val} ({e})")
+                         continue
+
+                    if not dt:
+                        continue
 
                     # Normalize to aware UTC
                     if dt.tzinfo is None:
