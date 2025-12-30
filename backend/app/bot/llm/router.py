@@ -427,40 +427,71 @@ async def handle_event(username: str, chat_id: int, event_type: str, payload: Di
 
     if event_type == "combo_followup":
         tid = payload.get("treatment_id", "unknown")
-        # Format the message deterministically
         bolus_at = payload.get("bolus_at", "?")
         units = payload.get("bolus_units", "?")
         
-        # Try to parse date for friendly display (Timezone Corrected)
+        # Context
+        bg = payload.get("bg")
+        trend = payload.get("trend", "Flat")
+        delta = payload.get("delta", 0)
+        
+        # Time Formatting
         try:
             from datetime import datetime
             import zoneinfo
-            # Assuming 'bolus_at' is ISO format from Nightscout (likely UTC or with offset)
             dt = datetime.fromisoformat(bolus_at.replace("Z", "+00:00"))
-            
-            # Convert to Madrid
             tz = zoneinfo.ZoneInfo("Europe/Madrid")
             dt_local = dt.astimezone(tz)
             time_str = dt_local.strftime("%H:%M")
         except Exception:
             time_str = bolus_at
-            
-        text = (
-            f"🔄 **Seguimiento Bolo Extendido**\n\n"
-            f"Detectado bolo de **{units} U** a las {time_str}.\n"
-            f"¿Quieres registrar la 2ª parte ahora?"
-        )
+
+        # Decision Logic (Case 4)
+        text = ""
+        buttons = []
         
-        buttons = [
-            [InlineKeyboardButton("💉 Registrar 2ª parte", callback_data=f"combo_yes|{tid}")],
-            [InlineKeyboardButton("⏰ +30 min", callback_data=f"combo_later|{tid}"), 
-             InlineKeyboardButton("❌ No", callback_data=f"combo_no|{tid}")]
-        ]
+        is_hypo_risk = (bg is not None and bg < 90) or (delta and delta < -5)
+        is_rising = (bg is not None and bg > 150) and (delta and delta > 3)
         
-        # Update health as "sending"
-        health.record_event(event_type, True, f"sent_combo_followup(treatment_id={tid})")
+        if is_hypo_risk:
+            # Scenario B: Critical/Caution
+            text = (
+                f"⚠️ **CUIDADO (Bolo Extendido)**\n\n"
+                f"Toca la 2ª parte del bolo ({units} U), pero estás en **{bg} mg/dL** y bajando ({delta}).\n"
+                f"¿Prefieres posponerlo o cancelar?"
+            )
+            buttons = [
+                [InlineKeyboardButton("⏰ Posponer 30m", callback_data=f"combo_later|{tid}")],
+                [InlineKeyboardButton("❌ Cancelar dosis", callback_data=f"combo_no|{tid}")]
+            ]
+        elif is_rising:
+            # Scenario A: Early Rise
+            text = (
+                f"📈 **Nota (Bolo Extendido)**\n\n"
+                f"Faltan unos minutos para la 2ª parte ({units} U), pero ya estás subiendo (**{bg}** {trend}).\n"
+                f"¿Quieres adelantar el registro ahora?"
+            )
+            buttons = [
+                [InlineKeyboardButton("💉 Registrar AHORA", callback_data=f"combo_yes|{tid}")],
+                [InlineKeyboardButton("⏰ Esperar", callback_data=f"combo_later|{tid}")]
+            ]
+        else:
+            # Scenario C: Stable / Normal
+            text = (
+                f"🔄 **Seguimiento Bolo Extendido**\n\n"
+                f"Detectado bolo de **{units} U** a las {time_str}.\n"
+                f"Es hora de la 2ª parte. Estás en **{bg or '?'}** {trend}.\n"
+                f"¿Registramos?"
+            )
+            buttons = [
+                [InlineKeyboardButton("💉 Registrar 2ª parte", callback_data=f"combo_yes|{tid}")],
+                [InlineKeyboardButton("⏰ +30 min", callback_data=f"combo_later|{tid}"), 
+                 InlineKeyboardButton("❌ No", callback_data=f"combo_no|{tid}")]
+            ]
         
-        # Mark as sent in rules to trigger cooldown
+        # Logic Record
+        reason = "sent_combo_risk" if is_hypo_risk else ("sent_combo_rise" if is_rising else "sent_combo_normal")
+        health.record_event(event_type, True, reason)
         rules.mark_event_sent(event_type)
         
         return BotReply(text=text, buttons=buttons)

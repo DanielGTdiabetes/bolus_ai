@@ -966,15 +966,60 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         image_bytes = await file.download_as_bytearray()
         
         # Call AI
-        json_response = await ai.analyze_image(image_bytes)
+        raw_response = await ai.analyze_image(image_bytes)
         
-        # Reply (formatting the JSON for readability)
-        await reply_text(update, context, f"🍽️ Resultado:\n{json_response}")
+        # Parse JSON
+        import json
+        clean_json = raw_response.replace("```json", "").replace("```", "").strip()
+        data = {}
+        try:
+            data = json.loads(clean_json)
+        except json.JSONDecodeError:
+            # Fallback if AI returned plain text
+            await reply_text(update, context, f"🍽️ **Análisis**:\n{raw_response}")
+            return
+
+        # Format Message
+        total_carbs = data.get("total_carbs", 0)
+        advice = data.get("consejo", "")
+        foods = data.get("alimentos", [])
+        
+        lines = ["🍽️ **Análisis de Plato**", ""]
+        for f in foods:
+             lines.append(f"• {f.get('nombre', '?')}: {f.get('g_carbo', 0)}g")
+             
+        lines.append("")
+        lines.append(f"**Total: {total_carbs}g HC**")
+        if advice:
+            lines.append(f"\n💡 _{advice}_")
+            
+        msg_text = "\n".join(lines)
+        
+        # Buttons
+        buttons = []
+        if total_carbs > 0:
+            # Use chat_bolus callback which triggers calculator flow
+            # Format: chat_bolus_{units}_{carbs} -> Wait, chat_bolus_edit_ expects carbs?
+            # Check callback handler: 
+            # if data.startswith("chat_bolus_edit_"): carbs = ...
+            # We want to TRIGGER calculation.
+            # Best way: Trigger the /bolo command logic or simpler:
+            # Provide a button that says "Calculate" and calls a callback that initiates calculation.
+            # "chat_bolus_edit_{carbs}" seems to prompt for carb entry edit.
+            # Let's use a NEW callback or reuse 'tool_wrapper_bolo' logic?
+            # Actually, let's use a callback "vision_calc_{carbs}" that calls compute?
+            # Or simpler: "chat_bolus_edit_{carbs}" prompts user to confirm/edit carbs. That's safer.
+            buttons.append([
+                InlineKeyboardButton(f"💉 Calcular para {total_carbs}g", callback_data=f"chat_bolus_edit_{total_carbs}")
+            ])
+        
+        reply_markup = InlineKeyboardMarkup(buttons) if buttons else None
+        
+        await reply_text(update, context, msg_text, reply_markup=reply_markup)
         
     except Exception as e:
         logger.error(f"Error handling photo: {e}")
         await reply_text(update, context, "❌ Error procesando la imagen.")
-
 
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Voice note handler."""
@@ -1725,6 +1770,17 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
         # Accept
         await _handle_snapshot_callback(query, data)
+        return
+
+    # --- 1.5 Vision / Manual Calc Flow ---
+    if data.startswith("chat_bolus_edit_"):
+        try:
+            carbs_val = float(data.split("_")[-1])
+            await _handle_add_treatment_tool(update, context, {"carbs": carbs_val})
+            health.record_action("vision_calc", True)
+        except Exception as e:
+            logger.error(f"Vision calc error: {e}")
+            await query.edit_message_text(text=f"❌ Error: {e}")
         return
 
     # --- 2. Voice Flow ---

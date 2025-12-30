@@ -662,14 +662,19 @@ async def combo_followup(username: str = "admin", chat_id: Optional[int] = None)
          return
 
     # 8. Success: Candidate Eligible
-    # Dispatch to Router. usage of reason_hint="eligible_candidate" would block sending.
-    # We omit reason_hint so Router proceeds to check cooldowns and construct message.
+    # Fetch Context for Intelligent Decision (Rising vs Dropping)
+    status_res = await tools.execute_tool("get_status_context", {})
+    
+    # Payload
     payload = {
         "treatment_id": tid,
         "bolus_units": candidate.insulin,
         "bolus_at": ts.isoformat(),
         "minutes_since": int(diff_min),
-        "delay_minutes": conf.delay_minutes
+        "delay_minutes": conf.delay_minutes,
+        "bg": getattr(status_res, "bg_mgdl", None),
+        "trend": getattr(status_res, "direction", "Flat"),
+        "delta": getattr(status_res, "delta_mgdl", 0)
     }
     
     await _route(payload)
