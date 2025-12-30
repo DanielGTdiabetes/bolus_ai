@@ -113,18 +113,29 @@ def _build_ns_client(settings: UserSettings | None) -> Optional[NightscoutClient
 
 
 async def _load_user_settings(username: str = "admin") -> UserSettings:
+    # 1. Try DB First (Source of Truth) because Frontend saves to DB psql
+    try:
+        from app.core.db import get_engine, AsyncSession
+        from app.services.settings_service import get_user_settings_service
+        
+        engine = get_engine()
+        if engine:
+            async with AsyncSession(engine) as session:
+                db_res = await get_user_settings_service(username, session)
+                if db_res and db_res.get("settings"):
+                    # Found in DB -> This is the master copy
+                    return UserSettings.migrate(db_res["settings"])
+    except Exception as e:
+        logger.warning(f"DB Settings load failed for {username}, falling back to file: {e}")
+
+    # 2. Fallback to File (Legacy / Offline)
     settings = get_settings()
     store = DataStore(Path(settings.data.data_dir))
-    
-    # Base settings from file
     user_settings = store.load_settings(username)
     
-    # Overlay from DB Secrets if available (Source of Truth for connection)
+    # 3. Hybrid Overlay: If we loaded from file, try to at least get NS secrets from DB
     try:
         from app.services.nightscout_secrets_service import get_ns_config
-        # We need a session? get_ns_config requires session?
-        # Check signature of get_ns_config.
-        # If it requires session, we need to create one.
         from app.core.db import get_engine, AsyncSession
         engine = get_engine()
         if engine:
@@ -133,8 +144,6 @@ async def _load_user_settings(username: str = "admin") -> UserSettings:
                  if ns_conf:
                       user_settings.nightscout.url = ns_conf.url
                       user_settings.nightscout.token = ns_conf.api_secret
-                      # Also set proactively.basal settings if we have them in DB? 
-                      # For now just NS connection is critical for premeal.
     except Exception as e:
         logger.warning(f"Failed to overlay DB settings for {username}: {e}")
         
