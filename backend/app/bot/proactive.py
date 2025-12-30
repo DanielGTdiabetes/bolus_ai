@@ -159,7 +159,7 @@ async def basal_reminder(username: str = "admin", chat_id: Optional[int] = None)
             pass
 
 
-async def premeal_nudge(username: str = "admin", chat_id: Optional[int] = None) -> None:
+async def premeal_nudge(username: str = "admin", chat_id: Optional[int] = None, trigger: str = "auto") -> None:
     # Resolve default user
     if username == "admin":
         from app.core import config
@@ -177,7 +177,13 @@ async def premeal_nudge(username: str = "admin", chat_id: Optional[int] = None) 
         return
 
     # 2. Check Enabled (Config)
-    if not premeal_conf.enabled:
+    if not premeal_conf.enabled and trigger == "auto":
+        # Allow manual run even if disabled? Usually yes for testing, but let's stick to user intent.
+        # If manual, we bypass "enabled" check? Maybe useful for diagnostics.
+        # But 'enabled' usually means 'system active'.
+        # Let's say manual overrides enabled.
+        pass
+    elif not premeal_conf.enabled:
         return
 
     # 3. Resolve Chat ID (Config Priority)
@@ -186,10 +192,12 @@ async def premeal_nudge(username: str = "admin", chat_id: Optional[int] = None) 
         return
 
     # 4. Check Cooldown (Dynamic from Config)
-    silence_sec = premeal_conf.silence_minutes * 60
-    if not cooldowns.is_ready("premeal", silence_sec):
-        health.record_event("premeal", False, f"silenced_recent(premeal,{premeal_conf.silence_minutes}m)")
-        return
+    # If TRIGGER is manual, bypass cooldown?
+    if trigger == "auto":
+        silence_sec = premeal_conf.silence_minutes * 60
+        if not cooldowns.is_ready("premeal", silence_sec):
+            health.record_event("premeal", False, f"silenced_recent(premeal,{premeal_conf.silence_minutes}m)")
+            return
         
     # 5. Fetch Context (Tool)
     try:
@@ -219,7 +227,7 @@ async def premeal_nudge(username: str = "admin", chat_id: Optional[int] = None) 
     delta = stats_dict.get("delta")
     direction = stats_dict.get("direction")
     
-    logger.info(f"[PREMEAL] username={username} bg={bg} delta={delta} direction={direction}")
+    logger.info(f"[PREMEAL] username={username} bg={bg} delta={delta} direction={direction} trigger={trigger}")
 
     if bg is None:
          logger.warning(f"[PREMEAL] missing bg keys={list(stats_dict.keys())}")
@@ -227,11 +235,30 @@ async def premeal_nudge(username: str = "admin", chat_id: Optional[int] = None) 
          return
 
     # 7. Heuristic (Configurable Thresholds)
+    # If Manual, we might want to bypass thresholds?
+    # User says: "/run premeal manual: Sí llega mensaje".
+    # Assuming manual bypasses thresholds or at least forces check.
+    # But message says "Premeal NO debe preguntar por comida si no hay indicios claros... Mantener la lógica actual de cálculo/contexto".
+    # And "Premeal puede enviar mensaje si thresholds se cumplen".
+    # So manual just bypasses the "no_meal_intent" silence. It PROBABLY still expects high glucose?
+    # Spec: "/run premeal manual: Sí llega mensaje". This implies FORCE send.
+    # But usually jobs emulate the check.
+    # Let's assume manual SHOULD send even if low BG? Or just bypass windows?
+    # "Si NO se cumple ninguna: silenced_no_meal_intent".
+    # If it is manual, it fulfills "Existing flag explicitly".
+    # But later: "Mantener intacta: Lógica de thresholds".
+    # So if BG is low, it still returns "heuristic_low_bg".
+    # Correct. Manual only bypasses the WINDOW check.
+
     delta_val = delta if delta is not None else 0
     bg_val = float(bg)
     
     th_bg = premeal_conf.bg_threshold_mgdl
     th_delta = premeal_conf.delta_threshold_mgdl
+    
+    # We apply thresholds unless manual override of thresholds requested? 
+    # For now, apply thresholds as per "Mantener intacta lógica de thresholds".
+    # If I run /run premeal and BG is 80, it should probably NOT say "Are you eating?".
     
     if bg_val < th_bg:
         health.record_event("premeal", False, f"heuristic_low_bg(bg={int(bg_val)}<th={th_bg})")
@@ -241,7 +268,7 @@ async def premeal_nudge(username: str = "admin", chat_id: Optional[int] = None) 
         health.record_event("premeal", False, f"heuristic_low_delta(delta={delta_val}<th={th_delta})")
         return
         
-    payload = {"bg": bg_val, "trend": direction, "delta": delta_val}
+    payload = {"bg": bg_val, "trend": direction, "delta": delta_val, "trigger": trigger}
 
     # 8. Delegate to Router
     from app.bot.llm import router

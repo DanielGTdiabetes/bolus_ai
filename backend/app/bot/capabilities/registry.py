@@ -299,7 +299,7 @@ def _build_jobs() -> list[JobDef]:
             description="Empuja recordatorio previo a comida cuando BG sube.",
             next_run_fn=lambda: _scheduler_next_run("premeal_nudge"),
             last_run_state_fn=_job_state_lookup("premeal"),
-            run_now_fn=bot_proactive.premeal_nudge,
+            run_now_fn=lambda: bot_proactive.premeal_nudge(trigger="manual"),
         ),
         JobDef(
             id="basal",

@@ -1,6 +1,7 @@
 import logging
 import json
 import asyncio
+from datetime import datetime
 from typing import Optional, List, Any, Dict
 from dataclasses import dataclass
 
@@ -286,6 +287,37 @@ async def handle_event(username: str, chat_id: int, event_type: str, payload: Di
             health.record_event(event_type, False, reason)
             logger.info(f"Event {event_type} skipped by heuristic: {reason}")
             return None
+
+    # 0.5. Guard: Premeal Intent Check
+    if event_type == "premeal":
+        trigger = payload.get("trigger", "auto")
+        intent = payload.get("intent")
+        
+        # If manual or explicit intent, pass
+        if trigger == "manual" or intent == "meal_check":
+            pass
+        else:
+            # Check Meal Windows (Local Time)
+            # TODO: Load from proactively.premeal.meal_windows in settings if available
+            now = datetime.now()
+            # Default Windows (Lunch: 12:30-15:30, Dinner: 19:30-22:00)
+            windows = [
+                (12, 30, 15, 30),
+                (19, 30, 22, 00)
+            ]
+            
+            in_window = False
+            for (sh, sm, eh, em) in windows:
+                start_dt = now.replace(hour=sh, minute=sm, second=0, microsecond=0)
+                end_dt = now.replace(hour=eh, minute=em, second=0, microsecond=0)
+                if start_dt <= now <= end_dt:
+                    in_window = True
+                    break
+            
+            if not in_window:
+                health.record_event(event_type, False, "silenced_no_meal_intent")
+                logger.info(f"Event {event_type} silenced: No Meal Intent (Auto outside window)")
+                return None
 
     # 1. Check Noise Rules
     silence_res = rules.check_silence(event_type)
