@@ -281,8 +281,8 @@ async def handle_event(username: str, chat_id: int, event_type: str, payload: Di
         # Special Case: Eligible Candidate for Combo Followup -> Proceed to Manual Construction
         if reason == "eligible_candidate" and event_type == "combo_followup":
             pass
-        # Special Case: Morning Summary Manual Mode
-        elif event_type == "morning_summary" and reason.startswith("sent_"):
+        # Special Case: Trend Alert -> Check Silencing Rules Later
+        elif event_type == "trend_alert":
             pass
         else:
             # Default behavior: hint means "skip and log this reason"
@@ -384,6 +384,41 @@ async def handle_event(username: str, chat_id: int, event_type: str, payload: Di
         
         # Basal placeholder (fetched separate or not included in this MVP)
         # We stick to available payload data to be safe.
+        
+        return BotReply(text=text)
+
+    if event_type == "trend_alert":
+        # Check Noise Rules first (cooldown)
+        silence_res = rules.check_silence(event_type)
+        if silence_res.should_silence:
+            detailed_reason = f"silenced_recent({event_type}, remaining={silence_res.remaining_min}, window={silence_res.window_min})"
+            health.record_event(event_type, False, detailed_reason)
+            return None
+            
+        # Construct Message
+        curr = payload.get("current_bg", 0)
+        direction = payload.get("direction", "stable")
+        slope = payload.get("slope", 0.0)
+        delta_total = payload.get("delta_total", 0)
+        window = payload.get("window_minutes", 30)
+        
+        icon = "📈" if direction == "rise" else "📉"
+        action = "Subida" if direction == "rise" else "Bajada"
+        
+        text = (
+            f"{icon} **{action} rápida sin comida reciente**\n\n"
+            f"Ahora: **{curr}** mg/dL\n"
+            f"En {window} min: {delta_total:+} mg/dL (≈ {slope:+.1f}/min)\n\n"
+        )
+        
+        if direction == "rise":
+             text += "¿Ocurre algo (estrés, fallo de sensor/adhesivo)?"
+        else:
+             text += "Vigila por si se confirma."
+        
+        # Log success reason
+        reason = f"sent_trend_{direction}(slope={slope}, delta={delta_total}, window={window})"
+        health.record_event(event_type, True, reason)
         
         return BotReply(text=text)
 

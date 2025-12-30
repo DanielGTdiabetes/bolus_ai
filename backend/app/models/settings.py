@@ -162,10 +162,25 @@ class ComboFollowupConfig(BaseModel):
     quiet_hours_start: Optional[str] = "23:00"
     quiet_hours_end: Optional[str] = "07:00"
 
+class TrendAlertConfig(BaseModel):
+    enabled: bool = False
+    window_minutes: int = 30
+    sample_points_min: int = 4
+    rise_mgdl_per_min: float = 2.0
+    drop_mgdl_per_min: float = -2.0
+    min_delta_total_mgdl: int = 35
+    recent_carbs_minutes: int = 180
+    recent_bolus_minutes: int = 180
+    silence_minutes: int = 60
+    quiet_hours_start: Optional[str] = "23:00"
+    quiet_hours_end: Optional[str] = "07:00"
+
+
 class ProactiveConfig(BaseModel):
     basal: BasalReminderConfig = Field(default_factory=BasalReminderConfig)
     premeal: PremealConfig = Field(default_factory=PremealConfig)
     combo_followup: ComboFollowupConfig = Field(default_factory=ComboFollowupConfig)
+    trend_alert: TrendAlertConfig = Field(default_factory=TrendAlertConfig)
 
 class BotConfig(BaseModel):
     proactive: ProactiveConfig = Field(default_factory=ProactiveConfig)
