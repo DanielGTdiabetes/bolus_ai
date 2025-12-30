@@ -30,6 +30,10 @@ class BotHealthState:
     last_action_type: Optional[str] = None
     last_action_ok: Optional[bool] = None
     last_action_error: Optional[str] = None
+    last_llm_at: Optional[datetime] = None
+    last_llm_ok: Optional[bool] = None
+    last_llm_error: Optional[str] = None
+    last_tool_calls: list[str] = field(default_factory=list)
 
     # Internal lock to avoid races if multiple tasks mutate quickly
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
@@ -73,7 +77,16 @@ class BotHealthState:
             self.last_action_at = datetime.now(timezone.utc)
             self.last_action_type = action_type
             self.last_action_ok = ok
+            self.last_action_ok = ok
             self.last_action_error = error if not ok else None
+
+    def record_llm(self, ok: bool, error: Optional[str] = None, tools_used: list[str] = None) -> None:
+        with self._lock:
+            self.last_llm_at = datetime.now(timezone.utc)
+            self.last_llm_ok = ok
+            self.last_llm_error = error
+            if tools_used:
+                self.last_tool_calls = tools_used[:10]  # Keep last 10
 
     def get_last_error(self) -> Optional[str]:
         with self._lock:
@@ -93,6 +106,10 @@ class BotHealthState:
             "last_action_type": self.last_action_type,
             "last_action_ok": self.last_action_ok,
             "last_action_error": self.last_action_error,
+            "last_llm_at": self.last_llm_at.isoformat() if self.last_llm_at else None,
+            "last_llm_ok": self.last_llm_ok,
+            "last_llm_error": self.last_llm_error,
+            "last_tool_calls": self.last_tool_calls,
         }
 
 
