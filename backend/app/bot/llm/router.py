@@ -477,8 +477,6 @@ async def handle_event(username: str, chat_id: int, event_type: str, payload: Di
 
         # 2. Check Logic Status
         status_dict = payload.get("basal_status", {})
-        status = status_dict.get("status")
-        
         if status == "taken_today":
             health.record_event(event_type, False, "heuristic_already_taken")
             return None
@@ -500,7 +498,7 @@ async def handle_event(username: str, chat_id: int, event_type: str, payload: Di
             return None
 
         # Format Message
-        text = "🔔 **Recordatorio de Basal**\n\nEs hora de tu dosis diaria.\n¿Quieres registrarla?"
+        text = "💉 **Basal**\n\n¿Te has puesto la basal de hoy?"
         
         buttons = [
             [InlineKeyboardButton("✅ Registrar", callback_data="basal_yes")],
