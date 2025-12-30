@@ -100,7 +100,7 @@ class ForecastEngine:
             
             # Dampening: If deviation is huge (>3), cap it to avoid panic loops
             if abs(deviation_slope) > 3.0:
-                 warnings.append(f"Desviación masiva detectada ({deviation_slope:.1f}), amortiguada.")
+                 warnings.append(f"Desviación masiva detectada ({deviation_slope:.1f}), amortiguada (capped).")
                  deviation_slope = 3.0 if deviation_slope > 0 else -3.0
                  quality = "medium"
 
@@ -308,7 +308,7 @@ class ForecastEngine:
         # Cap slope
         MAX_SLOPE = 3.0 # mg/dL per min
         if abs(slope) > MAX_SLOPE:
-            warnings.append(f"Inercia limitada por seguridad (era {slope:.2f})")
+            warnings.append(f"Inercia limitada por seguridad (capped, era {slope:.2f})")
             slope = MAX_SLOPE if slope > 0 else -MAX_SLOPE
             
         return slope, warnings

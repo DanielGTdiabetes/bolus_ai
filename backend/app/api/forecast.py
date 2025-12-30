@@ -1,3 +1,4 @@
+import re
 from fastapi import APIRouter, Depends, HTTPException, Query
 from typing import Optional, List
 from app.models.forecast import ForecastSimulateRequest, ForecastResponse, ForecastEvents, ForecastEventBolus, ForecastEventCarbs, SimulationParams
@@ -27,6 +28,52 @@ async def get_current_forecast(
     - Active IOB/COB (from DB Treatments)
     - User Settings (ISF/ICR)
     """
+    def compute_warsaw_equivalent_carbs(fat_g: float, protein_g: float, warsaw_cfg):
+        """
+        Convert fat/protein grams into Warsaw-equivalent carbs for Forecast.
+        Mirrors the bolus engine logic:
+        - grams = (fat*9 + protein*4) / 10
+        - apply safety factor (simple/dual)
+        - set absorption to 3-5h based on FPU size
+        """
+        if not warsaw_cfg or not warsaw_cfg.enabled:
+            return None
+        if (fat_g or 0) <= 0 and (protein_g or 0) <= 0:
+            return None
+
+        total_extra_kcal = (fat_g or 0) * 9.0 + (protein_g or 0) * 4.0
+        if total_extra_kcal <= 0:
+            return None
+
+        fpu_equivalent_carbs = total_extra_kcal / 10.0
+        if fpu_equivalent_carbs <= 0:
+            return None
+
+        if fpu_equivalent_carbs < 20:
+            absorption = 180
+        elif fpu_equivalent_carbs < 40:
+            absorption = 240
+        else:
+            absorption = 300
+
+        is_dual = total_extra_kcal >= warsaw_cfg.trigger_threshold_kcal
+        factor = warsaw_cfg.safety_factor_dual if is_dual else warsaw_cfg.safety_factor
+        effective_carbs = fpu_equivalent_carbs * factor
+
+        if effective_carbs <= 0:
+            return None
+
+        return {
+            "grams": effective_carbs,
+            "absorption": absorption,
+            "is_dual": is_dual,
+        }
+
+    split_note_regex = re.compile(
+        r"split:\s*([0-9]+(?:\.[0-9]+)?)\s*now\s*\+\s*([0-9]+(?:\.[0-9]+)?)\s*delayed\s*([0-9]+)m",
+        re.IGNORECASE,
+    )
+
     # 1. Load Settings
     user_settings = None
     try:
@@ -274,6 +321,8 @@ async def get_current_forecast(
         # Determine Hour in User Time (Approx UTC+1 for Daniel/Spain)
         # Ideally we store timezone in user settings
         user_hour = (created_at.hour + 1) % 24 
+
+        evt_icr, _, base_absorption = get_slot_params(user_hour, user_settings)
         
         if row.insulin and row.insulin > 0:
             dur = getattr(row, "duration", 0.0) or 0.0
@@ -282,11 +331,25 @@ async def get_current_forecast(
                 units=row.insulin,
                 duration_minutes=dur
             ))
+
+            if dur <= 0 and row.notes:
+                match = split_note_regex.search(row.notes or "")
+                if match:
+                    try:
+                        later_u = float(match.group(2))
+                        delay_min = int(float(match.group(3)))
+                        if later_u > 0 and delay_min >= 0:
+                            boluses.append(ForecastEventBolus(
+                                time_offset_min=int(offset + delay_min),
+                                units=later_u,
+                                duration_minutes=dur
+                            ))
+                    except Exception:
+                        pass
             
         if row.carbs and row.carbs > 0:
-            # Resolve ICR for this SPECIFIC event time
-            evt_icr, _, evt_abs = get_slot_params(user_hour, user_settings)
-            
+            evt_abs = base_absorption
+
             # Alcohol Check
             if row.notes and "alcohol" in row.notes.lower():
                 evt_abs = 480 # 8 hours for alcohol
@@ -302,6 +365,19 @@ async def get_current_forecast(
                 grams=row.carbs,
                 icr=evt_icr,
                 absorption_minutes=evt_abs
+            ))
+
+        warsaw_equiv = compute_warsaw_equivalent_carbs(
+            getattr(row, "fat", 0) or 0,
+            getattr(row, "protein", 0) or 0,
+            user_settings.warsaw if user_settings else None
+        )
+        if warsaw_equiv:
+            carbs.append(ForecastEventCarbs(
+                time_offset_min=int(offset),
+                grams=warsaw_equiv["grams"],
+                icr=evt_icr,
+                absorption_minutes=warsaw_equiv["absorption"]
             ))
 
 
