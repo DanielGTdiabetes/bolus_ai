@@ -244,63 +244,73 @@ async def _check_auth(update: Update, context: ContextTypes.DEFAULT_TYPE) -> boo
         return False
     return True
 
-async def get_bot_user_settings() -> UserSettings:
-    """Helper to fetch 'admin' settings from DB (Single User assumption)."""
+async def get_bot_user_settings(username: Optional[str] = "admin") -> UserSettings:
+    """Helper to fetch settings from DB. Defaults to 'admin' (Single User focus)."""
     settings = get_settings() # App settings
-    
     
     # Try DB
     engine = get_engine()
     if engine:
         async with AsyncSession(engine) as session:
-            # 1. Try 'admin'
-            res = await svc_settings.get_user_settings_service("admin", session)
+            # 1. Try provided username
+            res = await svc_settings.get_user_settings_service(username or "admin", session)
             db_settings = None
             
             if res and res.get("settings"):
                 s = res["settings"]
-                
-                # Overlay Nightscout Secrets (Source of Truth)
+                # Overlay Nightscout Secrets
                 try:
-                    ns_secret = await svc_ns_secrets.get_ns_config(session, "admin")
+                    ns_secret = await svc_ns_secrets.get_ns_config(session, username or "admin")
                     if ns_secret:
                         if "nightscout" not in s: s["nightscout"] = {}
                         s["nightscout"]["url"] = ns_secret.url
                         s["nightscout"]["token"] = ns_secret.api_secret
-                        # s["nightscout"]["enabled"] = ns_secret.enabled # Respect secret enabled status? Or user pref?
-                        # Usually secret table enabled is the master switch for connection.
-                        # But Settings.nightscout.enabled might be the "User wants this feature" flag.
-                        # Let's trust the secret config for URL/Auth.
                 except Exception as e:
-                    logger.warning(f"Bot failed to fetch NS secrets: {e}")
+                    logger.warning(f"Bot failed to fetch NS secrets for {username}: {e}")
 
-                # Check if it has NS URL (from Secrets or Legacy)
-                ns = s.get("nightscout", {})
-                if ns.get("url"):
-                    db_settings = s
+                db_settings = s
             
-            # 2. If admin has no URL, try finding ANY user with a URL (Single Tenant workaround)
+            # 2. If no settings found for that user, try ANY user with a URL (Single Tenant fallback)
             if not db_settings:
-                # Raw query for speed
                 from sqlalchemy import text
-                stmt = text("SELECT settings FROM user_settings LIMIT 5")
+                stmt = text("SELECT user_id, settings FROM user_settings LIMIT 20")
                 rows = (await session.execute(stmt)).fetchall()
                 for r in rows:
-                    s = r[0] # settings json
+                    s = r.settings # row[1]
                     if s.get("nightscout", {}).get("url"):
                          db_settings = s
-                         logger.info("Bot found Settings via fallback user search.")
+                         logger.info(f"Bot found Settings via fallback user search (user_id={r.user_id}).")
                          break
             
             if db_settings:
                 try:
-                    return UserSettings.model_validate(db_settings)
+                    return UserSettings.migrate(db_settings)
                 except Exception as e:
                     logger.error(f"Failed to validate DB settings: {e}")
     
     # Fallback to JSON Store
     store = DataStore(Path(settings.data.data_dir))
-    return store.load_settings()
+    return store.load_settings(username)
+
+def get_current_meal_slot(settings: UserSettings) -> str:
+    """Infers current meal slot based on User Schedule (Local Time)."""
+    from datetime import datetime
+    from app.utils.timezone import to_local
+    
+    # Use user local time (default Europe/Madrid)
+    now_local = to_local(datetime.now())
+    h = now_local.hour
+    sch = settings.schedule
+    
+    if sch.breakfast_start_hour <= h < sch.lunch_start_hour:
+        return "breakfast"
+    elif sch.lunch_start_hour <= h < sch.dinner_start_hour:
+        return "lunch"
+    elif h >= sch.dinner_start_hour or h < sch.breakfast_start_hour:
+        return "dinner"
+    
+    # Default fallback
+    return "snack"
 
 def _is_admin(user_id: int) -> bool:
     allowed = config.get_allowed_telegram_user_id()
@@ -808,13 +818,9 @@ async def _handle_add_treatment_tool(update: Update, context: ContextTypes.DEFAU
     request_id = str(uuid.uuid4())[:8] # Short 8-char ID for UX
     
     # Resolve Parameters
-    h = datetime.now(timezone.utc).hour + 1
-    slot = "lunch"
-    if 5 <= h < 11: slot = "breakfast"
-    elif 11 <= h < 17: slot = "lunch"
-    elif 17 <= h < 23: slot = "dinner"
-    else: slot = "snack"
-
+    slot = get_current_meal_slot(user_settings)
+    
+    # Calculate IOB & Context
     eff_bg = bg_val if bg_val else user_settings.targets.mid
     
     # Create Request V2
@@ -954,13 +960,19 @@ async def _handle_add_treatment_tool(update: Update, context: ContextTypes.DEFAU
     keyboard = [
         [
             InlineKeyboardButton(f"✅ Poner {rec.total_u_final} U", callback_data=f"accept|{request_id}"),
-            InlineKeyboardButton("✏️ Editar", callback_data=f"edit_dose|{rec.total_u_final}|{request_id}"),
-            InlineKeyboardButton("❌ Cancelar", callback_data=f"cancel|{request_id}")
+            InlineKeyboardButton("✏️ Cantidad", callback_data=f"edit_dose|{rec.total_u_final}|{request_id}"),
+            InlineKeyboardButton("❌ Ignorar", callback_data=f"cancel|{request_id}")
+        ],
+        [
+            InlineKeyboardButton("🌅 Desayuno", callback_data=f"set_slot|breakfast|{request_id}"),
+            InlineKeyboardButton("🍕 Comida", callback_data=f"set_slot|lunch|{request_id}"),
+            InlineKeyboardButton("🍽️ Cena", callback_data=f"set_slot|dinner|{request_id}"),
+            InlineKeyboardButton("🥨 Snack", callback_data=f"set_slot|snack|{request_id}"),
         ]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
-    logger.info(f"Bot creating inline keyboard for request_{request_id} with callback accept_bolus_{request_id}")
+    logger.info(f"Bot creating inline keyboard for request_{request_id}")
     await reply_text(update, context, msg_text, reply_markup=reply_markup, parse_mode="Markdown")
 
 
@@ -1545,12 +1557,7 @@ async def on_new_meal_received(carbs: float, fat: float, protein: float, source:
     # -----------------------------------------------------
     request_id = str(uuid.uuid4())[:8]
 
-    h = now_utc.hour + 1 # Approx local time fix
-    slot = "lunch"
-    if 5 <= h < 11: slot = "breakfast"
-    elif 11 <= h < 17: slot = "lunch"
-    elif 17 <= h < 23: slot = "dinner"
-    else: slot = "snack"
+    slot = get_current_meal_slot(user_settings)
     
     glucose_info = GlucoseUsed(
         mgdl=bg_val,
@@ -1610,8 +1617,14 @@ async def on_new_meal_received(carbs: float, fat: float, protein: float, source:
     keyboard = [
         [
             InlineKeyboardButton(f"✅ Poner {rec_u} U", callback_data=f"accept|{request_id}"),
-            InlineKeyboardButton("✏️ Editar", callback_data=f"edit_dose|{rec_u}|{request_id}"),
+            InlineKeyboardButton("✏️ Cantidad", callback_data=f"edit_dose|{rec_u}|{request_id}"),
             InlineKeyboardButton("❌ Ignorar", callback_data=f"cancel|{request_id}")
+        ],
+        [
+            InlineKeyboardButton("🌅 Desayuno", callback_data=f"set_slot|breakfast|{request_id}"),
+            InlineKeyboardButton("🍕 Comida", callback_data=f"set_slot|lunch|{request_id}"),
+            InlineKeyboardButton("🍽️ Cena", callback_data=f"set_slot|dinner|{request_id}"),
+            InlineKeyboardButton("🥨 Snack", callback_data=f"set_slot|snack|{request_id}"),
         ]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -1658,7 +1671,7 @@ async def _handle_snapshot_callback(query, data: str) -> None:
             is_accept = True
         elif "|" in data:
             action_prefix, request_id = data.split("|", 1)
-            is_accept = (action_prefix == "accept")
+            is_accept = (action_prefix == "accept" or action_prefix == "accept_manual")
         else:
             # Legacy fallback
             request_id = data.split("_")[-1]
@@ -1808,6 +1821,81 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 health.record_action(f"callback:edit:{req_id}", True)
             except Exception as e:
                 logger.error(f"Edit callback error: {e}")
+            return
+
+        if data.startswith("set_slot|"):
+            try:
+                # set_slot|slot|req_id
+                _, slot, req_id = data.split("|")
+                snapshot = SNAPSHOT_STORAGE.get(req_id)
+                if not snapshot or "rec" not in snapshot:
+                    await query.answer("Sesión caducada")
+                    return
+                
+                # Recalcular
+                old_rec = snapshot["rec"]
+                user_settings = await get_bot_user_settings() # Fresh settings
+                
+                # Create NEW Request based on OLD one but changing slot
+                # snapshot["rec"].used_params has some data
+                # But it's better to use the original carbs/fat/protein
+                
+                req_v2 = BolusRequestV2(
+                    carbs_g=snapshot["carbs"],
+                    fat_g=snapshot.get("fat", 0.0),
+                    protein_g=snapshot.get("protein", 0.0),
+                    meal_slot=slot,
+                    current_bg=old_rec.glucose.mgdl,
+                    target_mgdl=user_settings.targets.mid
+                )
+                
+                new_rec = calculate_bolus_v2(
+                    request=req_v2,
+                    settings=user_settings,
+                    iob_u=old_rec.iob_u,
+                    glucose_info=old_rec.glucose
+                )
+                
+                # Update Snapshot
+                snapshot["rec"] = new_rec
+                
+                # Update Message
+                rec_u = new_rec.total_u_final
+                lines = []
+                lines.append(f"🍽️ **Nueva Comida Detectada** (MFP)")
+                lines.append(f"Slot: **{slot.upper()}**")
+                lines.append("")
+                lines.append(f"Resultado: **{rec_u} U**")
+                lines.append("")
+                if new_rec.explain:
+                    for ex in new_rec.explain:
+                        lines.append(f"• {ex}")
+                lines.append("")
+                lines.append(f"Redondeo final: {new_rec.total_u_raw:.2f} → {new_rec.total_u_final} U")
+                lines.append("")
+                lines.append(f"¿Registrar {rec_u} U?")
+                
+                msg_text = "\n".join(lines)
+                
+                keyboard = [
+                    [
+                        InlineKeyboardButton(f"✅ Poner {rec_u} U", callback_data=f"accept|{req_id}"),
+                        InlineKeyboardButton("✏️ Cantidad", callback_data=f"edit_dose|{rec_u}|{req_id}"),
+                        InlineKeyboardButton("❌ Ignorar", callback_data=f"cancel|{req_id}")
+                    ],
+                    [
+                        InlineKeyboardButton("🌅 Desayuno", callback_data=f"set_slot|breakfast|{req_id}"),
+                        InlineKeyboardButton("🍕 Comida", callback_data=f"set_slot|lunch|{req_id}"),
+                        InlineKeyboardButton("🍽️ Cena", callback_data=f"set_slot|dinner|{req_id}"),
+                        InlineKeyboardButton("🥨 Snack", callback_data=f"set_slot|snack|{req_id}"),
+                    ]
+                ]
+                await query.edit_message_text(text=msg_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+                await query.answer(f"Slot cambiado a {slot}")
+                health.record_action(f"callback:set_slot:{slot}", True)
+            except Exception as e:
+                logger.error(f"SetSlot callback error: {e}")
+                await query.answer("Error al cambiar slot")
             return
 
         # Accept

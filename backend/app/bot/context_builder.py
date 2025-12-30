@@ -31,37 +31,33 @@ async def get_bot_user_settings_safe() -> UserSettings:
             db_settings = None
             
             if res and res.get("settings"):
-                s = res["settings"]
+                db_settings = res["settings"]
                 # Overlay Nightscout Secrets
                 try:
                     ns_secret = await svc_ns_secrets.get_ns_config(session, "admin")
                     if ns_secret:
-                        if "nightscout" not in s: s["nightscout"] = {}
-                        s["nightscout"]["url"] = ns_secret.url
-                        s["nightscout"]["token"] = ns_secret.api_secret
+                        if "nightscout" not in db_settings: db_settings["nightscout"] = {}
+                        db_settings["nightscout"]["url"] = ns_secret.url
+                        db_settings["nightscout"]["token"] = ns_secret.api_secret
                 except Exception as e:
                     logger.warning(f"CtxBuilder: failed to fetch NS secrets: {e}")
 
-                ns = s.get("nightscout", {})
-                if ns.get("url"):
-                    db_settings = s
-            
             # 2. Fallback: Any user with URL
             if not db_settings:
                 from sqlalchemy import text
-                stmt = text("SELECT settings FROM user_settings LIMIT 5")
+                stmt = text("SELECT user_id, settings FROM user_settings LIMIT 20")
                 rows = (await session.execute(stmt)).fetchall()
                 for r in rows:
-                    s = r[0]
+                    s = r.settings
                     if s.get("nightscout", {}).get("url"):
                         db_settings = s
                         break
             
             if db_settings:
                 try:
-                    return UserSettings.model_validate(db_settings)
-                except Exception:
-                    pass
+                    return UserSettings.migrate(db_settings)
+                except Exception as e:
+                    logger.error(f"CtxBuilder: Validation failed: {e}")
 
     # Fallback to JSON Store
     store = DataStore(Path(settings.data.data_dir))

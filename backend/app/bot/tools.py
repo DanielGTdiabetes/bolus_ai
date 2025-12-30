@@ -128,6 +128,17 @@ async def _load_user_settings(username: str = "admin") -> UserSettings:
                 db_res = await get_user_settings_service(username, session)
                 if db_res and db_res.get("settings"):
                     user_settings = UserSettings.migrate(db_res["settings"])
+                
+                # Fallback: Find any user with settings if admin is empty
+                if not user_settings:
+                    from sqlalchemy import text
+                    stmt = text("SELECT user_id, settings FROM user_settings LIMIT 20")
+                    rows = (await session.execute(stmt)).fetchall()
+                    for r in rows:
+                        s = r.settings
+                        if s.get("nightscout", {}).get("url"):
+                             user_settings = UserSettings.migrate(s)
+                             break
     except Exception as e:
         logger.warning(f"DB Settings load failed for {username}, falling back to file: {e}")
 
@@ -138,7 +149,6 @@ async def _load_user_settings(username: str = "admin") -> UserSettings:
         user_settings = store.load_settings(username)
     
     # 3. Hybrid Overlay: ALWAYS try to get NS secrets from DB (Source of Truth for Secrets)
-    # The general settings blob might have empty/outdated NS config.
     try:
         from app.services.nightscout_secrets_service import get_ns_config
         from app.core.db import get_engine, AsyncSession
@@ -220,15 +230,19 @@ async def calculate_bolus(carbs: float, meal_type: Optional[str] = None, split: 
         meal_slot = meal_type
     else:
         # Infer from system local time using User Settings Schedule
-        h = datetime.now().hour
+        from app.utils.timezone import to_local
+        now_local = to_local(datetime.now())
+        h = now_local.hour
         sch = user_settings.schedule
         
         if sch.breakfast_start_hour <= h < sch.lunch_start_hour:
             meal_slot = "breakfast"
         elif sch.lunch_start_hour <= h < sch.dinner_start_hour:
              meal_slot = "lunch"
-        else:
+        elif h >= sch.dinner_start_hour or h < sch.breakfast_start_hour:
              meal_slot = "dinner"
+        else:
+             meal_slot = "snack"
     now_utc = datetime.now(timezone.utc)
     try:
         iob_u = status.iob_u or 0.0
@@ -259,10 +273,25 @@ async def calculate_correction(target_bg: Optional[float] = None) -> CorrectionR
     target = target_bg or user_settings.targets.mid
     bg = status.bg_mgdl
     iob = status.iob_u or 0.0
-    cf = user_settings.cf.lunch
+    
+    # Infer slot for ISF
+    from app.utils.timezone import to_local
+    now_local = to_local(datetime.now())
+    h = now_local.hour
+    sch = user_settings.schedule
+    if sch.breakfast_start_hour <= h < sch.lunch_start_hour:
+        slot = "breakfast"
+    elif sch.lunch_start_hour <= h < sch.dinner_start_hour:
+        slot = "lunch"
+    elif h >= sch.dinner_start_hour or h < sch.breakfast_start_hour:
+        slot = "dinner"
+    else:
+        slot = "snack"
+        
+    cf = getattr(user_settings.cf, slot, 50.0)
     correction_units = max((bg - target) / cf - iob, 0.0)
     explanation = [
-        f"BG {bg} vs objetivo {target} con CF {cf}",
+        f"BG {bg} vs objetivo {target} con CF {cf} ({slot})",
         f"IOB restado: {iob:.2f} U",
     ]
     return CorrectionResult(units=round(correction_units, 2), explanation=explanation, confidence="medium", quality="live" if status.quality == "live" else "degraded")
