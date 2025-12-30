@@ -26,12 +26,70 @@ def _is_admin(user_id: int) -> bool:
     allowed = config.get_allowed_telegram_user_id()
     return allowed is not None and user_id == allowed
 
-def _map_tool_to_gemini(tool_def) -> Dict[str, Any]:
-    return {
-        "name": tool_def.name,
-        "description": tool_def.description,
-        "parameters": tool_def.input_schema
+from google.ai.generativelanguage_v1beta.types import content
+
+def to_gemini_schema(json_schema: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Recursive conversion from standard JSON Schema (lowercase) to Gemini Schema (Enums/Uppercase).
+    Reference: google.ai.generativelanguage_v1beta.types.Schema
+    """
+    # 1. Type Mapping
+    original_type = json_schema.get("type", "object")
+    type_map = {
+        "string": content.Type.STRING,
+        "number": content.Type.NUMBER,
+        "integer": content.Type.INTEGER,
+        "boolean": content.Type.BOOLEAN,
+        "array": content.Type.ARRAY,
+        "object": content.Type.OBJECT,
     }
+    
+    # Defaults to OBJECT if unknown, or STRING if primitive context implied but missing
+    gemini_type = type_map.get(original_type, content.Type.OBJECT)
+
+    result = {
+        "type": gemini_type,
+        "nullable": json_schema.get("nullable", False),
+    }
+
+    # 2. Descriptions (critical)
+    if "description" in json_schema:
+        result["description"] = json_schema["description"]
+    
+    # 3. Enum
+    if "enum" in json_schema:
+        result["enum"] = json_schema["enum"]
+
+    # 4. Properties (for Object)
+    if "properties" in json_schema:
+        props = {}
+        for k, v in json_schema["properties"].items():
+            props[k] = to_gemini_schema(v)
+        result["properties"] = props
+        
+    # 5. Required
+    if "required" in json_schema:
+        result["required"] = json_schema["required"]
+        
+    # 6. Items (for Array)
+    if "items" in json_schema:
+        result["items"] = to_gemini_schema(json_schema["items"])
+
+    return result
+
+def _map_tool_to_gemini(tool_def) -> Dict[str, Any]:
+    try:
+        # Convert Pydantic/JSON schema to Gemini Schema Node
+        parameters_node = to_gemini_schema(tool_def.input_schema)
+        
+        return genai.types.FunctionDeclaration(
+            name=tool_def.name,
+            description=tool_def.description,
+            parameters=parameters_node
+        )
+    except Exception as e:
+        logger.warning(f"Failed to map tool {tool_def.name} to Gemini: {e}")
+        return None
 
 async def handle_text(username: str, chat_id: int, user_text: str, context_data: Dict[str, Any]) -> BotReply:
     """
@@ -54,7 +112,14 @@ async def handle_text(username: str, chat_id: int, user_text: str, context_data:
             continue
         allowed_tools.append(tool)
     
-    gemini_tools = [_map_tool_to_gemini(t) for t in allowed_tools]
+    gemini_tools = []
+    for t in allowed_tools:
+        converted = _map_tool_to_gemini(t)
+        if converted:
+            gemini_tools.append(converted)
+            
+    if not gemini_tools:
+        gemini_tools = None # Pass None if empty list to avoid API error
     
     # 3. Build Prompt
     system_prompt = get_system_prompt()
