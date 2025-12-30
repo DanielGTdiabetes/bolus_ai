@@ -1801,7 +1801,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         return
 
     # --- 1. ProActive / MFP Flow (Snapshot) ---
-    if data.startswith("accept") or data.startswith("cancel|") or data.startswith("edit_dose|"):
+    if data.startswith("accept") or data.startswith("cancel|") or data.startswith("edit_dose|") or data.startswith("set_slot|"):
         if data.startswith("cancel|"):
              health.record_action("callback:cancel", True)
              await query.edit_message_text(text=f"❌ Cancelado.")
