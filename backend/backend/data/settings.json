@@ -1,0 +1,225 @@
+{
+  "schema_version": 1,
+  "units": "mg/dL",
+  "targets": {
+    "low": 90,
+    "mid": 100,
+    "high": 120
+  },
+  "schedule": {
+    "breakfast_start_hour": 5,
+    "lunch_start_hour": 13,
+    "dinner_start_hour": 20
+  },
+  "cf": {
+    "breakfast": 30.0,
+    "lunch": 30.0,
+    "dinner": 30.0,
+    "snack": 30.0
+  },
+  "cr": {
+    "breakfast": 10.0,
+    "lunch": 10.0,
+    "dinner": 10.0,
+    "snack": 10.0
+  },
+  "max_bolus_u": 10.0,
+  "max_correction_u": 5.0,
+  "round_step_u": 0.05,
+  "tdd_u": null,
+  "iob": {
+    "dia_hours": 4.0,
+    "curve": "walsh",
+    "peak_minutes": 75
+  },
+  "insulin": {
+    "name": "Novorapid",
+    "sensor_delay_min": 15,
+    "pre_bolus_min": 15
+  },
+  "learning": {
+    "mode": "B",
+    "cr_on": true,
+    "step_pct": 5,
+    "weekly_cap_pct": 20,
+    "auto_apply_safe": true,
+    "schedule": {
+      "enabled": false,
+      "weekday": "friday",
+      "time_local": "20:00"
+    }
+  },
+  "adaptive": {
+    "fat": {
+      "breakfast": {
+        "fu": 1.0,
+        "fl": 1.0,
+        "delay_min": 0
+      },
+      "lunch": {
+        "fu": 1.0,
+        "fl": 1.0,
+        "delay_min": 0
+      },
+      "dinner": {
+        "fu": 1.0,
+        "fl": 1.0,
+        "delay_min": 0
+      },
+      "snack": {
+        "fu": 1.0,
+        "fl": 1.0,
+        "delay_min": 0
+      }
+    },
+    "exercise": {
+      "breakfast": {
+        "walking": {
+          "within90": 1.0,
+          "after90": 1.0
+        },
+        "cardio": {
+          "within90": 1.0,
+          "after90": 1.0
+        },
+        "running": {
+          "within90": 1.0,
+          "after90": 1.0
+        },
+        "gym": {
+          "within90": 1.0,
+          "after90": 1.0
+        },
+        "other": {
+          "within90": 1.0,
+          "after90": 1.0
+        }
+      },
+      "lunch": {
+        "walking": {
+          "within90": 1.0,
+          "after90": 1.0
+        },
+        "cardio": {
+          "within90": 1.0,
+          "after90": 1.0
+        },
+        "running": {
+          "within90": 1.0,
+          "after90": 1.0
+        },
+        "gym": {
+          "within90": 1.0,
+          "after90": 1.0
+        },
+        "other": {
+          "within90": 1.0,
+          "after90": 1.0
+        }
+      },
+      "dinner": {
+        "walking": {
+          "within90": 1.0,
+          "after90": 1.0
+        },
+        "cardio": {
+          "within90": 1.0,
+          "after90": 1.0
+        },
+        "running": {
+          "within90": 1.0,
+          "after90": 1.0
+        },
+        "gym": {
+          "within90": 1.0,
+          "after90": 1.0
+        },
+        "other": {
+          "within90": 1.0,
+          "after90": 1.0
+        }
+      },
+      "snack": {
+        "walking": {
+          "within90": 1.0,
+          "after90": 1.0
+        },
+        "cardio": {
+          "within90": 1.0,
+          "after90": 1.0
+        },
+        "running": {
+          "within90": 1.0,
+          "after90": 1.0
+        },
+        "gym": {
+          "within90": 1.0,
+          "after90": 1.0
+        },
+        "other": {
+          "within90": 1.0,
+          "after90": 1.0
+        }
+      }
+    }
+  },
+  "nightscout": {
+    "enabled": false,
+    "url": "",
+    "token": null,
+    "units": "mg/dl"
+  },
+  "techne": {
+    "enabled": false,
+    "max_step_change": 0.5,
+    "safety_iob_threshold": 1.5
+  },
+  "warsaw": {
+    "enabled": true,
+    "trigger_threshold_kcal": 300,
+    "safety_factor": 0.1,
+    "safety_factor_dual": 0.2
+  },
+  "vision": {
+    "provider": "gemini",
+    "gemini_key": null,
+    "gemini_model": "gemini-3-flash-preview",
+    "openai_key": null,
+    "openai_model": "gpt-4o"
+  },
+  "labs": {
+    "shadow_mode_enabled": false
+  },
+  "absorption": {
+    "breakfast": 180,
+    "lunch": 180,
+    "dinner": 240,
+    "snack": 120
+  },
+  "autosens": {
+    "enabled": true,
+    "min_ratio": 0.7,
+    "max_ratio": 1.2
+  },
+  "bot": {
+    "proactive": {
+      "basal": {
+        "enabled": false,
+        "time_local": null,
+        "expected_units": null,
+        "username": "admin",
+        "chat_id": null
+      },
+      "premeal": {
+        "enabled": true,
+        "bg_threshold_mgdl": 150,
+        "delta_threshold_mgdl": 2,
+        "window_minutes": 60,
+        "silence_minutes": 90,
+        "username": "admin",
+        "chat_id": null
+      }
+    }
+  },
+  "updated_at": null
+}
