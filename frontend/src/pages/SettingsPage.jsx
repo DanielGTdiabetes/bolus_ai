@@ -855,6 +855,16 @@ function BotPanel() {
         silence_minutes: 180
     });
 
+    const [trendConfig, setTrendConfig] = useState({
+        enabled: false,
+        rise_mgdl_per_min: 2.0,
+        drop_mgdl_per_min: -2.0,
+        min_delta_total_mgdl: 35,
+        window_minutes: 30,
+        silence_minutes: 60,
+        recent_carbs_minutes: 180
+    });
+
     const [loading, setLoading] = useState(true);
     const [status, setStatus] = useState(null);
 
@@ -863,12 +873,15 @@ function BotPanel() {
             const params = getCalcParams() || {};
             // Safely access deep property
             const proactive = params.bot?.proactive || {};
-            
+
             if (proactive.premeal) {
                 setPremealConfig(prev => ({ ...prev, ...proactive.premeal }));
             }
             if (proactive.combo_followup) {
                 setComboConfig(prev => ({ ...prev, ...proactive.combo_followup }));
+            }
+            if (proactive.trend_alert) {
+                setTrendConfig(prev => ({ ...prev, ...proactive.trend_alert }));
             }
             setLoading(false);
         });
@@ -890,6 +903,14 @@ function BotPanel() {
         setComboConfig(prev => ({ ...prev, [field]: val }));
     };
 
+    const handleTrendChange = (field, value) => {
+        let val = value;
+        if (field !== 'enabled') {
+            val = parseFloat(value) || 0;
+        }
+        setTrendConfig(prev => ({ ...prev, [field]: val }));
+    };
+
     const handleSave = () => {
         import('../modules/core/store').then(({ getCalcParams, saveCalcParams }) => {
             const current = getCalcParams() || {};
@@ -900,7 +921,8 @@ function BotPanel() {
                     proactive: {
                         ...(current.bot?.proactive || {}),
                         premeal: premealConfig,
-                        combo_followup: comboConfig
+                        combo_followup: comboConfig,
+                        trend_alert: trendConfig
                     }
                 }
             };
@@ -922,7 +944,7 @@ function BotPanel() {
             {/* PREMEAL SECTION */}
             <div style={{ background: '#f8fafc', padding: '1rem', borderRadius: '8px', border: '1px solid #e2e8f0', marginBottom: '1rem' }}>
                 <h4 style={{ margin: '0 0 1rem 0', color: '#334155' }}>🥣 Aviso Pre-comida (Premeal)</h4>
-                
+
                 <label style={{ display: 'flex', alignItems: 'center', gap: '0.8rem', fontWeight: 600, color: premealConfig.enabled ? '#0f172a' : '#64748b', cursor: 'pointer', marginBottom: '1rem' }}>
                     <input
                         type="checkbox"
@@ -973,11 +995,68 @@ function BotPanel() {
                 )}
             </div>
 
+            {/* TREND ALERT SECTION */}
+            <div style={{ background: '#f8fafc', padding: '1rem', borderRadius: '8px', border: '1px solid #e2e8f0', marginBottom: '1rem' }}>
+                <h4 style={{ margin: '0 0 1rem 0', color: '#334155' }}>📈 Alertas Tendencia (Sin Comida)</h4>
+
+                <label style={{ display: 'flex', alignItems: 'center', gap: '0.8rem', fontWeight: 600, color: trendConfig.enabled ? '#0f172a' : '#64748b', cursor: 'pointer', marginBottom: '1rem' }}>
+                    <input
+                        type="checkbox"
+                        checked={trendConfig.enabled}
+                        onChange={e => handleTrendChange('enabled', e.target.checked)}
+                        style={{ width: '1.2rem', height: '1.2rem' }}
+                    />
+                    Activar
+                </label>
+
+                {trendConfig.enabled && (
+                    <div className="stack" style={{ gap: '1rem' }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                            <Input
+                                label="Velocidad Subida (mg/dL/min)"
+                                type="number"
+                                step="0.1"
+                                value={trendConfig.rise_mgdl_per_min}
+                                onChange={e => handleTrendChange('rise_mgdl_per_min', e.target.value)}
+                            />
+                            <Input
+                                label="Velocidad Bajada (mg/dL/min)"
+                                type="number"
+                                step="0.1"
+                                value={trendConfig.drop_mgdl_per_min}
+                                onChange={e => handleTrendChange('drop_mgdl_per_min', e.target.value)}
+                            />
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                            <Input
+                                label="Cambio Total Mínimo (mg/dL)"
+                                type="number"
+                                value={trendConfig.min_delta_total_mgdl}
+                                onChange={e => handleTrendChange('min_delta_total_mgdl', e.target.value)}
+                            />
+                            <Input
+                                label="Ventana Análisis (min)"
+                                type="number"
+                                value={trendConfig.window_minutes}
+                                onChange={e => handleTrendChange('window_minutes', e.target.value)}
+                            />
+                        </div>
+                        <Input
+                            label="Silenciar / Cooldown (min)"
+                            type="number"
+                            value={trendConfig.silence_minutes}
+                            onChange={e => handleTrendChange('silence_minutes', e.target.value)}
+                        />
+                    </div>
+                )}
+            </div>
+
+
             {/* COMBO FOLLOWUP SECTION */}
             <div style={{ background: '#f8fafc', padding: '1rem', borderRadius: '8px', border: '1px solid #e2e8f0', marginBottom: '1rem' }}>
                 <h4 style={{ margin: '0 0 1rem 0', color: '#334155' }}>🔁 Combo Follow-up</h4>
                 <p className="text-xs text-muted" style={{ marginBottom: '1rem' }}>
-                   Pregunta si quieres registrar la 2ª parte de un bolo extendido si ha pasado tiempo.
+                    Pregunta si quieres registrar la 2ª parte de un bolo extendido si ha pasado tiempo.
                 </p>
 
                 <label style={{ display: 'flex', alignItems: 'center', gap: '0.8rem', fontWeight: 600, color: comboConfig.enabled ? '#0f172a' : '#64748b', cursor: 'pointer', marginBottom: '1rem' }}>
@@ -993,7 +1072,7 @@ function BotPanel() {
                 {comboConfig.enabled && (
                     <div className="stack" style={{ gap: '1rem' }}>
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-                             <Input
+                            <Input
                                 label="Esperar tras bolo (min)"
                                 type="number"
                                 min="5"
@@ -1011,8 +1090,8 @@ function BotPanel() {
                                 onChange={e => handleComboChange('window_hours', e.target.value)}
                             />
                         </div>
-                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-                             <Input
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                            <Input
                                 label="Silenciar / Cooldown (min)"
                                 type="number"
                                 min="0"
@@ -1032,6 +1111,8 @@ function BotPanel() {
         </div>
     );
 }
+
+
 
 
 function SchedulePanel({ settings, onChange }) {
