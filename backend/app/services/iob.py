@@ -423,12 +423,46 @@ async def compute_cob_from_sources(
         except Exception as exc:
              logger.warning("Nightscout treatments (for COB) unavailable", extra={"error": str(exc)})
     
-    # 3. Merge DB (Extra)
+    # 3. Merge DB (Extra + Query Treatments)
     if extra_entries:
         # DB format usually {"ts": iso, "carbs": val} or similar
         # Ensure format matches
         for e in extra_entries:
             entries.append(e)
+
+    # 3b. Query Local DB Treatments (Active Records)
+    # This ensures that even if NS is down, we see the bolus/carbs just entered in the app.
+    db_entries = []
+    try:
+        engine = get_engine()
+        if engine:
+             async with AsyncSession(engine) as session:
+                 # Look back 6 hours (typical COB duration cap)
+                 cutoff = now - timedelta(hours=6)
+                 cutoff_naive = cutoff.replace(tzinfo=None)
+                 
+                 query = text("""
+                     SELECT created_at, carbs 
+                     FROM treatments 
+                     WHERE created_at > :cutoff 
+                     AND carbs > 0
+                 """)
+                 
+                 result = await session.execute(query, {"cutoff": cutoff_naive})
+                 rows = result.fetchall()
+                 
+                 for r in rows:
+                     if r.created_at and r.carbs:
+                         ts_iso = r.created_at.replace(tzinfo=timezone.utc).isoformat() if r.created_at.tzinfo is None else r.created_at.isoformat()
+                         db_entries.append({
+                             "ts": ts_iso,
+                             "carbs": float(r.carbs)
+                         })
+    except Exception as e:
+         logger.warning(f"Failed to fetch DB treatments for COB: {e}")
+            
+    if db_entries:
+        entries.extend(db_entries)
 
     # 4. Merge NS
     if ns_entries:

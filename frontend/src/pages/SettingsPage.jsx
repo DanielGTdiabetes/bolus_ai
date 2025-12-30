@@ -850,36 +850,34 @@ function BotPanel() {
     const [status, setStatus] = useState(null);
 
     useEffect(() => {
-        import('../modules/core/store').then(({ getCalcParams }) => {
-            const params = getCalcParams() || {};
-            setBotEnabled(params.bot?.enabled !== false);
+        const params = getCalcParams() || {};
+        setBotEnabled(params.bot?.enabled !== false);
 
-            const proactive = params.bot?.proactive || {};
+        const proactive = params.bot?.proactive || {};
 
-            if (proactive.premeal) setPremealConfig(prev => ({ ...prev, ...proactive.premeal }));
-            if (proactive.combo_followup) setComboConfig(prev => ({ ...prev, ...proactive.combo_followup }));
-            if (proactive.trend_alert) setTrendConfig(prev => ({ ...prev, ...proactive.trend_alert }));
-            
-            // Basal Config Loading
-            if (proactive.basal) {
-                let b = proactive.basal;
-                // Migration catch: if schedule empty but legacy fields exist, create one
-                if ((!b.schedule || b.schedule.length === 0) && b.time_local) {
-                    b = {
-                        ...b,
-                        schedule: [{
-                            id: 'legacy_' + Date.now(),
-                            name: 'Basal',
-                            time: b.time_local,
-                            units: b.expected_units || 0
-                        }]
-                    };
-                }
-                setBasalConfig(prev => ({ ...prev, ...b }));
+        if (proactive.premeal) setPremealConfig(prev => ({ ...prev, ...proactive.premeal }));
+        if (proactive.combo_followup) setComboConfig(prev => ({ ...prev, ...proactive.combo_followup }));
+        if (proactive.trend_alert) setTrendConfig(prev => ({ ...prev, ...proactive.trend_alert }));
+
+        // Basal Config Loading
+        if (proactive.basal) {
+            let b = proactive.basal;
+            // Migration catch: if schedule empty but legacy fields exist, create one
+            if ((!b.schedule || b.schedule.length === 0) && b.time_local) {
+                b = {
+                    ...b,
+                    schedule: [{
+                        id: 'legacy_' + Date.now(),
+                        name: 'Basal',
+                        time: b.time_local,
+                        units: b.expected_units || 0
+                    }]
+                };
             }
+            setBasalConfig(prev => ({ ...prev, ...b }));
+        }
 
-            setLoading(false);
-        });
+        setLoading(false);
     }, []);
 
     const handlePremealChange = (field, value) => {
@@ -899,19 +897,19 @@ function BotPanel() {
         if (field !== 'enabled') val = parseFloat(value) || 0;
         setTrendConfig(prev => ({ ...prev, [field]: val }));
     };
-    
+
     // Basal Handlers
     const handleBasalChange = (field, value) => {
         setBasalConfig(prev => ({ ...prev, [field]: value }));
     };
-    
+
     const addBasalSchedule = () => {
         setBasalConfig(prev => ({
             ...prev,
             schedule: [...(prev.schedule || []), { id: Date.now().toString(), name: 'Dosis', time: '22:00', units: 0 }]
         }));
     };
-    
+
     const updateBasalSchedule = (idx, field, value) => {
         setBasalConfig(prev => {
             const copy = [...(prev.schedule || [])];
@@ -919,7 +917,7 @@ function BotPanel() {
             return { ...prev, schedule: copy };
         });
     };
-    
+
     const removeBasalSchedule = (idx) => {
         setBasalConfig(prev => {
             const copy = [...(prev.schedule || [])];
@@ -929,26 +927,24 @@ function BotPanel() {
     };
 
     const handleSave = () => {
-        import('../modules/core/store').then(({ getCalcParams, saveCalcParams }) => {
-            const current = getCalcParams() || {};
-            const newParams = {
-                ...current,
-                bot: {
-                    ...(current.bot || {}),
-                    enabled: botEnabled,
-                    proactive: {
-                        ...(current.bot?.proactive || {}),
-                        premeal: premealConfig,
-                        combo_followup: comboConfig,
-                        trend_alert: trendConfig,
-                        basal: basalConfig
-                    }
+        const current = getCalcParams() || {};
+        const newParams = {
+            ...current,
+            bot: {
+                ...(current.bot || {}),
+                enabled: botEnabled,
+                proactive: {
+                    ...(current.bot?.proactive || {}),
+                    premeal: premealConfig,
+                    combo_followup: comboConfig,
+                    trend_alert: trendConfig,
+                    basal: basalConfig
                 }
-            };
-            saveCalcParams(newParams);
-            setStatus("✅ Configuración de Bot guardada.");
-            setTimeout(() => setStatus(null), 3000);
-        });
+            }
+        };
+        saveCalcParams(newParams);
+        setStatus("✅ Configuración de Bot guardada.");
+        setTimeout(() => setStatus(null), 3000);
     };
 
     if (loading) return <div className="p-4 text-center">Cargando Bot...</div>;
@@ -972,11 +968,11 @@ function BotPanel() {
                     {botEnabled ? "🟢 Bot Activado" : "🔴 Bot Desactivado"}
                 </label>
             </div>
-            
+
             {/* BASAL SECTION */}
             <div style={{ background: '#f8fafc', padding: '1rem', borderRadius: '8px', border: '1px solid #e2e8f0', marginBottom: '1rem' }}>
                 <h4 style={{ margin: '0 0 1rem 0', color: '#334155' }}>💉 Recordatorio Basal (Lenta)</h4>
-                
+
                 <label style={{ display: 'flex', alignItems: 'center', gap: '0.8rem', fontWeight: 600, color: basalConfig.enabled ? '#0f172a' : '#64748b', cursor: 'pointer', marginBottom: '1rem' }}>
                     <input
                         type="checkbox"
@@ -991,25 +987,25 @@ function BotPanel() {
                     <div className="stack" style={{ gap: '0.5rem' }}>
                         {(basalConfig.schedule || []).map((item, idx) => (
                             <div key={item.id || idx} style={{ display: 'grid', gridTemplateColumns: '2fr 1.5fr 1fr auto', gap: '0.5rem', alignItems: 'center', background: 'white', padding: '0.5rem', borderRadius: '6px', border: '1px solid #cbd5e1' }}>
-                                <Input 
-                                    label={idx === 0 ? "Nombre" : ""} 
-                                    value={item.name} 
-                                    onChange={e => updateBasalSchedule(idx, 'name', e.target.value)} 
+                                <Input
+                                    label={idx === 0 ? "Nombre" : ""}
+                                    value={item.name}
+                                    onChange={e => updateBasalSchedule(idx, 'name', e.target.value)}
                                     placeholder="Ej. Lantus Mañana"
                                 />
-                                <Input 
-                                    label={idx === 0 ? "Hora" : ""} 
-                                    type="time" 
-                                    value={item.time} 
-                                    onChange={e => updateBasalSchedule(idx, 'time', e.target.value)} 
+                                <Input
+                                    label={idx === 0 ? "Hora" : ""}
+                                    type="time"
+                                    value={item.time}
+                                    onChange={e => updateBasalSchedule(idx, 'time', e.target.value)}
                                 />
-                                <Input 
-                                    label={idx === 0 ? "U" : ""} 
-                                    type="number" 
-                                    value={item.units} 
-                                    onChange={e => updateBasalSchedule(idx, 'units', parseFloat(e.target.value))} 
+                                <Input
+                                    label={idx === 0 ? "U" : ""}
+                                    type="number"
+                                    value={item.units}
+                                    onChange={e => updateBasalSchedule(idx, 'units', parseFloat(e.target.value))}
                                 />
-                                <button 
+                                <button
                                     onClick={() => removeBasalSchedule(idx)}
                                     style={{ marginTop: idx === 0 ? '1.4rem' : '0', color: '#ef4444', border: 'none', background: 'none', cursor: 'pointer', fontSize: '1.2rem' }}
                                 >
