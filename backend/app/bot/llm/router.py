@@ -6,6 +6,7 @@ from typing import Optional, List, Any, Dict
 from dataclasses import dataclass
 
 import google.generativeai as genai
+import google.ai.generativelanguage as glm
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 from app.core import config
@@ -27,8 +28,6 @@ class BotReply:
 def _is_admin(user_id: int) -> bool:
     allowed = config.get_allowed_telegram_user_id()
     return allowed is not None and user_id == allowed
-
-from google.ai.generativelanguage_v1beta.types import content
 
 def to_gemini_schema(json_schema: Dict[str, Any]) -> Dict[str, Any]:
     """
@@ -216,9 +215,9 @@ async def handle_text(username: str, chat_id: int, user_text: str, context_data:
 
             # Feed back to model
             response = await chat.send_message_async(
-                genai.protos.Content(
-                    parts=[genai.protos.Part(
-                        function_response=genai.protos.FunctionResponse(
+                glm.Content(
+                    parts=[glm.Part(
+                        function_response=glm.FunctionResponse(
                             name=tool_name,
                             response={"result": tool_output}
                         )
