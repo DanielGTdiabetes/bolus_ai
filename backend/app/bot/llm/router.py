@@ -280,7 +280,12 @@ async def handle_event(username: str, chat_id: int, event_type: str, payload: Di
             event_type, 
             False, 
             silence_res.reason,
-            cooldown_min=silence_res.remaining_min
+            cooldown_min=silence_res.remaining_min,
+            cooldown_details={
+                "event_type": event_type,
+                "window_min": silence_res.window_min,
+                "remaining_min": silence_res.remaining_min
+            }
         )
         logger.info(f"Event {event_type} silenced: {silence_res.reason}")
         return None

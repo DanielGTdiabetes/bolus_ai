@@ -45,6 +45,8 @@ class BotHealthState:
     last_event_sent_at: Optional[datetime] = None
     last_event_cooldown_min: Optional[int] = None
     last_event_seen_at: Optional[datetime] = None
+    last_message_sent_at: Optional[datetime] = None
+    last_cooldown_applied: Optional[Dict[str, Any]] = None
 
     # Internal lock to avoid races if multiple tasks mutate quickly
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
@@ -113,14 +115,22 @@ class BotHealthState:
             self.last_event_reason = "seen"
             self.last_update_at = datetime.now(timezone.utc)
 
-    def record_event(self, event_type: str, sent: bool, reason: str, cooldown_min: Optional[int] = None) -> None:
+    def record_event(self, event_type: str, sent: bool, reason: str, cooldown_min: Optional[int] = None, cooldown_details: Optional[Dict[str, Any]] = None) -> None:
         with self._lock:
             self.last_event_type = event_type
             self.last_event_sent = sent
             self.last_event_reason = reason
             self.last_event_cooldown_min = cooldown_min
+            
             if sent:
-                self.last_event_sent_at = datetime.now(timezone.utc)
+                now = datetime.now(timezone.utc)
+                self.last_event_sent_at = now
+                self.last_message_sent_at = now
+                self.last_cooldown_applied = None
+            else:
+                self.last_event_sent_at = None
+                self.last_cooldown_applied = cooldown_details
+                
             self.last_update_at = datetime.now(timezone.utc)
 
     def get_last_error(self) -> Optional[str]:
@@ -155,6 +165,8 @@ class BotHealthState:
             "last_event_sent_at": self.last_event_sent_at.isoformat() if self.last_event_sent_at else None,
             "last_event_cooldown_min": self.last_event_cooldown_min,
             "last_event_seen_at": self.last_event_seen_at.isoformat() if self.last_event_seen_at else None,
+            "last_message_sent_at": self.last_message_sent_at.isoformat() if self.last_message_sent_at else None,
+            "last_cooldown_applied": self.last_cooldown_applied,
         }
 
 
