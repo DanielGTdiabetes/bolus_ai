@@ -487,6 +487,18 @@ async def simulate_forecast(
         has_history = any(b.time_offset_min < -1 for b in payload.events.boluses)
         
         if not has_history:
+             # Load User Settings for Contextual Parameters
+             user_settings = None
+             try:
+                 from app.services.settings_service import get_user_settings_service
+                 from app.models.settings import UserSettings
+                 
+                 data = await get_user_settings_service(user.username, session)
+                 if data and data.get("settings"):
+                     user_settings = UserSettings.migrate(data["settings"])
+             except Exception:
+                 pass
+
              cutoff = datetime.now(timezone.utc) - timedelta(hours=6)
              
              # Need to import Treatment model
@@ -503,10 +515,6 @@ async def simulate_forecast(
              rows = result.scalars().all()
              
              # Deduplicate rows logic (reused from get_current or simplified)
-             # We'll use the timezone-aware dedupe logic inline or reused.
-             # For simulation, slight duplications are less critical than missing IOB, 
-             # but we should try to avoid the "Double Phantom" issue.
-             
              unique_rows = []
              if rows:
                  sorted_rows = sorted(rows, key=lambda x: x.created_at)
@@ -515,11 +523,9 @@ async def simulate_forecast(
                      is_dup = False
                      if last_row:
                          dt_diff = abs((row.created_at - last_row.created_at).total_seconds())
-                         # Standard 2 min check
                          if dt_diff < 120:
                              if row.insulin == last_row.insulin and row.carbs == last_row.carbs:
                                  is_dup = True
-                         # Timezone 1h check
                          elif abs(dt_diff - 3600) < 120 or abs(dt_diff - 7200) < 120:
                              if row.insulin == last_row.insulin and row.carbs == last_row.carbs:
                                  is_dup = True
@@ -529,10 +535,24 @@ async def simulate_forecast(
                          last_row = row
                  rows = unique_rows
 
-             # Params for COB (Approximate from payload or defaults)
+             # Default Params if settings fail (fallback to request params)
              p_icr = payload.params.icr
              p_absorption = payload.params.carb_absorption_minutes
-             
+
+             # Helper for Slot Resolution (Localized)
+             def _resolve_hist_params(h: int, settings):
+                if not settings: 
+                    return p_icr, p_absorption
+                    
+                if 5 <= h < 11:
+                    return settings.cr.breakfast, int(settings.absorption.breakfast)
+                elif 11 <= h < 17:
+                    return settings.cr.lunch, int(settings.absorption.lunch)
+                elif 17 <= h < 23:
+                    return settings.cr.dinner, int(settings.absorption.dinner)
+                else:
+                    return settings.cr.dinner, int(settings.absorption.dinner)
+
              for row in rows:
                 created_at = row.created_at
                 if created_at.tzinfo is None:
@@ -541,10 +561,12 @@ async def simulate_forecast(
                 diff_min = (datetime.now(timezone.utc) - created_at).total_seconds() / 60.0
                 offset = -1 * diff_min # Negative for past
                 
-                # We skip future DB events (shouldn't happen) or very recent ones that might clash with "Proposed"?
-                # Actually proposed is usually "New". Using offset 0.
-                # If DB has something at offset -1 min, it's history.
+                # Resolving User Hour for Settings
+                # Assuming UTC+1 for now as per project convention or settings timezone if we had it
+                user_hour = (created_at.hour + 1) % 24
                 
+                hist_icr, hist_abs = _resolve_hist_params(user_hour, user_settings)
+
                 if row.insulin and row.insulin > 0:
                     dur = getattr(row, "duration", 0.0) or 0.0
                     payload.events.boluses.append(ForecastEventBolus(
@@ -557,8 +579,8 @@ async def simulate_forecast(
                     payload.events.carbs.append(ForecastEventCarbs(
                         time_offset_min=int(offset), 
                         grams=row.carbs,
-                        icr=p_icr, 
-                        absorption_minutes=p_absorption 
+                        icr=float(hist_icr), 
+                        absorption_minutes=hist_abs 
                     ))
 
         # Validate logic? (Pydantic does structure, Engine does math)
