@@ -484,9 +484,9 @@ async def combo_followup(username: str = "admin", chat_id: Optional[int] = None)
          return
 
     # 8. Success: Candidate Eligible
-    # Do NOT send message yet. Log as eligible_candidate.
+    # Dispatch to Router. usage of reason_hint="eligible_candidate" would block sending.
+    # We omit reason_hint so Router proceeds to check cooldowns and construct message.
     payload = {
-        "reason_hint": "eligible_candidate",
         "treatment_id": tid,
         "bolus_units": candidate.insulin,
         "bolus_at": ts.isoformat(),
@@ -495,7 +495,6 @@ async def combo_followup(username: str = "admin", chat_id: Optional[int] = None)
     }
     
     await _route(payload)
-    # End here. No message sent. No buttons.
 
 
 async def morning_summary(username: str = "admin", chat_id: Optional[int] = None, trigger: str = "manual", mode: str = "full") -> None:
