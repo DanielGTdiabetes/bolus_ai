@@ -149,8 +149,6 @@ async def basal_reminder(username: str = "admin", chat_id: Optional[int] = None)
                 reply_markup=InlineKeyboardMarkup(keyboard),
             )
             health.record_event("basal", True, "sent_late_reminder")
-        else:
-            health.record_event("basal", False, "router_silenced")
 
     except Exception as exc:
         logger.error("Basal reminder failed: %s", exc)
@@ -271,8 +269,6 @@ async def premeal_nudge(username: str = "admin", chat_id: Optional[int] = None) 
         from app.bot.proactive_rules import mark_event_sent
         mark_event_sent("premeal")
         health.record_event("premeal", True, "sent")
-    else:
-        health.record_event("premeal", False, "router_silenced")
 
 async def combo_followup(username: str = "admin", chat_id: Optional[int] = None) -> None:
     if chat_id is None:

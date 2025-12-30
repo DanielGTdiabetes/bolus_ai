@@ -271,9 +271,15 @@ async def handle_event(username: str, chat_id: int, event_type: str, payload: Di
     Returns BotReply if message should be sent, None otherwise.
     """
     # 1. Check Noise Rules
-    if rules.should_silence(event_type):
-        health.record_event(event_type, False, "silenced")
-        logger.info(f"Event {event_type} silenced.")
+    silence_res = rules.check_silence(event_type)
+    if silence_res.should_silence:
+        health.record_event(
+            event_type, 
+            False, 
+            silence_res.reason,
+            cooldown_min=silence_res.remaining_min
+        )
+        logger.info(f"Event {event_type} silenced: {silence_res.reason}")
         return None
 
     # 2. Build Context
