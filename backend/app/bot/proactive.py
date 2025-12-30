@@ -582,11 +582,14 @@ async def morning_summary(username: str = "admin", chat_id: Optional[int] = None
     in_hyper = False
     
     import zoneinfo
-    tz_madrid = zoneinfo.ZoneInfo("Europe/Madrid")
+    try:
+        tz_local = zoneinfo.ZoneInfo("Europe/Madrid")
+    except Exception:
+        tz_local = timezone.utc
     
     for i, v in enumerate(values_chrono):
         ts_ms = dates_chrono[i]
-        dt = datetime.fromtimestamp(ts_ms / 1000, timezone.utc).astimezone(tz_madrid)
+        dt = datetime.fromtimestamp(ts_ms / 1000, timezone.utc).astimezone(tz_local)
         time_str = dt.strftime("%H:%M")
 
         # Hypo check

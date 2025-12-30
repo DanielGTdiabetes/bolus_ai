@@ -346,11 +346,6 @@ async def handle_event(username: str, chat_id: int, event_type: str, payload: Di
 
     # 2. Manual Construction for Specific Events (Bypass LLM)
     if event_type == "morning_summary":
-        mode = payload.get("mode", "full")
-    # 1. Observability: Mark seen immediately
-    health.mark_event_seen(event_type)
-
-    if event_type == "morning_summary":
         mode = payload.get("mode", "full")  # full or alerts
         range_hours = payload.get("range_hours", 8)
         highlights = payload.get("highlights", [])
