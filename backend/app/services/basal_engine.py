@@ -370,6 +370,19 @@ async def evaluate_change_service(user_id: str, days: int, db: AsyncSession):
             "before": before,
             "after": after,
             "score_before": s_before,
-            "score_after": s_after
         }
     }
+
+def calculate_late_basal(hours_late: float, scheduled_u: float) -> float:
+    """
+    Deterministically calculate reduced basal dose if late.
+    Heuristic: No reduction if < 2h late.
+    Then reduce 5% per hour late, max 50% reduction.
+    """
+    if hours_late <= 2.0:
+        return scheduled_u
+    
+    reduction_factor = 0.05 * (hours_late - 2.0)
+    reduction_factor = min(reduction_factor, 0.5) # Max 50% cut
+    
+    return round(scheduled_u * (1.0 - reduction_factor), 1)

@@ -462,6 +462,27 @@ async def handle_event(username: str, chat_id: int, event_type: str, payload: Di
         
         return BotReply(text=text, buttons=buttons)
 
+    if event_type == "basal":
+        silence_res = rules.check_silence(event_type)
+        if silence_res.should_silence:
+            health.record_event(event_type, False, f"silenced_recent({event_type}, remaining={silence_res.remaining_min})")
+            return None
+
+        # Format Message
+        status_dict = payload.get("basal_status", {})
+        # Try to customize if we have dosage info?
+        # For now, generic reminder as requested.
+        text = "🔔 **Recordatorio de Basal**\n\nEs hora de tu dosis diaria.\n¿Quieres registrarla?"
+        
+        buttons = [
+            [InlineKeyboardButton("✅ Registrar", callback_data="basal_yes")],
+            [InlineKeyboardButton("⏰ 15 min", callback_data="basal_later"),
+             InlineKeyboardButton("❌ No hoy", callback_data="basal_no")]
+        ]
+
+        health.record_event(event_type, True, "sent_basal_reminder")
+        return BotReply(text=text, buttons=buttons)
+
     # 3. Build Context (For LLM)
     ctx = await context_builder.build_context(username, chat_id)
     

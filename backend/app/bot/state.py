@@ -80,7 +80,9 @@ class BotHealthState:
 
     def mark_reply_success(self) -> None:
         with self._lock:
-            self.last_reply_at = datetime.now(timezone.utc)
+            now = datetime.now(timezone.utc)
+            self.last_reply_at = now
+            self.last_message_sent_at = now
             self.last_reply_error = None
 
     def set_reply_error(self, message: str) -> None:
@@ -125,7 +127,7 @@ class BotHealthState:
             if sent:
                 now = datetime.now(timezone.utc)
                 self.last_event_sent_at = now
-                self.last_message_sent_at = now
+                # last_message_sent_at is updated in mark_reply_success
                 self.last_cooldown_applied = None
             else:
                 self.last_event_sent_at = None

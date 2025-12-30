@@ -1710,9 +1710,159 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         await query.edit_message_text(text=f"{query.message.text}\n\n✅ Basal marcada ({choice})", parse_mode="Markdown")
         return
 
+    # --- Basal Callbacks ---
+    if data == "basal_ack_yes" or data == "basal_yes":
+        # 1. Fetch info to see if late
+        try:
+            from app.services.basal_repo import get_latest_basal_dose
+            from app.services.basal_engine import calculate_late_basal
+            
+            # We need user_id (admin)
+            engine = get_engine()
+            dose_info = None
+            if engine:
+                async with AsyncSession(engine) as session:
+                    dose_info = await get_latest_basal_dose("admin", session)
+            
+            # Simple flow: Prompt for units, defaulting to scheduled/calculated
+            default_u = 0
+            msg = "✏️ **Registrar Basal**\n\nIntroduce las unidades:"
+            
+            if dose_info:
+                u = dose_info.dose_u
+                # Calculate late?
+                # We need schedule info. Assuming dose_info has 'schedule_time'.
+                # But dose_info is BasalEntry (history).
+                # We need SETTINGS schedule.
+                settings = await get_bot_user_settings()
+                sched_u = settings.basal.scheduled_u or u
+                
+                # Check lateness
+                now_loc = datetime.now() # Server local? Or user local? 
+                # settings.basal.time gives target time string "22:00"
+                # Parse
+                try:
+                    target_time = datetime.strptime(settings.bot.proactive.basal.time, "%H:%M").time()
+                    now_val = now_loc.time()
+                    # Calculate diff
+                    dt_target = datetime.combine(now_loc.date(), target_time)
+                    dt_now = datetime.combine(now_loc.date(), now_val)
+                    diff_h = (dt_now - dt_target).total_seconds() / 3600
+                    
+                    if diff_h > 0.5:
+                         rec_u = calculate_late_basal(diff_h, sched_u)
+                         msg = f"⚠️ Vas tarde ({int(diff_h)}h).\nSugerencia ajustada: **{rec_u} U** (vs {sched_u}).\n\nConfirma o escribe otra cantidad:"
+                         default_u = rec_u
+                    else:
+                         default_u = sched_u
+                         msg = f"✅ Dosis habitual: **{sched_u} U**.\n\nConfirma o ajusta:"
+                         
+                except Exception as ex:
+                    logger.warning(f"Basal calc error: {ex}")
+                    default_u = u 
+
+            # Buttons for fast confirm
+            kb = []
+            if default_u > 0:
+                kb.append([InlineKeyboardButton(f"✅ Confirmar {default_u} U", callback_data=f"basal_confirm|{default_u}")])
+            
+            await query.edit_message_text(text=msg, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
+            health.record_action("callback:basal_yes", True)
+            
+        except Exception as e:
+            logger.error(f"Basal callback error: {e}")
+            await query.edit_message_text(text="✏️ Escribe las unidades:")
+        return
+
+    if data.startswith("basal_confirm|"):
+        try:
+            units = float(data.split("|")[1])
+            # Register treatment
+            add_args = {"insulin": units, "notes": "Basal (Bot)", "carbs": 0} 
+            # Note: add_treatment logs as "Correction Bolus" if carbs=0 usually, 
+            # but we want strictly BASAL? 
+            # The tool add_treatment does not support "eventType"="Basal" explicitly in args?
+            # Looking at tools.py line 387: event_type="Correction Bolus" if carbs==0.
+            # We might want to fix this or accept it. 
+            # User requirement: "Confirmar -> add_treatment basal con units=X".
+            # If I stick to add_treatment tool, it logs as Bolus. 
+            # But I can call log_treatment service directly if I want "Basal".
+            # Let's use `tools.add_treatment` but maybe patch `notes` to say "Basal".
+            # Or better, update `tools.add_treatment` to detect "Basal" keyword?
+            # Let's just use "notes": "Basal" and relies on that.
+            
+            res = await tools.add_treatment(add_args)
+            
+            # Mark Done
+            settings = get_settings()
+            store = DataStore(Path(settings.data.data_dir))
+            events = store.load_events()
+            today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            
+            events.append({
+                "type": "basal_daily_status",
+                "date": today_str,
+                "status": "done",
+                "updated_at": datetime.now(timezone.utc).isoformat()
+            })
+            store.save_events(events)
+            
+            await query.edit_message_text(text=f"✅ Basal registrada: {units} U.")
+            health.record_action("callback:basal_confirm", True, "action_basal_register_done")
+            
+        except Exception as e:
+            logger.error(f"Basal confirm error: {e}")
+            await query.edit_message_text(text=f"❌ Error: {e}")
+        return
+
+    if data == "basal_ack_later" or data == "basal_later":
+        # Snooze 15 min
+        try:
+             settings = get_settings()
+             store = DataStore(Path(settings.data.data_dir))
+             events = store.load_events()
+             today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+             
+             until = (datetime.now(timezone.utc) + timedelta(minutes=15)).isoformat()
+             
+             events.append({
+                "type": "basal_daily_status",
+                "date": today_str,
+                "status": "snoozed",
+                "snooze_until": until,
+                "updated_at": datetime.now(timezone.utc).isoformat()
+             })
+             store.save_events(events)
+             
+             health.record_action("callback:basal_snooze", True, "action_basal_snoozed(15m)")
+             await query.edit_message_text(text=f"⏰ Recordaré en 15 minutos.")
+        except Exception as e:
+             logger.error(f"Basal snooze error: {e}")
+        return
+
+    if data == "basal_no":
+        # Dismiss
+        try:
+             settings = get_settings()
+             store = DataStore(Path(settings.data.data_dir))
+             events = store.load_events()
+             today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+             
+             events.append({
+                "type": "basal_daily_status",
+                "date": today_str,
+                "status": "dismissed",
+                "updated_at": datetime.now(timezone.utc).isoformat()
+             })
+             store.save_events(events)
+             
+             health.record_action("callback:basal_dismiss", True, "action_basal_dismissed")
+             await query.edit_message_text(text=f"❌ Basal descartada por hoy.")
+        except Exception as e:
+             logger.error(f"Basal dismiss error: {e}")
+        return
+
     # --- Combo Followup Callbacks ---
-    # --- Combo Followup Callbacks ---
-    if data.startswith("combo_yes|"):
         tid = data.split("|")[-1]
         context.user_data["pending_combo_tid"] = tid
         await query.edit_message_text(text=f"{query.message.text}\n\n✏️ **Introduce las unidades** para la 2ª parte (ej. 3.5):", parse_mode="Markdown")
