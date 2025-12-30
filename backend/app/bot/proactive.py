@@ -175,30 +175,59 @@ async def premeal_nudge(username: str = "admin", chat_id: Optional[int] = None) 
     try:
         status_res = await tools.execute_tool("get_status_context", {})
         if isinstance(status_res, tools.ToolError):
-            return # Fail silently
+            health.record_event("premeal", False, f"error_tool: {status_res.message}")
+            return
             
     except Exception as e:
         logger.error(f"Premeal check failed: {e}")
         health.record_event("premeal", False, f"error_tool: {e}")
         return
 
-    # bg_mgdl, delta, direction
-    stats = status_res # It's a StatusContext object
+    # Robust Data Extraction
+    # Convert Pydantic to dict for safe access and aliasing
+    stats_dict = {}
+    if hasattr(status_res, "model_dump"):
+        stats_dict = status_res.model_dump()
+    elif hasattr(status_res, "dict"):
+        stats_dict = status_res.dict()
+    elif isinstance(status_res, dict):
+        stats_dict = status_res
+    else:
+        # Fallback attribute access
+        stats_dict = {
+            "bg_mgdl": getattr(status_res, "bg_mgdl", None),
+            "sgv": getattr(status_res, "sgv", None),
+            "delta": getattr(status_res, "delta", None),
+            "direction": getattr(status_res, "direction", None)
+        }
+
+    # Normalize fields
+    bg = stats_dict.get("bg_mgdl")
+    if bg is None:
+        bg = stats_dict.get("sgv") # Compat fallback
+        
+    delta = stats_dict.get("delta")
+    direction = stats_dict.get("direction")
     
+    # Observability
+    logger.info(f"[PREMEAL] bg={bg} delta={delta} direction={direction}")
+
     # SAFETY: Check for missing data
-    if stats.bg_mgdl is None:
+    if bg is None:
+         logger.warning(f"[PREMEAL] missing bg in status_context keys={list(stats_dict.keys())}")
          health.record_event("premeal", False, "skipped_missing_bg")
          return
 
     # Heuristic
     # Explicitly handle None delta
-    delta = stats.delta if stats.delta is not None else 0
+    delta_val = delta if delta is not None else 0
+    bg_val = float(bg)
     
-    if stats.bg_mgdl < 140 or delta < 2:
+    if bg_val < 140 or delta_val < 2:
         health.record_event("premeal", False, "heuristic_low_bg")
         return
         
-    payload = {"bg": stats.bg_mgdl, "trend": stats.direction, "delta": delta}
+    payload = {"bg": bg_val, "trend": direction, "delta": delta_val}
 
     from app.bot.llm import router
 
