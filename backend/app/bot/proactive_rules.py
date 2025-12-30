@@ -10,7 +10,7 @@ SILENCE_WINDOWS_MINUTES = {
     "premeal": 60,
     "high_bg": 90,
     "low_bg": 30, # More urgent, shorter silence
-    "basal_reminder": 180,
+    "basal": 180,
     "morning_summary": 1200, # Once a day essentially
     "combo_followup": 45,
 }

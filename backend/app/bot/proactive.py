@@ -49,32 +49,65 @@ async def basal_reminder(username: str = "admin", chat_id: Optional[int] = None)
     
     if not chat_id:
         return
-        
+
+    # Track job execution (User Req: last_action_type="job:basal")
+    health.record_action("job:basal", True)
+
     try:
+        # 2. Cooldown Check
         if not cooldowns.is_ready("basal", COOLDOWN_MINUTES["basal"] * 60):
-            health.record_event("basal_reminder", False, "cooldown")
+            health.record_event("basal", False, "cooldown")
             return
 
-        # No local DB check for basal. Delegate to Router.
-        # Router will see "recent_treatments" in context.
-        # If basal is missing from context, LLM might ask.
-        # To strictly filter "already done", we'd need a tool "get_last_basal".
-        # For now, we trust the LLM prompt "Si usuario ya sabe esto... SKIP" 
-        # (though LLM needs data to know).
-        # We proceed to invoke router.
+        # 3. Context & Data Collection (Pattern B1)
+        # Use Tool for standardized context
+        status_res = await tools.execute_tool("get_status_context", {})
+        if isinstance(status_res, tools.ToolError):
+            health.record_event("basal", False, f"error_tool: {status_res.message}")
+            return
 
+        # Fetch Logic Data (Last Dose)
+        last_dose = await get_latest_basal_dose(username)
         
-        # Lazy import
+        # User Req: Handle missing data gracefully
+        if not last_dose or status_res.bg_mgdl is None:
+            health.record_event("basal", False, "skipped_missing_data")
+            return
+
+        # 4. Construct Payload
+        # Calculate time since last dose
+        now_utc = datetime.now(timezone.utc)
+        last_ts = last_dose.get("created_at")
+        if last_ts and last_ts.tzinfo is None:
+            last_ts = last_ts.replace(tzinfo=timezone.utc)
+            
+        hours_ago = 999.0
+        if last_ts:
+            hours_ago = (now_utc - last_ts).total_seconds() / 3600
+
+        payload = {
+            "last_dose": {
+                "units": last_dose.get("dose_u"),
+                "time": last_ts.isoformat() if last_ts else None,
+                "hours_ago": round(hours_ago, 2)
+            },
+            "bg": status_res.bg_mgdl,
+            "trend": status_res.direction,
+            "delta": status_res.delta
+        }
+
+        # 5. Delegate to Router (User Req: router.handle_event)
         from app.bot.llm import router
 
-        # LLM ROUTING
+        # Router decides "silence" (noise rules) or "send"
         reply = await router.handle_event(
-            username="admin", 
-            chat_id=chat_id, 
-            event_type="basal_reminder", 
-            payload={} # Let context builder fill details
+            username=username,
+            chat_id=chat_id,
+            event_type="basal", 
+            payload=payload
         )
         
+        # 6. Send Reply if any (Botless way)
         if reply and reply.text:
             keyboard = [
                 [InlineKeyboardButton("✅ Sí, ya puesta", callback_data="basal_ack_yes")],
@@ -82,18 +115,20 @@ async def basal_reminder(username: str = "admin", chat_id: Optional[int] = None)
                 [InlineKeyboardButton("🙈 Ignorar", callback_data="ignore")],
             ]
             await _send(
-                bot,
+                None, # No direct bot reference
                 chat_id,
                 reply.text,
                 log_context="proactive_basal",
                 reply_markup=InlineKeyboardMarkup(keyboard),
             )
+
     except Exception as exc:
         logger.error("Basal reminder failed: %s", exc)
+        health.record_action("job:basal", False, error=str(exc))
         try:
             health.set_error(f"Basal reminder failed: {exc}")
         except Exception:
-            logger.debug("Unable to record bot health error for basal reminder.")
+            pass
 
 
 async def premeal_nudge(username: str = "admin", chat_id: Optional[int] = None) -> None:
