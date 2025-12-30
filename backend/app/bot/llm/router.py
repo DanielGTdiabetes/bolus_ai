@@ -273,6 +273,13 @@ async def handle_event(username: str, chat_id: int, event_type: str, payload: Di
     # Mark as seen immediately for observability
     health.mark_event_seen(event_type)
 
+    # 0. Check Heuristic Hint (Pre-calculated reason to skip)
+    if payload.get("reason_hint"):
+        reason = payload["reason_hint"]
+        health.record_event(event_type, False, reason)
+        logger.info(f"Event {event_type} skipped by heuristic: {reason}")
+        return None
+
     # 1. Check Noise Rules
     silence_res = rules.check_silence(event_type)
     if silence_res.should_silence:

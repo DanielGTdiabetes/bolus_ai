@@ -273,46 +273,64 @@ async def premeal_nudge(username: str = "admin", chat_id: Optional[int] = None) 
 async def combo_followup(username: str = "admin", chat_id: Optional[int] = None) -> None:
     settings = get_settings()
     conf = settings.proactive.combo_followup
+
+    # Helper to route safely at exit
+    from app.bot.llm import router
+    
+    async def _route(payload_inner: dict):
+        # Always resolve chat_id before routing only if we haven't yet?
+        # The router needs a chat_id. 
+        cid = chat_id or await _get_chat_id()
+        if not cid:
+             return
+        await router.handle_event(
+            username=username,
+            chat_id=cid,
+            event_type="combo_followup",
+            payload=payload_inner
+        )
+
+    # 1. Config Check
     if not conf.enabled:
+        await _route({"reason_hint": "heuristic_disabled"})
         return
 
-    # Resolve Chat ID
-    if chat_id is None:
-        chat_id = await _get_chat_id()
-    if not chat_id:
-        return
+    # 2. Silence Check (Rules) - Let router handle this OR we hint it
+    # Ideally router.handle_event does check_silence, but we want to be explicit about reason
+    # if we already know it's "quiet hours" or "too soon" at job level?
+    # Router check_silence handles basic cooldowns.
+    # We will let Router check basic cooldowns.
+    # But for "Quiet Hours", it's specific to this job config, so we check it here.
+    
+    # Resolve Chat ID early for logic
+    final_chat_id = chat_id or await _get_chat_id()
+    if not final_chat_id:
+        return # Cannot do anything without chat_id
 
-    # Check Silence (Rules) including Quiet Hours
-    # We check rules manually to log specific reason to health
-    from app.bot.proactive_rules import check_silence
-    res = check_silence("combo_followup")
-    if res.should_silence:
-         health.record_event("combo_followup", False, res.reason)
-         return
-
-    # Fetch Treatments
+    # 3. Fetch Treatments
     ns_url = settings.nightscout.base_url
     ns_token = settings.nightscout.token
     if not ns_url:
-         health.record_event("combo_followup", False, "missing_ns_config")
+         await _route({"reason_hint": "missing_ns_config"})
          return
          
     client = NightscoutClient(str(ns_url), ns_token)
     treatments = []
+    fetch_error = None
     try:
-        # Check window equal to configured window
         treatments = await client.get_recent_treatments(hours=conf.window_hours)
     except Exception as e:
         logger.error(f"Combo check NS error: {e}")
-        health.record_event("combo_followup", False, f"ns_error: {e}")
-        return
+        fetch_error = str(e)
     finally:
         await client.aclose()
+        
+    if fetch_error:
+        await _route({"reason_hint": f"ns_error: {fetch_error}"})
+        return
 
-    # Find Candidate Bolus
-    # Sort descending by created_at
+    # 4. Find Candidate
     treatments.sort(key=lambda x: x.created_at, reverse=True)
-    
     candidate = None
     for t in treatments:
         if (t.insulin and t.insulin > 0) or t.eventType in ("Meal Bolus", "Correction Bolus", "Bolus"):
@@ -320,52 +338,53 @@ async def combo_followup(username: str = "admin", chat_id: Optional[int] = None)
             break
             
     if not candidate:
-        health.record_event("combo_followup", False, "heuristic_no_candidate_bolus")
+        await _route({"reason_hint": "heuristic_no_candidate_bolus"})
         return
 
-    # Check Persisted State (Already Asked?)
+    # 5. Check Persistence
     store = DataStore(Path(settings.data.data_dir))
     events = store.load_events()
-    
     tid = candidate.id
     if not tid:
-         health.record_event("combo_followup", False, "heuristic_no_treatment_id")
+         await _route({"reason_hint": "heuristic_no_treatment_id"})
          return
 
     previous_record = next((e for e in events if e.get("treatment_id") == tid and e.get("type") == "combo_followup_record"), None)
     
     if previous_record:
         status = previous_record.get("status")
+        should_skip = True
+        
         if status == "snoozed":
-             snooze_until_str = previous_record.get("snooze_until")
-             if snooze_until_str:
+             # Check snooze time
+             snooze_str = previous_record.get("snooze_until")
+             if snooze_str:
                  try:
-                     snooze_dt = datetime.fromisoformat(snooze_until_str)
-                     if snooze_dt.tzinfo is None:
-                         snooze_dt = snooze_dt.replace(tzinfo=timezone.utc)
-                     
-                     if now_utc < snooze_dt:
-                         return # Still snoozed
-                 except ValueError:
-                     pass # Invalid date, treat as expired
-        else:
-             # asked, done, dismissed
-             health.record_event("combo_followup", False, "heuristic_already_followed_up")
-             return
+                     sno = datetime.fromisoformat(snooze_str)
+                     if sno.tzinfo is None: sno = sno.replace(tzinfo=timezone.utc)
+                     if datetime.now(timezone.utc) >= sno:
+                         should_skip = False # Snooze expired, re-ask?
+                 except: pass # invalid, skip
+        
+        if should_skip:
+            await _route({"reason_hint": "heuristic_already_followed_up"})
+            return
 
-    # Check Time Delay
+    # 6. Check Time & Rules
     now_utc = datetime.now(timezone.utc)
     ts = candidate.created_at
-    if ts.tzinfo is None:
-        ts = ts.replace(tzinfo=timezone.utc)
+    if ts.tzinfo is None: ts = ts.replace(tzinfo=timezone.utc)
     
     diff_min = (now_utc - ts).total_seconds() / 60
     
     if diff_min < conf.delay_minutes:
-         health.record_event("combo_followup", False, f"heuristic_too_soon(minutes_since={int(diff_min)}, delay={conf.delay_minutes})")
+         await _route({
+             "reason_hint": f"heuristic_too_soon(minutes_since={int(diff_min)}, delay={conf.delay_minutes})",
+             "treatment_id": tid
+         })
          return
 
-    # Pass to Router
+    # 7. Valid Candidate -> Pass to Router (Router will do Silence/Cooldown check)
     payload = {
         "treatment_id": tid,
         "bolus_units": candidate.insulin,
@@ -373,18 +392,16 @@ async def combo_followup(username: str = "admin", chat_id: Optional[int] = None)
         "minutes_since": int(diff_min),
         "carbs": candidate.carbs
     }
-
-    from app.bot.llm import router
     
     reply = await router.handle_event(
         username=username,
-        chat_id=chat_id,
+        chat_id=final_chat_id,
         event_type="combo_followup",
         payload=payload
     )
     
     if reply and reply.text:
-        # Persist as "asked" to avoid repeating
+        # Mark asked
         events.append({
              "type": "combo_followup_record",
              "treatment_id": tid,
@@ -393,7 +410,6 @@ async def combo_followup(username: str = "admin", chat_id: Optional[int] = None)
         })
         store.save_events(events)
         
-        # Buttons
         keyboard = [
             [InlineKeyboardButton("💉 Sí, registrar", callback_data=f"combo_yes|{tid}")],
             [InlineKeyboardButton("❌ No", callback_data=f"combo_no|{tid}")],
@@ -402,7 +418,7 @@ async def combo_followup(username: str = "admin", chat_id: Optional[int] = None)
         
         await _send(
             None,
-            chat_id,
+            final_chat_id,
             reply.text,
             log_context="proactive_combo",
             reply_markup=InlineKeyboardMarkup(keyboard),
