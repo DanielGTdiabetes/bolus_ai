@@ -52,99 +52,289 @@ async def basal_reminder(username: str = "admin", chat_id: Optional[int] = None)
         health.record_action("job:basal", False, error=f"config_load_error: {e}")
         return
 
+    if not basal_conf.enabled:
+        return
+
     # 1. Resolve Chat ID
     final_chat_id = chat_id or basal_conf.chat_id or await _get_chat_id()
     if not final_chat_id:
-        # health.record_event("basal", False, "missing_chat_id")
-        # Router can check this too, but we need it to CALL router.
         return
 
-    # 2. Check Persistence (Pass to Router)
+    # 2. Check Persistence (DataStore)
     persistence_status = "ok"
     persistence_reason = None
-    today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-
-    entry = None
+    
+    # We use local date for the key
+    import zoneinfo
+    tz_str = "Europe/Madrid" # Default fallback
     try:
-        store = DataStore(Path(global_settings.data.data_dir))
-        events = store.load_events()
-        
-        # Check today's status
-        entry = next((e for e in events if e.get("type") == "basal_daily_status" and e.get("date") == today_str), None)
-        
-        if entry:
-             st = entry.get("status")
-             if st in ("done", "dismissed"):
-                 persistence_status = "blocked"
-                 persistence_reason = f"heuristic_already_{st}"
-             elif st == "snoozed":
-                 until = entry.get("snooze_until")
-                 if until:
-                     try:
-                         if datetime.now(timezone.utc) < datetime.fromisoformat(until):
-                             persistence_status = "blocked"
-                             persistence_reason = "heuristic_snoozed_until"
-                     except: pass
-    except Exception as e:
-        logger.error(f"Basal persistence check failed: {e}")
-
-    # 3. Fetch Deep Basal Context (Always needed for router decision)
+        # Try to infer from settings if possible, otherwise default
+        # Ideally user_settings would have timezone.
+        pass
+    except: pass
+    
+    tz = zoneinfo.ZoneInfo(tz_str)
+    now_local = datetime.now(tz)
+    today_str = now_local.strftime("%Y-%m-%d") # Key basal:YYYY-MM-DD
+    
+    # Store Loading
+    store = DataStore(Path(global_settings.data.data_dir))
+    events = store.load_events()
+    
+    # Find entry: type=basal_daily_status, date=today_str
+    entry = next((e for e in events if e.get("type") == "basal_daily_status" and e.get("date") == today_str), None)
+    
+    if entry:
+        st = entry.get("status")
+        if st in ("done", "dismissed"):
+             # NO volver a preguntar hoy
+             health.record_event("basal", False, "heuristic_already_done_today" if st == "done" else "heuristic_dismissed_today")
+             return
+        elif st == "snoozed":
+             until_str = entry.get("snooze_until")
+             if until_str:
+                 try:
+                     until_dt = datetime.fromisoformat(until_str)
+                     if datetime.now(timezone.utc) < until_dt:
+                         health.record_event("basal", False, f"heuristic_snoozed_until(remaining_min={int((until_dt - datetime.now(timezone.utc)).total_seconds()/60)})")
+                         return
+                 except: pass # invalid date, ignore
+        elif st == "asked":
+             # Router cooldown will handle it, but we can flag it
+             persistence_status = "asked"
+    
+    # 3. Check Deep Basal Context (Logic from active basal) (Optional but good for 'late')
     try:
         from app.services import basal_context_service
         basal_ctx = await basal_context_service.get_basal_status(username, 0)
+        # We can use basal_ctx.status (taken_today, late, etc)
+        # But our local persistence is the source of truth for "did I ask/do via bot".
+        # If basal_ctx says "taken_today" (via other means), we should respect it?
+        # User requirement: "basal job ya detecta: already_taken...".
+        # Let's trust basal_ctx as well.
+        if basal_ctx.status == "taken_today":
+             health.record_event("basal", False, "heuristic_already_taken")
+             return
     except Exception as e:
-        logger.error(f"Basal context fetch failed: {e}")
+        logger.warning(f"Basal context fetch failed: {e}")
+        basal_ctx = None
+
+    # 4. Payload for Router
+    # Router will handle quiet hours and cooldown
+    
+    payload = {
+        "persistence_status": persistence_status,
+        "entry_status": entry.get("status") if entry else None,
+        "today_str": today_str,
+        "hours_late": basal_ctx.hours_late if basal_ctx else 0.0,
+        "scheduled_time": basal_conf.time_local,
+        "expected_units": basal_conf.expected_units
+    }
+    
+    # 5. Delegate to Router
+    from app.bot.llm import router
+    reply = await router.handle_event(
+        username=username,
+        chat_id=final_chat_id,
+        event_type="basal", 
+        payload=payload
+    )
+    
+    if reply and reply.text:
+         # Send message
+        await _send(
+            None,
+            final_chat_id,
+            reply.text,
+            log_context="proactive_basal",
+            reply_markup=InlineKeyboardMarkup(reply.buttons) if reply.buttons else None,
+        )
+        # Mark sent in rules (cooldown)
+        from app.bot.proactive_rules import mark_event_sent
+        mark_event_sent("basal")
+        
+        # Update persistence to 'asked' if new
+        if not entry:
+            events.append({
+                "type": "basal_daily_status",
+                "date": today_str,
+                "status": "asked",
+                "updated_at": datetime.now(timezone.utc).isoformat()
+            })
+            store.save_events(events)
+
+async def trend_alert(username: str = "admin", chat_id: Optional[int] = None, trigger: str = "auto") -> None:
+    # 1. Load Config
+    try:
+        user_settings = await context_builder.get_bot_user_settings_safe()
+        
+        # Default fallback
+        if hasattr(user_settings.bot.proactive, "trend_alert"):
+            conf = user_settings.bot.proactive.trend_alert
+        else:
+             from app.models.settings import TrendAlertConfig
+             conf = TrendAlertConfig()
+             
+        global_settings = get_settings()
+        ns_url = user_settings.nightscout.url or global_settings.nightscout.base_url
+        ns_token = user_settings.nightscout.token or global_settings.nightscout.token
+    except Exception as e:
+        health.record_event("trend_alert", False, f"config_error: {e}")
         return
 
-    # 4. Context & Data Collection (BG/Trend)
-    status_res = await tools.execute_tool("get_status_context", {})
+    if not conf.enabled and trigger == "auto":
+        return
+
+    # Resolve Chat ID
+    chat_id = chat_id or await _get_chat_id()
+    if not chat_id:
+        return
+
+    # 2. Fetch Data (Nightscout)
+    from app.services.nightscout_client import NightscoutClient
     
-    # 5. Prepare Payload & Route (ALWAYS)
+    if not ns_url:
+        health.record_event("trend_alert", False, "missing_ns_config")
+        return
+
+    client = NightscoutClient(str(ns_url), ns_token)
+    entries = []
+    try:
+        now_utc = datetime.now(timezone.utc)
+        # Fetch window + buffer
+        start_dt = now_utc - timedelta(minutes=conf.window_minutes + 10)
+        entries = await client.get_sgv_range(start_dt, now_utc, count=24)
+    except Exception as e:
+        health.record_event("trend_alert", False, f"ns_error: {e}")
+        try: await client.aclose()
+        except: pass
+        return
+    finally:
+         try: await client.aclose()
+         except: pass
+
+    # 3. Analyze Trend (Slope/Delta)
+    if not entries or len(entries) < conf.sample_points_min:
+         health.record_event("trend_alert", False, f"heuristic_insufficient_data(points={len(entries)}, min={conf.sample_points_min})")
+         return
+
+    # Sort Chronological
+    entries_sorted = sorted(entries, key=lambda x: x.date)
+    
+    # We focus on the window range exactly?
+    # Or just last - first of the fetched batch?
+    # Let's take the subset within window_minutes
+    window_start_ms = (now_utc - timedelta(minutes=conf.window_minutes)).timestamp() * 1000
+    window_entries = [e for e in entries_sorted if e.date >= window_start_ms]
+    
+    if len(window_entries) < 2:
+        health.record_event("trend_alert", False, "heuristic_insufficient_data_window")
+        return
+        
+    bg_first = window_entries[0].sgv
+    bg_last = window_entries[-1].sgv
+    if bg_first is None or bg_last is None: return
+    
+    delta_total = bg_last - bg_first
+    
+    # Calculate real duration in minutes
+    t_first = window_entries[0].date / 1000.0
+    t_last = window_entries[-1].date / 1000.0
+    duration_min = (t_last - t_first) / 60.0
+    
+    if duration_min < 5: 
+        return # Too short
+        
+    slope = delta_total / duration_min
+    
+    direction = "stable"
+    if slope >= conf.rise_mgdl_per_min and delta_total >= conf.min_delta_total_mgdl:
+        direction = "rise"
+    elif slope <= conf.drop_mgdl_per_min and delta_total <= -conf.min_delta_total_mgdl:
+        direction = "drop"
+        
+    if direction == "stable":
+        health.record_event("trend_alert", False, f"heuristic_below_threshold(slope={slope:.2f}, delta_total={delta_total})")
+        return
+
+    # 4. Gating: Check Recent Treatments (Carbs/Bolus) from DB
+    from app.core.db import get_engine, AsyncSession
+    from app.models.treatment import Treatment
+    from sqlalchemy import select
+    
+    engine = get_engine()
+    has_recent_carbs = False
+    has_recent_bolus = False
+    
+    search_window = max(conf.recent_carbs_minutes, conf.recent_bolus_minutes)
+    cutoff = now_utc - timedelta(minutes=search_window)
+    
+    if engine:
+        try:
+            async with AsyncSession(engine) as session:
+                # Optimized query? Or just fetch recent.
+                stmt = (
+                    select(Treatment)
+                    .where(Treatment.user_id == username) # or check all?
+                    .where(Treatment.created_at >= cutoff.replace(tzinfo=None)) 
+                    # Note: treatment created_at usually naive UTC in DB, careful with TZ.
+                    # Best practice: ensure model stores UTC.
+                )
+                res = await session.execute(stmt)
+                rows = res.scalars().all()
+                
+                for r in rows:
+                    # Parse time safely
+                    c_time = r.created_at
+                    if c_time.tzinfo is None: c_time = c_time.replace(tzinfo=timezone.utc)
+                    
+                    diff_min = (now_utc - c_time).total_seconds() / 60.0
+                    
+                    if r.carbs and r.carbs > 0 and diff_min <= conf.recent_carbs_minutes:
+                         has_recent_carbs = True
+                    
+                    if r.insulin and r.insulin > 0 and diff_min <= conf.recent_bolus_minutes:
+                         has_recent_bolus = True
+        except Exception as e:
+            logger.error(f"Trend DB check failed: {e}")
+            pass
+
+    if has_recent_carbs:
+        health.record_event("trend_alert", False, f"heuristic_recent_carbs(minutes={conf.recent_carbs_minutes})")
+        return
+        
+    if has_recent_bolus:
+        health.record_event("trend_alert", False, f"heuristic_recent_bolus(minutes={conf.recent_bolus_minutes})")
+        return
+
+    # 5. Success -> Delegate to Router
     payload = {
-        "basal_status": basal_ctx.to_dict(),
-        "bg": getattr(status_res, "bg_mgdl", None),
-        "trend": getattr(status_res, "direction", None),
-        "today_str": today_str,
-        "persistence_status": persistence_status,
-        "persistence_reason": persistence_reason
+        "current_bg": bg_last,
+        "delta_total": int(delta_total),
+        "slope": round(slope, 2),
+        "direction": direction,
+        "window_minutes": int(duration_min),
+        "delta_arrow": f"{int(delta_total):+}"
     }
 
-    try:
-        from app.bot.llm import router
-
-        reply = await router.handle_event(
-            username=username,
-            chat_id=final_chat_id,
-            event_type="basal", 
-            payload=payload
+    from app.bot.llm import router
+    reply = await router.handle_event(
+        username=username,
+        chat_id=chat_id,
+        event_type="trend_alert",
+        payload=payload
+    )
+    
+    if reply and reply.text:
+        await _send(
+            None,
+            chat_id,
+            reply.text,
+            log_context="proactive_trend",
         )
-        
-        if reply and reply.text:
-            # Send
-            await _send(
-                None,
-                final_chat_id,
-                reply.text,
-                log_context="proactive_basal",
-                reply_markup=InlineKeyboardMarkup(reply.buttons) if reply.buttons else None,
-            )
-            # Mark sent (Rules update)
-            from app.bot.proactive_rules import mark_event_sent
-            mark_event_sent("basal")
-            
-            # Update Persistence to 'asked' to track state
-            if not entry and persistence_status == "ok":
-                events.append({
-                    "type": "basal_daily_status",
-                    "date": today_str,
-                    "status": "asked",
-                    "updated_at": datetime.now(timezone.utc).isoformat()
-                })
-                store.save_events(events)
-
-    except Exception as exc:
-        logger.error("Basal routing failed: %s", exc)
-        health.record_action("job:basal", False, error=str(exc))
+        # Mark sent in rules
+        from app.bot.proactive_rules import mark_event_sent
+        mark_event_sent("trend_alert")
 
 
 async def premeal_nudge(username: str = "admin", chat_id: Optional[int] = None, trigger: str = "auto") -> None:

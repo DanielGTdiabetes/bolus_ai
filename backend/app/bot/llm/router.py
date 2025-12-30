@@ -395,29 +395,32 @@ async def handle_event(username: str, chat_id: int, event_type: str, payload: Di
             health.record_event(event_type, False, detailed_reason)
             return None
             
-        # Construct Message
+        # Construct Message (Determinista)
         curr = payload.get("current_bg", 0)
         direction = payload.get("direction", "stable")
         slope = payload.get("slope", 0.0)
         delta_total = payload.get("delta_total", 0)
         window = payload.get("window_minutes", 30)
-        
-        icon = "📈" if direction == "rise" else "📉"
-        action = "Subida" if direction == "rise" else "Bajada"
-        
-        text = (
-            f"{icon} **{action} rápida sin comida reciente**\n\n"
-            f"Ahora: **{curr}** mg/dL\n"
-            f"En {window} min: {delta_total:+} mg/dL (≈ {slope:+.1f}/min)\n\n"
-        )
+        delta_arrow = payload.get("delta_arrow", f"{delta_total:+}")
         
         if direction == "rise":
-             text += "¿Ocurre algo (estrés, fallo de sensor/adhesivo)?"
+             text = (
+                 f"📈 **Subida rápida sin comida/bolo reciente**\n\n"
+                 f"Ahora: **{curr}** mg/dL ({delta_arrow})\n"
+                 f"Últimos {window} min: +{abs(delta_total)} (≈ {slope:+.2f} mg/dL/min)\n\n"
+                 f"¿Ha habido estrés, fallo de infusión o comida no registrada?"
+             )
+             reason = f"sent_trend_rise(slope={slope}, delta={delta_total}, window={window})"
         else:
-             text += "Vigila por si se confirma."
+             text = (
+                 f"📉 **Bajada rápida sin comida/bolo reciente**\n\n"
+                 f"Ahora: **{curr}** mg/dL ({delta_arrow})\n"
+                 f"Últimos {window} min: {delta_total} (≈ {slope:+.2f} mg/dL/min)\n\n"
+                 f"Si notas síntomas, revisa y actúa según tu plan."
+             )
+             reason = f"sent_trend_drop(slope={slope}, delta={delta_total}, window={window})"
         
         # Log success reason
-        reason = f"sent_trend_{direction}(slope={slope}, delta={delta_total}, window={window})"
         health.record_event(event_type, True, reason)
         
         return BotReply(text=text)
