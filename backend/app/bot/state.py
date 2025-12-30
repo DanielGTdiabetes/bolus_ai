@@ -23,6 +23,10 @@ class BotHealthState:
     reason: str = "feature_flag_off"
     last_update_at: Optional[datetime] = None
     last_error: Optional[str] = None
+    last_error_id: Optional[str] = None
+    last_error_type: Optional[str] = None
+    last_error_message: Optional[str] = None
+    last_error_at: Optional[datetime] = None
     started_at: Optional[datetime] = None
     last_reply_at: Optional[datetime] = None
     last_reply_error: Optional[str] = None
@@ -45,9 +49,15 @@ class BotHealthState:
             if mode != BotMode.ERROR:
                 self.last_error = None
 
-    def set_error(self, message: str) -> None:
+    def set_error(self, message: str, error_id: Optional[str] = None, exc: Optional[Exception] = None) -> None:
         with self._lock:
             self.last_error = message
+            self.last_error_at = datetime.now(timezone.utc)
+            if error_id:
+                self.last_error_id = error_id
+            if exc:
+                self.last_error_type = type(exc).__name__
+                self.last_error_message = str(exc)
         logger.error(message)
 
     def clear_error(self) -> None:
@@ -100,6 +110,10 @@ class BotHealthState:
             "started_at": self.started_at.isoformat() if self.started_at else None,
             "last_update_at": self.last_update_at.isoformat() if self.last_update_at else None,
             "last_error": self.last_error,
+            "last_error_id": self.last_error_id,
+            "last_error_type": self.last_error_type,
+            "last_error_message": self.last_error_message,
+            "last_error_at": self.last_error_at.isoformat() if self.last_error_at else None,
             "last_reply_at": self.last_reply_at.isoformat() if self.last_reply_at else None,
             "last_reply_error": self.last_reply_error,
             "last_action_at": self.last_action_at.isoformat() if self.last_action_at else None,

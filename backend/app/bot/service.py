@@ -205,10 +205,20 @@ def build_expected_webhook() -> Tuple[Optional[str], str]:
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Log the error and send a telegram message to notify the developer."""
-    logger.error(f"Exception while handling an update: {context.error}")
-    health.set_error(str(context.error))
-    if update and isinstance(update, Update) and update.message:
-        await reply_text(update, context, f"⚠️ Error interno del bot: {context.error}")
+    error_id = uuid.uuid4().hex[:8]
+    
+    # Log full traceback
+    logger.exception(f"Exception while handling an update (error_id={error_id}): {context.error}", exc_info=context.error)
+    
+    # Register in health state
+    health.set_error(str(context.error), error_id=error_id, exc=context.error)
+    
+    # User feedback
+    if update and isinstance(update, Update) and update.effective_message:
+        try:
+             await reply_text(update, context, f"⚠️ Error interno del bot (id: {error_id}).")
+        except Exception as e:
+             logger.error(f"Failed to send error reply: {e}")
 
 async def _check_auth(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
     """Returns True if user is authorized."""
@@ -621,6 +631,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     # --- AI Layer ---
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=constants.ChatAction.TYPING)
     
+    logger.info(f"[LLM] entering router chat_id={update.effective_chat.id} user={update.effective_user.username}")
     t0 = datetime.now()
     
     # 1. Build Context
@@ -629,7 +640,17 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     ctx_ms = (t1 - t0).total_seconds() * 1000
 
     # 2. Router
-    bot_reply = await router.handle_text(update.effective_user.username, update.effective_chat.id, text, ctx)
+    try:
+        bot_reply = await router.handle_text(update.effective_user.username, update.effective_chat.id, text, ctx)
+        logger.info(f"[LLM] router ok chat_id={update.effective_chat.id}")
+    except Exception as e:
+        # Emergency catch for router layer itself
+        err_id = uuid.uuid4().hex[:8]
+        logger.exception(f"[LLM] router CRIT (id={err_id})", exc_info=e)
+        health.set_error(f"Router Exception: {e}", error_id=err_id, exc=e)
+        await reply_text(update, context, f"⚠️ Error IA ({err_id}).")
+        return
+
     t2 = datetime.now()
     llm_ms = (t2 - t1).total_seconds() * 1000
     
