@@ -43,7 +43,7 @@ async def _send(bot, chat_id: int, text: str, *, log_context: str, **kwargs):
 
 
 async def basal_reminder(username: str = "admin", chat_id: Optional[int] = None) -> None:
-    # 0. Load Settings first
+    # 0. Load Config (needed for chat_id resolution)
     try:
         user_settings = await context_builder.get_bot_user_settings_safe()
         basal_conf = user_settings.bot.proactive.basal
@@ -51,27 +51,26 @@ async def basal_reminder(username: str = "admin", chat_id: Optional[int] = None)
         health.record_action("job:basal", False, error=f"config_load_error: {e}")
         return
 
-    # 1. Check Enabled
-    if not basal_conf.enabled:
-        health.record_event("basal", False, "disabled_in_settings")
-        return
-
-    # 2. Resolve Chat ID
-    # Priority: explicit argument -> config settings -> global env fallback
+    # 1. Resolve Chat ID
     final_chat_id = chat_id or basal_conf.chat_id or await _get_chat_id()
     if not final_chat_id:
         health.record_event("basal", False, "missing_chat_id")
         return
 
-    # 3. Check Time Config
-    # User Requirement: Must have time configured even if triggered manually
-    if not basal_conf.time_local:
-        health.record_event("basal", False, "missing_time_config")
+    # 2. Check Cooldown
+    if not cooldowns.is_ready("basal", COOLDOWN_MINUTES["basal"] * 60):
+        # We still record event? Optional, maybe reduce noise
+        health.record_event("basal", False, "cooldown")
         return
 
-    # Track job execution (User Req: last_action_type="job:basal")
-    health.record_action("job:basal", True)
-
+    # 3. Get Context (Includes Basal Status)
+    # Using the tool ensures we get the full picture consistent with router
+    status_res = await tools.execute_tool("get_status_context", {})
+    # 3b. Fetch Deep Basal Context directly 
+    # (Context builder already does this, but we need direct access to logic states)
+    from app.services import basal_context_service
+    # Assuming "admin" for now, ideally pass username
+    basal_ctx = await basal_context_service.get_basal_status(username, 0) # Offset 0 for now
     try:
         # 4. Cooldown Check
         if not cooldowns.is_ready("basal", COOLDOWN_MINUTES["basal"] * 60):
@@ -86,46 +85,46 @@ async def basal_reminder(username: str = "admin", chat_id: Optional[int] = None)
             return
 
         # Fetch Logic Data (Last Dose)
-        last_dose = await get_latest_basal_dose(username)
+        # 3b. Fetch Deep Basal Context directly 
+        from app.services import basal_context_service
+        basal_ctx = await basal_context_service.get_basal_status(username, 0)
         
-        # User Req: Handle missing data gracefully
-        if not last_dose or status_res.bg_mgdl is None:
-            # Check if we have expected units to at least give a partial reminder?
-            # Req says "Si falta ... reason=skipped_missing_data". 
-            # But let's be more specific if NS is down vs No DB history.
-            if status_res.bg_mgdl is None:
-                 health.record_event("basal", False, "skipped_missing_ns_data")
-            else:
-                 health.record_event("basal", False, "skipped_no_dose_history")
+        # 4. Logic Branching
+        status = basal_ctx.status
+        
+        if status == "taken_today":
+            health.record_event("basal", False, "already_taken")
             return
 
-        # 6. Construct Payload
-        # Calculate time since last dose
-        now_utc = datetime.now(timezone.utc)
-        last_ts = last_dose.get("created_at")
-        if last_ts and last_ts.tzinfo is None:
-            last_ts = last_ts.replace(tzinfo=timezone.utc)
+        if status == "not_due_yet":
+            health.record_event("basal", False, "not_due_yet")
+            return
             
-        hours_ago = 999.0
-        if last_ts:
-            hours_ago = (now_utc - last_ts).total_seconds() / 3600
+        if status == "due_soon":
+            health.record_event("basal", False, "due_soon_silent")
+            return
+        
+        if status == "insufficient_history":
+            if not basal_conf.time_local:
+                 health.record_event("basal", False, "insufficient_history_no_manual")
+                 return
+            health.record_event("basal", False, "skipped_insufficient_history")
+            return
 
+        if status != "late":
+            health.record_event("basal", False, f"status_{status}")
+            return
+
+        # 5. Prepare Payload for Router
         payload = {
-            "last_dose": {
-                "units": last_dose.get("dose_u"),
-                "time": last_ts.isoformat() if last_ts else None,
-                "hours_ago": round(hours_ago, 2)
-            },
-            "bg": status_res.bg_mgdl,
-            "trend": status_res.direction,
-            "delta": status_res.delta,
-            "expected_units": basal_conf.expected_units
+            "basal_status": basal_ctx.to_dict(),
+            "bg": getattr(status_res, "bg_mgdl", None),
+            "trend": getattr(status_res, "direction", None)
         }
 
-        # 7. Delegate to Router (User Req: router.handle_event)
+        # 6. Delegate to Router
         from app.bot.llm import router
 
-        # Router decides "silence" (noise rules) or "send"
         reply = await router.handle_event(
             username=username,
             chat_id=final_chat_id,
@@ -133,20 +132,25 @@ async def basal_reminder(username: str = "admin", chat_id: Optional[int] = None)
             payload=payload
         )
         
-        # 8. Send Reply if any (Botless way)
         if reply and reply.text:
+            # Mark sent only if we really send
+            from app.bot.proactive_rules import mark_event_sent
+            mark_event_sent("basal")
+            
             keyboard = [
-                [InlineKeyboardButton("✅ Sí, ya puesta", callback_data="basal_ack_yes")],
-                [InlineKeyboardButton("⏰ En 15 min", callback_data="basal_ack_later")],
-                [InlineKeyboardButton("🙈 Ignorar", callback_data="ignore")],
+                [InlineKeyboardButton("✅ Ya me la puse", callback_data="basal_ack_yes")],
+                [InlineKeyboardButton("⏰ +15 min", callback_data="basal_ack_later")],
             ]
             await _send(
-                None, # No direct bot reference
+                None,
                 final_chat_id,
                 reply.text,
                 log_context="proactive_basal",
                 reply_markup=InlineKeyboardMarkup(keyboard),
             )
+            health.record_event("basal", True, "sent_late_reminder")
+        else:
+            health.record_event("basal", False, "router_silenced")
 
     except Exception as exc:
         logger.error("Basal reminder failed: %s", exc)

@@ -163,5 +163,16 @@ async def build_context(username: str, chat_id: int) -> Dict[str, Any]:
         ctx["quality"] = "degraded"
         ctx["errors"].append(str(e))
 
+    # 6. Basal Context (Proactive)
+    try:
+        from app.services import basal_context_service
+        # Infer timezone offset from settings or default to 0
+        offset = 0 # Todo: deduce from user_settings locale if available
+        basal_ctx = await basal_context_service.get_basal_status("admin", offset)
+        ctx["basal"] = basal_ctx.to_dict()
+    except Exception as e:
+        ctx["warnings"] = ctx.get("warnings", [])
+        ctx["warnings"].append(f"BASAL_CTX_ERROR: {e}")
+
     ctx["build_ms"] = int((time.time() - t0) * 1000)
     return ctx
