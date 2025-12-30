@@ -886,7 +886,7 @@ function BotPanel() {
 
     return (
         <div className="stack">
-            <h3 style={{ marginTop: 0 }}>Bot Proactivo (Telegram)</h3>
+            <h3 style={{ marginTop: 0 }}>Bot / Pre-comida (Premeal)</h3>
             <p className="text-muted text-sm">
                 Configura cuándo el bot debe sugerir bolo pre-comida si detecta subida.
             </p>

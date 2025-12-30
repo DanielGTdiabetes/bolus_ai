@@ -113,7 +113,9 @@ def _build_ns_client(settings: UserSettings | None) -> Optional[NightscoutClient
 
 
 async def _load_user_settings(username: str = "admin") -> UserSettings:
-    # 1. Try DB First (Source of Truth) because Frontend saves to DB psql
+    user_settings = None
+
+    # 1. Try DB First (Source of Truth for General Config)
     try:
         from app.core.db import get_engine, AsyncSession
         from app.services.settings_service import get_user_settings_service
@@ -123,17 +125,18 @@ async def _load_user_settings(username: str = "admin") -> UserSettings:
             async with AsyncSession(engine) as session:
                 db_res = await get_user_settings_service(username, session)
                 if db_res and db_res.get("settings"):
-                    # Found in DB -> This is the master copy
-                    return UserSettings.migrate(db_res["settings"])
+                    user_settings = UserSettings.migrate(db_res["settings"])
     except Exception as e:
         logger.warning(f"DB Settings load failed for {username}, falling back to file: {e}")
 
     # 2. Fallback to File (Legacy / Offline)
-    settings = get_settings()
-    store = DataStore(Path(settings.data.data_dir))
-    user_settings = store.load_settings(username)
+    if not user_settings:
+        settings = get_settings()
+        store = DataStore(Path(settings.data.data_dir))
+        user_settings = store.load_settings(username)
     
-    # 3. Hybrid Overlay: If we loaded from file, try to at least get NS secrets from DB
+    # 3. Hybrid Overlay: ALWAYS try to get NS secrets from DB (Source of Truth for Secrets)
+    # The general settings blob might have empty/outdated NS config.
     try:
         from app.services.nightscout_secrets_service import get_ns_config
         from app.core.db import get_engine, AsyncSession
