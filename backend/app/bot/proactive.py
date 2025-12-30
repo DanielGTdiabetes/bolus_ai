@@ -107,7 +107,6 @@ async def premeal_nudge(username: str = "admin", chat_id: Optional[int] = None) 
         return
         
     # Use Tool for Context (No DB dependency here)
-    # Use Tool for Context (No DB dependency here)
     try:
         status_res = await tools.execute_tool("get_status_context", {})
         if isinstance(status_res, tools.ToolError):
@@ -121,12 +120,20 @@ async def premeal_nudge(username: str = "admin", chat_id: Optional[int] = None) 
     # bg_mgdl, delta, direction
     stats = status_res # It's a StatusContext object
     
+    # SAFETY: Check for missing data
+    if stats.bg_mgdl is None:
+         health.record_event("premeal", False, "skipped_missing_bg")
+         return
+
     # Heuristic
-    if stats.bg_mgdl < 140 or (stats.delta or 0) < 2:
+    # Explicitly handle None delta
+    delta = stats.delta if stats.delta is not None else 0
+    
+    if stats.bg_mgdl < 140 or delta < 2:
         health.record_event("premeal", False, "heuristic_low_bg")
         return
         
-    payload = {"bg": stats.bg_mgdl, "trend": stats.direction, "delta": stats.delta}
+    payload = {"bg": stats.bg_mgdl, "trend": stats.direction, "delta": delta}
 
     from app.bot.llm import router
 
