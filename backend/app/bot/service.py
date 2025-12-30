@@ -29,6 +29,7 @@ from app.services.nightscout_client import NightscoutClient
 from app.services.iob import compute_iob_from_sources, compute_cob_from_sources
 from app.services.bolus import recommend_bolus, BolusRequestData
 from app.services.bolus_engine import calculate_bolus_v2
+from app.services.basal_repo import get_latest_basal_dose # Fixed missing import
 from app.models.bolus_v2 import BolusRequestV2, BolusResponseV2, GlucoseUsed
 from app.services.injection_sites import InjectionManager
 from app.bot.capabilities.registry import build_registry, Permission
@@ -1887,6 +1888,31 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
          try:
              units = float(data.split("|")[1])
              
+             # --- SAFETY RAIL: Check if already added recently ---
+             # (Prevents race condition where user adds manually while bot is waiting)
+             try:
+                 user_settings = await get_bot_user_settings()
+                 username = user_settings.username or "admin" # Default
+                 last_basal, mins_ago = await get_latest_basal_dose(username)
+                 
+                 # If we found a basal injected in the last 20 hours, we might want to be careful.
+                 # But specifically for the "Race Condition", we care about VERY recent.
+                 # However, if user already logged "Basal" today, we should block.
+                 # Let's say: if logged < 12h ago, Assume it's the daily dose.
+                 if last_basal and mins_ago < 720: # 12 hours
+                     # It's highly likely they already put it
+                     logger.warning(f"Guardrail blocked basal: Found one {mins_ago}m ago")
+                     await _update_basal_event("done") # Mark as done so we don't ask again
+                     health.record_action("basal_guardrail_block", True, f"found_recent_{mins_ago}m")
+                     await query.edit_message_text(f"{query.message.text}\n\n⚠️ **Ya registrada**\nHe visto una basal reciente ({int(mins_ago)} min). No la duplico.")
+                     return
+             except Exception as e:
+                 logger.error(f"Basal guardrail check failed: {e}")
+                 # Fail safe? Or proceed? Proceeding is risky. Let's warn but proceed if DB error?
+                 # Safest is to proceed if we can't verify, BUT log heavily. 
+                 # Or better: if checking fails, we shouldn't block user from living.
+                 pass
+
              # Add Treatment
              add_res = await tools.add_treatment({
                  "insulin": units,
@@ -1922,155 +1948,5 @@ async def _handle_voice_callback(update, context):
 
 
 
-# --- Guardian Mode (Zero Cost Monitoring) ---
 
-async def run_glucose_monitor_job() -> None:
-    """
-    Background Task: Checks SGV every 5 mins and alerts if Low/High.
-    Uses 'check_glucose_service' logic but strictly for Telegram alerts.
-    """
-    global _bot_app
-    if not _bot_app:
-        return
 
-    # TODO: Multi-tenant loop. For now, Single User 'admin' is the focus.
-    user_id = "admin"
-    chat_id = config.get_allowed_telegram_user_id()
-    if not chat_id:
-        return
-
-    # 1. Get Settings & Secrets
-    try:
-        from app.core.db import get_engine
-        engine = get_engine()
-        if not engine: return
-        
-        async with AsyncSession(engine) as session:
-            # Secrets
-            ns_cfg = await svc_ns_secrets.get_ns_config(session, user_id)
-            if not ns_cfg or not ns_cfg.url:
-                return
-
-            # Client
-            # Low timeout for background check
-            client = NightscoutClient(ns_cfg.url, ns_cfg.api_secret, timeout_seconds=5)
-            
-            sgv_val = 0
-            direction = ""
-            delta = 0.0
-            date_str = ""
-            
-            try:
-                # 2. Fetch SGV
-                sgv = await client.get_latest_sgv()
-                sgv_val = float(sgv.sgv)
-                direction = sgv.direction or ""
-                delta = sgv.delta or 0.0
-                date_str = sgv.dateString
-            except Exception:
-                # Silent fail (connection issue)
-                await client.aclose()
-                return
-            
-            await client.aclose()
-            
-            # 3. Check Staleness (don't alert on old data)
-            # dateString is usually ISO.
-            import dateutil.parser
-            try:
-                reading_time = dateutil.parser.parse(date_str)
-                # Ensure UTC
-                if reading_time.tzinfo is None:
-                    reading_time = reading_time.replace(tzinfo=timezone.utc)
-                
-                now = datetime.now(timezone.utc)
-                age_min = (now - reading_time).total_seconds() / 60
-                
-                if age_min > 20:
-                    # Data is too old (>20 mins), don't alert (sensor might be warming up/dead)
-                    return
-            except Exception:
-                pass
-
-            # 4. Threshold Logic
-            # Hardcoded Safeties or Fetch from UserSettings
-            # We'll use "Safe" defaults: <70 and >250
-            # Ideally fetch from UserSettings.targets
-            
-            LOW_THRESH = 70
-            HIGH_THRESH = 260 
-            
-            alert_type = None
-            msg = ""
-            
-            if sgv_val <= LOW_THRESH:
-                alert_type = "low"
-                msg = f"🚨 **ALERTA BAJA: {int(sgv_val)}** {direction}\n📉 Delta: {delta:+.1f}"
-            elif sgv_val >= HIGH_THRESH:
-                alert_type = "high"
-                msg = f"⚠️ **ALERTA ALTA: {int(sgv_val)}** {direction}\n📈 Delta: {delta:+.1f}"
-            
-            if not alert_type:
-                # Normal range, clear any active state if needed?
-                # Actually, we rely on 'Snooze' for alerts.
-                return
-                
-            # 5. Anti-Spam (Snooze) Logic
-            # We don't want to alert every 5 mins.
-            # Low: Alert every 15 mins?
-            # High: Alert every 60 mins?
-            
-            # Use UserNotificationState to store 'last_alert_time'
-            from app.models.notifications import UserNotificationState
-            from sqlalchemy import select
-            
-            key = f"guardian_{alert_type}"
-            stmt = select(UserNotificationState).where(
-                UserNotificationState.user_id == user_id,
-                UserNotificationState.key == key
-            )
-            state_row = (await session.execute(stmt)).scalars().first()
-            
-            should_send = True
-            now_utc = datetime.now(timezone.utc)
-            
-            if state_row:
-                last_sent = state_row.seen_at # Reuse 'seen_at' as 'sent_at'
-                if last_sent.tzinfo is None:
-                    last_sent = last_sent.replace(tzinfo=timezone.utc)
-                
-                elapsed_min = (now_utc - last_sent).total_seconds() / 60
-                
-                snooze_time = 20 if alert_type == "low" else 60 # 20m for low, 1h for high
-                
-                if elapsed_min < snooze_time:
-                    should_send = False
-            
-            if should_send:
-                # Send Message
-                try:
-                    await bot_send(
-                        chat_id=chat_id,
-                        text=msg,
-                        bot=_bot_app.bot,
-                        parse_mode="Markdown",
-                        log_context="guardian_alert",
-                    )
-                    
-                    # Update State
-                    if state_row:
-                        state_row.seen_at = now_utc
-                    else:
-                        new_state = UserNotificationState(
-                            user_id=user_id,
-                            key=key,
-                            seen_at=now_utc
-                        )
-                        session.add(new_state)
-                    await session.commit()
-                    logger.info(f"Guardian Mode sent alert: {alert_type} ({sgv_val})")
-                except Exception as e:
-                    logger.error(f"Failed to send Guardian Alert: {e}")
-
-    except Exception as e:
-        logger.error(f"Guardian Job Error: {e}")
