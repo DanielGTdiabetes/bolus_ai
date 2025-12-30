@@ -1052,6 +1052,25 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             except Exception:
                 logger.debug("Failed to cleanup temp audio file %s", tmp_path)
 
+
+async def morning_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Trigger morning summary on demand."""
+    if not await _check_auth(update, context): 
+        return
+
+    mode = "full"
+    if context.args and "alerts" in context.args[0].lower():
+        mode = "alerts"
+        
+    health.record_action(f"cmd:morning", True, f"mode={mode}")
+    
+    await proactive.morning_summary(
+        username=update.effective_user.username,
+        chat_id=update.effective_chat.id,
+        trigger="manual",
+        mode=mode
+    )
+
 def create_bot_app() -> Application:
     """Factory to create and configure the PTB Application."""
     token = config.get_telegram_bot_token()
@@ -1064,6 +1083,7 @@ def create_bot_app() -> Application:
     # Register Handlers
     application.add_handler(CommandHandler("ping", ping_command))
     application.add_handler(CommandHandler("start", start_command))
+    application.add_handler(CommandHandler("morning", morning_command))
     
     # Operational Commands (Capability Registry)
     application.add_handler(CommandHandler("status", status_command))

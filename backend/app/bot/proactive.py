@@ -498,34 +498,169 @@ async def combo_followup(username: str = "admin", chat_id: Optional[int] = None)
     # End here. No message sent. No buttons.
 
 
-async def morning_summary(username: str = "admin", chat_id: Optional[int] = None) -> None:
+async def morning_summary(username: str = "admin", chat_id: Optional[int] = None, trigger: str = "manual", mode: str = "full") -> None:
+    """
+    On-demand morning summary.
+    Modes:
+    - full: Always sends summary (Stats + Alerts).
+    - alerts: Sends ONLY if there are notable events (hypo/hyper), else short/silent.
+    """
+    # Resolve default user
+    if username == "admin":
+        from app.core import config
+        username = config.get_bot_default_username()
+
+    # Resolve Chat ID
     if chat_id is None:
         chat_id = await _get_chat_id()
     if not chat_id:
         return
-    if not cooldowns.is_ready("morning", COOLDOWN_MINUTES["morning"] * 60):
-        health.record_event("morning_summary", False, "cooldown")
-        return
-    # Use Tool
+
+    # 1. Configuration (Defaults)
+    # Since MorningSummaryConfig is not in UserSettings yet, use hardcoded defaults.
+    conf_hypo_mgdl = 70
+    conf_hyper_mgdl = 250
+    conf_hyper_min = 20
+    range_hours = 8
+    
+    # 2. Fetch Data (Nightscout)
+    from app.services.nightscout_client import NightscoutClient, NightscoutError
+    
+    # helper for loading settings to get NS url
     try:
-        res = await tools.execute_tool("get_nightscout_stats", {"range_hours": 8})
-        if isinstance(res, tools.ToolError):
-            return
+        user_settings = await context_builder.get_bot_user_settings_safe()
+        global_settings = get_settings()
+        ns_url = user_settings.nightscout.url or global_settings.nightscout.base_url
+        ns_token = user_settings.nightscout.token or global_settings.nightscout.token
     except Exception:
+        ns_url = None
+        ns_token = None
+
+    if not ns_url:
+        health.record_event("morning_summary", False, "missing_ns_config")
+        await _send(None, chat_id, "⚠️ No puedo generar resumen: falta configurar Nightscout.")
         return
 
+    client = NightscoutClient(str(ns_url), ns_token)
+    entries = []
+    try:
+        now_utc = datetime.now(timezone.utc)
+        start_dt = now_utc - timedelta(hours=range_hours)
+        entries = await client.get_sgv_range(start_dt, now_utc, count=range_hours * 12 + 60)
+    except Exception as e:
+        logger.error(f"Morning Summary NS fetch failed: {e}")
+        health.record_event("morning_summary", False, f"ns_error: {e}")
+        await _send(None, chat_id, "⚠️ Error obteniendo datos de Nightscout.")
+        return
+    finally:
+        await client.aclose()
+
+    if not entries:
+        msg = f"Sin datos en las últimas {range_hours}h."
+        if mode == "full":
+             await _send(None, chat_id, msg)
+        health.record_event("morning_summary", False, "no_data")
+        return
+
+    # 3. Analyze Data
+    values = [e.sgv for e in entries if e.sgv is not None]
+    if not values:
+         health.record_event("morning_summary", False, "empty_values")
+         return
+         
+    # Metrics
+    min_bg = min(values)
+    max_bg = max(values)
+    last_bg = values[0] # Sorted DESC usually? NightscoutClient.get_sgv_range docs not specific on sort, usually ASC or DESC.
+    # Check sort order by date
+    entries_sorted = sorted(entries, key=lambda x: x.date) # ASC
+    values_chrono = [e.sgv for e in entries_sorted if e.sgv is not None]
+    dates_chrono = [e.date for e in entries_sorted if e.sgv is not None]
+    
+    min_bg = min(values_chrono)
+    max_bg = max(values_chrono)
+    last_bg = values_chrono[-1]
+    last_date = dates_chrono[-1]
+    
+    # Event Detection
+    hypo_events = 0
+    hyper_events = 0
+    
+    # Counters for consecutive
+    cons_low = 0
+    cons_high = 0
+    min_readings_low = 2  # >= 2 readings
+    # Assuming ~5 min readings, 20 min = 4 readings
+    min_readings_high = max(1, int(conf_hyper_min / 5)) 
+    
+    highlight_events = [] # Strings to show in alerts mode
+    
+    # Simple loop to identify events
+    in_hypo = False
+    in_hyper = False
+    
+    # Use timezone-aware timestamps for display strings
+    import zoneinfo
+    tz_madrid = zoneinfo.ZoneInfo("Europe/Madrid")
+    
+    for i, v in enumerate(values_chrono):
+        ts_ms = dates_chrono[i]
+        dt = datetime.fromtimestamp(ts_ms / 1000, timezone.utc).astimezone(tz_madrid)
+        time_str = dt.strftime("%H:%M")
+
+        # Hypo check
+        if v < conf_hypo_mgdl:
+             cons_low += 1
+             if cons_low == min_readings_low and not in_hypo:
+                 hypo_events += 1
+                 in_hypo = True
+                 highlight_events.append(f"📉 Hipo detectada ({v} mg/dL) a las {time_str}")
+        else:
+             cons_low = 0
+             in_hypo = False
+
+        # Hyper check
+        if v > conf_hyper_mgdl:
+             cons_high += 1
+             if cons_high == min_readings_high and not in_hyper:
+                 hyper_events += 1
+                 in_hyper = True
+                 highlight_events.append(f"📈 Hiper persistente (> {conf_hyper_mgdl}) a las {time_str}")
+        else:
+             cons_high = 0
+             in_hyper = False
+
+    # 4. Construct Payload
     payload = {
-        "tir_percent": int(res.tir_pct),
-        "lows_count": res.lows,
-        "last_bg": res.last_bg,
-        "hours": 8,
-        "avg": int(res.avg_bg)
+        "mode": mode,
+        "bg": last_bg,
+        "min_bg": min_bg,
+        "max_bg": max_bg,
+        "hypo_count": hypo_events,
+        "hyper_count": hyper_events,
+        "highlights": highlight_events,
+        "range_hours": range_hours
     }
     
+    # 5. Route Logic (or Manual Send)
+    # Using Router flow for consistency with "combo_followup"
     from app.bot.llm import router
-
+    
+    # We manually construct reason_hint to guide router
+    has_notable = (hypo_events > 0 or hyper_events > 0)
+    
+    if mode == "alerts" and not has_notable:
+        # Check logic: "Si no: responder una línea..."
+        # We can handle this directly or return a special hint
+        health.record_event("morning_summary", True, "sent_no_events")
+        await _send(None, chat_id, f"✅ Sin eventos destacables en las últimas {range_hours}h.")
+        return
+        
+    reason_hint = "sent_full" if mode == "full" else f"sent_alerts(events=hypo:{hypo_events},hyper:{hyper_events})"
+    payload["reason_hint"] = reason_hint
+    
     reply = await router.handle_event(
-        username="admin",
+        username=username,
         chat_id=chat_id,
         event_type="morning_summary",
         payload=payload

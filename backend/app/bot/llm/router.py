@@ -280,7 +280,9 @@ async def handle_event(username: str, chat_id: int, event_type: str, payload: Di
         
         # Special Case: Eligible Candidate for Combo Followup -> Proceed to Manual Construction
         if reason == "eligible_candidate" and event_type == "combo_followup":
-            # Proceed to silence check
+            pass
+        # Special Case: Morning Summary Manual Mode
+        elif event_type == "morning_summary" and reason.startswith("sent_"):
             pass
         else:
             # Default behavior: hint means "skip and log this reason"
@@ -343,6 +345,48 @@ async def handle_event(username: str, chat_id: int, event_type: str, payload: Di
         return None
 
     # 2. Manual Construction for Specific Events (Bypass LLM)
+    if event_type == "morning_summary":
+        mode = payload.get("mode", "full")
+        range_hours = payload.get("range_hours", 8)
+        highlights = payload.get("highlights", [])
+        
+        # Alerts Mode (we only reach here if there are highlights or we force send, proactiv.py handles the "no events" case usually)
+        if mode == "alerts":
+            if not highlights:
+                 return BotReply(text="Sin eventos.") # Should limit reach
+                 
+            text = f"⚠️ **Resumen de Alertas ({range_hours}h)**\n\n"
+            for h in highlights:
+                text += f"- {h}\n"
+            return BotReply(text=text)
+            
+        # Full Mode
+        curr = payload.get("bg", 0)
+        min_bg = payload.get("min_bg", 0)
+        max_bg = payload.get("max_bg", 0)
+        hypos = payload.get("hypo_count", 0)
+        hypers = payload.get("hyper_count", 0)
+        
+        stat_line = f"• Rango: {min_bg:.0f} - {max_bg:.0f} mg/dL\n"
+        stat_line += f"• Hipos: {hypos} | Hipers: {hypers}"
+        
+        text = f"☀️ **Resumen Matutino ({range_hours}h)**\n\n"
+        text += f"Glucosa actual: **{curr:.0f}** mg/dL\n\n"
+        text += f"{stat_line}\n\n"
+        
+        if highlights:
+            text += "**Eventos destacados:**\n"
+            # Show max 3 highlights
+            for h in highlights[:3]:
+                 text += f"{h}\n"
+            if len(highlights) > 3:
+                 text += f"... y {len(highlights)-3} más.\n"
+        
+        # Basal placeholder (fetched separate or not included in this MVP)
+        # We stick to available payload data to be safe.
+        
+        return BotReply(text=text)
+
     if event_type == "combo_followup":
         tid = payload.get("treatment_id", "unknown")
         # Format the message deterministically

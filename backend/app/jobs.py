@@ -151,8 +151,7 @@ def setup_periodic_tasks():
              # combo_followup might also follow the pattern
             await proactive.combo_followup()
 
-        schedule_task(_run_morning, CronTrigger(hour=8, minute=5), "morning_summary")
-        jobs_state.refresh_next_run("morning_summary")
+
 
         schedule_task(_run_basal, CronTrigger(minute='*/45'), "basal_reminder")
         jobs_state.refresh_next_run("basal")
