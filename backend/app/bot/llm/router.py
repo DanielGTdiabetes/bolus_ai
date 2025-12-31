@@ -512,6 +512,8 @@ async def handle_event(username: str, chat_id: int, event_type: str, payload: Di
 
         # 2. Check Logic Status
         status_dict = payload.get("basal_status", {})
+        status = status_dict.get("status", "unknown")
+        
         if status == "taken_today":
             health.record_event(event_type, False, "heuristic_already_taken")
             return None
