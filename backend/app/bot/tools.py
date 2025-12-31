@@ -467,7 +467,6 @@ async def add_treatment(tool_input: dict[str, Any]) -> AddTreatmentResult | Tool
         ns_error=result.ns_error or error_text,
         saved_db=result.saved_db,
         saved_local=result.saved_local,
-        saved_local=result.saved_local,
     )
 
 
