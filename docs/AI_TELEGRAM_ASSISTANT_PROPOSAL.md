@@ -23,7 +23,7 @@ El objetivo es que **cualquier cosa** que puedas hacer clicando en la web, pueda
 4.  **Análisis**: Generación de reportes (`get_nightscout_stats`) o diagnósticos (`iob_analysis`).
 5.  **Configuración**: Ajustes temporales de perfil (ej. "Activa modo deporte").
 6.  **Visión**: Procesamiento de imágenes (platos o etiquetas) para extracción automática de carbohidratos.
-7.  **Auditoría**: Acceso al motor de sugerencias (`suggestion_engine`) para proponer cambios en ratios o sensibilidad basados en historial.
+7.  **Auditoría**: Acceso al motor de sugerencias (`suggestion_engine`) para proponer cambios en ratios o sensibilidad basados en historial. [COMPLETADO ✅]
 
 ## 3. Componentes Clave
 
@@ -87,6 +87,11 @@ Actuar como un "Lazo Cerrado Asistido".
 Reporte diario a las 08:00 AM (o configurable) con:
 *   Estadísticas de la noche (media, variación).
 *   Eventos destacados (hipos/hipers).
+
+### Caso 9: Auditoría y Optimización (Bajo Demanda) [COMPLETADO ✅]
+1.  **Acción**: El usuario solicita "Analiza mis datos" o "¿Cómo van mis ratios?".
+2.  **Proceso**: La IA invoca al `suggestion_engine` (Tool: `get_optimization_suggestions`) que revisa los últimos 7 días.
+3.  **Resultado**: Ofrece sugerencias concretas si detecta patrones claros (ej. "En el desayuno te quedas corto el 60% de las veces → Sugiero revisar ICR").
 
 ## 4. Fase 2: El Asesor en la Sombra (Futuro V2)
 *(Anteriormente "Aprendizaje de Horarios")*
