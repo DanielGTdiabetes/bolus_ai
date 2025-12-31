@@ -133,8 +133,7 @@ async def build_context(username: str, chat_id: int) -> Dict[str, Any]:
         
             # 5. Recent Treatments (Last 4h)
             try:
-                limit_dt = datetime.now(timezone.utc) - timedelta(hours=4)
-                treatments = await ns_client.get_treatments(limit_dt, datetime.now(timezone.utc))
+                treatments = await ns_client.get_recent_treatments(hours=4)
                 
                 # Simplify for AI
                 summaries = []
