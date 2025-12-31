@@ -756,7 +756,11 @@ export async function saveFavorite(favorite) {
     body: JSON.stringify(favorite)
   });
   const data = await toJson(response);
-  if (!response.ok) throw new Error(data.detail || "Error guardando favorito");
+  if (!response.ok) {
+    let msg = data.detail || "Error guardando favorito";
+    if (typeof msg !== 'string') msg = JSON.stringify(msg);
+    throw new Error(msg);
+  }
   return data;
 }
 
@@ -766,7 +770,11 @@ export async function updateFavorite(id, favorite) {
     body: JSON.stringify(favorite)
   });
   const data = await toJson(response);
-  if (!response.ok) throw new Error(data.detail || "Error al actualizar favorito");
+  if (!response.ok) {
+    let msg = data.detail || "Error al actualizar favorito";
+    if (typeof msg !== 'string') msg = JSON.stringify(msg);
+    throw new Error(msg);
+  }
   return data;
 }
 

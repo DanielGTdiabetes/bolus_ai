@@ -2,15 +2,18 @@ import React, { useState, useEffect } from 'react';
 import { Card, Button, Input } from '../components/ui/Atoms';
 import { Header } from '../components/layout/Header';
 import { BottomNav } from '../components/layout/BottomNav';
-import { getFavorites, addFavorite, deleteFavorite } from '../lib/api';
+import { getFavorites, addFavorite, deleteFavorite, updateFavorite } from '../lib/api';
 
 export default function FavoritesPage({ navigate }) {
     const [favorites, setFavorites] = useState([]);
     const [searchQuery, setSearchQuery] = useState("");
     const [isAdding, setIsAdding] = useState(false);
-    const [newFav, setNewFav] = useState({ name: "", carbs: "" });
+    const [newFav, setNewFav] = useState({ name: "", carbs: "", fat: "", protein: "", notes: "" });
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
+    // Edit State
+    const [editingId, setEditingId] = useState(null);
+    const [editForm, setEditForm] = useState({ name: "", carbs: "", fat: "", protein: "", notes: "" });
 
     const loadData = async () => {
         setLoading(true);
@@ -33,9 +36,15 @@ export default function FavoritesPage({ navigate }) {
         if (!newFav.name || !newFav.carbs) return;
         setLoading(true);
         try {
-            await addFavorite(newFav.name, parseFloat(newFav.carbs));
+            await addFavorite({
+                name: newFav.name,
+                carbs: parseFloat(newFav.carbs),
+                fat: parseFloat(newFav.fat) || 0,
+                protein: parseFloat(newFav.protein) || 0,
+                notes: newFav.notes
+            });
             await loadData();
-            setNewFav({ name: "", carbs: "" });
+            setNewFav({ name: "", carbs: "", fat: "", protein: "", notes: "" });
             setIsAdding(false);
         } catch (e) {
             alert(e.message);
@@ -50,6 +59,43 @@ export default function FavoritesPage({ navigate }) {
             setFavorites(prev => prev.filter(f => f.id !== id));
         } catch (e) {
             alert(e.message);
+        }
+    };
+
+    const startEdit = (fav) => {
+        setEditingId(fav.id);
+        setEditForm({
+            name: fav.name,
+            carbs: fav.carbs,
+            fat: fav.fat || "",
+            protein: fav.protein || "",
+            notes: fav.notes || ""
+        });
+    };
+
+    const cancelEdit = () => {
+        setEditingId(null);
+        setEditForm({ name: "", carbs: "", fat: "", protein: "", notes: "" });
+    };
+
+    const handleUpdate = async () => {
+        if (!editForm.name || !editForm.carbs) return alert("Rellena los campos");
+        setLoading(true);
+        try {
+            const updated = await updateFavorite(editingId, {
+                name: editForm.name,
+                carbs: parseFloat(editForm.carbs),
+                fat: parseFloat(editForm.fat) || 0,
+                protein: parseFloat(editForm.protein) || 0,
+                notes: editForm.notes
+            });
+            // Update list locally
+            setFavorites(prev => prev.map(f => f.id === editingId ? updated : f));
+            setEditingId(null);
+        } catch (e) {
+            alert(e.message);
+        } finally {
+            setLoading(false);
         }
     };
 
@@ -93,20 +139,66 @@ export default function FavoritesPage({ navigate }) {
                     ) : (
                         <div className="stack">
                             {filteredFavorites.map(fav => (
-                                <Card key={fav.id} className="summary-row" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '1rem' }}>
-                                    <div>
-                                        <div style={{ fontWeight: 700, fontSize: '1.1rem' }}>{fav.name}</div>
-                                        <div className="text-teal">{fav.carbs}g Carbs</div>
-                                    </div>
-                                    <div style={{ display: 'flex', gap: '0.5rem' }}>
-                                        <Button variant="secondary" onClick={() => handleLoad(fav)} style={{ padding: '0.5rem 1rem' }}>
-                                            Cargar
-                                        </Button>
-                                        <button onClick={() => handleDelete(fav.id)} style={{ border: 'none', background: 'none', color: '#ef4444', fontSize: '1.2rem' }}>
-                                            🗑️
-                                        </button>
-                                    </div>
-                                </Card>
+                                <React.Fragment key={fav.id}>
+                                    {editingId === fav.id ? (
+                                        <Card className="summary-row" style={{ padding: '1rem', background: '#f0f9ff', border: '1px solid #bae6fd' }}>
+                                            <div className="stack">
+                                                <Input
+                                                    label="Nombre"
+                                                    value={editForm.name}
+                                                    onChange={e => setEditForm({ ...editForm, name: e.target.value })}
+                                                />
+                                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.5rem' }}>
+                                                    <Input
+                                                        label="Carbos (g)"
+                                                        type="number"
+                                                        value={editForm.carbs}
+                                                        onChange={e => setEditForm({ ...editForm, carbs: e.target.value })}
+                                                    />
+                                                    <Input
+                                                        label="Grasas (g)"
+                                                        type="number"
+                                                        value={editForm.fat}
+                                                        onChange={e => setEditForm({ ...editForm, fat: e.target.value })}
+                                                    />
+                                                    <Input
+                                                        label="Proteínas (g)"
+                                                        type="number"
+                                                        value={editForm.protein}
+                                                        onChange={e => setEditForm({ ...editForm, protein: e.target.value })}
+                                                    />
+                                                </div>
+                                                <Input
+                                                    label="Notas"
+                                                    value={editForm.notes}
+                                                    onChange={e => setEditForm({ ...editForm, notes: e.target.value })}
+                                                />
+                                                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                                                    <Button onClick={handleUpdate} size="sm">Guardar</Button>
+                                                    <Button variant="ghost" onClick={cancelEdit} size="sm">Cancelar</Button>
+                                                </div>
+                                            </div>
+                                        </Card>
+                                    ) : (
+                                        <Card className="summary-row" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '1rem' }}>
+                                            <div>
+                                                <div style={{ fontWeight: 700, fontSize: '1.1rem' }}>{fav.name}</div>
+                                                <div className="text-teal">{fav.carbs}g Carbs</div>
+                                            </div>
+                                            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                                                <Button variant="secondary" onClick={() => handleLoad(fav)} style={{ padding: '0.5rem 1rem' }}>
+                                                    Cargar
+                                                </Button>
+                                                <button onClick={() => startEdit(fav)} style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: '1.2rem' }} title="Editar">
+                                                    ✏️
+                                                </button>
+                                                <button onClick={() => handleDelete(fav.id)} style={{ border: 'none', background: 'none', color: '#ef4444', cursor: 'pointer', fontSize: '1.2rem' }} title="Borrar">
+                                                    🗑️
+                                                </button>
+                                            </div>
+                                        </Card>
+                                    )}
+                                </React.Fragment>
                             ))}
                         </div>
                     )}
@@ -121,12 +213,34 @@ export default function FavoritesPage({ navigate }) {
                                 value={newFav.name}
                                 onChange={e => setNewFav({ ...newFav, name: e.target.value })}
                             />
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.5rem' }}>
+                                <Input
+                                    label="Carbos (g)"
+                                    type="number"
+                                    placeholder="0"
+                                    value={newFav.carbs}
+                                    onChange={e => setNewFav({ ...newFav, carbs: e.target.value })}
+                                />
+                                <Input
+                                    label="Grasas (g)"
+                                    type="number"
+                                    placeholder="0"
+                                    value={newFav.fat}
+                                    onChange={e => setNewFav({ ...newFav, fat: e.target.value })}
+                                />
+                                <Input
+                                    label="Proteínas (g)"
+                                    type="number"
+                                    placeholder="0"
+                                    value={newFav.protein}
+                                    onChange={e => setNewFav({ ...newFav, protein: e.target.value })}
+                                />
+                            </div>
                             <Input
-                                label="Carbohidratos (g)"
-                                type="number"
-                                placeholder="0"
-                                value={newFav.carbs}
-                                onChange={e => setNewFav({ ...newFav, carbs: e.target.value })}
+                                label="Notas"
+                                placeholder="Opcional"
+                                value={newFav.notes}
+                                onChange={e => setNewFav({ ...newFav, notes: e.target.value })}
                             />
                             <div style={{ display: 'flex', gap: '0.5rem' }}>
                                 <Button onClick={handleAdd} disabled={loading}>Guardar</Button>

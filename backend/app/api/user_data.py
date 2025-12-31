@@ -94,14 +94,20 @@ async def update_favorite(
     current_user: Any = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session)
 ):
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.info(f"UPDATE FAVORITE REQUEST: ID={fav_id} User={current_user.username} Payload={payload}")
+
     stmt = select(FavoriteFood).where(FavoriteFood.id == fav_id)
     result = await db.execute(stmt)
     fav = result.scalar_one_or_none()
     
     if not fav:
+        logger.error(f"Favorite {fav_id} NOT FOUND")
         raise HTTPException(status_code=404, detail="Favorite not found")
         
     if fav.user_id != current_user.username:
+        logger.error(f"Favorite {fav_id} UNAUTHORIZED for {current_user.username}")
         raise HTTPException(status_code=403, detail="Not authorized")
         
     if payload.name is not None: fav.name = payload.name
@@ -112,6 +118,7 @@ async def update_favorite(
     
     await db.commit()
     await db.refresh(fav)
+    logger.info(f"Favorite {fav_id} UPDATED successfully")
     return FavoriteRead.from_orm(fav)
 
 @router.delete("/favorites/{fav_id}")
