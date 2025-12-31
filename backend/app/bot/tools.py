@@ -768,6 +768,8 @@ AI_TOOL_DECLARATIONS = [
                 "carbs": {"type": "NUMBER"},
                 "insulin": {"type": "NUMBER"},
                 "notes": {"type": "STRING"},
+                "fat": {"type": "NUMBER", "description": "Grasas (g)"},
+                "protein": {"type": "NUMBER", "description": "Proteínas (g)"},
             },
         },
     },
@@ -779,6 +781,32 @@ AI_TOOL_DECLARATIONS = [
             "properties": {
                 "days": {"type": "INTEGER", "description": "Días a analizar", "default": 7},
             },
+        },
+    },
+    {
+        "name": "save_favorite_food",
+        "description": "Guardar comida en favoritos. Incluye carbos, grasas y proteínas.",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "name": {"type": "STRING", "description": "Nombre único del plato"},
+                "carbs": {"type": "NUMBER", "description": "Carbohidratos (g)"},
+                "fat": {"type": "NUMBER", "description": "Grasas (g)"},
+                "protein": {"type": "NUMBER", "description": "Proteínas (g)"},
+                "notes": {"type": "STRING"},
+            },
+            "required": ["name", "carbs"],
+        },
+    },
+    {
+        "name": "search_food",
+        "description": "Buscar comidas en favoritos por nombre.",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "query": {"type": "STRING", "description": "Texto a buscar"},
+            },
+            "required": ["query"],
         },
     },
 ]
@@ -811,6 +839,10 @@ async def execute_tool(name: str, args: Dict[str, Any]) -> Any:
             return await add_treatment(args)
         if name == "get_optimization_suggestions":
             return await get_optimization_suggestions(days=int(args.get("days") or 7))
+        if name == "save_favorite_food":
+            return await save_favorite_food(args)
+        if name == "search_food":
+            return await search_food(args)
     except ValidationError as exc:
         return ToolError(type="validation_error", message=str(exc))
     except Exception as exc:  # pragma: no cover
