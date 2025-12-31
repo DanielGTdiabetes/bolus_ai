@@ -743,7 +743,7 @@ export * from "./bleScale";
 
 // --- FAVORITES ---
 export async function getFavorites() {
-  const response = await apiFetch("/api/favorites");
+  const response = await apiFetch("/api/user/favorites");
   const data = await toJson(response);
   if (!response.ok) throw new Error(data.detail || "Error obteniendo favoritos");
   return data;
@@ -751,7 +751,7 @@ export async function getFavorites() {
 
 export async function saveFavorite(favorite) {
   // Supports full object: name, carbs, fat, protein, notes
-  const response = await apiFetch("/api/favorites", {
+  const response = await apiFetch("/api/user/favorites", {
     method: "POST",
     body: JSON.stringify(favorite)
   });
@@ -761,7 +761,7 @@ export async function saveFavorite(favorite) {
 }
 
 export async function updateFavorite(id, favorite) {
-  const response = await apiFetch(`/api/favorites/${id}`, {
+  const response = await apiFetch(`/api/user/favorites/${id}`, {
     method: "PUT",
     body: JSON.stringify(favorite)
   });
@@ -771,7 +771,7 @@ export async function updateFavorite(id, favorite) {
 }
 
 export async function deleteFavorite(id) {
-  const response = await apiFetch(`/api/favorites/${id}`, {
+  const response = await apiFetch(`/api/user/favorites/${id}`, {
     method: "DELETE"
   });
   if (!response.ok) {

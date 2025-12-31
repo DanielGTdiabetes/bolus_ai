@@ -37,8 +37,8 @@ class FavoriteRead(BaseModel):
             id=str(obj.id), 
             name=obj.name, 
             carbs=obj.carbs,
-            fat=obj.fat,
-            protein=obj.protein,
+            fat=obj.fat or 0.0,
+            protein=obj.protein or 0.0,
             notes=obj.notes
         )
 
