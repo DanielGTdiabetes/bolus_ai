@@ -995,50 +995,103 @@ function BotPanel() {
             </div>
 
             {/* BASAL SECTION */}
-            <div style={{ background: '#f8fafc', padding: '1rem', borderRadius: '8px', border: '1px solid #e2e8f0', marginBottom: '1rem' }}>
-                <h4 style={{ margin: '0 0 1rem 0', color: '#334155' }}>💉 Recordatorio Basal (Lenta)</h4>
+            <div style={{ background: '#f8fafc', padding: '1.2rem', borderRadius: '12px', border: '1px solid #e2e8f0', marginBottom: '1.5rem', boxShadow: '0 1px 2px rgba(0,0,0,0.03)' }}>
+                <h4 style={{ margin: '0 0 1rem 0', color: '#334155', fontSize: '1.1rem', fontWeight: 600 }}>💉 Recordatorio Basal (Lenta)</h4>
 
-                <label style={{ display: 'flex', alignItems: 'center', gap: '0.8rem', fontWeight: 600, color: basalConfig.enabled ? '#0f172a' : '#64748b', cursor: 'pointer', marginBottom: '1rem' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '0.8rem', fontWeight: 600, color: basalConfig.enabled ? '#0f172a' : '#64748b', cursor: 'pointer', marginBottom: '1.2rem', padding: '0.5rem', background: basalConfig.enabled ? '#ffffff' : 'transparent', borderRadius: '8px', border: basalConfig.enabled ? '1px solid #cbd5e1' : '1px solid transparent' }}>
                     <input
                         type="checkbox"
                         checked={basalConfig.enabled}
                         onChange={e => handleBasalChange('enabled', e.target.checked)}
-                        style={{ width: '1.2rem', height: '1.2rem' }}
+                        style={{ width: '1.3rem', height: '1.3rem', accentColor: '#3b82f6' }}
                     />
                     Activar Recordatorios
                 </label>
 
                 {basalConfig.enabled && (
                     <div className="stack" style={{ gap: '0.5rem' }}>
+                        {/* Headers Row */}
+                        {(basalConfig.schedule || []).length > 0 && (
+                            <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 120px 90px auto', gap: '0.8rem', padding: '0 0.5rem', fontSize: '0.8rem', color: '#64748b', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                                <div>Nombre</div>
+                                <div>Hora</div>
+                                <div>Dosis</div>
+                                <div></div>
+                            </div>
+                        )}
+
+                        {/* List Items */}
                         {(basalConfig.schedule || []).map((item, idx) => (
-                            <div key={item.id || idx} style={{ display: 'grid', gridTemplateColumns: '2fr 1.5fr 1fr auto', gap: '0.5rem', alignItems: 'center', background: 'white', padding: '0.5rem', borderRadius: '6px', border: '1px solid #cbd5e1' }}>
-                                <Input
-                                    label={idx === 0 ? "Nombre" : ""}
-                                    value={item.name}
-                                    onChange={e => updateBasalSchedule(idx, 'name', e.target.value)}
-                                    placeholder="Ej. Lantus Mañana"
-                                />
-                                <Input
-                                    label={idx === 0 ? "Hora" : ""}
-                                    type="time"
-                                    value={item.time}
-                                    onChange={e => updateBasalSchedule(idx, 'time', e.target.value)}
-                                />
-                                <Input
-                                    label={idx === 0 ? "U" : ""}
-                                    type="number"
-                                    value={item.units}
-                                    onChange={e => updateBasalSchedule(idx, 'units', parseFloat(e.target.value))}
-                                />
+                            <div key={item.id || idx} style={{
+                                display: 'grid',
+                                gridTemplateColumns: '1.5fr 120px 90px auto',
+                                gap: '0.8rem',
+                                alignItems: 'center',
+                                background: 'white',
+                                padding: '0.8rem',
+                                borderRadius: '10px',
+                                border: '1px solid #cbd5e1',
+                                boxShadow: '0 1px 2px rgba(0,0,0,0.03)'
+                            }}>
+                                {/* Name */}
+                                <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                    <input
+                                        type="text"
+                                        value={item.name}
+                                        onChange={e => updateBasalSchedule(idx, 'name', e.target.value)}
+                                        placeholder="Nombre..."
+                                        style={{ width: '100%', padding: '0.6rem', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '0.95rem' }}
+                                    />
+                                </div>
+
+                                {/* Time */}
+                                <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                    <input
+                                        type="time"
+                                        value={item.time}
+                                        onChange={e => updateBasalSchedule(idx, 'time', e.target.value)}
+                                        style={{ width: '100%', padding: '0.6rem', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '0.95rem', textAlign: 'center' }}
+                                    />
+                                </div>
+
+                                {/* Units */}
+                                <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                    <input
+                                        type="number"
+                                        inputMode="decimal"
+                                        value={item.units}
+                                        onChange={e => updateBasalSchedule(idx, 'units', parseFloat(e.target.value))}
+                                        placeholder="0"
+                                        style={{ width: '100%', padding: '0.6rem', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '1rem', fontWeight: 700, textAlign: 'center', color: '#0369a1' }}
+                                    />
+                                </div>
+
+                                {/* Delete */}
                                 <button
                                     onClick={() => removeBasalSchedule(idx)}
-                                    style={{ marginTop: idx === 0 ? '1.4rem' : '0', color: '#ef4444', border: 'none', background: 'none', cursor: 'pointer', fontSize: '1.2rem' }}
+                                    title="Eliminar"
+                                    style={{
+                                        color: '#ef4444',
+                                        border: 'none',
+                                        background: '#fee2e2',
+                                        cursor: 'pointer',
+                                        width: '32px',
+                                        height: '32px',
+                                        borderRadius: '8px',
+                                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                        transition: 'background 0.2s'
+                                    }}
                                 >
-                                    &times;
+                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path></svg>
                                 </button>
                             </div>
                         ))}
-                        <Button variant="secondary" onClick={addBasalSchedule} style={{ marginTop: '0.5rem' }}>+ Añadir Dosis</Button>
+
+                        <div style={{ marginTop: '0.5rem', display: 'flex', justifyContent: 'center' }}>
+                            <Button variant="secondary" onClick={addBasalSchedule} style={{ width: '100%', borderStyle: 'dashed', borderColor: '#94a3b8', color: '#475569' }}>
+                                + Añadir Dosis
+                            </Button>
+                        </div>
                     </div>
                 )}
             </div>
