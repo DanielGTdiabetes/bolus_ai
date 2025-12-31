@@ -615,6 +615,40 @@ async def add_treatment(tool_input: dict[str, Any]) -> AddTreatmentResult | Tool
     # Rotation Logic
     site_info = None
     if result.ok:
+        # Learning Hook (Memory)
+        if engine:
+             try:
+                from app.services.learning_service import LearningService
+                async with AsyncSession(engine) as session:
+                     ls = LearningService(session)
+                     
+                     strategy = {
+                         "kind": "normal",
+                         "total": insulin,
+                         "upfront": insulin,
+                         "later": 0,
+                         "delay": 0
+                     }
+                     # Basic user resolution
+                     l_user = "admin"
+                     try:
+                        l_user = await _resolve_user_id(session)
+                     except: pass
+
+                     # Empty context for now
+                     await ls.save_meal_entry(
+                         user_id=l_user,
+                         items=[], # Auto-generate
+                         carbs=carbs,
+                         fat=float(payload.fat or 0),
+                         protein=float(payload.protein or 0),
+                         bolus_data=strategy,
+                         context={},
+                         notes=notes
+                     )
+             except Exception as mem_e:
+                 logger.warning(f"Memory save failed: {mem_e}")
+
         try:
              # Need user_id used in logging. 
              # We resolve it inside the logic above but don't strictly have it here unless we kept it?

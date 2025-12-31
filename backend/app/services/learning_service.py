@@ -22,14 +22,46 @@ class LearningService:
         fat: float,
         protein: float,
         bolus_data: dict, # {kind, total, upfront, later, delay}
-        context: dict = None # {bg, trend, etc}
+        context: dict = None, # {bg, trend, etc}
+        notes: str = None
     ) -> MealEntry:
         """
         Records a new meal entry for future learning.
+        Auto-generates tags if items list is empty.
         """
+        # Auto-tagging if no items
+        final_items = list(items) if items else []
+        
+        if not final_items:
+            # 1. Macro Tags
+            if fat > 20: final_items.append("#AltoEnGrasa")
+            if protein > 30: final_items.append("#AltoEnProteina")
+            if carbs > 80: final_items.append("#AltoEnCarbos")
+            if carbs < 20: final_items.append("#LowCarb")
+            
+            # 2. Time Tags
+            h = datetime.now().hour
+            if 6 <= h < 11: final_items.append("#Desayuno")
+            elif 13 <= h < 16: final_items.append("#Comida")
+            elif 20 <= h < 23: final_items.append("#Cena")
+            
+            # 3. Source via notes
+            if notes and "MFP" in notes: final_items.append("#MFP")
+            if notes and "Manual" in notes: final_items.append("#Manual")
+
+            # 4. Context fallback
+            if not final_items:
+                 final_items.append("#ComidaGenerica")
+
+        if notes:
+            # Clean notes and add as item if it looks like a name
+            clean_note = notes.replace("#MFP", "").replace("Chat Bot", "").strip()
+            if clean_note and len(clean_note) > 3 and clean_note not in final_items:
+                 final_items.insert(0, clean_note)
+
         entry = MealEntry(
             user_id=user_id,
-            items=items,
+            items=final_items,
             carbs_g=carbs,
             fat_g=fat,
             protein_g=protein,
@@ -47,7 +79,7 @@ class LearningService:
         self.session.add(entry)
         await self.session.commit()
         await self.session.refresh(entry)
-        logger.info(f"Memory: Saved MealEntry {entry.id} ({items})")
+        logger.info(f"Memory: Saved MealEntry {entry.id} ({final_items})")
         return entry
 
     async def find_similar_meals(self, query_items: List[str], limit: int = 3) -> List[MealEntry]:
@@ -134,7 +166,66 @@ class LearningService:
         start_dt = entry.created_at.replace(tzinfo=timezone.utc)
         end_dt = start_dt + timedelta(hours=4)
         
-        # Method name is get_sgv_range
+        # 0. Validity Checks (Auto-Discard unreliable data)
+        # Check against DB treatments for interference
+        from app.models.treatment import Treatment
+        stmt = select(Treatment).where(
+            Treatment.user_id == entry.user_id,
+            Treatment.created_at > start_dt,
+            Treatment.created_at < end_dt
+        )
+        res = await self.session.execute(stmt)
+        interfering_treatments = res.scalars().all()
+        
+        reason_discard = None
+        
+        for t in interfering_treatments:
+            # Check for extra carbs (Snacking collision)
+            # Tolerance: ignore small corrections < 5g
+            if t.carbs and t.carbs > 5:
+                reason_discard = f"Interferencia: Snacks detectados (+{t.carbs}g) en la ventana."
+                break
+                
+            # Check for extra insulin (Correction collision)
+            # Tolerance: ignore small micro-boluses < 0.5u (often auto-correction) ?? 
+            # No, strictly speaking any extra insulin affects the outcome.
+            if t.insulin and t.insulin > 0.5:
+                reason_discard = f"Interferencia: Bolo correctivo (+{t.insulin}u) en la ventana."
+                break
+                
+            # Check tags in notes (Alcohol/Sick)
+            if t.notes:
+                lower = t.notes.lower()
+                if "sick" in lower or "enfermedad" in lower:
+                    reason_discard = "Modo Enfermedad activo."
+                    break
+                if "alcohol" in lower:
+                    reason_discard = "Modo Alcohol activo."
+                    break
+                    
+        # Check entry itself for exclude tags
+        if not reason_discard and entry.items:
+             for tag in entry.items:
+                 if tag in ["#Alcohol", "#Enfermedad", "#Hipo"]: # Hipo means it was a hypo treatment?
+                     reason_discard = f"Etiqueta excluida: {tag}"
+                     break
+
+        if reason_discard:
+            logger.info(f"Memory: Discarding Entry {entry.id}. Reason: {reason_discard}")
+            # Mark as evaluated but null score to skip future checks? 
+            # Or distinct status "discarded"?
+            # Let's save outcome with score=None and notes=discard_reason
+            outcome = MealOutcome(
+                meal_entry_id=entry.id,
+                score=None,
+                notes=f"DISCARDED: {reason_discard}",
+                evaluated_at=datetime.utcnow()
+            )
+            self.session.add(outcome)
+            await self.session.commit()
+            return
+
+        # 1. Fetch SGV data for [entry.created_at, entry.created_at + 4h]
         sgvs = await ns_client.get_sgv_range(start_dt, end_dt, count=100)
         
         if not sgvs or len(sgvs) < 12: # Need at least ~1h of data to judge
