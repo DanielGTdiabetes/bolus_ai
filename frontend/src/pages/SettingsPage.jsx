@@ -849,6 +849,31 @@ function BotPanel() {
     const [loading, setLoading] = useState(true);
     const [status, setStatus] = useState(null);
 
+    // Initial State structure matches backend models/settings.py defaults
+    const [premealConfig, setPremealConfig] = useState({
+        enabled: true,
+        bg_threshold_mgdl: 150,
+        delta_threshold_mgdl: 2,
+        window_minutes: 60,
+        silence_minutes: 90
+    });
+
+    const [comboConfig, setComboConfig] = useState({
+        enabled: false,
+        window_hours: 6,
+        delay_minutes: 120,
+        silence_minutes: 180
+    });
+
+    const [trendConfig, setTrendConfig] = useState({
+        enabled: false,
+        rise_mgdl_per_min: 2.0,
+        drop_mgdl_per_min: -2.0,
+        min_delta_total_mgdl: 35,
+        window_minutes: 30,
+        silence_minutes: 60
+    });
+
     useEffect(() => {
         const params = getCalcParams() || {};
         setBotEnabled(params.bot?.enabled !== false);
