@@ -445,18 +445,34 @@ async def save_favorite_food(tool_input: dict[str, Any]) -> SaveFavoriteResult |
         async with AsyncSession(engine) as session:
              user_id = await _resolve_user_id(session)
              
-             new_fav = FavoriteFood(
-                 user_id=user_id,
-                 name=fav_create.name,
-                 carbs=fav_create.carbs,
-                 fat=fav_create.fat,
-                 protein=fav_create.protein,
-                 notes=fav_create.notes
-             )
-             session.add(new_fav)
-             await session.commit()
-             await session.refresh(new_fav)
-             return SaveFavoriteResult(ok=True, favorite=FavoriteRead.from_orm(new_fav))
+             # Check if exists (by name, simple unique constraint simulation)
+             from sqlalchemy import select
+             stmt = select(FavoriteFood).where(FavoriteFood.user_id == user_id, FavoriteFood.name == fav_create.name)
+             existing = (await session.execute(stmt)).scalar_one_or_none()
+             
+             if existing:
+                 # Update existing
+                 existing.carbs = fav_create.carbs
+                 existing.fat = fav_create.fat
+                 existing.protein = fav_create.protein
+                 existing.notes = fav_create.notes
+                 await session.commit()
+                 await session.refresh(existing)
+                 return SaveFavoriteResult(ok=True, favorite=FavoriteRead.from_orm(existing))
+             else:
+                 # Create new
+                 new_fav = FavoriteFood(
+                     user_id=user_id,
+                     name=fav_create.name,
+                     carbs=fav_create.carbs,
+                     fat=fav_create.fat,
+                     protein=fav_create.protein,
+                     notes=fav_create.notes
+                 )
+                 session.add(new_fav)
+                 await session.commit()
+                 await session.refresh(new_fav)
+                 return SaveFavoriteResult(ok=True, favorite=FavoriteRead.from_orm(new_fav))
              
     except Exception as e:
         logger.exception("Error saving favorite")

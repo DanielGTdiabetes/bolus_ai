@@ -80,6 +80,40 @@ async def create_favorite(
     await db.refresh(new_fav)
     return FavoriteRead.from_orm(new_fav)
 
+class FavoriteUpdate(BaseModel):
+    name: Optional[str] = None
+    carbs: Optional[float] = None
+    fat: Optional[float] = None
+    protein: Optional[float] = None
+    notes: Optional[str] = None
+
+@router.put("/favorites/{fav_id}", response_model=FavoriteRead)
+async def update_favorite(
+    fav_id: str,
+    payload: FavoriteUpdate,
+    current_user: Any = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session)
+):
+    stmt = select(FavoriteFood).where(FavoriteFood.id == fav_id)
+    result = await db.execute(stmt)
+    fav = result.scalar_one_or_none()
+    
+    if not fav:
+        raise HTTPException(status_code=404, detail="Favorite not found")
+        
+    if fav.user_id != current_user.username:
+        raise HTTPException(status_code=403, detail="Not authorized")
+        
+    if payload.name is not None: fav.name = payload.name
+    if payload.carbs is not None: fav.carbs = payload.carbs
+    if payload.fat is not None: fav.fat = payload.fat
+    if payload.protein is not None: fav.protein = payload.protein
+    if payload.notes is not None: fav.notes = payload.notes
+    
+    await db.commit()
+    await db.refresh(fav)
+    return FavoriteRead.from_orm(fav)
+
 @router.delete("/favorites/{fav_id}")
 async def delete_favorite(
     fav_id: str,
