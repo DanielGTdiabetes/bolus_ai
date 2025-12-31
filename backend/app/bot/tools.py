@@ -26,6 +26,7 @@ from app.models.forecast import (
 )
 from app.models.bolus_v2 import BolusRequestV2, GlucoseUsed
 from app.services.bolus_engine import calculate_bolus_v2
+from app.models.settings import UserSettings
 from app.services.treatment_logger import log_treatment
 from app.services.suggestion_engine import generate_suggestions_service, get_suggestions_service, resolve_suggestion_service
 from app.services.rotation_service import RotationService
