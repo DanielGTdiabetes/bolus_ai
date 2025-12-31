@@ -85,7 +85,7 @@ class NightscoutStats(BaseModel):
 
 
 class TempMode(BaseModel):
-    mode: str = Field(..., pattern="^(sport|sick|normal|alcohol)$")
+    mode: str = Field(..., pattern="^(sport|sick|normal|alcohol)$") # Alcohol mode supported
     expires_minutes: int = Field(default=180, ge=15, le=720)
     note: Optional[str] = None
 

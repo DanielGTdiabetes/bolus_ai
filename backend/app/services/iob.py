@@ -476,7 +476,8 @@ async def compute_cob_from_sources(
     
     def _safe_parse(ts_val):
         try:
-            dt = datetime.fromisoformat(str(ts_val).replace("Z", "+00:00"))
+            val_str = str(ts_val).replace("Z", "+00:00")
+            dt = datetime.fromisoformat(val_str)
             if dt.tzinfo is None: dt = dt.replace(tzinfo=timezone.utc)
             return dt
         except:
