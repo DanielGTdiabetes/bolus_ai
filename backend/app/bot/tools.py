@@ -362,7 +362,7 @@ async def simulate_whatif(carbs: float, horizon_minutes: int = 180) -> WhatIfRes
     # Simple simulation: carbs now, no insulin yet
     events = ForecastEvents(
         boluses=[],
-        carbs=[ForecastEventCarbs(time_offset_min=0, grams=carbs, absorption_minutes=user_settings.iob.carb_absorption_minutes if hasattr(user_settings, "iob") else 180)],
+        carbs=[ForecastEventCarbs(time_offset_min=0, grams=carbs, absorption_minutes=180)],
         basal_injections=[],
     )
     params = SimulationParams(
