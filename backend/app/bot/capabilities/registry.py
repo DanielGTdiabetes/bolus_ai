@@ -250,7 +250,7 @@ def _build_tools() -> list[ToolDef]:
         ToolDef(
             name="add_treatment",
             description="Registrar tratamiento manual (carbos/insulina).",
-            input_schema={"type": "object", "properties": {"carbs": {"type": "number"}, "insulin": {"type": "number"}}},
+            input_schema={"type": "object", "properties": {"carbs": {"type": "number"}, "insulin": {"type": "number"}, "fat": {"type": "number"}, "protein": {"type": "number"}, "notes": {"type": "string"}}},
             output_schema={
                 "type": "object",
                 "properties": {
@@ -260,10 +260,27 @@ def _build_tools() -> list[ToolDef]:
                     "carbs": {"type": "number"},
                     "ns_uploaded": {"type": "boolean"},
                     "ns_error": {"type": "string"},
+                    "injection_site": {"type": "object", "description": "Rotación de zona sugerida"},
                 },
             },
             fn=bot_tools.add_treatment,
             permission=Permission.user_write,
+        ),
+        ToolDef(
+            name="save_favorite_food",
+            description="Guardar comida en favoritos con perfil nutricional.",
+            input_schema={"type": "object", "properties": {"name": {"type": "string"}, "carbs": {"type": "number"}, "fat": {"type": "number"}, "protein": {"type": "number"}, "notes": {"type": "string"}}},
+            output_schema={"type": "object", "properties": {"ok": {"type": "boolean"}, "favorite": {"type": "object"}}},
+            fn=bot_tools.save_favorite_food,
+            permission=Permission.user_write,
+        ),
+        ToolDef(
+            name="search_food",
+            description="Buscar comida en favoritos por nombre.",
+            input_schema={"type": "object", "properties": {"query": {"type": "string"}}},
+            output_schema={"type": "object", "properties": {"found": {"type": "boolean"}, "items": {"type": "array"}}},
+            fn=bot_tools.search_food,
+            permission=Permission.public_read,
         ),
         ToolDef(
             name="get_history_context",

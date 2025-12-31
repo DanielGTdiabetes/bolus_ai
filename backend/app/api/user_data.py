@@ -1,5 +1,5 @@
 
-from typing import Any, List, Dict
+from typing import Any, List, Dict, Optional
 from fastapi import APIRouter, Depends, HTTPException, Body
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete
@@ -16,19 +16,31 @@ router = APIRouter()
 class FavoriteCreate(BaseModel):
     name: str
     carbs: float
+    fat: float = 0.0
+    protein: float = 0.0
+    notes: Optional[str] = None
 
 class FavoriteRead(BaseModel):
     id: str
     name: str
     carbs: float
-    # created_at...
-
+    fat: float = 0.0
+    protein: float = 0.0
+    notes: Optional[str] = None
+    
     class Config:
         from_attributes = True
 
     @staticmethod
     def from_orm(obj):
-        return FavoriteRead(id=str(obj.id), name=obj.name, carbs=obj.carbs)
+        return FavoriteRead(
+            id=str(obj.id), 
+            name=obj.name, 
+            carbs=obj.carbs,
+            fat=obj.fat,
+            protein=obj.protein,
+            notes=obj.notes
+        )
 
 class SupplyUpdate(BaseModel):
     key: str
@@ -58,7 +70,10 @@ async def create_favorite(
     new_fav = FavoriteFood(
         user_id=current_user.username,
         name=fav.name,
-        carbs=fav.carbs
+        carbs=fav.carbs,
+        fat=fav.fat,
+        protein=fav.protein,
+        notes=fav.notes
     )
     db.add(new_fav)
     await db.commit()

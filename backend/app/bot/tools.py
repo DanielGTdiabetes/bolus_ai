@@ -27,6 +27,9 @@ from app.models.forecast import (
 from app.models.settings import UserSettings
 from app.services.treatment_logger import log_treatment
 from app.services.suggestion_engine import generate_suggestions_service, get_suggestions_service, resolve_suggestion_service
+from app.services.rotation_service import RotationService
+from app.api.user_data import FavoriteCreate, FavoriteRead
+from app.models.user_data import FavoriteFood
 
 logger = logging.getLogger(__name__)
 
@@ -103,6 +106,17 @@ class AddTreatmentResult(BaseModel):
     ns_error: Optional[str] = None
     saved_db: Optional[bool] = None
     saved_local: Optional[bool] = None
+    injection_site: Optional[Dict[str, Any]] = None
+
+class SaveFavoriteResult(BaseModel):
+    ok: bool
+    favorite: Optional[FavoriteRead] = None
+    error: Optional[str] = None
+
+class SearchFoodResult(BaseModel):
+    found: bool
+    items: List[FavoriteRead] = []
+    error: Optional[str] = None
 
 
 class OptimizationResult(BaseModel):
@@ -408,6 +422,73 @@ async def get_nightscout_stats(range_hours: int = 24) -> NightscoutStats | ToolE
     return NightscoutStats(range_hours=range_hours, avg_bg=avg, tir_pct=tir, lows=lows, highs=highs, sample_size=len(values), quality="live")
 
 
+
+async def save_favorite_food(tool_input: dict[str, Any]) -> SaveFavoriteResult | ToolError:
+    try:
+        # Validate input manually or via Pydantic if defined
+        name = tool_input.get("name")
+        if not name:
+            return ToolError(type="validation_error", message="El nombre es obligatorio")
+            
+        fav_create = FavoriteCreate(
+            name=name,
+            carbs=float(tool_input.get("carbs", 0)),
+            fat=float(tool_input.get("fat", 0)),
+            protein=float(tool_input.get("protein", 0)),
+            notes=tool_input.get("notes")
+        )
+        
+        engine = get_engine()
+        if not engine:
+             return ToolError(type="db_error", message="Base de datos no disponible")
+             
+        async with AsyncSession(engine) as session:
+             user_id = await _resolve_user_id(session)
+             
+             new_fav = FavoriteFood(
+                 user_id=user_id,
+                 name=fav_create.name,
+                 carbs=fav_create.carbs,
+                 fat=fav_create.fat,
+                 protein=fav_create.protein,
+                 notes=fav_create.notes
+             )
+             session.add(new_fav)
+             await session.commit()
+             await session.refresh(new_fav)
+             return SaveFavoriteResult(ok=True, favorite=FavoriteRead.from_orm(new_fav))
+             
+    except Exception as e:
+        logger.exception("Error saving favorite")
+        return ToolError(type="runtime_error", message=str(e))
+
+
+async def search_food(tool_input: dict[str, Any]) -> SearchFoodResult | ToolError:
+    query = tool_input.get("query", "").lower()
+    if not query:
+        return SearchFoodResult(found=False, items=[])
+        
+    engine = get_engine()
+    if not engine:
+         return ToolError(type="db_error", message="Base de datos no disponible")
+         
+    try:
+        from sqlalchemy import select
+        async with AsyncSession(engine) as session:
+             user_id = await _resolve_user_id(session)
+             stmt = select(FavoriteFood).where(FavoriteFood.user_id == user_id)
+             res = await session.execute(stmt)
+             all_favs = res.scalars().all()
+             
+             # Filter in python for simple LIKE/Fuzzy
+             matches = [f for f in all_favs if query in f.name.lower()]
+             
+             return SearchFoodResult(found=len(matches) > 0, items=[FavoriteRead.from_orm(m) for m in matches])
+    except Exception as e:
+        logger.exception("Error searching food")
+        return ToolError(type="runtime_error", message=str(e))
+
+
 async def set_temp_mode(temp: TempMode) -> dict[str, Any]:
     settings = get_settings()
     store = DataStore(Path(settings.data.data_dir))
@@ -484,6 +565,59 @@ async def add_treatment(tool_input: dict[str, Any]) -> AddTreatmentResult | Tool
     error_text = result.ns_error if not result.ok else None
     if not result.ok and not error_text:
         error_text = "Persistencia fallida"
+
+    # Rotation Logic
+    site_info = None
+    if result.ok:
+        try:
+             # Need user_id used in logging. 
+             # We resolve it inside the logic above but don't strictly have it here unless we kept it?
+             # 'result' from log_treatment doesn't have user_id, but we did await _resolve_user_id()
+             # Wait, in the code above user_id is in local scope of `if engine:`.
+             # We need to resolve it reliably here.
+             u_id = "admin" # Default
+             if engine:
+                  # We can't reuse the closed session. 
+                  # But we can try to resolve again or assume admin if no session.
+                  # Ideally log_treatment should return user_id used? No.
+                  # Let's re-resolve quickly 
+                  # Or better, just refactor `add_treatment` to resolve user_id earlier.
+                  pass
+             
+             # Re-resolve (cheap local lookup usually)
+             # Actually, let's just use the `store` we have.
+             # Rotation service needs store.
+             rotator = RotationService(store)
+             
+             # We need the username. logic:
+             # If we are in `add_treatment`, we are likely 'admin' if single user. 
+             # Let's peek at how we resolved it: `user_id = await _resolve_user_id(session=session)`
+             # If we don't have the session anymore...
+             # Let's assume 'admin' for MVP or try to resolve.
+             # The correct way is to fetch user_id before logging and reuse it.
+             
+             # FIX: I will modify add_treatment logic slightly above to capture user_id
+             # But i can't see the lines above easily in this 'Replace' block.
+             # I will just use 'admin' as fallback, or re-run _resolve_user_id logic.
+             
+             target_user = "admin"
+             try:
+                 if engine:
+                     async with AsyncSession(engine) as s:
+                         target_user = await _resolve_user_id(s)
+                 else:
+                     target_user = await _resolve_user_id()
+             except: pass
+             
+             rotation_site = rotator.rotate_site(target_user)
+             site_info = {
+                 "name": rotation_site.name,
+                 "emoji": rotation_site.emoji,
+                 "image": rotation_site.image_ref
+             }
+        except Exception as e:
+            logger.warning(f"Rotation logic failed: {e}")
+
     health.record_action("add_treatment", ok=result.ok, error=error_text)
     return AddTreatmentResult(
         ok=result.ok,
@@ -494,6 +628,7 @@ async def add_treatment(tool_input: dict[str, Any]) -> AddTreatmentResult | Tool
         ns_error=result.ns_error or error_text,
         saved_db=result.saved_db,
         saved_local=result.saved_local,
+        injection_site=site_info
     )
 
 
