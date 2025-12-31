@@ -1784,6 +1784,44 @@ async def _update_basal_event(status: str, snooze_minutes: int = 0) -> None:
     except Exception as e:
         logger.error(f"Failed to update basal event: {e}")
 
+
+async def send_autosens_alert(chat_id: int, ratio: float, slot: str, old_isf: float, new_isf: float, suggestion_id: str) -> None:
+    """Sends a proactive Autosens Advice alert."""
+    if not _bot_app: return
+
+    pct = int((ratio - 1.0) * 100)
+    emoji = "📉" if ratio < 1 else "📈"
+    trend = "Sensibilidad" if ratio < 1 else "Resistencia"
+    
+    msg = (
+        f"🔔 **Autosens Detectado**\n\n"
+        f"He detectado un cambio de {trend} ({emoji} {pct}%).\n"
+        f"Franja: **{slot.upper()}**\n\n"
+        f"Tu ISF actual: `{old_isf}`\n"
+        f"Sugerido: **{new_isf}**\n\n"
+        f"¿Quieres actualizar tu perfil?"
+    )
+    
+    keyboard = [
+        [
+            InlineKeyboardButton(f"✅ Aceptar ({new_isf})", callback_data=f"autosens_confirm|{suggestion_id}|{new_isf}|{slot}"),
+            InlineKeyboardButton("❌ Descartar", callback_data=f"autosens_cancel|{suggestion_id}")
+        ]
+    ]
+    
+    try:
+        await bot_send(
+            chat_id=chat_id,
+            text=msg,
+            bot=_bot_app.bot,
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode="Markdown",
+            log_context="autosens_alert"
+        )
+    except Exception as e:
+        logger.error(f"Failed to send autosens alert: {e}")
+
+
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handles button clicks (Approve/Ignore)."""
     query = update.callback_query
@@ -1795,6 +1833,72 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     # Always Answer
     try: await query.answer()
     except: pass
+
+    # --- Autosens Flow ---
+    if data.startswith("autosens_confirm|"):
+        # autosens_confirm|suggestion_id|new_isf|slot
+        try:
+            parts = data.split("|")
+            sug_id = parts[1]
+            new_val = float(parts[2])
+            slot = parts[3]
+            
+            # 1. Update DB Settings
+            user_settings = await get_bot_user_settings()
+            username = user_settings.username or "admin"
+            
+            engine = get_engine()
+            if engine:
+                 async with AsyncSession(engine) as session:
+                     # Fetch current raw settings
+                     from app.services.settings_service import get_user_settings_service, update_user_settings_service
+                     current_raw = await get_user_settings_service(username, session)
+                     if current_raw and "settings" in current_raw:
+                         s = current_raw["settings"]
+                         # Navigate to cf -> slot
+                         if "cf" not in s: s["cf"] = {}
+                         s["cf"][slot] = new_val
+                         
+                         await update_user_settings_service(username, s, session)
+                         
+                         # 2. Mark Suggestion Accepted
+                         from app.models.suggestion import ParameterSuggestion
+                         from sqlalchemy import select
+                         stmt = select(ParameterSuggestion).where(ParameterSuggestion.id == sug_id)
+                         sug = (await session.execute(stmt)).scalars().first()
+                         if sug:
+                             sug.status = "accepted"
+                             sug.applied_at = datetime.now(timezone.utc)
+                         
+                         await session.commit()
+                         
+            await query.edit_message_text(f"✅ **Perfil Actualizado**\nISF {slot.upper()} ahora es {new_val}.")
+            health.record_action("autosens_update", True)
+            
+        except Exception as e:
+            logger.error(f"Autosens confirm failed: {e}")
+            await query.edit_message_text(f"❌ Error al actualizar: {e}")
+        return
+
+    if data.startswith("autosens_cancel|"):
+        try:
+            sug_id = data.split("|")[1]
+            engine = get_engine()
+            if engine:
+                 async with AsyncSession(engine) as session:
+                     from app.models.suggestion import ParameterSuggestion
+                     from sqlalchemy import select
+                     stmt = select(ParameterSuggestion).where(ParameterSuggestion.id == sug_id)
+                     sug = (await session.execute(stmt)).scalars().first()
+                     if sug:
+                         sug.status = "rejected"
+                         await session.commit()
+            
+            await query.edit_message_text("❌ Sugerencia descartada.")
+        except Exception as e:
+             logger.error(f"Autosens cancel failed: {e}")
+        return
+
 
     # --- 0. Test Button ---
     if data.startswith("test|"):

@@ -172,7 +172,18 @@ function SuggestionCard({ item, onAccept, onReject }) {
             <p style={{ margin: '1rem 0', fontWeight: 600, lineHeight: 1.4 }}>{item.reason}</p>
 
             <div style={{ background: '#f8fafc', padding: '0.8rem', borderRadius: '6px', fontSize: '0.85rem', color: '#64748b', marginBottom: '1rem' }}>
-                <strong>Evidencia:</strong> Ventana {item.evidence.window}. Ratio incidencia: {Math.round(item.evidence.ratio * 100)}%. (Base {item.evidence.days} días)
+                <strong>Evidencia:</strong>{' '}
+                {typeof item.evidence === 'string' ? item.evidence : (
+                    item.evidence?.source === 'autosens_advisor' ? (
+                        <span>Ratio calculado: {Math.round(item.evidence.ratio * 100)}% (ISF {item.evidence.old_isf} ➔ {item.evidence.new_isf})</span>
+                    ) : (
+                        <span>
+                            {item.evidence?.window ? `Ventana ${item.evidence.window}. ` : ''}
+                            {item.evidence?.ratio ? `Ratio incidencia: ${Math.round(item.evidence.ratio * 100)}%. ` : ''}
+                            {item.evidence?.days ? `(Base ${item.evidence.days} días)` : JSON.stringify(item.evidence)}
+                        </span>
+                    )
+                )}
             </div>
 
             <div style={{ display: 'flex', gap: '0.5rem' }}>

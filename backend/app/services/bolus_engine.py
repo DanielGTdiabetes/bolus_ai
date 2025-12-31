@@ -121,18 +121,23 @@ def calculate_bolus_v2(
     # Ratio > 1 means Resistance -> Needs more insulin -> Lower ISF, Lower CR
     # Ratio < 1 means Sensitivity -> Needs less insulin -> Higher ISF, Higher CR
     
-    effective_ratio = autosens_ratio
-    # Safety clamp explicitly here just in case (though service does it)
-    if effective_ratio < 0.7: effective_ratio = 0.7
-    if effective_ratio > 1.3: effective_ratio = 1.3
+    # SAFETY CHANGE: User requested NO AUTOMATIC CHANGES. Only advice.
+    effective_ratio = 1.0 
     
-    isf = isf_base / effective_ratio
-    cr = cr_base / effective_ratio
+    # Calculate what it WOULD interpret for suggestion
+    suggested_ratio = autosens_ratio
+    if suggested_ratio < 0.7: suggested_ratio = 0.7
+    if suggested_ratio > 1.3: suggested_ratio = 1.3
     
-    if abs(effective_ratio - 1.0) > 0.01:
-        explain.append(f"🔍 Autosens: Factor {effective_ratio:.2f} ({autosens_reason or 'Ajuste dinámico'})")
-        explain.append(f"   ISF: {isf_base:.1f} -> {isf:.1f}")
-        explain.append(f"   CR:  {cr_base:.1f} -> {cr:.1f}")
+    isf = isf_base 
+    cr = cr_base
+    
+    if abs(suggested_ratio - 1.0) > 0.01:
+        sug_isf = isf_base / suggested_ratio
+        sug_cr = cr_base / suggested_ratio
+        explain.append(f"🔍 Autosens (Consejo): Detectado Factor {suggested_ratio:.2f} ({autosens_reason or 'Dinámico'})")
+        explain.append(f"   ⚠️ NO APLICADO. Sugiere ISF: {isf_base:.1f} -> {sug_isf:.1f}")
+        # explain.append(f"   Sugiere CR:  {cr_base:.1f} -> {sug_cr:.1f}") # Optional if CR is also affected
     
     # Protección de división
     if cr <= 0.1:

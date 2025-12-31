@@ -818,6 +818,13 @@ export async function fetchIsfAnalysis(days = 14) {
   return data;
 }
 
+export async function fetchAutosens() {
+  const response = await apiFetch("/api/autosens/calculate");
+  const data = await toJson(response);
+  if (!response.ok) throw new Error(data.detail || "Error al calcular Autosens");
+  return data;
+}
+
 
 export async function simulateForecast(payload) {
   const response = await apiFetch("/api/forecast/simulate", {

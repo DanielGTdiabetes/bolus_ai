@@ -471,11 +471,103 @@ async def save_treatment(
         ns_token=ns_token,
     )
 
+    ns_error = result.ns_error
+    
+    # --- AUTOSENS ADVISOR TRIGGERS ---
+    # We do this in background to avoid blocking the bolus response
+    if session and user.username:
+        # Define the async check job
+        async def check_autosens_advisor(u_id: str):
+             try:
+                 # Re-acquire session/engine since passed session might be closed or local
+                 from app.core.db import get_engine, AsyncSession
+                 engine = get_engine()
+                 if not engine: return
+                 
+                 async with AsyncSession(engine) as task_session:
+                     from app.services.settings_service import get_user_settings_service
+                     from app.services.autosens_service import AutosensService
+                     from app.models.settings import UserSettings
+                     from app.models.suggestion import ParameterSuggestion
+                     from app.bot.service import send_autosens_alert, get_current_meal_slot
+                     
+                     # Load Config
+                     s_data = await get_user_settings_service(u_id, task_session)
+                     if not s_data: return
+                     us = UserSettings.migrate(s_data["settings"])
+                     
+                     if not us.autosens.enabled: return # Respect Global Switch
+                     
+                     # Run Calc
+                     res = await AutosensService.calculate_autosens(u_id, task_session, us)
+                     ratio = res.ratio
+                     
+                     # Threshold: Deviating at least 5% (0.95 or 1.05) to be worth annoying
+                     if 0.95 <= ratio <= 1.05:
+                         return # Too minor
+                         
+                     # Determine Slot
+                     slot = get_current_meal_slot(us)
+                     current_isf = getattr(us.cf, slot, 30.0)
+                     
+                     # Calcs
+                     # new_isf = current / ratio
+                     new_isf = round(current_isf / ratio, 1)
+                     
+                     if abs(current_isf - new_isf) < 1.0:
+                         return # Rounding makes it irrelevant
+                     
+                     # Create Suggestion Record (App Notification)
+                     match_key = f"autosens_{slot}_{datetime.utcnow().date()}"
+                     
+                     # Check if we already spammed today
+                     # (Optional: duplicate check)
+                     
+                     sug = ParameterSuggestion(
+                         user_id=u_id,
+                         parameter=f"cf.{slot}",
+                         current_value=str(current_isf),
+                         suggested_value=str(new_isf),
+                         reason=f"Autosens: {res.reason} (Ratio {ratio:.2f})",
+                         evidence={
+                             "ratio": ratio,
+                             "source": "autosens_advisor",
+                             "old_isf": current_isf,
+                             "new_isf": new_isf
+                         },
+                         priority="medium",
+                         status="pending"
+                     )
+                     task_session.add(sug)
+                     await task_session.commit()
+                     await task_session.refresh(sug)
+                     
+                     # Notify via Bot (Telegram)
+                     from app.core import config
+                     chat_id = config.get_allowed_telegram_user_id()
+                     if chat_id:
+                         await send_autosens_alert(
+                             chat_id=int(chat_id),
+                             ratio=ratio,
+                             slot=slot,
+                             old_isf=current_isf,
+                             new_isf=new_isf,
+                             suggestion_id=str(sug.id)
+                         )
+                         
+             except Exception as ex:
+                 logger.error(f"Autosens advisor background task failed: {ex}")
+
+        # Execute
+        # Since we are in an async function, we can create a Task
+        import asyncio
+        asyncio.create_task(check_autosens_advisor(user.username))
+
     return {
         "success": result.ok,
         "treatment_id": result.treatment_id,
         "ns_uploaded": result.ns_uploaded,
-        "ns_error": result.ns_error,
+        "ns_error": ns_error,
     }
 
 

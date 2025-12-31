@@ -9,7 +9,7 @@ import {
 } from '../modules/core/store';
 import {
     getNightscoutSecretStatus, saveNightscoutSecret, testNightscout,
-    fetchHealth, exportUserData, importUserData
+    fetchHealth, exportUserData, importUserData, fetchAutosens
 } from '../lib/api';
 import { IsfAnalyzer } from '../components/settings/IsfAnalyzer';
 import { FavoritesManager } from '../components/settings/FavoritesManager';
@@ -201,6 +201,7 @@ function CalcParamsPanel() {
     const [splitParams, setSplitParams] = useState(getSplitSettings());
     const [slot, setSlot] = useState('breakfast');
     const [status, setStatus] = useState(null);
+    const [autosensResult, setAutosensResult] = useState(null);
 
     useEffect(() => {
         const p = getCalcParams();
@@ -581,6 +582,25 @@ function CalcParamsPanel() {
                         </div>
                         <div style={{ fontSize: '0.75rem', color: '#15803d' }}>
                             💡 <strong>Limites:</strong> Si Autosens detecta una desviación, nunca aplicará un factor fuera de este rango ({params.autosens.min_ratio}x - {params.autosens.max_ratio}x) por seguridad.
+                        </div>
+                        <div style={{ marginTop: '0.5rem', borderTop: '1px solid #bbf7d0', paddingTop: '0.5rem' }}>
+                            {!autosensResult ? (
+                                <Button variant="ghost" style={{ fontSize: '0.8rem', padding: '0.4rem', background: '#dcfce7', color: '#166534' }} onClick={async () => {
+                                    try {
+                                        const res = await fetchAutosens();
+                                        setAutosensResult(res);
+                                    } catch (e) {
+                                        alert("Error: " + e.message);
+                                    }
+                                }}>
+                                    📡 Consultar Estado Actual (Live)
+                                </Button>
+                            ) : (
+                                <div style={{ fontSize: '0.9rem', color: '#14532d' }}>
+                                    <div><strong>Ratio Actual:</strong> {autosensResult.ratio.toFixed(2)}x</div>
+                                    <div style={{ fontSize: '0.8rem', opacity: 0.8 }}>{autosensResult.reason}</div>
+                                </div>
+                            )}
                         </div>
                     </div>
                 )}
