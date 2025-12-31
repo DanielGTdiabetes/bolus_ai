@@ -1347,26 +1347,83 @@ function SchedulePanel({ settings, onChange }) {
     const s = settings.schedule || { breakfast_start_hour: 5, lunch_start_hour: 13, dinner_start_hour: 20 };
 
     const update = (field, val) => {
-        const num = parseInt(val) || 0;
-        // Ensure within 0-23
-        const clamped = Math.min(23, Math.max(0, num));
+        if (val === '') {
+            onChange(prev => ({
+                ...prev,
+                schedule: { ...(prev.schedule || s), [field]: '' }
+            }));
+            return;
+        }
 
-        onChange(prev => ({
-            ...prev,
-            schedule: { ...(prev.schedule || s), [field]: clamped }
-        }));
+        const num = parseInt(val);
+        if (!isNaN(num)) {
+            // Clamping 0-23
+            const clamped = Math.min(23, Math.max(0, num));
+            onChange(prev => ({
+                ...prev,
+                schedule: { ...(prev.schedule || s), [field]: clamped }
+            }));
+        }
+    };
+
+    const inputStyle = {
+        width: '100%',
+        padding: '0.6rem',
+        borderRadius: '8px',
+        border: '1px solid #cbd5e1',
+        fontSize: '1.2rem',
+        textAlign: 'center',
+        fontWeight: 700,
+        color: '#334155',
+        height: '46px' // Fixed height for alignment
+    };
+
+    const labelStyle = {
+        display: 'block',
+        marginBottom: '0.5rem',
+        fontWeight: 600,
+        fontSize: '0.8rem',
+        color: '#64748b',
+        textTransform: 'uppercase',
+        textAlign: 'center'
     };
 
     return (
-        <div style={{ background: '#f8fafc', padding: '1rem', borderRadius: '8px', border: '1px solid #e2e8f0', marginBottom: '1.5rem' }}>
-            <h4 style={{ marginTop: 0, marginBottom: '0.8rem', color: '#334155', fontSize: '1rem' }}>⏰ Horarios de Comidas (Inicio)</h4>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.8rem' }}>
-                <Input label="Desayuno (H)" type="number" value={s.breakfast_start_hour} onChange={e => update('breakfast_start_hour', e.target.value)} />
-                <Input label="Comida (H)" type="number" value={s.lunch_start_hour} onChange={e => update('lunch_start_hour', e.target.value)} />
-                <Input label="Cena (H)" type="number" value={s.dinner_start_hour} onChange={e => update('dinner_start_hour', e.target.value)} />
+        <div style={{ background: 'white', padding: '1rem', borderRadius: '12px', border: '1px solid #e2e8f0', marginBottom: '1.5rem', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
+            <h4 style={{ marginTop: 0, marginBottom: '1rem', color: '#334155', fontSize: '1rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                ⏰ Horarios de Comidas (Inicio)
+            </h4>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '1rem' }}>
+                <div>
+                    <label style={labelStyle}>Desayuno</label>
+                    <input
+                        type="number"
+                        value={s.breakfast_start_hour}
+                        onChange={e => update('breakfast_start_hour', e.target.value)}
+                        style={inputStyle}
+                    />
+                </div>
+                <div>
+                    <label style={labelStyle}>Comida</label>
+                    <input
+                        type="number"
+                        value={s.lunch_start_hour}
+                        onChange={e => update('lunch_start_hour', e.target.value)}
+                        style={inputStyle}
+                    />
+                </div>
+                <div>
+                    <label style={labelStyle}>Cena</label>
+                    <input
+                        type="number"
+                        value={s.dinner_start_hour}
+                        onChange={e => update('dinner_start_hour', e.target.value)}
+                        style={inputStyle}
+                    />
+                </div>
             </div>
-            <p className="text-xs text-muted" style={{ marginTop: '0.5rem' }}>
-                Determina qué perfil (ICR/ISF) se aplica según la hora.
+            <p className="text-xs text-muted" style={{ marginTop: '0.8rem', textAlign: 'center' }}>
+                Define la hora de inicio para aplicar el perfil correspondiente.
             </p>
         </div>
     );
