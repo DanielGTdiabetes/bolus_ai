@@ -24,7 +24,8 @@ from app.models.forecast import (
     SimulationParams,
     MomentumConfig,
 )
-from app.models.settings import UserSettings
+from app.models.bolus_v2 import BolusRequestV2, GlucoseUsed
+from app.services.bolus_engine import calculate_bolus_v2
 from app.services.treatment_logger import log_treatment
 from app.services.suggestion_engine import generate_suggestions_service, get_suggestions_service, resolve_suggestion_service
 from app.services.rotation_service import RotationService
@@ -84,7 +85,7 @@ class NightscoutStats(BaseModel):
 
 
 class TempMode(BaseModel):
-    mode: str = Field(..., pattern="^(sport|sick|normal)$")
+    mode: str = Field(..., pattern="^(sport|sick|normal|alcohol)$")
     expires_minutes: int = Field(default=180, ge=15, le=720)
     note: Optional[str] = None
 
@@ -266,7 +267,7 @@ async def get_status_context(username: str = "admin", user_settings: Optional[Us
     )
 
 
-async def calculate_bolus(carbs: float, meal_type: Optional[str] = None, split: Optional[float] = None, extend_minutes: Optional[int] = None) -> BolusResult | ToolError:
+async def calculate_bolus(carbs: float, meal_type: Optional[str] = None, split: Optional[float] = None, extend_minutes: Optional[int] = None, alcohol: bool = False) -> BolusResult | ToolError:
     try:
         user_settings = await _load_user_settings()
     except Exception as exc:
@@ -293,19 +294,60 @@ async def calculate_bolus(carbs: float, meal_type: Optional[str] = None, split: 
              meal_slot = "dinner"
         else:
              meal_slot = "snack"
-    now_utc = datetime.now(timezone.utc)
-    try:
-        iob_u = status.iob_u or 0.0
-    except Exception:
-        iob_u = 0.0
-    bg_val = status.bg_mgdl or user_settings.targets.mid
 
-    req = BolusRequestData(carbs_g=carbs, bg_mgdl=bg_val, meal_slot=meal_slot, target_mgdl=user_settings.targets.mid)
-    rec = recommend_bolus(req, user_settings, iob_u)
+    # Check for Active Temp Modes (Global Override)
+    try:
+        store = DataStore(Path(get_settings().data.data_dir))
+        events = store.load_events()
+        now_utc = datetime.now(timezone.utc)
+        
+        for e in events:
+            if e.get("type") == "temp_mode" and e.get("mode") == "alcohol":
+                expires = e.get("expires_at")
+                if expires:
+                    try:
+                        exp_dt = datetime.fromisoformat(expires)
+                        if exp_dt.tzinfo is None: exp_dt = exp_dt.replace(tzinfo=timezone.utc)
+                        if exp_dt > now_utc:
+                            alcohol = True # Global override
+                            break
+                    except Exception: pass
+    except Exception as e:
+        logger.warning(f"Failed to check temp modes: {e}")
+    
+    # Build V2 Request
+    req = BolusRequestV2(
+        carbs_g=carbs,
+        bg_mgdl=status.bg_mgdl,
+        meal_slot=meal_slot,
+        target_mgdl=user_settings.targets.mid,
+        alcohol=alcohol
+    )
+
+    # Handle Split/Extend using V2 machinery
+    if split is not None or extend_minutes is not None:
+         req.slow_meal.enabled = True
+         req.slow_meal.mode = "dual"
+         if split: req.slow_meal.upfront_pct = split
+         if extend_minutes: req.slow_meal.duration_min = extend_minutes
+
+    iob_u = status.iob_u or 0.0
+    
+    # Glucose Info Wrapper
+    glucose_info = GlucoseUsed(
+        mgdl=status.bg_mgdl,
+        source=status.source,
+        trend=status.direction,
+        is_stale=False # Assume fresh if fetched via get_status_context
+    )
+
+    rec = calculate_bolus_v2(req, user_settings, iob_u, glucose_info)
+    
     explain = rec.explain
-    if split or extend_minutes:
-        explain.append("Solicitud de bolo extendido/dual registrada. Confirmar manualmente en bomba.")
-    return BolusResult(units=rec.upfront_u, explanation=explain, confidence="high", quality="data-driven")
+    if rec.warnings:
+        explain.extend([f"⚠️ {w}" for w in rec.warnings])
+
+    return BolusResult(units=rec.total_u, explanation=explain, confidence="high", quality="data-driven")
 
 
 async def calculate_correction(target_bg: Optional[float] = None) -> CorrectionResult | ToolError:
@@ -774,6 +816,7 @@ AI_TOOL_DECLARATIONS = [
                 "meal_type": {"type": "STRING", "description": "breakfast/lunch/dinner/snack"},
                 "split": {"type": "NUMBER", "description": "Porcentaje inicial si dual"},
                 "extend_minutes": {"type": "INTEGER", "description": "Minutos de extensión si aplica"},
+                "alcohol": {"type": "BOOLEAN", "description": "Activar modo alcohol (reduce correcciones)"}
             },
             "required": ["carbs"],
         },
@@ -816,7 +859,7 @@ AI_TOOL_DECLARATIONS = [
         "parameters": {
             "type": "OBJECT",
             "properties": {
-                "mode": {"type": "STRING", "enum": ["sport", "sick", "normal"]},
+                "mode": {"type": "STRING", "enum": ["sport", "sick", "normal", "alcohol"]},
                 "expires_minutes": {"type": "INTEGER", "description": "Duración en minutos", "default": 180},
                 "note": {"type": "STRING"},
             },
@@ -887,6 +930,7 @@ async def execute_tool(name: str, args: Dict[str, Any]) -> Any:
                 meal_type=args.get("meal_type"),
                 split=args.get("split"),
                 extend_minutes=args.get("extend_minutes"),
+                alcohol=bool(args.get("alcohol", False)),
             )
         if name == "calculate_correction":
             return await calculate_correction(target_bg=args.get("target_bg"))
