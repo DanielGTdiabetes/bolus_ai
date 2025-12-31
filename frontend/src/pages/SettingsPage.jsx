@@ -1061,80 +1061,102 @@ function BotPanel() {
 
                 {basalConfig.enabled && (
                     <div className="stack" style={{ gap: '0.5rem' }}>
-                        {/* Headers Row */}
-                        {(basalConfig.schedule || []).length > 0 && (
-                            <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 120px 90px auto', gap: '0.8rem', padding: '0 0.5rem', fontSize: '0.8rem', color: '#64748b', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                                <div>Nombre</div>
-                                <div>Hora</div>
-                                <div>Dosis</div>
-                                <div></div>
-                            </div>
-                        )}
-
-                        {/* List Items */}
+                        {/* List Items (Mobile Card Style) */}
                         {(basalConfig.schedule || []).map((item, idx) => (
                             <div key={item.id || idx} style={{
-                                display: 'grid',
-                                gridTemplateColumns: '1.5fr 120px 90px auto',
-                                gap: '0.8rem',
-                                alignItems: 'center',
                                 background: 'white',
-                                padding: '0.8rem',
-                                borderRadius: '10px',
+                                padding: '1rem',
+                                borderRadius: '12px',
                                 border: '1px solid #cbd5e1',
-                                boxShadow: '0 1px 2px rgba(0,0,0,0.03)'
+                                marginBottom: '0.8rem',
+                                boxShadow: '0 1px 3px rgba(0,0,0,0.05)'
                             }}>
-                                {/* Name */}
-                                <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                {/* Row 1: Name */}
+                                <div style={{ marginBottom: '0.8rem' }}>
+                                    <label style={{ fontSize: '0.75rem', fontWeight: 700, color: '#64748b', display: 'block', marginBottom: '0.3rem', textTransform: 'uppercase' }}>
+                                        Nombre de la Insulina
+                                    </label>
                                     <input
                                         type="text"
                                         value={item.name}
                                         onChange={e => updateBasalSchedule(idx, 'name', e.target.value)}
-                                        placeholder="Nombre..."
-                                        style={{ width: '100%', padding: '0.6rem', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '0.95rem' }}
+                                        placeholder="Ej. Lantus / Toujeo / Levemir"
+                                        style={{
+                                            width: '100%',
+                                            padding: '0.7rem',
+                                            borderRadius: '8px',
+                                            border: '1px solid #e2e8f0',
+                                            fontSize: '1rem',
+                                            color: '#1e293b'
+                                        }}
                                     />
                                 </div>
 
-                                {/* Time */}
-                                <div style={{ display: 'flex', flexDirection: 'column' }}>
-                                    <input
-                                        type="time"
-                                        value={item.time}
-                                        onChange={e => updateBasalSchedule(idx, 'time', e.target.value)}
-                                        style={{ width: '100%', padding: '0.6rem', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '0.95rem', textAlign: 'center' }}
-                                    />
-                                </div>
+                                {/* Row 2: Time & Units & Delete */}
+                                <div style={{ display: 'flex', gap: '1rem', alignItems: 'flex-end' }}>
+                                    <div style={{ flex: 1 }}>
+                                        <label style={{ fontSize: '0.75rem', fontWeight: 700, color: '#64748b', display: 'block', marginBottom: '0.3rem', textTransform: 'uppercase' }}>
+                                            Hora
+                                        </label>
+                                        <input
+                                            type="time"
+                                            value={item.time}
+                                            onChange={e => updateBasalSchedule(idx, 'time', e.target.value)}
+                                            style={{
+                                                width: '100%',
+                                                padding: '0.7rem',
+                                                borderRadius: '8px',
+                                                border: '1px solid #e2e8f0',
+                                                fontSize: '1rem',
+                                                textAlign: 'center',
+                                                color: '#1e293b'
+                                            }}
+                                        />
+                                    </div>
 
-                                {/* Units */}
-                                <div style={{ display: 'flex', flexDirection: 'column' }}>
-                                    <input
-                                        type="number"
-                                        inputMode="decimal"
-                                        value={item.units}
-                                        onChange={e => updateBasalSchedule(idx, 'units', parseFloat(e.target.value))}
-                                        placeholder="0"
-                                        style={{ width: '100%', padding: '0.6rem', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '1rem', fontWeight: 700, textAlign: 'center', color: '#0369a1' }}
-                                    />
-                                </div>
+                                    <div style={{ flex: 0.8 }}>
+                                        <label style={{ fontSize: '0.75rem', fontWeight: 700, color: '#64748b', display: 'block', marginBottom: '0.3rem', textTransform: 'uppercase' }}>
+                                            Dosis (U)
+                                        </label>
+                                        <input
+                                            type="number"
+                                            inputMode="decimal"
+                                            value={item.units}
+                                            onChange={e => updateBasalSchedule(idx, 'units', e.target.value)}
+                                            placeholder="0"
+                                            style={{
+                                                width: '100%',
+                                                padding: '0.7rem',
+                                                borderRadius: '8px',
+                                                border: '1px solid #e2e8f0',
+                                                fontSize: '1.1rem',
+                                                fontWeight: 700,
+                                                textAlign: 'center',
+                                                color: '#0369a1'
+                                            }}
+                                        />
+                                    </div>
 
-                                {/* Delete */}
-                                <button
-                                    onClick={() => removeBasalSchedule(idx)}
-                                    title="Eliminar"
-                                    style={{
-                                        color: '#ef4444',
-                                        border: 'none',
-                                        background: '#fee2e2',
-                                        cursor: 'pointer',
-                                        width: '32px',
-                                        height: '32px',
-                                        borderRadius: '8px',
-                                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                        transition: 'background 0.2s'
-                                    }}
-                                >
-                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path></svg>
-                                </button>
+                                    <button
+                                        onClick={() => removeBasalSchedule(idx)}
+                                        title="Eliminar"
+                                        style={{
+                                            marginBottom: '2px',
+                                            color: '#ef4444',
+                                            border: 'none',
+                                            background: '#fee2e2',
+                                            cursor: 'pointer',
+                                            width: '42px',
+                                            height: '42px',
+                                            borderRadius: '10px',
+                                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                            transition: 'background 0.2s',
+                                            flexShrink: 0
+                                        }}
+                                    >
+                                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path></svg>
+                                    </button>
+                                </div>
                             </div>
                         ))}
 

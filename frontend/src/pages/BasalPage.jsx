@@ -32,11 +32,19 @@ export default function BasalPage() {
 
 function BasalEntrySection({ onRefresh }) {
     const [dose, setDose] = useState('');
-    const [date, setDate] = useState(() => {
+
+    // Split Date/Time for easier editing
+    const [entryDate, setEntryDate] = useState(() => {
         const now = new Date();
         const pad = (n) => n < 10 ? '0' + n : n;
-        return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`;
+        return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
     });
+    const [entryTime, setEntryTime] = useState(() => {
+        const now = new Date();
+        const pad = (n) => n < 10 ? '0' + n : n;
+        return `${pad(now.getHours())}:${pad(now.getMinutes())}`;
+    });
+
     const [manualBg, setManualBg] = useState('');
     const [showManualBg, setShowManualBg] = useState(false);
     const [msg, setMsg] = useState(null);
@@ -46,8 +54,13 @@ function BasalEntrySection({ onRefresh }) {
     // Late Dose Calculator State
     const [showLateCalc, setShowLateCalc] = useState(false);
     const [usualTime, setUsualTime] = useState('22:00');
-    const [usualDose, setUsualDose] = useState('16'); // Default example or load from last history?
+    const [usualDose, setUsualDose] = useState('16');
     const [calcResult, setCalcResult] = useState(null);
+
+    // Helper to get current ISO from inputs
+    const getCurrentIso = () => {
+        return new Date(`${entryDate}T${entryTime}`).toISOString();
+    };
 
     const saveDose = async (requireDose = true) => {
         const uVal = parseFloat(dose);
@@ -59,11 +72,11 @@ function BasalEntrySection({ onRefresh }) {
 
         if (!isNaN(uVal) && uVal > 0) {
             try {
-                const dateObj = new Date(date);
+                const currentDateIso = getCurrentIso();
                 await createBasalEntry({
                     dose_u: uVal,
-                    created_at: dateObj.toISOString(),
-                    effective_from: dateObj.toISOString().split('T')[0]
+                    created_at: currentDateIso,
+                    effective_from: entryDate // Use just the date part
                 });
 
                 if (injectionSite) {
@@ -87,7 +100,7 @@ function BasalEntrySection({ onRefresh }) {
                 return false;
             }
         }
-        return true; // Proceed if not required and empty
+        return true;
     };
 
     const handleSaveSimple = async () => {
@@ -95,7 +108,7 @@ function BasalEntrySection({ onRefresh }) {
         const ok = await saveDose(true);
         if (ok) {
             setMsg({ text: "✅ Dosis guardada.", type: 'success' });
-            setDose(''); // Reset? Or keep?
+            setDose('');
             if (onRefresh) onRefresh();
         }
         setLoading(false);
@@ -103,32 +116,28 @@ function BasalEntrySection({ onRefresh }) {
 
     const handleCheckinWake = async () => {
         setLoading(true);
-        const ok = await saveDose(false); // Dose optional for checkin
+        const ok = await saveDose(false);
         if (!ok) { setLoading(false); return; }
 
         setMsg({ text: "Consultando Nightscout...", type: 'info' });
 
-        // Check Auto (Backend handles fallback)
         const nsConfig = getLocalNsConfig() || {};
-        const dateObj = new Date(date);
+        const currentDateIso = getCurrentIso();
 
-        // Always try fetching first
         try {
             await createBasalCheckin({
                 nightscout_url: nsConfig.url,
                 nightscout_token: nsConfig.token,
-                created_at: dateObj.toISOString()
+                created_at: currentDateIso
             });
             setMsg({ text: "✅ Guardado y analizado.", type: 'success' });
             if (onRefresh) onRefresh();
         } catch (e) {
             console.warn("Auto Checkin Failed:", e);
-            // Fallback to manual
             setShowManualBg(true);
             const errMsg = e.message === "[object Object]" ? "Desc" : e.message;
             setMsg({ text: `⚠️ Fallo Auto: ${errMsg}. Usa manual.`, type: 'warning' });
         }
-        setLoading(false);
         setLoading(false);
     };
 
@@ -143,7 +152,7 @@ function BasalEntrySection({ onRefresh }) {
             await createBasalCheckin({
                 manual_bg: bgVal,
                 manual_trend: "Manual",
-                created_at: new Date(date).toISOString()
+                created_at: getCurrentIso()
             });
             setMsg({ text: "✅ Check-in manual guardado.", type: 'success' });
             setShowManualBg(false);
@@ -161,7 +170,7 @@ function BasalEntrySection({ onRefresh }) {
         setMsg({ text: "Analizando noche (00h-06h)...", type: 'info' });
         try {
             const config = getLocalNsConfig() || {};
-            await runNightScan(config); // defaults to today (scans last night)
+            await runNightScan(config);
             setMsg({ text: "✅ Análisis nocturno completado.", type: 'success' });
             if (onRefresh) onRefresh();
         } catch (e) {
@@ -172,24 +181,14 @@ function BasalEntrySection({ onRefresh }) {
     };
 
     const calculateLateDose = () => {
-        // Current Time
         const now = new Date();
         const currentH = now.getHours() + (now.getMinutes() / 60);
 
-        // Usual Time
         const [uH, uM] = usualTime.split(':').map(Number);
         const usualH = uH + (uM / 60);
 
-        // Diff
         let diff = currentH - usualH;
-        if (diff < 0) diff += 24; // e.g. Usual 22:00, Now 02:00 -> -20 -> +4.
-
-        // Logic check: Am I late today or early for tomorrow?
-        // Assuming "Late" means positive delay < 18h.
-
-        let reductionFactor = 1;
-        let advice = "";
-        let color = "var(--text)";
+        if (diff < 0) diff += 24;
 
         if (diff <= 0.5) {
             setCalcResult({ u: Number(usualDose), msg: "Estás a tiempo (o muy poco retraso). Dosis completa." });
@@ -201,13 +200,8 @@ function BasalEntrySection({ onRefresh }) {
             return;
         }
 
-        // Linear reduction: Cover remaining hours until next scheduled dose (24 - diff).
-        // Needed coverage = (24 - diff) hours.
-        // Full dose covers 24h.
-        // Adjusted = Usual * ( (24-diff)/24 )
-
         const adjusted = Number(usualDose) * ((24 - diff) / 24);
-        const rounded = Math.round(adjusted * 2) / 2; // Round to 0.5
+        const rounded = Math.round(adjusted * 2) / 2;
 
         setCalcResult({
             u: rounded,
@@ -228,21 +222,38 @@ function BasalEntrySection({ onRefresh }) {
         <Card className="stack" style={{ marginBottom: '1rem' }}>
             <h3 style={{ margin: '0 0 1rem 0', fontSize: '1.1rem' }}>Registrar / Check-in</h3>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
+            {/* Row 1: Dose */}
+            <div style={{ marginBottom: '0.8rem' }}>
+                <label style={{ fontSize: '0.75rem', fontWeight: 700, color: '#64748b', display: 'block', marginBottom: '0.3rem', textTransform: 'uppercase' }}>
+                    Dosis (U)
+                </label>
+                <input
+                    type="number" step="0.5" placeholder="0.0"
+                    value={dose} onChange={e => setDose(e.target.value)}
+                    style={{ width: '100%', padding: '0.8rem', fontSize: '1.3rem', fontWeight: 700, border: '1px solid #cbd5e1', borderRadius: '10px', textAlign: 'center', color: '#0369a1' }}
+                />
+            </div>
+
+            {/* Row 2: Date & Time Split */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '0.8rem' }}>
                 <div>
-                    <label style={{ fontSize: '0.75rem', fontWeight: 700, color: '#64748b', display: 'block', marginBottom: '0.25rem' }}>DOSIS (U)</label>
+                    <label style={{ fontSize: '0.75rem', fontWeight: 700, color: '#64748b', display: 'block', marginBottom: '0.3rem', textTransform: 'uppercase' }}>
+                        📅 Fecha
+                    </label>
                     <input
-                        type="number" step="0.5" placeholder="0.0"
-                        value={dose} onChange={e => setDose(e.target.value)}
-                        style={{ width: '100%', padding: '0.6rem', fontSize: '1.1rem', border: '1px solid #cbd5e1', borderRadius: '8px' }}
+                        type="date"
+                        value={entryDate} onChange={e => setEntryDate(e.target.value)}
+                        style={{ width: '100%', padding: '0.7rem', fontSize: '1rem', border: '1px solid #cbd5e1', borderRadius: '8px', background: 'white', color: '#334155' }}
                     />
                 </div>
                 <div>
-                    <label style={{ fontSize: '0.75rem', fontWeight: 700, color: '#64748b', display: 'block', marginBottom: '0.25rem' }}>FECHA/HORA</label>
+                    <label style={{ fontSize: '0.75rem', fontWeight: 700, color: '#64748b', display: 'block', marginBottom: '0.3rem', textTransform: 'uppercase' }}>
+                        ⏰ Hora
+                    </label>
                     <input
-                        type="datetime-local"
-                        value={date} onChange={e => setDate(e.target.value)}
-                        style={{ width: '100%', padding: '0.7rem', fontSize: '0.9rem', border: '1px solid #cbd5e1', borderRadius: '8px' }}
+                        type="time"
+                        value={entryTime} onChange={e => setEntryTime(e.target.value)}
+                        style={{ width: '100%', padding: '0.7rem', fontSize: '1rem', fontWeight: 600, border: '1px solid #cbd5e1', borderRadius: '8px', background: 'white', textAlign: 'center', color: '#334155' }}
                     />
                 </div>
             </div>
