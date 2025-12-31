@@ -2,7 +2,7 @@ import re
 from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Query
 from typing import Optional, List
-from app.models.forecast import ForecastSimulateRequest, ForecastResponse, ForecastEvents, ForecastEventBolus, ForecastEventCarbs, SimulationParams
+from app.models.forecast import ForecastSimulateRequest, ForecastResponse, ForecastEvents, ForecastEventBolus, ForecastEventCarbs, SimulationParams, ForecastBasalInjection
 from app.services.forecast_engine import ForecastEngine
 from app.core.security import get_current_user, CurrentUser
 from app.core.db import get_db_session
@@ -12,6 +12,7 @@ from app.models.settings import UserSettings
 from app.services.nightscout_secrets_service import get_ns_config
 from app.services.nightscout_client import NightscoutClient
 from app.services.autosens_service import AutosensService
+from app.models.basal import BasalEntry
 
 router = APIRouter()
 
@@ -383,6 +384,42 @@ async def get_current_forecast(
 
 
 
+
+    # 3.3. Fetch Basal History (Last 48h)
+    basal_injections = []
+    try:
+        basal_cutoff = datetime.now(timezone.utc) - timedelta(hours=48)
+        stmt_basal = (
+            select(BasalEntry)
+            .where(BasalEntry.user_id == user.username)
+            .where(BasalEntry.created_at >= basal_cutoff.replace(tzinfo=None))
+            .order_by(BasalEntry.created_at.desc())
+        )
+        result_basal = await session.execute(stmt_basal)
+        basal_rows = result_basal.scalars().all()
+        
+        for row in basal_rows:
+            b_created_at = row.created_at
+            if b_created_at.tzinfo is None:
+                b_created_at = b_created_at.replace(tzinfo=timezone.utc)
+            
+            # Offset
+            b_diff_min = (datetime.now(timezone.utc) - b_created_at).total_seconds() / 60.0
+            b_offset = -1 * b_diff_min
+            
+            dur = (row.effective_hours or 24) * 60
+            b_type = row.basal_type if row.basal_type else "glargine"
+            
+            basal_injections.append(ForecastBasalInjection(
+                time_offset_min=int(b_offset),
+                units=row.dose_u,
+                duration_minutes=dur,
+                type=b_type
+            ))
+            
+    except Exception as e:
+        print(f"Forecast Basal Fetch Error: {e}")
+        pass
     
     # Initialize current parameters for the simulation
     now_hour = (datetime.now(timezone.utc).hour + 1) % 24
@@ -474,7 +511,7 @@ async def get_current_forecast(
     payload = ForecastSimulateRequest(
         start_bg=start_bg,
         params=sim_params,
-        events=ForecastEvents(boluses=boluses, carbs=carbs),
+        events=ForecastEvents(boluses=boluses, carbs=carbs, basal_injections=basal_injections),
         momentum=MomentumConfig(enabled=use_momentum, lookback_points=5),
         recent_bg_series=recent_bg_series if recent_bg_series else None
     )
@@ -659,6 +696,38 @@ async def simulate_forecast(
                         icr=float(hist_icr), 
                         absorption_minutes=hist_abs 
                     ))
+
+             # Fetch Basal History for Simulation
+             try:
+                 basal_cutoff = datetime.now(timezone.utc) - timedelta(hours=48)
+                 stmt_basal = (
+                     select(BasalEntry)
+                     .where(BasalEntry.user_id == user.username)
+                     .where(BasalEntry.created_at >= basal_cutoff.replace(tzinfo=None))
+                     .order_by(BasalEntry.created_at.desc())
+                 )
+                 result_basal = await session.execute(stmt_basal)
+                 basal_rows = result_basal.scalars().all()
+                 
+                 for row in basal_rows:
+                     b_created_at = row.created_at
+                     if b_created_at.tzinfo is None:
+                         b_created_at = b_created_at.replace(tzinfo=timezone.utc)
+                     
+                     b_diff_min = (datetime.now(timezone.utc) - b_created_at).total_seconds() / 60.0
+                     b_offset = -1 * b_diff_min
+                     dur = (row.effective_hours or 24) * 60
+                     b_type = row.basal_type if row.basal_type else "glargine"
+                     
+                     payload.events.basal_injections.append(ForecastBasalInjection(
+                         time_offset_min=int(b_offset),
+                         units=row.dose_u,
+                         duration_minutes=dur,
+                         type=b_type
+                     ))
+             except Exception as e:
+                 print(f"Forecast Simulate Basal Error: {e}")
+                 pass
 
         # Validate logic? (Pydantic does structure, Engine does math)
         response = ForecastEngine.calculate_forecast(payload)
