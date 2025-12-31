@@ -508,7 +508,7 @@ async def delete_history_entry(
         raise HTTPException(status_code=400, detail="Formato de fecha inválido. Usar YYYY-MM-DD")
 
     from sqlalchemy import delete
-    from app.models.basal import BasalCheckin, BasalNightSummary, BasalDose
+    from app.models.basal import BasalCheckin, BasalNightSummary, BasalEntry
 
     # Delete Checkin
     stmt1 = delete(BasalCheckin).where(
@@ -525,9 +525,9 @@ async def delete_history_entry(
     await db.execute(stmt2)
 
     # Delete Basal Dose
-    stmt3 = delete(BasalDose).where(
-        BasalDose.user_id == username,
-        BasalDose.effective_from == target_date
+    stmt3 = delete(BasalEntry).where(
+        BasalEntry.user_id == username,
+        BasalEntry.effective_from == target_date
     )
     await db.execute(stmt3)
 
