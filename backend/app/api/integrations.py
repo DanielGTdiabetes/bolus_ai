@@ -273,7 +273,7 @@ async def ingest_nutrition(
                     if t_obj and t_obj.carbs > 0:
                         # Fire and forget (task)? or await? 
                         # Await is fine, it shouldn't take too long.
-                        await on_new_meal_received(t_obj.carbs, t_obj.fat or 0.0, t_obj.protein or 0.0, f"Importado ({username})")
+                        await on_new_meal_received(t_obj.carbs, t_obj.fat or 0.0, t_obj.protein or 0.0, f"Importado ({username})", origin_id=first_id)
                         
                 except Exception as e:
                     logger.error(f"Failed to trigger bot notification: {e}")

@@ -95,6 +95,7 @@ class AddTreatmentRequest(BaseModel):
     fat: Optional[float] = None
     protein: Optional[float] = None
     notes: Optional[str] = None
+    replace_id: Optional[str] = None
 
 
 class AddTreatmentResult(BaseModel):
@@ -107,6 +108,7 @@ class AddTreatmentResult(BaseModel):
     saved_db: Optional[bool] = None
     saved_local: Optional[bool] = None
     injection_site: Optional[Dict[str, Any]] = None
+    replaced_id: Optional[str] = None
 
 class SaveFavoriteResult(BaseModel):
     ok: bool
@@ -581,6 +583,34 @@ async def add_treatment(tool_input: dict[str, Any]) -> AddTreatmentResult | Tool
     error_text = result.ns_error if not result.ok else None
     if not result.ok and not error_text:
         error_text = "Persistencia fallida"
+
+    # Handle replacement (Deleting the original draft if it exists)
+    replaced_id = None
+    if payload.replace_id and result.ok:
+        try:
+             # Delete from DB
+             if engine:
+                 async with AsyncSession(engine) as session:
+                      from app.models.treatment import Treatment
+                      from sqlalchemy import delete
+                      stmt = delete(Treatment).where(Treatment.id == payload.replace_id)
+                      await session.execute(stmt)
+                      await session.commit()
+                      replaced_id = payload.replace_id
+             
+             # Delete from Local Store
+             # Store uses '_id' or 'id'
+             try:
+                 events = store.load_events()
+                 original_len = len(events)
+                 events = [e for e in events if e.get("id") != payload.replace_id and e.get("_id") != payload.replace_id]
+                 if len(events) < original_len:
+                      store.save_events(events)
+                      replaced_id = payload.replace_id
+             except Exception: pass
+             
+        except Exception as e:
+            logger.error(f"Failed to delete replaced treatment {payload.replace_id}: {e}")
 
     # Rotation Logic
     site_info = None

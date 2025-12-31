@@ -1472,7 +1472,7 @@ async def _mark_update_handler(update: Update, context: ContextTypes.DEFAULT_TYP
     """Passive handler to mark last update time without altering behaviour."""
     health.mark_update()
 
-async def on_new_meal_received(carbs: float, fat: float, protein: float, source: str) -> None:
+async def on_new_meal_received(carbs: float, fat: float, protein: float, source: str, origin_id: Optional[str] = None) -> None:
     """
     Called by integrations.py when a new meal is ingested.
     Triggers a proactive notification.
@@ -1485,7 +1485,7 @@ async def on_new_meal_received(carbs: float, fat: float, protein: float, source:
     if not chat_id:
         return
 
-    logger.info(f"Bot proactively notifying meal: {carbs}g F:{fat} P:{protein} from {source}")
+    logger.info(f"Bot proactively notifying meal: {carbs}g F:{fat} P:{protein} from {source} (id={origin_id})")
     now_utc = datetime.now(timezone.utc)
     settings = get_settings()
 
@@ -1589,6 +1589,7 @@ async def on_new_meal_received(carbs: float, fat: float, protein: float, source:
         "fat": fat,
         "protein": protein,
         "source": source,
+        "origin_id": origin_id,
         "ts": datetime.now()
     }
 
@@ -1714,9 +1715,10 @@ async def _handle_snapshot_callback(query, data: str) -> None:
         
         fat = snapshot.get("fat", 0.0)
         protein = snapshot.get("protein", 0.0)
+        origin_id = snapshot.get("origin_id")
         
         # Execute Action
-        add_args = {"insulin": units, "carbs": carbs, "fat": fat, "protein": protein, "notes": notes}
+        add_args = {"insulin": units, "carbs": carbs, "fat": fat, "protein": protein, "notes": notes, "replace_id": origin_id}
         result = await tools.add_treatment(add_args)
         
         base_text = query.message.text if query.message else ""
