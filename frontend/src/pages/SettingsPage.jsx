@@ -906,21 +906,28 @@ function BotPanel() {
     }, []);
 
     const handlePremealChange = (field, value) => {
-        let val = value;
-        if (field !== 'enabled') val = parseInt(value) || 0;
-        setPremealConfig(prev => ({ ...prev, [field]: val }));
+        // Allow empty string for better UX (prevent 0 stuck)
+        if (field === 'enabled') {
+            setPremealConfig(prev => ({ ...prev, [field]: value }));
+        } else {
+            setPremealConfig(prev => ({ ...prev, [field]: value }));
+        }
     };
 
     const handleComboChange = (field, value) => {
-        let val = value;
-        if (field !== 'enabled') val = parseInt(value) || 0;
-        setComboConfig(prev => ({ ...prev, [field]: val }));
+        if (field === 'enabled') {
+            setComboConfig(prev => ({ ...prev, [field]: value }));
+        } else {
+            setComboConfig(prev => ({ ...prev, [field]: value }));
+        }
     };
 
     const handleTrendChange = (field, value) => {
-        let val = value;
-        if (field !== 'enabled') val = parseFloat(value) || 0;
-        setTrendConfig(prev => ({ ...prev, [field]: val }));
+        if (field === 'enabled') {
+            setTrendConfig(prev => ({ ...prev, [field]: value }));
+        } else {
+            setTrendConfig(prev => ({ ...prev, [field]: value }));
+        }
     };
 
     // Basal Handlers
@@ -931,7 +938,7 @@ function BotPanel() {
     const addBasalSchedule = () => {
         setBasalConfig(prev => ({
             ...prev,
-            schedule: [...(prev.schedule || []), { id: Date.now().toString(), name: 'Dosis', time: '22:00', units: 0 }]
+            schedule: [...(prev.schedule || []), { id: Date.now().toString(), name: 'Dosis', time: '22:00', units: '' }]
         }));
     };
 
@@ -953,6 +960,43 @@ function BotPanel() {
 
     const handleSave = () => {
         const current = getCalcParams() || {};
+
+        // Sanitize / Parse numbers before saving
+        const pInt = (v) => parseInt(v) || 0;
+        const pFloat = (v) => parseFloat(v) || 0;
+
+        const cleanPremeal = {
+            ...premealConfig,
+            bg_threshold_mgdl: pInt(premealConfig.bg_threshold_mgdl),
+            delta_threshold_mgdl: pInt(premealConfig.delta_threshold_mgdl),
+            window_minutes: pInt(premealConfig.window_minutes),
+            silence_minutes: pInt(premealConfig.silence_minutes)
+        };
+
+        const cleanCombo = {
+            ...comboConfig,
+            delay_minutes: pInt(comboConfig.delay_minutes),
+            window_hours: pInt(comboConfig.window_hours),
+            silence_minutes: pInt(comboConfig.silence_minutes)
+        };
+
+        const cleanTrend = {
+            ...trendConfig,
+            rise_mgdl_per_min: pFloat(trendConfig.rise_mgdl_per_min),
+            drop_mgdl_per_min: pFloat(trendConfig.drop_mgdl_per_min),
+            min_delta_total_mgdl: pInt(trendConfig.min_delta_total_mgdl),
+            window_minutes: pInt(trendConfig.window_minutes),
+            silence_minutes: pInt(trendConfig.silence_minutes)
+        };
+
+        const cleanBasal = {
+            ...basalConfig,
+            schedule: (basalConfig.schedule || []).map(s => ({
+                ...s,
+                units: pFloat(s.units)
+            }))
+        };
+
         const newParams = {
             ...current,
             bot: {
@@ -960,14 +1004,21 @@ function BotPanel() {
                 enabled: botEnabled,
                 proactive: {
                     ...(current.bot?.proactive || {}),
-                    premeal: premealConfig,
-                    combo_followup: comboConfig,
-                    trend_alert: trendConfig,
-                    basal: basalConfig
+                    premeal: cleanPremeal,
+                    combo_followup: cleanCombo,
+                    trend_alert: cleanTrend,
+                    basal: cleanBasal
                 }
             }
         };
         saveCalcParams(newParams);
+
+        // Update local state to reflect cleaned values (optional, but good for consistency)
+        setPremealConfig(cleanPremeal);
+        setComboConfig(cleanCombo);
+        setTrendConfig(cleanTrend);
+        setBasalConfig(cleanBasal);
+
         setStatus("✅ Configuración de Bot guardada.");
         setTimeout(() => setStatus(null), 3000);
     };
