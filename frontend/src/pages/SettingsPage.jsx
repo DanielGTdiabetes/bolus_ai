@@ -12,9 +12,10 @@ import {
     fetchHealth, exportUserData, importUserData
 } from '../lib/api';
 import { IsfAnalyzer } from '../components/settings/IsfAnalyzer';
+import { FavoritesManager } from '../components/settings/FavoritesManager';
 
 export default function SettingsPage() {
-    const [activeTab, setActiveTab] = useState('ns'); // 'ns' | 'calc' | 'data' | 'analysis'
+    const [activeTab, setActiveTab] = useState('ns'); // 'ns' | 'calc' | 'data' | 'analysis' | 'favs'
 
     return (
         <>
@@ -26,6 +27,7 @@ export default function SettingsPage() {
                         <TabButton label="Cálculo" active={activeTab === 'calc'} onClick={() => setActiveTab('calc')} />
                         <TabButton label="IA / Visión" active={activeTab === 'vision'} onClick={() => setActiveTab('vision')} />
                         <TabButton label="Análisis" active={activeTab === 'analysis'} onClick={() => setActiveTab('analysis')} />
+                        <TabButton label="Comidas" active={activeTab === 'favs'} onClick={() => setActiveTab('favs')} />
                         <TabButton label="Datos" active={activeTab === 'data'} onClick={() => setActiveTab('data')} />
                         <TabButton label="Labs" active={activeTab === 'labs'} onClick={() => setActiveTab('labs')} />
                         <TabButton label="Bot" active={activeTab === 'bot'} onClick={() => setActiveTab('bot')} />
@@ -36,6 +38,7 @@ export default function SettingsPage() {
                     {activeTab === 'vision' && <VisionPanel />}
                     {activeTab === 'bot' && <BotPanel />}
                     {activeTab === 'analysis' && <IsfAnalyzer />}
+                    {activeTab === 'favs' && <FavoritesManager />}
                     {activeTab === 'data' && <DataPanel />}
                     {activeTab === 'labs' && <LabsPanel />}
                 </Card>

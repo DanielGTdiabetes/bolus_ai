@@ -741,29 +741,49 @@ export async function deleteTreatment(id) {
 
 export * from "./bleScale";
 
+// --- FAVORITES ---
 export async function getFavorites() {
-  const response = await apiFetch("/api/user/favorites");
+  const response = await apiFetch("/api/favorites");
   const data = await toJson(response);
   if (!response.ok) throw new Error(data.detail || "Error obteniendo favoritos");
   return data;
 }
 
-export async function addFavorite(name, carbs) {
-  const response = await apiFetch("/api/user/favorites", {
+export async function saveFavorite(favorite) {
+  // Supports full object: name, carbs, fat, protein, notes
+  const response = await apiFetch("/api/favorites", {
     method: "POST",
-    body: JSON.stringify({ name, carbs })
+    body: JSON.stringify(favorite)
   });
   const data = await toJson(response);
   if (!response.ok) throw new Error(data.detail || "Error guardando favorito");
   return data;
 }
 
+export async function updateFavorite(id, favorite) {
+  const response = await apiFetch(`/api/favorites/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(favorite)
+  });
+  const data = await toJson(response);
+  if (!response.ok) throw new Error(data.detail || "Error al actualizar favorito");
+  return data;
+}
+
 export async function deleteFavorite(id) {
-  const response = await apiFetch(`/api/user/favorites/${id}`, {
+  const response = await apiFetch(`/api/favorites/${id}`, {
     method: "DELETE"
   });
-  if (!response.ok) throw new Error("Error eliminando favorito");
+  if (!response.ok) {
+    const data = await toJson(response);
+    throw new Error(data.detail || "Error eliminando favorito");
+  }
   return true;
+}
+
+// Legacy Alias for backward compatibility
+export async function addFavorite(name, carbs) {
+  return saveFavorite({ name, carbs });
 }
 
 export async function getSupplies() {
