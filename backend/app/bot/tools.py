@@ -26,6 +26,7 @@ from app.models.forecast import (
 )
 from app.models.settings import UserSettings
 from app.services.treatment_logger import log_treatment
+from app.services.suggestion_engine import generate_suggestions_service, get_suggestions_service, resolve_suggestion_service
 
 logger = logging.getLogger(__name__)
 
@@ -102,6 +103,12 @@ class AddTreatmentResult(BaseModel):
     ns_error: Optional[str] = None
     saved_db: Optional[bool] = None
     saved_local: Optional[bool] = None
+
+
+class OptimizationResult(BaseModel):
+    suggestions: List[Dict[str, Any]]
+    run_summary: Dict[str, Any]
+    quality: str = "ok"
 
 
 def _build_ns_client(settings: UserSettings | None) -> Optional[NightscoutClient]:
@@ -460,7 +467,54 @@ async def add_treatment(tool_input: dict[str, Any]) -> AddTreatmentResult | Tool
         ns_error=result.ns_error or error_text,
         saved_db=result.saved_db,
         saved_local=result.saved_local,
+        saved_local=result.saved_local,
     )
+
+
+async def get_optimization_suggestions(days: int = 7) -> OptimizationResult | ToolError:
+    try:
+        user_settings = await _load_user_settings()
+        # Resolve User ID properly (from settings or default)
+        # Usually settings don't have user_id field explicitly if loaded from file?
+        # But we need user_id for DB queries.
+        engine = get_engine()
+        if not engine:
+             return ToolError(type="db_error", message="No hay base de datos disponible para análisis.")
+             
+        async with AsyncSession(engine) as session:
+            # We need a user_id. If "admin" is default...
+            # The service expects user_id column matches.
+            # Usually we use "admin" or get it from auth.
+            # Let's assume 'admin' if likely single user mode, or check settings.
+            user_id = "admin" # Default
+            
+            # 1. Run Analysis (Generate new)
+            run_stats = await generate_suggestions_service(user_id, days, session, settings=user_settings)
+            
+            # 2. Fetch Pending
+            suggestions_db = await get_suggestions_service(user_id, "pending", session)
+            
+            # Format
+            sugs_list = []
+            for s in suggestions_db:
+                sugs_list.append({
+                    "id": s.id,
+                    "slot": s.meal_slot,
+                    "param": s.parameter,
+                    "reason": s.reason,
+                    "evidence": s.evidence,
+                    "created_at": s.created_at.isoformat()
+                })
+                
+            return OptimizationResult(
+                suggestions=sugs_list,
+                run_summary=run_stats,
+                quality="high"
+            )
+
+    except Exception as exc:
+        logger.exception("Optimization suggestion failed")
+        return ToolError(type="runtime_error", message=str(exc))
 
 
 AI_TOOL_DECLARATIONS = [
@@ -540,6 +594,16 @@ AI_TOOL_DECLARATIONS = [
             },
         },
     },
+    {
+        "name": "get_optimization_suggestions",
+        "description": "Analiza patrones recientes (7 días) y sugiere cambios en ratios (ICR/ISF).",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "days": {"type": "INTEGER", "description": "Días a analizar", "default": 7},
+            },
+        },
+    },
 ]
 
 
@@ -568,6 +632,8 @@ async def execute_tool(name: str, args: Dict[str, Any]) -> Any:
             return await set_temp_mode(temp)
         if name == "add_treatment":
             return await add_treatment(args)
+        if name == "get_optimization_suggestions":
+            return await get_optimization_suggestions(days=int(args.get("days") or 7))
     except ValidationError as exc:
         return ToolError(type="validation_error", message=str(exc))
     except Exception as exc:  # pragma: no cover
