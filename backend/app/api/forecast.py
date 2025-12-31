@@ -1,4 +1,5 @@
 import re
+from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Query
 from typing import Optional, List
 from app.models.forecast import ForecastSimulateRequest, ForecastResponse, ForecastEvents, ForecastEventBolus, ForecastEventCarbs, SimulationParams
@@ -148,7 +149,7 @@ async def get_current_forecast(
     # 3. Fetch Treatments (Last 6 hours)
     from app.models.treatment import Treatment
     from sqlalchemy import select
-    from datetime import datetime, timedelta, timezone
+    # datetime imports moved to top level
     
     cutoff = datetime.now(timezone.utc) - timedelta(hours=6)
     
@@ -179,7 +180,7 @@ async def get_current_forecast(
                 _insulin = t.insulin
                 _carbs = t.carbs
                 _notes = t.notes
-                _duration = t.duration
+                _duration = getattr(t, "duration", 0)
                 
                 # Filter out obvious duplicates already in DB? 
                 # We do dedupe below, so just append.
