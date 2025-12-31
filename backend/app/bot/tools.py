@@ -121,7 +121,34 @@ def _build_ns_client(settings: UserSettings | None) -> Optional[NightscoutClient
     )
 
 
+
+async def _resolve_user_id(session: Optional[AsyncSession] = None) -> str:
+    """Helper to find the active username for tool operations."""
+    try:
+        from sqlalchemy import text
+        # If we have a session, try to find the first user in settings
+        if session:
+            # 1. Try 'admin' explicitly first as it's the standard default
+            from app.services.settings_service import get_user_settings_service
+            res = await get_user_settings_service("admin", session)
+            if res and res.get("settings"):
+                return "admin"
+                
+            # 2. Fallback: Any user who has settings configured
+            stmt = text("SELECT user_id FROM user_settings LIMIT 1")
+            row = (await session.execute(stmt)).fetchone()
+            if row:
+                return row[0]
+                
+        # If no session or no users found, default to admin
+        return "admin"
+    except Exception:
+        # Unexpected error (e.g. table not created yet), return admin
+        return "admin"
+
+
 async def _load_user_settings(username: str = "admin") -> UserSettings:
+
     user_settings = None
 
     # 1. Try DB First (Source of Truth for General Config)

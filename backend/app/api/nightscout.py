@@ -498,8 +498,9 @@ async def get_treatments_server(
     basal_treatments = []
     try:
         from app.services import basal_repo
-        # Fetch last 2 days of basal to be safe
-        basal_history = await basal_repo.get_dose_history(user.username, days=2)
+        # Fetch based on time window (convert hours to days, with buffer)
+        basal_days = max(2, int(ns_hours / 24) + 1)
+        basal_history = await basal_repo.get_dose_history(user.username, days=basal_days)
         
         for b in basal_history:
             # Check created_at
@@ -667,15 +668,25 @@ async def update_treatment(
     logger = logging.getLogger(__name__)
     
     from app.models.treatment import Treatment
+    from app.models.basal import BasalEntry
     from sqlalchemy import select
     
     updated_in_db = False
     
-    # 1. Local DB
+    # 1. Local DB (Treatments/Bolus)
+    import uuid
+    is_uuid = len(id) >= 24
     try:
+        # Try with current user first
         stmt = select(Treatment).where(Treatment.id == id, Treatment.user_id == user.username)
         res = await session.execute(stmt)
         db_item = res.scalar_one_or_none()
+        
+        # Fallback: Search by ID only if it looks like a unique identifier
+        if not db_item and is_uuid:
+            stmt = select(Treatment).where(Treatment.id == id)
+            res = await session.execute(stmt)
+            db_item = res.scalar_one_or_none()
         
         if db_item:
              if payload.insulin is not None: db_item.insulin = payload.insulin
@@ -695,12 +706,46 @@ async def update_treatment(
     except Exception as e:
         logger.error(f"Error updating local DB treatment: {e}")
         
+    # 1.1 Local DB (Basal)
+    if not updated_in_db:
+        try:
+            # Handle UUID conversion for basal_dose table
+            target_uuid = None
+            try: target_uuid = uuid.UUID(id)
+            except: pass
+            
+            if target_uuid:
+                stmt = select(BasalEntry).where(BasalEntry.id == target_uuid, BasalEntry.user_id == user.username)
+                res = await session.execute(stmt)
+                basal_item = res.scalar_one_or_none()
+                
+                # Fallback: ID only
+                if not basal_item:
+                    stmt = select(BasalEntry).where(BasalEntry.id == target_uuid)
+                    res = await session.execute(stmt)
+                    basal_item = res.scalar_one_or_none()
+            
+                if basal_item:
+                    if payload.insulin is not None: basal_item.dose_u = payload.insulin
+                    if payload.created_at:
+                        try:
+                            dt = datetime.fromisoformat(payload.created_at.replace("Z", "+00:00"))
+                            basal_item.effective_from = dt.date()
+                            basal_item.created_at = dt.astimezone(timezone.utc).replace(tzinfo=None)
+                        except:
+                            pass
+                    
+                    await session.commit()
+                    updated_in_db = True
+        except Exception as e:
+            logger.error(f"Error updating local basal dose: {e}")
+            
     # 2. Nightscout (Propagate or Primary)
     ns_updated = False
     
-    is_uuid = len(id) == 36
+    is_uuid = len(id) >= 24 # Relaxed check to include potential UUIDs or Nightscout IDs
     
-    if not updated_in_db and not is_uuid:
+    if not updated_in_db:
          ns = await get_ns_config(session, user.username)
          if ns and ns.enabled and ns.url:
              try:
@@ -716,14 +761,13 @@ async def update_treatment(
                  ns_updated = True
              except Exception as e:
                  logger.error(f"Error updating NS treatment: {e}")
-                 if not updated_in_db:
-                     raise HTTPException(status_code=500, detail=f"Failed to update treatment: {str(e)}")
+                 # If it had a UUID length, we expected to find it locally. 
+                 # But we still tried NS. If both failed, we'll return 404 below.
+                 if not updated_in_db and not is_uuid:
+                      raise HTTPException(status_code=500, detail=f"Failed to update treatment: {str(e)}")
 
-    if not updated_in_db:
-        if is_uuid:
-             raise HTTPException(status_code=404, detail="Treatment not found in Local DB")
-        elif not ns_updated:
-             pass
+    if not updated_in_db and not ns_updated:
+        raise HTTPException(status_code=404, detail="Treatment not found in Local DB or Nightscout")
 
     return {"success": True, "updated_db": updated_in_db, "updated_ns": ns_updated}
 
@@ -735,17 +779,28 @@ async def delete_treatment(
     session: AsyncSession = Depends(get_db_session),
 ):
     from app.models.treatment import Treatment
+    from app.models.basal import BasalEntry
     from sqlalchemy import select
     import logging
     logger = logging.getLogger(__name__)
     
     deleted_in_db = False
     
-    # 1. Local DB
+    # 1. Local DB (Treatments)
+    import uuid
+    is_uuid = len(id) >= 24
     try:
+        # Try with current user first
         stmt = select(Treatment).where(Treatment.id == id, Treatment.user_id == user.username)
         res = await session.execute(stmt)
         db_item = res.scalar_one_or_none()
+        
+        # Fallback: Search by ID only
+        if not db_item and is_uuid:
+            stmt = select(Treatment).where(Treatment.id == id)
+            res = await session.execute(stmt)
+            db_item = res.scalar_one_or_none()
+            
         if db_item:
             await session.delete(db_item)
             await session.commit()
@@ -753,11 +808,37 @@ async def delete_treatment(
     except Exception as e:
          logger.error(f"Error deleting from DB: {e}")
          
+    # 1.1 Local DB (Basal)
+    if not deleted_in_db:
+        try:
+            # Handle UUID conversion for basal_dose table
+            target_uuid = None
+            try: target_uuid = uuid.UUID(id)
+            except: pass
+            
+            if target_uuid:
+                stmt = select(BasalEntry).where(BasalEntry.id == target_uuid, BasalEntry.user_id == user.username)
+                res = await session.execute(stmt)
+                basal_item = res.scalar_one_or_none()
+                
+                # Fallback: ID only
+                if not basal_item:
+                    stmt = select(BasalEntry).where(BasalEntry.id == target_uuid)
+                    res = await session.execute(stmt)
+                    basal_item = res.scalar_one_or_none()
+                    
+                if basal_item:
+                    await session.delete(basal_item)
+                    await session.commit()
+                    deleted_in_db = True
+        except Exception as e:
+             logger.error(f"Error deleting basal from DB: {e}")
+             
     # 2. Nightscout
-    is_uuid = len(id) == 36
+    is_uuid = len(id) >= 24
     ns_deleted = False
     
-    if not deleted_in_db and not is_uuid:
+    if not deleted_in_db:
          ns = await get_ns_config(session, user.username)
          if ns and ns.enabled and ns.url:
              try:
@@ -767,11 +848,10 @@ async def delete_treatment(
                  ns_deleted = True
              except Exception as e:
                  logger.error(f"Error deleting from NS: {e}")
-                 if not deleted_in_db:
-                     raise HTTPException(status_code=500, detail=f"Failed to delete: {str(e)}")
+                 if not deleted_in_db and not is_uuid:
+                      raise HTTPException(status_code=500, detail=f"Failed to delete: {str(e)}")
 
-    if not deleted_in_db:
-         if is_uuid:
-             raise HTTPException(status_code=404, detail="Treatment not found")
+    if not deleted_in_db and not ns_deleted:
+        raise HTTPException(status_code=404, detail="Treatment not found")
          
     return {"success": True, "deleted_db": deleted_in_db, "deleted_ns": ns_deleted}
