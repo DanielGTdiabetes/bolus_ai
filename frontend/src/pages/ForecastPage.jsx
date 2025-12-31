@@ -62,8 +62,8 @@ export default function ForecastPage() {
                 <div className="card" style={{ padding: '1rem', marginBottom: '1rem' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
                         <h2 style={{ fontSize: '1.2rem', margin: 0, color: '#1e293b' }}>Simulación a 6 Horas</h2>
-                        <button onClick={loadForecast} style={{ background: 'none', border: 'none', color: '#3b82f6', cursor: 'pointer' }}>
-                            🔄 Actualizar
+                        <button onClick={loadForecast} disabled={loading} style={{ background: 'none', border: 'none', color: loading ? '#94a3b8' : '#3b82f6', cursor: loading ? 'wait' : 'pointer' }}>
+                            {loading ? '⏳ Cargando...' : '🔄 Actualizar'}
                         </button>
                     </div>
 
