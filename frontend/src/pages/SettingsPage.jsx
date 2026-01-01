@@ -1479,30 +1479,88 @@ function LabsPanel() {
 
     const handleUpdateLearning = async (enabled) => {
         if (!settings) return;
-        // Update labs.shadow_mode_enabled
-        const updated = {
-            ...settings,
-            labs: { ...settings.labs, shadow_mode_enabled: enabled }
-        };
+
         try {
-            await updateSettings(updated);
+            // 1. Optimistic Update
+            setSettings(prev => ({ ...prev, labs: { ...prev.labs, shadow_mode_enabled: enabled } }));
+
+            // 2. Prepare Payload
+            const payload = {
+                ...settings,
+                labs: { ...settings.labs, shadow_mode_enabled: enabled }
+            };
+
+            await updateSettings(payload);
+
+            // 3. Confirm with fresh data
             const fresh = await getSettings();
             setSettings(fresh);
-        } catch (e) { alert(e.message); }
+        } catch (e) {
+            if (e.isConflict && e.serverSettings) {
+                console.log("Conflict detected, retrying with server version...");
+                try {
+                    // Retry with server settings
+                    const retryPayload = {
+                        ...e.serverSettings,
+                        labs: { ...e.serverSettings.labs, shadow_mode_enabled: enabled }
+                    };
+                    await updateSettings(retryPayload);
+                    const fresh = await getSettings();
+                    setSettings(fresh);
+                } catch (retryErr) {
+                    alert("Error tras reintento: " + retryErr.message);
+                    const fresh = await getSettings();
+                    setSettings(fresh);
+                }
+            } else {
+                alert("Error: " + e.message);
+                // Revert
+                const fresh = await getSettings();
+                setSettings(fresh);
+            }
+        }
     };
 
     const handleUpdateAutonomy = async (enabled) => {
         if (!settings) return;
-        // Map to learning.auto_apply_safe for now, as autonomy_enabled doesn't exist
-        const updated = {
-            ...settings,
-            learning: { ...settings.learning, auto_apply_safe: enabled }
-        };
+
         try {
-            await updateSettings(updated);
+            // 1. Optimistic Update
+            setSettings(prev => ({ ...prev, learning: { ...prev.learning, auto_apply_safe: enabled } }));
+
+            // 2. Prepare Payload
+            const payload = {
+                ...settings,
+                learning: { ...settings.learning, auto_apply_safe: enabled }
+            };
+
+            await updateSettings(payload);
+
+            // 3. Confirm
             const fresh = await getSettings();
             setSettings(fresh);
-        } catch (e) { alert(e.message); }
+        } catch (e) {
+            if (e.isConflict && e.serverSettings) {
+                console.log("Conflict detected on Autonomy, retrying...");
+                try {
+                    const retryPayload = {
+                        ...e.serverSettings,
+                        learning: { ...e.serverSettings.learning, auto_apply_safe: enabled }
+                    };
+                    await updateSettings(retryPayload);
+                    const fresh = await getSettings();
+                    setSettings(fresh);
+                } catch (retryErr) {
+                    alert("Error tras reintento: " + retryErr.message);
+                    const fresh = await getSettings();
+                    setSettings(fresh);
+                }
+            } else {
+                alert("Error: " + e.message);
+                const fresh = await getSettings();
+                setSettings(fresh);
+            }
+        }
     };
 
     if (loading) return <div className="p-4 text-center">Cargando Labs...</div>;
