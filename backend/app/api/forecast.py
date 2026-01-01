@@ -152,7 +152,7 @@ async def get_current_forecast(
     from sqlalchemy import select
     # datetime imports moved to top level
     
-    cutoff = datetime.now(timezone.utc) - timedelta(hours=6)
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=12)
     
     # 3.0 Fetch DB Treatments
     stmt = (
@@ -170,7 +170,7 @@ async def get_current_forecast(
         try:
             client = NightscoutClient(ns_config.url, ns_config.api_secret, timeout_seconds=5)
             # Fetch last 6 hours
-            ns_treatments = await client.get_recent_treatments(hours=6, limit=200)
+            ns_treatments = await client.get_recent_treatments(hours=12, limit=200)
             await client.aclose()
             
             # Convert NS treatments to pseudo-Treatment objects for uniform processing
@@ -489,12 +489,29 @@ async def get_current_forecast(
 
     # Flag for UI
     is_slow_absorption = False
+    slow_reason = None
+    
     if future_insulin_u and future_insulin_u > 0:
         is_slow_absorption = True
+        slow_reason = "Bolo Dual Pendiente"
     elif has_warsaw_trigger:
         is_slow_absorption = True
-    elif any(c.absorption_minutes and c.absorption_minutes >= 300 for c in carbs):
-        is_slow_absorption = True
+        slow_reason = "Comida Grasa / Dual"
+        
+    # Check specificity
+    for c in carbs:
+         if c.absorption_minutes and c.absorption_minutes >= 300:
+             is_slow_absorption = True
+             time_ago_h = abs(c.time_offset_min) / 60.0 if c.time_offset_min < 0 else 0
+             
+             if c.absorption_minutes == 480:
+                 slow_reason = f"Modo Alcohol (8h - hace {time_ago_h:.1f}h)"
+             elif c.absorption_minutes >= 300:
+                 slow_reason = f"Absorción Lenta ({c.absorption_minutes/60:.1f}h - hace {time_ago_h:.1f}h)"
+             break
+
+    if is_slow_absorption and not slow_reason:
+        slow_reason = "Absorción Lenta Activa"
 
     # 4. Construct Request
     # Current params
@@ -557,6 +574,7 @@ async def get_current_forecast(
     
     response = ForecastEngine.calculate_forecast(payload)
     response.slow_absorption_active = is_slow_absorption
+    response.slow_absorption_reason = slow_reason
     
     # If we added future insulin, run a baseline simulation (without it) for comparison
     if future_insulin_u and future_insulin_u > 0:

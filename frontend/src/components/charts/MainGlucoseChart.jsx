@@ -242,7 +242,7 @@ export function MainGlucoseChart({ isLow, predictionData }) {
                     {/* Mode Badge within Chart */}
                     {predictionData?.slow_absorption_active && (
                         <text x="50%" y="30" textAnchor="middle" fill="#f59e0b" fontSize="12" fontWeight="bold" opacity="0.8">
-                            🐢 Modo Absorción Lenta Activo (&gt;5h)
+                            🐢 {predictionData.slow_absorption_reason || "Modo Absorción Lenta Activo (>5h)"}
                         </text>
                     )}
 
