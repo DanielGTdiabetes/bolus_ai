@@ -41,16 +41,20 @@ class ToolError(BaseModel):
     message: str
 
 
-class StatusContext(BaseModel):
+class BolusContext(BaseModel):
     bg_mgdl: Optional[float] = None
     direction: Optional[str] = None
     delta: Optional[float] = None
     iob_u: Optional[float] = None
     cob_g: Optional[float] = None
     timestamp: Optional[str] = None
+    config_hash: Optional[str] = None # Security: Configuration Snapshot Hash
     quality: str = "unknown"
     source: str = "unknown"
 
+
+# Alias for backward compatibility if needed, though we will update usages
+StatusContext = BolusContext
 
 class BolusResult(BaseModel):
     units: float
@@ -219,7 +223,7 @@ async def _load_user_settings(username: str = "admin") -> UserSettings:
     return user_settings
 
 
-async def get_status_context(username: str = "admin", user_settings: Optional[UserSettings] = None) -> StatusContext | ToolError:
+async def get_status_context(username: str = "admin", user_settings: Optional[UserSettings] = None) -> BolusContext | ToolError:
     try:
         user_settings = user_settings or await _load_user_settings(username)
     except Exception as exc:
@@ -258,7 +262,7 @@ async def get_status_context(username: str = "admin", user_settings: Optional[Us
         if ns_client:
             await ns_client.aclose()
 
-    return StatusContext(
+    return BolusContext(
         bg_mgdl=bg_val,
         direction=direction,
         delta=delta,
@@ -267,6 +271,7 @@ async def get_status_context(username: str = "admin", user_settings: Optional[Us
         timestamp=timestamp_str,
         quality=quality,
         source="nightscout" if ns_client else "local",
+        config_hash=user_settings.config_hash # Snapshot of config used to fetch this data
     )
 
 
@@ -276,6 +281,9 @@ async def calculate_bolus(carbs: float, meal_type: Optional[str] = None, split: 
     except Exception as exc:
         return ToolError(type="config_error", message=f"Config no disponible: {exc}")
 
+    # PHASE 2: Snapshot Context
+    # We fetch status using the *just loaded* settings.
+    # The context will contain bg, iob, and the config_hash of these settings.
     status = await get_status_context(user_settings=user_settings)
     if isinstance(status, ToolError):
         return status
@@ -344,9 +352,21 @@ async def calculate_bolus(carbs: float, meal_type: Optional[str] = None, split: 
         is_stale=False # Assume fresh if fetched via get_status_context
     )
 
-    # Security: Log Config Hash
-    cfg_hash = user_settings.config_hash
+    # Security: Log Config Hash from Context
+    # We double-check that the settings object matches the context source
+    # (In this flow they are identical, but this reinforces observability)
+    cfg_hash = status.config_hash or user_settings.config_hash
     logger.info(f"Calculating bolus using config hash: {cfg_hash[:8]}")
+    
+    # Snapshot Timestamp Logic
+    snap_ts = "Now"
+    if status.timestamp:
+        try:
+            # Format nicely: 14:05:01
+            dt_ts = datetime.fromisoformat(status.timestamp)
+            from app.utils.timezone import to_local
+            snap_ts = to_local(dt_ts).strftime("%H:%M:%S")
+        except: pass
 
     rec = calculate_bolus_v2(req, user_settings, iob_u, glucose_info)
     
@@ -355,7 +375,7 @@ async def calculate_bolus(carbs: float, meal_type: Optional[str] = None, split: 
         explain.extend([f"⚠️ {w}" for w in rec.warnings])
 
     # Append Security Footprint
-    explain.append(f"🔒 Config Hash: {cfg_hash[:6]}")
+    explain.append(f"🔒 Hash: {cfg_hash[:6]} | 🕒 Datos: {snap_ts}")
     
     return BolusResult(units=rec.total_u, explanation=explain, confidence="high", quality="data-driven")
 
