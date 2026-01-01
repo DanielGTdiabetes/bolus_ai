@@ -177,5 +177,34 @@ Define cuándo y cuánto corregir por comidas grasas.
 
 ---
 
-## 13. ⚠️ Descargo de Responsabilidad Médico
+## 13. 🤖 Asistente IA (Bot Telegram)
+
+El Bot de Telegram es tu copiloto 24/7. Puedes enviarle fotos, textos o **audios** y él se encargará de interpretar tu intención y configurar la app por ti.
+
+### ¿Qué puede hacer?
+- **Registrar Comidas**: *"He comido 50g de arroz y pollo"*.
+- **Interpretar Fotos**: Envía una foto de tu plato para que la IA estime las raciones.
+- **Consultas de Estado**: *"¿Cómo voy?"* (te da glucosa, IOB y predicción a 4h).
+- **Proactividad**: Te avisa proactivamente si olvidaste la basal, si detecta una subida sin bolo, o si es hora de la segunda parte de una comida grasa.
+
+### 🎓 Ejemplo Real: "La Cena Compleja" (Tipo Nochevieja)
+Gestionar una cena larga con entrantes, grasas y alcohol es el escenario más difícil para un diabético. Así es como el Bot simplifica el "Efecto Pizza":
+
+1.  **Tú (Audio)**: *"Oye, voy a cenar de picoteo: hay fritos, tartaletas de atún, y de plato principal salmón en hojaldre con crema. También tomaré vino."*
+2.  **El Bot (Análisis Inteligente)**:
+    - **Reconocimiento**: Identifica los hidratos rápidos (tartaletas, masa) y la carga fuerte de **Grasa/Proteína** (fritos, salmón, crema).
+    - **Seguridad**: Detecta la palabra **"Vino"** y activa el *Modo Alcohol* (reduce agresividad de correcciones futuras).
+3.  **La Propuesta (Estrategia Warsaw)**:
+    - El Bot te responde: *"Detecto una comida rica en grasas y alcohol. Sugiero activar **Bolo Dividido (Estrategia Warsaw)** para evitar hipoglucemias ahora e hiperglucemias luego:"*
+        - 💉 **Dosis Inmediata (60%)**: Para cubrir los hidratos del picoteo.
+        - ⏳ **Dosis Extendida (+2.5h)**: El 40% restante, programado para cuando la grasa empiece a subir.
+4.  **El Seguimiento (Piloto Automático)**:
+    - Tú aceptas y disfrutas la cena sin mirar el móvil.
+    - A las 2.5h, el Bot analiza tu glucosa de nuevo.
+        - **Escenario A**: Estás subiendo. Te envía un mensaje: *"⏰ Hora de la 2ª parte. Tu glucosa empieza a subir (160 ↗️). ¿Registramos el resto?"*
+        - **Escenario B**: El alcohol te ha bajado la glucosa. Te envía: *"⚠️ Cuidado. Toca la 2ª parte pero estás en 80 mg/dL por el alcohol. **He cancelado la dosis extendida** por seguridad."*
+
+---
+
+## 14. ⚠️ Descargo de Responsabilidad Médico
 Esta aplicación es una **herramienta de apoyo** a la decisión. Los cálculos son estimaciones basadas en algoritmos matemáticos y no deben sustituir el criterio clínico. **Verifica siempre los datos antes de administrarte insulina.**
