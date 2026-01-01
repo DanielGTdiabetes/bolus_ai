@@ -16,6 +16,8 @@ from app.services.basal_repo import get_latest_basal_dose
 from app.services.nightscout_secrets_service import get_ns_config
 from app.services.nightscout_secrets_service import get_ns_config
 from app.bot import tools, context_builder
+from app.services.isf_analysis_service import IsfAnalysisService
+from app.models.isf import IsfAnalysisResponse
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 logger = logging.getLogger(__name__)
@@ -1190,3 +1192,84 @@ async def trend_alert(username: str = "admin", chat_id: Optional[int] = None, tr
 
     from app.bot.llm import router
     await router.handle_event(username, chat_id, "trend_alert", payload)
+
+async def check_isf_suggestions(username: str = "admin", chat_id: Optional[int] = None, trigger: str = "auto") -> None:
+    # 0. Resolve User
+    if username == "admin":
+        from app.core import config
+        username = config.get_bot_default_username()
+    
+    # 1. Config & Enabled Check
+    try:
+        user_settings = await context_builder.get_bot_user_settings_safe()
+        if not user_settings.bot.enabled: return
+    except Exception: return
+    
+    chat_id = chat_id or await _get_chat_id()
+    if not chat_id: return
+    
+    # 2. Prepare Analysis Service
+    # We need NS Client and Profile from Settings
+    from app.services.nightscout_client import NightscoutClient
+    global_settings = get_settings()
+    
+    ns_url = user_settings.nightscout.url or global_settings.nightscout.base_url
+    ns_token = user_settings.nightscout.token or global_settings.nightscout.token
+    
+    if not ns_url: return
+    
+    # Construct simplistic profile for analysis
+    current_cf = {
+        "breakfast": getattr(user_settings.cf, "breakfast", 30.0),
+        "lunch": getattr(user_settings.cf, "lunch", 30.0),
+        "dinner": getattr(user_settings.cf, "dinner", 30.0)
+    }
+    profile_settings = {
+        "dia_hours": getattr(user_settings.iob, "dia_hours", 4.0),
+        "curve": getattr(user_settings.iob, "curve", "bilinear"),
+        "peak_minutes": getattr(user_settings.iob, "peak_minutes", 75)
+    }
+
+    client = NightscoutClient(str(ns_url), ns_token)
+    service = IsfAnalysisService(client, current_cf, profile_settings)
+    
+    try:
+        # Run 14 day analysis
+        result: IsfAnalysisResponse = await service.run_analysis(username, days=14)
+        
+        # 3. Check for actionable items
+        actionable = []
+        for bucket in result.buckets:
+            if bucket.status in ["strong_drop", "weak_drop"] and bucket.confidence == "high":
+                actionable.append(bucket)
+                
+        if not actionable:
+            if trigger == "manual":
+                await _send(None, chat_id, "✅ Análisis completado. Sin cambios sugeridos.", log_context="isf_check_manual")
+            return
+
+        # 4. Check Persistence (Don't spam daily if already notified recently?)
+        # For now, simplistic approach: Notify if found. User complained about NOT receiving.
+        # But we should probably have a cooldown logic, e.g. once per week per item?
+        # Let's rely on standard cooldown
+        if not cooldowns.is_ready("isf_check", 3600 * 24 * 3): # 3 days cooldown
+             if trigger == "manual": pass # force show
+             else: return
+        
+        # 5. Send Notification
+        msg = "📉 **Análisis de Sensibilidad (ISF)**\n\nHe detectado que tu configuración podría mejorarse:\n"
+        for item in actionable:
+            emoji = "🔴" if item.suggestion_type == "decrease" else "🔵"
+            msg += f"\n{emoji} **{item.label}**: ISF {item.current_isf} ➔ **{item.suggested_isf}**\n"
+            msg += f"   Razón: {item.status} ({int(item.change_ratio*100)}% cambio)\n"
+            
+        msg += "\nVe a **Ajustes > Análisis** para aplicar estos cambios."
+        
+        await _send(None, chat_id, msg, log_context="isf_check_notification")
+        
+    except Exception as e:
+        logger.error(f"ISF Check failed: {e}")
+        if trigger == "manual":
+             await _send(None, chat_id, f"⚠️ Error analizando ISF: {e}", log_context="isf_check_error")
+    finally:
+        await client.aclose()

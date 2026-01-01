@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Button } from '../ui/Atoms';
 import { fetchIsfAnalysis } from '../../lib/api';
+import { getCalcParams, saveCalcParams } from '../../modules/core/store';
 
 const COLORS = {
     ok: '#22c55e', // green
@@ -144,6 +145,28 @@ function BucketCard({ stat }) {
     const color = COLORS[stat.status] || COLORS.insufficient_data;
     const label = LABELS[stat.status] || stat.status;
 
+    const handleApply = () => {
+        if (!window.confirm(`¿Confirmas cambiar el ISF de ${stat.current_isf} a ${stat.suggested_isf} para el horario ${stat.label}?`)) return;
+
+        const store = getCalcParams() || {};
+        const map = {
+            "morn": "breakfast",
+            "afternoon": "lunch",
+            "night": "dinner",
+            "madrugada": "dinner"
+        };
+        const slot = map[stat.bucket] || "lunch";
+
+        // Load default structure if missing
+        if (!store[slot]) store[slot] = { isf: 50, icr: 10, target: 110 };
+
+        store[slot].isf = stat.suggested_isf;
+        saveCalcParams(store);
+
+        alert("¡Cambio aplicado correctamente! Se ha actualizado la configuración.");
+        window.location.reload(); // Refresh to reflect changes in SettingsPage
+    };
+
     return (
         <div style={{
             background: 'white',
@@ -218,10 +241,10 @@ function BucketCard({ stat }) {
                         <span style={{ fontSize: '0.85rem', color: '#64748b' }}>Nuevo valor recomendado:</span>
                         <span style={{ fontSize: '1.1rem', fontWeight: 800, color: '#1e293b' }}>{stat.suggested_isf}</span>
                     </div>
-                    <div style={{ marginTop: '0.5rem', display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-                        <p style={{ margin: 0, fontSize: '0.75rem', color: '#94a3b8', fontStyle: 'italic', width: '100%' }}>
-                            Ve arriba y ajusta el ISF manualmente a <b>{stat.suggested_isf}</b> si estás de acuerdo.
-                        </p>
+                    <div style={{ marginTop: '0.5rem' }}>
+                        <Button onClick={handleApply} style={{ width: '100%', justifyContent: 'center' }}>
+                            ✅ Aceptar y Aplicar ISF
+                        </Button>
                     </div>
                 </div>
             )}

@@ -160,6 +160,15 @@ def setup_periodic_tasks():
         jobs_state.refresh_next_run("premeal")
         schedule_task(_run_combo, CronTrigger(minute='*/30'), "combo_followup")
 
+        async def _run_isf_check():
+            try:
+                await jobs_state.run_job("isf_check", proactive.check_isf_suggestions)
+            except AttributeError:
+                pass # proactive might not have it yet if hot-reloading issues, but usually fine
+
+        schedule_task(_run_isf_check, CronTrigger(hour=10, minute=0), "isf_check")
+        jobs_state.refresh_next_run("isf_check")
+
 
 async def run_data_cleanup():
     """
