@@ -42,6 +42,8 @@ USO DE HERRAMIENTAS:
 - Si el usuario pregunta "¿cómo voy?", usa `get_status_context`.
 - Si el usuario pregunta "¿cuánto me pongo?", busca si hay glucosa alta o carbos pendientes y usa la herramienta adecuada.
 - SI UNA TOOL RETORNA UN RESULTADO: Úsalo para construir tu respuesta final. NO ignores el resultado de la tool.
+- Si el usuario pregunta "qué tal la noche?", "resumen noche" o similar, usa `get_nightscout_stats(range_hours=9)`.
+  * Importante: Menciona el Promedio, el Mínimo y Máximo alcanzado (muy útil), y si hubo hipos.
 
 SI FALLA NIGHTSCOUT (Contexto degradado):
 - Di explícitamente: "No puedo acceder a tus datos en tiempo real (Nightscout desconectado)."

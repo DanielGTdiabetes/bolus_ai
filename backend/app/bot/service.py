@@ -1028,8 +1028,12 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         file = await context.bot.get_file(photo.file_id)
         image_bytes = await file.download_as_bytearray()
         
+        # Fetch Settings/Keys
+        user_settings = await get_bot_user_settings(update.effective_user.username)
+        gemini_key = user_settings.vision.gemini_key
+        
         # Call AI
-        raw_response = await ai.analyze_image(image_bytes)
+        raw_response = await ai.analyze_image(image_bytes, api_key=gemini_key)
         
         # Parse JSON
         import json

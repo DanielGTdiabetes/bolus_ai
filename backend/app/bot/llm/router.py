@@ -103,6 +103,10 @@ async def handle_text(username: str, chat_id: int, user_text: str, context_data:
     # 1. Config & Registry
     api_key = config.get_google_api_key()
     if not api_key:
+        user_settings = await context_builder.get_bot_user_settings_safe()
+        api_key = user_settings.vision.gemini_key
+
+    if not api_key:
         return BotReply("⚠️ Error: API Key de IA no configurada.")
     
     genai.configure(api_key=api_key)
@@ -153,19 +157,31 @@ async def handle_text(username: str, chat_id: int, user_text: str, context_data:
         system_prompt += conversation_block
 
     # 5. Initialize Model
-    model_name = config.get_gemini_model()
-    model = genai.GenerativeModel(model_name, tools=gemini_tools)
+    # 5. Initialize Model (Robust Selection)
+    primary_model = config.get_gemini_model()
+    models_to_try = [primary_model]
+    if "gemini-1.5-flash" not in primary_model:
+        models_to_try.append("gemini-1.5-flash")
+
+    chat = None
+    model_used = None
+    last_error = None
+
+    for model_name in models_to_try:
+        try:
+             # We use chat session for the loop
+             model = genai.GenerativeModel(model_name, tools=gemini_tools, system_instruction=system_prompt)
+             chat = model.start_chat()
+             model_used = model_name
+             break
+        except Exception as e:
+             last_error = e
+             logger.warning(f"Router Model Init Failed ({model_name}): {e}")
+             continue
     
-    # 6. Loop (max 2 rounds)
-    # We use chat session for the loop
-    chat = model.start_chat(enable_automatic_function_calling=False) # We handle calling manually for control
-    
-    # Initial Message
-    # We combine system prompt + User text because `start_chat` history is empty initially.
-    # Actually, system_instruction should be set on model init? 
-    # Gemini python sdk: model = genai.GenerativeModel(..., system_instruction=...)
-    model = genai.GenerativeModel(model_name, tools=gemini_tools, system_instruction=system_prompt)
-    chat = model.start_chat()
+    if not chat:
+         logger.error(f"All router models failed. Last: {last_error}")
+         return BotReply(f"⚠️ Error iniciando IA ({model_used}): {last_error}")
 
     reply_text = "..."
     final_buttons = None
@@ -608,18 +624,45 @@ async def handle_event(username: str, chat_id: int, event_type: str, payload: Di
     # "El router decide... si pedir acción".
     # Let's use the same `genai` setup but single prompt.
     
-    api_key = config.get_google_api_key()
-    if not api_key:
-        return None
-    genai.configure(api_key=api_key)
-    model_name = config.get_gemini_model()
-    model = genai.GenerativeModel(model_name) # No tools needed for decision phase usually, or we can add them.
-    
     # Combine prompts
     full_prompt = f"{system_prompt}\n\nCONTEXTO:\n{json.dumps(ctx, default=str)}\n\n{event_prompt}"
+
+    api_key = config.get_google_api_key()
+    if not api_key:
+        # Fallback Settings
+        user_settings = await context_builder.get_bot_user_settings_safe()
+        api_key = user_settings.vision.gemini_key
+
+    if not api_key:
+        return None
+
+    genai.configure(api_key=api_key)
+    
+    # Model Fallback
+    primary_model = config.get_gemini_model()
+    models_to_try = [primary_model]
+    if "gemini-1.5-flash" not in primary_model:
+         models_to_try.append("gemini-1.5-flash")
+
+    response = None
+    last_error = None
+
+    for model_name in models_to_try:
+        try:
+            model = genai.GenerativeModel(model_name)
+            response = await model.generate_content_async(full_prompt)
+            break
+        except Exception as e:
+            last_error = e
+            continue
+    
+    if not response:
+         logger.error(f"Event LLM failed all models: {last_error}")
+         return None
     
     try:
-        response = await model.generate_content_async(full_prompt)
+        # response is already ready
+
         text = ""
         if response.candidates:
             for part in response.candidates[0].content.parts:

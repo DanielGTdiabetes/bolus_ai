@@ -21,50 +21,70 @@ def _configure_genai():
     genai.configure(api_key=api_key)
     _configured = True
 
-async def analyze_image(image_bytes: bytes, mime_type: str = "image/jpeg") -> str:
+async def analyze_image(image_bytes: bytes, mime_type: str = "image/jpeg", api_key: Optional[str] = None) -> str:
     """
     Analyzes an image (food plate) using Gemini Flash (Vision optimized).
     Returns the raw text response (JSON or description).
     """
-    _configure_genai()
+    if api_key:
+        genai.configure(api_key=api_key)
+    else:
+        _configure_genai()
     
     # Always use Flash for Vision (Cost/Speed efficient)
-    model_name = config.get_gemini_model() # Default: gemini-3-flash-preview
+    primary_model = config.get_gemini_model()
+    models_to_try = [primary_model]
+    if "gemini-1.5-flash" not in primary_model:
+        models_to_try.append("gemini-1.5-flash")
+
+    last_error = None
+
+    for model_name in models_to_try:
+        try:
+            model = genai.GenerativeModel(model_name)
+            
+            # Standard Prompt for Food Analysis
+            prompt = (
+                "Eres un experto nutricionista diabetológico. Analiza esta imagen.\n"
+                "Identifica los alimentos y estima los carbohidratos (en gramos) de cada uno.\n"
+                "Devuelve SOLO un JSON con este formato:\n"
+                "{\n"
+                "  \"alimentos\": [{\"nombre\": \"Patatas\", \"g_carbo\": 30, \"confianza\": \"alta\"}],\n"
+                "  \"total_carbs\": 30,\n"
+                "  \"consejo\": \"Ojo con la grasa.\"\n"
+                "}"
+            )
+            
+            # Prepare content parts
+            cookie_picture = {
+                'mime_type': mime_type,
+                'data': image_bytes
+            }
+            
+            # Add Timeout (25s)
+            response = await asyncio.wait_for(
+                model.generate_content_async([prompt, cookie_picture]),
+                timeout=25.0
+            )
+            return response.text
+
+        except asyncio.TimeoutError:
+            logger.error(f"Gemini Vision Timeout ({model_name})")
+            last_error = "Timeout"
+            # Don't retry on timeout to save time? Or try fallback? Fallback might be faster.
+            continue 
+        except Exception as e:
+            logger.warning(f"Gemini Vision Error ({model_name}): {e}")
+            last_error = str(e)
+            continue
     
-    try:
-        model = genai.GenerativeModel(model_name)
+    if last_error == "Timeout":
+         return "⚠️ La imagen tardó mucho en procesarse. Intenta con una más pequeña."
+         
+    logger.error(f"All vision attempts failed. Last error: {last_error}")
+    return "Error al analizar la imagen. Verifica tu API Key o intenta de nuevo."
         
-        # Standard Prompt for Food Analysis
-        prompt = (
-            "Eres un experto nutricionista diabetológico. Analiza esta imagen.\n"
-            "Identifica los alimentos y estima los carbohidratos (en gramos) de cada uno.\n"
-            "Devuelve SOLO un JSON con este formato:\n"
-            "{\n"
-            "  \"alimentos\": [{\"nombre\": \"Patatas\", \"g_carbo\": 30, \"confianza\": \"alta\"}],\n"
-            "  \"total_carbs\": 30,\n"
-            "  \"consejo\": \"Ojo con la grasa.\"\n"
-            "}"
-        )
-        
-        # Prepare content parts
-        cookie_picture = {
-            'mime_type': mime_type,
-            'data': image_bytes
-        }
-        
-        # Add Timeout (25s)
-        response = await asyncio.wait_for(
-            model.generate_content_async([prompt, cookie_picture]),
-            timeout=25.0
-        )
-        return response.text
-        
-    except asyncio.TimeoutError:
-        logger.error("Gemini Vision Timeout")
-        return "⚠️ La imagen tardó mucho en procesarse. Intenta con una más pequeña."
-    except Exception as e:
-        logger.error(f"Gemini Vision Error: {e}")
-        return "Error al analizar la imagen. Inténtalo de nuevo."
+
 
 async def chat_completion(
     message: str, 
