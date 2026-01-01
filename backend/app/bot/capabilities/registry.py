@@ -10,7 +10,6 @@ from app.bot import proactive as bot_proactive
 from app.bot import proactive as bot_proactive
 
 from app.core.scheduler import get_scheduler
-from app.services import bolus as bolus_service
 from app.services import bolus_engine, bolus_split
 from app.services import iob as iob_service
 from app.services import autosens_service
@@ -163,7 +162,7 @@ def _build_data_sources() -> list[DataSourceDef]:
             description="Motor matemático para bolus/correction/dual/isf/iob y curvas.",
             fields=["bolus_recommendation", "corrections", "dual_wave", "isf_curve", "iob_curve"],
             sensitivity="public",
-            fetch_fn=bolus_service.recommend_bolus,
+            fetch_fn=bolus_engine.calculate_bolus_v2,
         ),
         DataSourceDef(
             id="autosens",

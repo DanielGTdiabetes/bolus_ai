@@ -27,9 +27,8 @@ from app.core.settings import get_settings
 from app.services.store import DataStore
 from app.services.nightscout_client import NightscoutClient
 from app.services.iob import compute_iob_from_sources, compute_cob_from_sources
-from app.services.bolus import recommend_bolus, BolusRequestData
 from app.services.bolus_engine import calculate_bolus_v2
-from app.services.basal_repo import get_latest_basal_dose # Fixed missing import
+from app.services.basal_repo import get_latest_basal_dose
 from app.models.bolus_v2 import BolusRequestV2, BolusResponseV2, GlucoseUsed
 from app.services.injection_sites import InjectionManager
 from app.bot.capabilities.registry import build_registry, Permission

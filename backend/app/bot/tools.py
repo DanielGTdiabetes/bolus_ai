@@ -14,7 +14,7 @@ from app.core.db import get_engine, AsyncSession
 from app.services.store import DataStore
 from app.services.nightscout_client import NightscoutClient, NightscoutError
 from app.services.iob import compute_iob_from_sources, compute_cob_from_sources
-from app.services.bolus import recommend_bolus, BolusRequestData
+from app.models.bolus_v2 import BolusRequestV2, BolusResponseV2, GlucoseUsed as GlucoseUsedV2
 from app.services.forecast_engine import ForecastEngine
 from app.models.forecast import (
     ForecastSimulateRequest,
