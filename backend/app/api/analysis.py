@@ -1,6 +1,7 @@
 
 from pathlib import Path
 from typing import Any, Optional
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Body
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -122,11 +123,12 @@ async def get_summary_endpoint(
 async def get_shadow_logs(
     limit: int = 50,
     current_user: Any = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db_session)
+    store: DataStore = Depends(_data_store)
 ):
     from app.models.learning import ShadowLog
     from sqlalchemy import select
     
+    # 1. Fetch DB Logs
     stmt = (
         select(ShadowLog)
         .where(ShadowLog.user_id == current_user.username)
@@ -134,5 +136,45 @@ async def get_shadow_logs(
         .limit(limit)
     )
     result = await db.execute(stmt)
-    logs = result.scalars().all()
-    return logs
+    db_logs = result.scalars().all()
+    
+    # 2. Fetch "Learning Records" from JSON Store (The new Feedback system)
+    # This bridges the gap so the user sees their feedback actions here.
+    events = store.load_events()
+    learning_events = [e for e in events if e.get("type") in ["learning_record", "post_meal_feedback"]]
+    
+    memory_logs = []
+    seen_ids = {l.id for l in db_logs}
+    
+    for e in learning_events:
+        # Create a transient ShadowLog for display
+        # "post_meal_feedback" with "outcome" is a completed learning event
+        if e.get("outcome"):
+            # Avoid dupes if we sync them later
+            eid = e.get("treatment_id") or e.get("created_at")
+            if eid in seen_ids: continue
+            
+            outcome_map = {
+                "ok": "✅ Acierto (Ratio OK)",
+                "low": "📉 Hipo (Ratio Alto)",
+                "high": "📈 Hiper (Ratio Bajo)"
+            }
+            
+            sim_log = ShadowLog(
+                id=eid,
+                user_id=current_user.username,
+                created_at=datetime.fromisoformat(e.get("created_at") or datetime.utcnow().isoformat()),
+                meal_name="Comida (Feedback)",
+                scenario="Feedback Usuario",
+                suggestion=f"El usuario reportó: {e.get('outcome')}",
+                is_better=e.get("outcome") == "ok",
+                improvement_pct=0.0,
+                status="success"
+            )
+            memory_logs.append(sim_log)
+
+    # Combine and Sort
+    all_logs = list(db_logs) + memory_logs
+    all_logs.sort(key=lambda x: x.created_at, reverse=True)
+    
+    return all_logs[:limit]

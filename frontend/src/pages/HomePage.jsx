@@ -211,7 +211,7 @@ function QuickActions() {
         <div style={{ marginBottom: '1.5rem' }}>
             <h3 className="section-title" style={{ marginBottom: '1rem', marginTop: 0, fontSize: '1.1rem', color: '#1e293b' }}>Acciones Rápidas</h3>
             <div className="qa-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.5rem' }}>
-                <QAButton icon="⭐" label="Favoritos" onClick={() => navigate('#/favorites')} color="#f59e0b" bg="#fffbeb" />
+                <QAButton icon="📚" label="Mis Platos" onClick={() => navigate('#/favorites')} color="#ec4899" bg="#fdf2f8" />
                 <QAButton icon="🧮" label="Calcular" onClick={() => navigate('#/bolus')} color="#3b82f6" bg="#eff6ff" />
                 <QAButton icon="⚖️" label="Báscula" onClick={() => navigate('#/scale')} color="#10b981" bg="#ecfdf5" />
                 <QAButton icon="🍴" label="Alimentos" onClick={() => navigate('#/food-db')} color="#f97316" bg="#fff7ed" />

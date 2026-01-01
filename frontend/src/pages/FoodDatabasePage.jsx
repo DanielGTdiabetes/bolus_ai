@@ -5,15 +5,16 @@ import { Button } from '../components/ui/Atoms';
 import foodData from '../lib/foodData.json';
 import { state } from '../modules/core/store';
 import { navigate } from '../modules/core/router';
+import { getFavorites, saveFavorite, deleteFavorite } from '../lib/api';
 
 export default function FoodDatabasePage() {
     const [searchTerm, setSearchTerm] = useState('');
     const [selectedCategory, setSelectedCategory] = useState('Todos');
     const [portions, setPortions] = useState({}); // { [foodName]: grams }
-    const [favorites, setFavorites] = useState(() => {
-        const saved = localStorage.getItem('food_favorites');
-        return saved ? JSON.parse(saved) : [];
-    });
+
+    // favorites now stores a Set of names for fast lookup, synchronized with backend
+    const [favorites, setFavorites] = useState([]);
+    const [favMap, setFavMap] = useState({}); // { 'Pizza': 'uuid-123' }
 
     const foods = foodData.foods || [];
     const categories = ['Todos', 'Favoritos', ...new Set(foods.map(f => f.category))];
@@ -37,15 +38,63 @@ export default function FoodDatabasePage() {
     const [isCartOpen, setIsCartOpen] = useState(false);
 
     useEffect(() => {
-        localStorage.setItem('food_favorites', JSON.stringify(favorites));
-    }, [favorites]);
+        loadBackendFavorites();
+    }, []);
 
-    const toggleFavorite = (foodName) => {
-        setFavorites(prev =>
-            prev.includes(foodName)
-                ? prev.filter(f => f !== foodName)
-                : [...prev, foodName]
-        );
+    const loadBackendFavorites = async () => {
+        try {
+            const data = await getFavorites();
+            const names = data.map(f => f.name);
+            const map = {};
+            data.forEach(f => map[f.name] = f.id);
+
+            setFavorites(names);
+            setFavMap(map);
+        } catch (e) {
+            console.warn("Failed to load backend favorites", e);
+        }
+    };
+
+    const toggleFavorite = async (food) => {
+        const isFav = favorites.includes(food.name);
+
+        // Optimistic UI Update
+        if (isFav) {
+            setFavorites(prev => prev.filter(n => n !== food.name));
+            // Remove from backend
+            const id = favMap[food.name];
+            if (id) {
+                try {
+                    await deleteFavorite(id);
+                    const newMap = { ...favMap };
+                    delete newMap[food.name];
+                    setFavMap(newMap);
+                } catch (e) {
+                    alert("Error eliminando favorito: " + e.message);
+                    loadBackendFavorites(); // Revert
+                }
+            }
+        } else {
+            setFavorites(prev => [...prev, food.name]);
+            // Add to backend
+            try {
+                // Heuristic: Pre-fill macros based on 100g or 1 serving? 
+                // Database stores per 100g. We'll save the "Base" info.
+                // Or maybe we save it as a "Reference".
+                // Let's save 100g as default reference.
+                const newFav = await saveFavorite({
+                    name: food.name,
+                    carbs: food.ch_per_100g,
+                    fat: 0, // DB doesn't have fat/prot yet unfortunately, defaulting 0
+                    protein: 0,
+                    notes: `Base de Datos (${food.category})`
+                });
+                setFavMap(prev => ({ ...prev, [food.name]: newFav.id }));
+            } catch (e) {
+                alert("Error guardando favorito: " + e.message);
+                loadBackendFavorites(); // Revert
+            }
+        }
     };
 
     const getGIRating = (gi) => {
@@ -243,7 +292,8 @@ export default function FoodDatabasePage() {
                                                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                                         <div style={{ fontWeight: 800, color: '#1e293b', fontSize: '1.1rem' }}>{food.name}</div>
                                                         <button
-                                                            onClick={() => toggleFavorite(food.name)}
+                                                            onClick={() => toggleFavorite(food)}
+                                                            title="Guardar en Mis Platos"
                                                             style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.3rem', padding: 0 }}
                                                         >
                                                             {isFav ? '⭐' : '☆'}

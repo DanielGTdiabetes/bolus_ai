@@ -12,7 +12,7 @@ import {
     fetchHealth, exportUserData, importUserData, fetchAutosens
 } from '../lib/api';
 import { IsfAnalyzer } from '../components/settings/IsfAnalyzer';
-import { FavoritesManager } from '../components/settings/FavoritesManager';
+
 
 export default function SettingsPage() {
     const [activeTab, setActiveTab] = useState('ns'); // 'ns' | 'calc' | 'data' | 'analysis' | 'favs'
@@ -27,7 +27,6 @@ export default function SettingsPage() {
                         <TabButton label="Cálculo" active={activeTab === 'calc'} onClick={() => setActiveTab('calc')} />
                         <TabButton label="IA / Visión" active={activeTab === 'vision'} onClick={() => setActiveTab('vision')} />
                         <TabButton label="Análisis" active={activeTab === 'analysis'} onClick={() => setActiveTab('analysis')} />
-                        <TabButton label="Comidas" active={activeTab === 'favs'} onClick={() => setActiveTab('favs')} />
                         <TabButton label="Datos" active={activeTab === 'data'} onClick={() => setActiveTab('data')} />
                         <TabButton label="Labs" active={activeTab === 'labs'} onClick={() => setActiveTab('labs')} />
                         <TabButton label="Bot" active={activeTab === 'bot'} onClick={() => setActiveTab('bot')} />
@@ -38,7 +37,6 @@ export default function SettingsPage() {
                     {activeTab === 'vision' && <VisionPanel />}
                     {activeTab === 'bot' && <BotPanel />}
                     {activeTab === 'analysis' && <IsfAnalyzer />}
-                    {activeTab === 'favs' && <FavoritesManager />}
                     {activeTab === 'data' && <DataPanel />}
                     {activeTab === 'labs' && <LabsPanel />}
                 </Card>
@@ -711,24 +709,27 @@ function DataPanel() {
 }
 
 function HealthCheck() {
-    const [status, setStatus] = useState("Sin comprobar");
-
-    const check = async () => {
-        setStatus("Consultando...");
-        try {
-            const h = await fetchHealth();
-            setStatus(JSON.stringify(h, null, 2));
-        } catch (e) {
-            setStatus("Error: " + e.message);
-        }
-    };
-
     return (
-        <div>
-            <Button variant="ghost" onClick={check} style={{ marginBottom: '0.5rem' }}>Comprobar Conexión</Button>
-            <pre style={{ background: '#0f172a', color: '#22d3ee', padding: '0.5rem', borderRadius: '6px', overflowX: 'auto', fontSize: '0.75rem' }}>
-                {status}
-            </pre>
+        <div style={{ textAlign: 'center' }}>
+            <p style={{ color: '#64748b', marginBottom: '1rem' }}>
+                Revisa el estado de todos los servicios: IA, Autosens, Nightscout, etc.
+            </p>
+            <button
+                onClick={() => window.location.hash = '#/status'}
+                style={{
+                    background: '#0f172a',
+                    color: '#22d3ee',
+                    padding: '0.8rem 1.5rem',
+                    borderRadius: '8px',
+                    border: 'none',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    width: '100%',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px'
+                }}
+            >
+                🖥️ Abrir Dashboard de Estado
+            </button>
         </div>
     );
 }

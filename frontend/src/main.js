@@ -62,6 +62,9 @@ registerView('#/suggestions', () => {
 registerView('#/forecast', () => {
   import('./bridge.jsx').then(({ mountReactPage }) => mountReactPage('forecast'));
 });
+registerView('#/status', () => {
+  import('./bridge.jsx').then(({ mountReactPage }) => mountReactPage('status'));
+});
 
 // Configuration & Auth
 registerView('#/settings', () => {

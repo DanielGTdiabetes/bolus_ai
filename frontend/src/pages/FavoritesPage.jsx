@@ -114,9 +114,9 @@ export default function FavoritesPage({ navigate }) {
 
     return (
         <>
-            <Header title="Favoritos" showBack={true} />
+            <Header title="Mis Platos" showBack={true} />
             <div className="page fade-in" style={{ paddingBottom: '80px' }}>
-                <h2 style={{ marginBottom: '1rem', marginTop: 0 }}>⭐ Comidas Favoritas</h2>
+                <h2 style={{ marginBottom: '1rem', marginTop: 0 }}>📚 Mis Platos Guardados</h2>
 
                 {error && <div className="error">{error}</div>}
 
