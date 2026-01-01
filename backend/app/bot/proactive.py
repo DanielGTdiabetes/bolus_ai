@@ -14,11 +14,12 @@ from app.services.iob import compute_iob_from_sources
 from app.services.bolus import recommend_bolus, BolusRequestData
 from app.services.basal_repo import get_latest_basal_dose
 from app.services.nightscout_secrets_service import get_ns_config
-from app.services.nightscout_secrets_service import get_ns_config
 from app.bot import tools, context_builder
 from app.services.isf_analysis_service import IsfAnalysisService
 from app.models.isf import IsfAnalysisResponse
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+
+from app.services.autosens_service import AutosensService
 
 logger = logging.getLogger(__name__)
 
@@ -712,7 +713,103 @@ async def combo_followup(username: str = "admin", chat_id: Optional[int] = None)
         "delta": getattr(status_res, "delta_mgdl", 0)
     }
     
+            
     await _route(payload)
+
+
+async def check_isf_suggestions(username: str = "admin", chat_id: Optional[int] = None) -> None:
+    """
+    Checks if Autosens detects significant sensitivity changes and notifies user.
+    Runs periodically (e.g. at 08:00 or every few hours).
+    """
+    if username == "admin":
+        from app.core import config
+        username = config.get_bot_default_username()
+
+    # 1. Load Settings
+    try:
+        user_settings = await tools._load_user_settings(username)
+    except Exception as e:
+        logger.error(f"ISF Check load failed: {e}")
+        return
+
+    if not user_settings.bot.enabled:
+        return
+
+    # 1b. Check if Autosens is enabled (or implicit)
+    # Autosens is generally always 'calculable' if data exists.
+    
+    # 2. Resolve Chat ID
+    chat_id = chat_id or await _get_chat_id()
+    if not chat_id:
+        return
+
+    # 3. Calculate Autosens
+    # We need a db session
+    from app.core.db import get_engine, AsyncSession
+    engine = get_engine()
+    if not engine: return
+
+    async with AsyncSession(engine) as session:
+        # We calculate freshness
+        res = await AutosensService.calculate_autosens(username, session, user_settings)
+        
+        # 4. Check if we should notify
+        # Condition: Ratio differs significantly from 1.0 (> 5%) OR differs from *last notified*?
+        # Simpler: If Ratio < 0.95 (Sensitive) or > 1.05 (Resistant)
+        
+        is_significant = abs(res.ratio - 1.0) >= 0.05
+        
+        if not is_significant:
+            return
+
+        # 5. Check Persistence (Don't spam same suggestion)
+        store = DataStore(Path(get_settings().data.data_dir))
+        events = store.load_events()
+        
+        today_str = datetime.now().strftime("%Y-%m-%d")
+        key_type = "autosens_notification"
+        
+        # Did we already notify TODAY about this specific direction?
+        # We store: {type: autosens, date: YYYY-MM-DD, ratio: 1.1, status: sent}
+        last_notif = next((e for e in events if e.get("type") == key_type and e.get("date") == today_str), None)
+        
+        if last_notif:
+            # If we already notified today, only re-notify if it CHANGED drastically?
+            # E.g. was 1.05, now 1.20 (+15% diff).
+            last_ratio = last_notif.get("ratio", 1.0)
+            if abs(res.ratio - last_ratio) < 0.1:
+                return # Same ballpark, don't spam
+        
+        # 6. Send Notification
+        direction = "Resistencia" if res.ratio > 1 else "Sensibilidad"
+        emoji = "📈" if res.ratio > 1 else "📉"
+        pct = int(abs(res.ratio - 1.0) * 100)
+        
+        msg = (
+            f"⚡ <b>Actualización de Sensibilidad ({emoji})</b>\n\n"
+            f"Se ha detectado <b>{direction} (+{pct}%)</b> en las últimas 24h.\n"
+            f"• Factor sugerido: {res.ratio:.2f}\n"
+            f"• Motivo: {res.reason}\n\n"
+            f"<i>Los cálculos de bolo usarán este factor si pulsas 'Aplicar' en la app.</i>"
+        )
+        
+        await _send(
+            None,
+            chat_id,
+            msg,
+            log_context="proactive_autosens",
+            parse_mode="HTML"
+        )
+        
+        # 7. Save Event
+        events.append({
+            "type": key_type,
+            "date": today_str,
+            "ratio": round(res.ratio, 2),
+            "sent_at": datetime.now(timezone.utc).isoformat()
+        })
+        store.save_events(events)
 
 
 async def morning_summary(username: str = "admin", chat_id: Optional[int] = None, trigger: str = "manual", mode: str = "full") -> None:
