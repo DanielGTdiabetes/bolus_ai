@@ -719,8 +719,9 @@ async def combo_followup(username: str = "admin", chat_id: Optional[int] = None)
 
 async def check_isf_suggestions(username: str = "admin", chat_id: Optional[int] = None) -> None:
     """
-    Checks if Autosens detects significant sensitivity changes and notifies user.
-    Runs periodically (e.g. at 08:00 or every few hours).
+    Checks if IsfAnalysisService (Long Term Audit) detects significant sensitivity changes.
+    Runs periodically (e.g. at 08:00 daily).
+    If significant change suggested, notifies user with option to Update Profile.
     """
     if username == "admin":
         from app.core import config
@@ -736,80 +737,111 @@ async def check_isf_suggestions(username: str = "admin", chat_id: Optional[int] 
     if not user_settings.bot.enabled:
         return
 
-    # 1b. Check if Autosens is enabled (or implicit)
-    # Autosens is generally always 'calculable' if data exists.
-    
     # 2. Resolve Chat ID
     chat_id = chat_id or await _get_chat_id()
     if not chat_id:
         return
 
-    # 3. Calculate Autosens
-    # We need a db session
+    # 3. Calculate Long-Term Analysis (14 Days)
     from app.core.db import get_engine, AsyncSession
     engine = get_engine()
     if not engine: return
 
     async with AsyncSession(engine) as session:
-        # We calculate freshness
-        res = await AutosensService.calculate_autosens(username, session, user_settings)
+        # Need NS client
+        from app.services.nightscout_secrets_service import get_ns_config
+        ns_cfg = await get_ns_config(session, username)
         
-        # 4. Check if we should notify
-        # Condition: Ratio differs significantly from 1.0 (> 5%) OR differs from *last notified*?
-        # Simpler: If Ratio < 0.95 (Sensitive) or > 1.05 (Resistant)
-        
-        is_significant = abs(res.ratio - 1.0) >= 0.05
-        
-        if not is_significant:
+        if not ns_cfg or not ns_cfg.url:
             return
 
-        # 5. Check Persistence (Don't spam same suggestion)
-        store = DataStore(Path(get_settings().data.data_dir))
-        events = store.load_events()
+        client = NightscoutClient(ns_cfg.url, ns_cfg.api_secret)
         
-        today_str = datetime.now().strftime("%Y-%m-%d")
-        key_type = "autosens_notification"
-        
-        # Did we already notify TODAY about this specific direction?
-        # We store: {type: autosens, date: YYYY-MM-DD, ratio: 1.1, status: sent}
-        last_notif = next((e for e in events if e.get("type") == key_type and e.get("date") == today_str), None)
-        
-        if last_notif:
-            # If we already notified today, only re-notify if it CHANGED drastically?
-            # E.g. was 1.05, now 1.20 (+15% diff).
-            last_ratio = last_notif.get("ratio", 1.0)
-            if abs(res.ratio - last_ratio) < 0.1:
-                return # Same ballpark, don't spam
-        
-        # 6. Send Notification
-        direction = "Resistencia" if res.ratio > 1 else "Sensibilidad"
-        emoji = "📈" if res.ratio > 1 else "📉"
-        pct = int(abs(res.ratio - 1.0) * 100)
-        
-        msg = (
-            f"⚡ <b>Actualización de Sensibilidad ({emoji})</b>\n\n"
-            f"Se ha detectado <b>{direction} (+{pct}%)</b> en las últimas 24h.\n"
-            f"• Factor sugerido: {res.ratio:.2f}\n"
-            f"• Motivo: {res.reason}\n\n"
-            f"<i>Los cálculos de bolo usarán este factor si pulsas 'Aplicar' en la app.</i>"
-        )
-        
-        await _send(
-            None,
-            chat_id,
-            msg,
-            log_context="proactive_autosens",
-            parse_mode="HTML"
-        )
-        
-        # 7. Save Event
-        events.append({
-            "type": key_type,
-            "date": today_str,
-            "ratio": round(res.ratio, 2),
-            "sent_at": datetime.now(timezone.utc).isoformat()
-        })
-        store.save_events(events)
+        try:
+            # Instantiate Service
+            # Need simplified profile dict
+            profile_dict = {
+                "dia_hours": user_settings.iob.dia_hours,
+                "curve": user_settings.iob.curve,
+                "peak_minutes": user_settings.iob.peak_minutes
+            }
+            # Current CF settings (flat dict from Schedule or just the object?)
+            # IsfAnalysisService expects a dictionary where keys are buckets OR a flat fallback?
+            # It calls _get_configured_isf(bucket). Mapping: afternoon -> lunch.
+            # So we pass the UserSettings.cf object which has .breakfast, .lunch attributes?
+            # No, IsfAnalysisService types 'current_cf' as dict.
+            cf_dict = user_settings.cf.dict() 
+            
+            service = IsfAnalysisService(client, cf_dict, profile_dict)
+            
+            # Run Analysis (14 days)
+            analysis = await service.run_analysis(username, days=14)
+            
+            # 4. Check Suggestions
+            suggestions = []
+            for bucket in analysis.buckets:
+                if bucket.status in ["strong_drop", "weak_drop"] and bucket.confidence == "high":
+                    suggestions.append(bucket)
+            
+            if not suggestions:
+                return
+
+            # 5. Notify (Pick the strongest or first)
+            # We treat them one by one or summary? Summary is better.
+            
+            # Check persistence to avoid spamming same suggestion
+            store = DataStore(Path(get_settings().data.data_dir))
+            events = store.load_events()
+            today_str = datetime.now().strftime("%Y-%m-%d")
+            
+            new_suggestions = []
+            for s in suggestions:
+                key = f"isf_suggest_{s.bucket}_{s.suggested_isf}"
+                # Check if sent today
+                last = next((e for e in events if e.get("type") == "isf_notification" and e.get("key") == key and e.get("date") == today_str), None)
+                if not last:
+                    new_suggestions.append(s)
+
+            if not new_suggestions:
+                return
+
+            # Build Message
+            msg = "⚡ <b>Auditoría ISF (14 días)</b>\n\nSe detectaron tendencias constantes:\n"
+            
+            for s in new_suggestions:
+                trend = "📉 Sensible" if s.suggestion_type == "increase" else "📈 Resistente"
+                prev = s.current_isf
+                new_v = s.suggested_isf
+                msg += f"• <b>{s.label}</b>: {trend}. Sugiere {prev} -> <b>{new_v}</b>\n"
+            
+            msg += "\n<i>Estos cambios son permanentes si se aplican.</i>"
+            
+            # Send
+            await _send(
+                None,
+                chat_id,
+                msg,
+                log_context="proactive_isf_audit",
+                parse_mode="HTML"
+            )
+            
+            # Save Events
+            for s in new_suggestions:
+                 key = f"isf_suggest_{s.bucket}_{s.suggested_isf}"
+                 events.append({
+                    "type": "isf_notification",
+                    "date": today_str,
+                    "key": key,
+                    "bucket": s.bucket,
+                    "suggested": s.suggested_isf,
+                    "sent_at": datetime.now(timezone.utc).isoformat()
+                 })
+            store.save_events(events)
+
+        except Exception as e:
+            logger.error(f"ISF Audit Logic failed: {e}")
+        finally:
+            await client.aclose()
 
 
 async def morning_summary(username: str = "admin", chat_id: Optional[int] = None, trigger: str = "manual", mode: str = "full") -> None:
