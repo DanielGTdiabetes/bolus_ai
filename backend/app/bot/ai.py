@@ -58,7 +58,7 @@ async def analyze_image(image_bytes: bytes, mime_type: str = "image/jpeg", api_k
             # Prepare content parts
             cookie_picture = {
                 'mime_type': mime_type,
-                'data': image_bytes
+                'data': bytes(image_bytes)
             }
             
             # Add Timeout (25s)
