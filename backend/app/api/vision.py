@@ -16,11 +16,12 @@ from app.models.vision import (
     GlucoseUsed,
     VisionBolusRecommendation,
 )
-from app.services.bolus import BolusRequestData, BolusResponse, recommend_bolus
+from app.models.bolus_v2 import BolusRequestV2, BolusResponseV2, GlucoseUsed as GlucoseUsedV2
 from app.services.iob import compute_iob_from_sources
 from app.services.nightscout_client import NightscoutClient
 from app.services.store import DataStore
 from app.services.vision import estimate_meal_from_image, calculate_extended_split
+from app.services.bolus_engine import calculate_bolus_v2
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -260,15 +261,27 @@ async def estimate_from_image(
         
         # 3c. Calculate Bolus
         effective_bg = resolved_bg if resolved_bg is not None else user_settings.targets.mid
+
+        # Calculate totals early for V2 Request
+        total_fat_g = sum(getattr(i, 'fat_g', 0) or 0 for i in estimate.items)
+        total_protein_g = sum(getattr(i, 'protein_g', 0) or 0 for i in estimate.items)
         
-        bolus_req = BolusRequestData(
+        bolus_req = BolusRequestV2(
             carbs_g=estimate.carbs_estimate_g,
+            fat_g=total_fat_g,
+            protein_g=total_protein_g,
             bg_mgdl=effective_bg,
             meal_slot=meal_slot if meal_slot in ["breakfast", "lunch", "dinner"] else "lunch",
             target_mgdl=target_mgdl
         )
+
+        glucose_info_v2 = GlucoseUsedV2(
+            mgdl=resolved_bg,
+            source=ns_source if ns_source else ("manual" if bg_mgdl else "none"),
+            trend=None # Trend not currently captured in vision flow but could be added
+        )
         
-        bolus_res: BolusResponse = recommend_bolus(bolus_req, user_settings, iob_u)
+        bolus_res: BolusResponseV2 = calculate_bolus_v2(bolus_req, user_settings, iob_u, glucose_info_v2)
         
         # 4. Extended logic
         final_upfront = bolus_res.upfront_u
@@ -277,9 +290,10 @@ async def estimate_from_image(
         kind = "normal"
         explain = bolus_res.explain[:]
         
-        # Calculate totals for logic
-        total_fat_g = sum(getattr(i, 'fat_g', 0) or 0 for i in estimate.items)
-        total_protein_g = sum(getattr(i, 'protein_g', 0) or 0 for i in estimate.items)
+        
+        # Calculate totals for logic (Already calculated above)
+        # total_fat_g = sum(getattr(i, 'fat_g', 0) or 0 for i in estimate.items)
+        # total_protein_g = sum(getattr(i, 'protein_g', 0) or 0 for i in estimate.items)
 
         # Heuristic for extended
         # Enable if high score OR high absolute grams (e.g. > 15g fat or > 20g protein)
@@ -328,7 +342,11 @@ async def estimate_from_image(
         else:
              # Normal
              final_later = bolus_res.later_u # usually 0
-             delay_min = bolus_res.delay_min
+             # Normal
+             final_later = bolus_res.later_u # usually 0
+             delay_min = None # bolus_res.duration_min if extended, but here we assume normal?
+             if bolus_res.kind == "extended":
+                 delay_min = bolus_res.duration_min
         
         # 5. Missing BG warning
         if resolved_bg is None:
