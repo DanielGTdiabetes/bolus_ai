@@ -138,7 +138,7 @@ export default function LabsPage() {
                         {/* INFO BOX */}
                         <Card>
                             <div style={{ fontSize: '0.85rem', color: '#64748b', fontStyle: 'italic' }}>
-                                ℹ️ Los cambios en "Aplicar Correcciones" solo están disponibles para usuarios expertos en el código fuente por seguridad. El modo automático aplica sugerencias solo si la confianza es > 95%.
+                                ℹ️ Los cambios en "Aplicar Correcciones" solo están disponibles para usuarios expertos en el código fuente por seguridad. El modo automático aplica sugerencias solo si la confianza es &gt; 95%.
                             </div>
                         </Card>
 

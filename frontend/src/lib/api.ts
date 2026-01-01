@@ -851,3 +851,8 @@ export async function getShadowLogs(limit = 20) {
   if (!response.ok) throw new Error(data.detail || "Error al obtener logs");
   return data;
 }
+
+export async function updateSettings(settings) {
+  // Wrapper for putSettings to simplify usage
+  return putSettings(settings, settings.version);
+}
