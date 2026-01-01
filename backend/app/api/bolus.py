@@ -502,9 +502,10 @@ async def save_treatment(
                      res = await AutosensService.calculate_autosens(u_id, task_session, us)
                      ratio = res.ratio
                      
-                     # Threshold: Deviating at least 5% (0.95 or 1.05) to be worth annoying
-                     if 0.95 <= ratio <= 1.05:
-                         return # Too minor
+                     # Threshold: Deviating at least 1% to avoid pure noise. 
+                     # We rely mainly on the absolute unit difference below for significance.
+                     if 0.99 <= ratio <= 1.01:
+                         return # Pure noise
                          
                      # Determine Slot
                      slot = get_current_meal_slot(us)
@@ -515,6 +516,7 @@ async def save_treatment(
                      new_isf = round(current_isf / ratio, 1)
                      
                      if abs(current_isf - new_isf) < 1.0:
+                         logger.info(f"Autosens advisor skipped: {current_isf}->{new_isf} diff < 1.0")
                          return # Rounding makes it irrelevant
                      
                      # Create Suggestion Record (App Notification)
