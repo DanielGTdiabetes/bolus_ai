@@ -345,9 +345,15 @@ async def calculate_bolus(carbs: float, meal_type: Optional[str] = None, split: 
     iob_u = status.iob_u or 0.0
     
     # Glucose Info Wrapper
+    # Map 'local' -> 'none' (or 'manual') to satisfy GlucoseUsed Literal restriction
+    # status.source can be "local" coming from get_status_context
+    valid_source = status.source
+    if valid_source == "local":
+        valid_source = "none" # Default to none if relying on local calc without external data
+    
     glucose_info = GlucoseUsed(
         mgdl=status.bg_mgdl,
-        source=status.source,
+        source=valid_source,
         trend=status.direction,
         is_stale=False # Assume fresh if fetched via get_status_context
     )
