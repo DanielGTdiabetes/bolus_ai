@@ -7,11 +7,9 @@ from app.core.settings import get_settings
 from app.services.store import DataStore
 from app.services.nightscout_client import NightscoutClient
 from app.services.iob import compute_iob_from_sources, compute_cob_from_sources
-from app.services import settings_service as svc_settings
-from app.services import nightscout_secrets_service as svc_ns_secrets
 from app.models.settings import UserSettings
-from app.core.db import get_engine, AsyncSession
 from pathlib import Path
+from app.bot.user_settings_resolver import resolve_bot_user_settings
 
 logger = logging.getLogger(__name__)
 
@@ -20,66 +18,9 @@ async def get_bot_user_settings_safe() -> UserSettings:
     Independent fetcher for user settings to avoid circular imports.
     Follows same logic as service.py: App Config -> DB (Admin/Fallback) -> FileStore
     """
-    settings = get_settings()
-    
-    # Try DB
-    engine = get_engine()
-    if engine:
-        async with AsyncSession(engine) as session:
-            # 1. Try 'admin'
-            res = await svc_settings.get_user_settings_service("admin", session)
-            db_settings = None
-            
-            if res and res.get("settings"):
-                db_settings = res["settings"]
-                # Overlay Nightscout Secrets
-                try:
-                    ns_secret = await svc_ns_secrets.get_ns_config(session, "admin")
-                    if ns_secret:
-                        if "nightscout" not in db_settings: db_settings["nightscout"] = {}
-                        db_settings["nightscout"]["url"] = ns_secret.url
-                        db_settings["nightscout"]["token"] = ns_secret.api_secret
-                except Exception as e:
-                    logger.warning(f"CtxBuilder: failed to fetch NS secrets: {e}")
-
-                # Check if we have a valid NS URL for admin. If not, we still prefer another user with NS.
-                if not db_settings.get("nightscout", {}).get("url"):
-                    db_settings = None
-
-            # 2. Fallback: Any user with URL preferred, but take any if needed
-            if not db_settings:
-                from sqlalchemy import text
-                stmt = text("SELECT user_id, settings FROM user_settings LIMIT 20")
-                rows = (await session.execute(stmt)).fetchall()
-                candidate = None
-                for r in rows:
-                    s = r.settings
-                    # Try to overlay secrets for this fallback user too
-                    try:
-                        ns_sec = await svc_ns_secrets.get_ns_config(session, r.user_id)
-                        if ns_sec:
-                            if "nightscout" not in s: s["nightscout"] = {}
-                            s["nightscout"]["url"] = ns_sec.url
-                            s["nightscout"]["token"] = ns_sec.api_secret
-                    except: pass
-
-                    if s.get("nightscout", {}).get("url"):
-                        db_settings = s
-                        break
-                    if not candidate: candidate = s
-                
-                if not db_settings and candidate:
-                    db_settings = candidate
-            
-            if db_settings:
-                try:
-                    return UserSettings.migrate(db_settings)
-                except Exception as e:
-                    logger.error(f"CtxBuilder: Validation failed: {e}")
-
-    # Fallback to JSON Store
-    store = DataStore(Path(settings.data.data_dir))
-    return store.load_settings()
+    resolved_settings, resolved_user = await resolve_bot_user_settings()
+    logger.info("CtxBuilder using settings for user_id='%s'", resolved_user)
+    return resolved_settings
 
 async def build_context(username: str, chat_id: int) -> Dict[str, Any]:
     """
