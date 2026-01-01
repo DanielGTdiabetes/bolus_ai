@@ -39,6 +39,8 @@ Estas son las "instrucciones" secretas que necesita la app para funcionar. En Re
 | `DATA_DIR` | `/var/data` | Carpeta donde se guardarán tus configuraciones. |
 | `GOOGLE_API_KEY` | Tu clave de Google Gemini | **Opcional** (Para análisis de fotos gratis). |
 | `OPENAI_API_KEY` | Tu clave de OpenAI | **Opcional** (Alternativa a Gemini). |
+| `TELEGRAM_BOT_TOKEN` | Token de BotFather | **Opcional** (Para activar el Bot). |
+| `TELEGRAM_ALLOWED_USER` | Tu ID de Telegram | **Opcional** (Seguridad del Bot). |
 | `NIGHTSCOUT_URL` | URL de tu Nightscout | **Opcional** (ej. `https://mi-ns.herokuapp.com`). |
 
 ## 4. Persistencia de Datos (Disco)
@@ -58,5 +60,6 @@ Haz clic en **Create Web Service**. Render tardará unos minutos en construir la
 
 ### 💡 Tips Adicionales
 - **Acceso Inicial**: El usuario por defecto es `admin` y la contraseña es `admin123`. El sistema te pedirá cambiarla al entrar por primera vez.
+- **Bot de Telegram**: ¿Quieres activar la IA por voz y fotos? 👉 **[Consulta la Guía de Telegram](./docs/TELEGRAM_SETUP.md)**.
 - **Nightscout**: No es obligatorio poner la URL en las variables de entorno; puedes configurarlo después directamente desde la pantalla de ajustes dentro de la aplicación.
 - **Análisis de Fotos**: Se recomienda usar **Google Gemini** por ser más rápido y tener un plan gratuito generoso. Consigue tu clave en [Google AI Studio](https://aistudio.google.com/).
