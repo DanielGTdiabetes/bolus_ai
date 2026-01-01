@@ -90,3 +90,4 @@ class ForecastResponse(BaseModel):
     
     quality: Literal["high", "medium", "low"] = "high"
     warnings: List[str] = []
+    slow_absorption_active: bool = False # Flag for Visual Feedback (Comida Grasa / Dual)

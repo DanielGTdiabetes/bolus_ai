@@ -798,6 +798,109 @@ async def morning_summary(username: str = "admin", chat_id: Optional[int] = None
     
     # Event Detection
     hypo_events = 0
+
+async def post_meal_feedback(username: str = "admin", chat_id: Optional[int] = None) -> None:
+    """
+    Check for meals ~3h ago and ask for feedback to learn outcomes.
+    """
+    # 0. Config
+    try:
+        user_settings = await context_builder.get_bot_user_settings_safe()
+        if not user_settings.bot.enabled: return
+    except Exception: return
+
+    final_chat_id = chat_id or await _get_chat_id()
+    if not final_chat_id: return
+
+    # 1. Fetch Treatments (Last 4h)
+    global_settings = get_settings()
+    store = DataStore(Path(global_settings.data.data_dir))
+    
+    # We need NS or DB treatments. Let's use NightscoutClient as primary source for recent history
+    ns_url = user_settings.nightscout.url or global_settings.nightscout.base_url
+    if not ns_url: return
+
+    client = NightscoutClient(str(ns_url), user_settings.nightscout.token)
+    treatments = []
+    try:
+        treatments = await client.get_recent_treatments(hours=4)
+        treatments.sort(key=lambda x: x.created_at, reverse=True)
+    except: pass
+    finally: await client.aclose()
+
+    # 2. Find Candidates (Meals > 3h ago but < 3.5h ago)
+    # We want to catch them "once" around the 3h mark.
+    now = datetime.now(timezone.utc)
+    
+    candidate = None
+    for t in treatments:
+        # Check if it's a meal (has carbs or insulin)
+        if (t.carbs and t.carbs > 30) or (t.insulin and t.insulin > 3):
+             # Check Time
+             ts = t.created_at
+             if ts.tzinfo is None: ts = ts.replace(tzinfo=timezone.utc)
+             diff_min = (now - ts).total_seconds() / 60.0
+             
+             # Target window: 180 min to 210 min (3h - 3.5h)
+             if 180 <= diff_min <= 210:
+                 candidate = t
+                 break
+    
+    if not candidate: return
+
+    # 3. Persistence Check
+    events = store.load_events()
+    tid = candidate.id or f"local_{candidate.created_at.timestamp()}"
+    
+    # Check if already asked
+    prev = next((e for e in events if e.get("type") == "post_meal_feedback" and e.get("treatment_id") == tid), None)
+    if prev: return
+
+    # 4. Trigger
+    from app.bot.llm import router
+    
+    payload = {
+        "treatment_id": tid,
+        "carbs": candidate.carbs,
+        "insulin": candidate.insulin,
+        "ago_min": int((now - candidate.created_at.replace(tzinfo=timezone.utc)).total_seconds() / 60)
+    }
+    
+    # Let router build message
+    # Or build manually here for control? Router is safer for "personality".
+    # But usually Router doesn't handle "post_meal_feedback" event type yet?
+    # We can add it or just send direct message. 
+    # Let's send direct message with buttons to ensure specific callback formats.
+    
+    text = (
+        f"📊 **Check de Aprendizaje**\n"
+        f"Hace 3h pusiste {candidate.insulin}U para {candidate.carbs}g.\n"
+        f"¿Cómo resultó?"
+    )
+    
+    buttons = [
+        [InlineKeyboardButton("✅ Perfecta", callback_data=f"feedback_ok|{tid}")],
+        [InlineKeyboardButton("📉 Me pasé (Hipo)", callback_data=f"feedback_low|{tid}")],
+        [InlineKeyboardButton("📈 Me quedé corto (Hiper)", callback_data=f"feedback_high|{tid}")]
+    ]
+    
+    from app.bot.service import bot_send
+    await bot_send(
+        chat_id=final_chat_id,
+        text=text,
+        bot=None,
+        log_context="post_meal_feedback",
+        reply_markup=InlineKeyboardMarkup(buttons)
+    )
+    
+    # Mark done
+    events.append({
+        "type": "post_meal_feedback",
+        "treatment_id": tid,
+        "status": "asked",
+        "timestamp": now.isoformat()
+    })
+    store.save_events(events)
     hyper_events = 0
     
     # Counters

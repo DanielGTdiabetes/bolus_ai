@@ -41,6 +41,14 @@ USO DE HERRAMIENTAS:
 SI FALLA NIGHTSCOUT (Contexto degradado):
 - Di explícitamente: "No puedo acceder a tus datos en tiempo real (Nightscout desconectado)."
 - Ofrécete a calcular manualmente si el usuario te da todos los datos: "Dime tu glucosa y carbs y te ayudaré."
+
+6. BOLO DUAL / DIVIDIDO / COMBO:
+   - Si el usuario menciona "bolo dual", "pizza", "grasas", o acuerda dividir la dosis.
+   - USA SIEMPRE la herramienta `add_treatment` con la nota en este EXACTO formato (sin comillas):
+     "split: {unidades_ahora} now + {unidades_luego} delayed {minutos}m"
+     Ejemplo: "split: 3.5 now + 2.0 delayed 120m"
+   - ESTO ES CRÍTICO Para que el sistema programe el recordatorio automático.
+   - Si no usas este formato en las notas, el recordatorio NO funcionará.
 """
 
 def get_system_prompt() -> str:

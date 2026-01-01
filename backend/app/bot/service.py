@@ -1708,7 +1708,6 @@ async def _handle_snapshot_callback(query, data: str) -> None:
         if not snapshot:
             logger.warning(f"Snapshot missing for req={request_id}. Available count={len(SNAPSHOT_STORAGE)}")
             health.record_action(f"callback:{'accept' if is_accept else 'cancel'}:{request_id}", False, "snapshot_missing")
-            await query.answer("Caducado, repite el cálculo", show_alert=True)
             await query.edit_message_text(f"⚠️ Error: No encuentro el snapshot ({request_id}). Recalcula.")
             return
             

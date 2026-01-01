@@ -479,13 +479,16 @@ async def get_current_forecast(
 
             # Case C: Dual/Split in Notes (Manual override)
             # We already set 360 in the loop above for 'dual' notes. 
-            # But let's ensure 'split' also triggers at least 4h (240m).
-            # The 'split' regex logic might not have set absorption if not explicitly 'dual'.
-            # We rely on 'boluses' checks logic or note checks in 'carbs' loop?
-            # Actually, let's check the CARBS events themselves if they were created from a row with 'split' notes?
-            # We don't have the row here easily. 
-            # But we can check if absorption is currently low (Standard 180) and we suspect complex meal.
             pass
+
+    # Flag for UI
+    is_slow_absorption = False
+    if future_insulin_u and future_insulin_u > 0:
+        is_slow_absorption = True
+    elif has_warsaw_trigger:
+        is_slow_absorption = True
+    elif any(c.absorption_minutes and c.absorption_minutes >= 300 for c in carbs):
+        is_slow_absorption = True
 
     # 4. Construct Request
     # Current params
@@ -547,6 +550,7 @@ async def get_current_forecast(
     )
     
     response = ForecastEngine.calculate_forecast(payload)
+    response.slow_absorption_active = is_slow_absorption
     
     # If we added future insulin, run a baseline simulation (without it) for comparison
     if future_insulin_u and future_insulin_u > 0:
@@ -718,6 +722,27 @@ async def simulate_forecast(
                         units=row.insulin, 
                         duration_minutes=dur
                     ))
+                    
+                    # Split Logic (same as main forecast)
+                    if dur <= 0 and row.notes:
+                        import re
+                        split_note_regex = re.compile(
+                            r"split:\s*([0-9]+(?:\.[0-9]+)?)\s*now\s*\+\s*([0-9]+(?:\.[0-9]+)?)\s*delayed\s*([0-9]+)m",
+                            re.IGNORECASE,
+                        )
+                        match = split_note_regex.search(row.notes or "")
+                        if match:
+                            try:
+                                later_u = float(match.group(2))
+                                delay_min = int(float(match.group(3)))
+                                if later_u > 0 and delay_min >= 0:
+                                    payload.events.boluses.append(ForecastEventBolus(
+                                        time_offset_min=int(offset + delay_min),
+                                        units=later_u,
+                                        duration_minutes=dur
+                                    ))
+                            except Exception:
+                                pass
                 
                 if row.carbs and row.carbs > 0:
                     payload.events.carbs.append(ForecastEventCarbs(

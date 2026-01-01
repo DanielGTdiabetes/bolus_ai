@@ -231,13 +231,20 @@ export function MainGlucoseChart({ isLow, predictionData }) {
                         yAxisId="bg"
                         type="monotone"
                         dataKey="prediction"
-                        stroke="#8b5cf6" // Violet-500
+                        stroke={predictionData?.slow_absorption_active ? "#f59e0b" : "#8b5cf6"} // Amber-500 if slow, else Violet-500
                         strokeWidth={3}
-                        strokeDasharray="5 5"
+                        strokeDasharray={predictionData?.slow_absorption_active ? "0" : "5 5"} // Solid line if slow (more certain/modelled-heavy)
                         dot={false}
-                        activeDot={{ r: 4, fill: '#8b5cf6' }}
+                        activeDot={{ r: 4, fill: predictionData?.slow_absorption_active ? "#f59e0b" : "#8b5cf6" }}
                         animationDuration={500}
                     />
+
+                    {/* Mode Badge within Chart */}
+                    {predictionData?.slow_absorption_active && (
+                        <text x="50%" y="30" textAnchor="middle" fill="#f59e0b" fontSize="12" fontWeight="bold" opacity="0.8">
+                            🐢 Modo Absorción Lenta Activo (&gt;5h)
+                        </text>
+                    )}
 
                     {/* Component Curves (Optional) */}
                     {chartData.some(d => d.carbCurve) && (
