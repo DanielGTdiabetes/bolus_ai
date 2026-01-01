@@ -90,7 +90,9 @@ async def build_context(username: str, chat_id: int) -> Dict[str, Any]:
             "target_bg": user_settings.targets.mid,
             "cr": user_settings.cr.dict(),
             "isf": user_settings.cf.dict(), # correction factors
-            "units": user_settings.nightscout.units
+            "units": user_settings.nightscout.units,
+            "shadow_mode": user_settings.labs.shadow_mode_enabled,
+            "autonomy_mode": user_settings.learning.auto_apply_safe
         }
 
         # 2. Nightscout Connection

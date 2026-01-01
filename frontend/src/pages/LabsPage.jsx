@@ -24,31 +24,24 @@ export default function LabsPage() {
         loadSettings();
     }, []);
 
-    const toggleTechne = async () => {
-        if (!settings) return;
-        const newVal = !settings.techne?.enabled;
-        const updated = {
-            ...settings,
-            techne: { ...settings.techne, enabled: newVal }
-        };
-        try {
-            await updateSettings(updated);
-            setSettings(updated);
-        } catch (e) {
-            alert("Error guardando: " + e.message);
-        }
-    };
-
     const toggleShadow = async () => {
         if (!settings) return;
-        const newVal = !settings.learning?.enabled;
+        const currentVal = settings.labs?.shadow_mode_enabled ?? false;
+        const newVal = !currentVal;
+
+        // Update deeply nested structure safely
         const updated = {
             ...settings,
-            learning: { ...settings.learning, enabled: newVal }
+            labs: {
+                ...settings.labs,
+                shadow_mode_enabled: newVal
+            }
         };
+
         try {
             await updateSettings(updated);
-            setSettings(updated);
+            const fresh = await getSettings();
+            setSettings(fresh);
         } catch (e) {
             alert("Error guardando: " + e.message);
         }
@@ -80,56 +73,22 @@ export default function LabsPage() {
                                             onClick={toggleShadow}
                                             style={{
                                                 width: '40px', height: '20px', borderRadius: '20px',
-                                                background: settings?.learning?.enabled ? '#10b981' : '#cbd5e1',
+                                                background: settings?.labs?.shadow_mode_enabled ? '#10b981' : '#cbd5e1',
                                                 position: 'relative', cursor: 'pointer', transition: '0.3s'
                                             }}
                                         >
                                             <div style={{
                                                 width: '16px', height: '16px', borderRadius: '50%',
                                                 background: 'white', position: 'absolute',
-                                                top: '2px', left: settings?.learning?.enabled ? '22px' : '2px',
+                                                top: '2px', left: settings?.labs?.shadow_mode_enabled ? '22px' : '2px',
                                                 transition: '0.3s'
                                             }}></div>
                                         </div>
                                     </div>
                                     <div style={{ fontSize: '0.8rem', color: '#64748b', marginTop: '0.5rem' }}>
-                                        {settings?.learning?.enabled ?
+                                        {settings?.labs?.shadow_mode_enabled ?
                                             "✅ ACTIVO: Analizando correcciones en segundo plano." :
                                             "❌ INACTIVO: Aprendizaje pausado."}
-                                    </div>
-                                </div>
-                            </div>
-                        </Card>
-
-                        {/* TECHNE ROUNDING */}
-                        <Card title="📏 Techne Rounding">
-                            <div className="stack">
-                                <div style={{ fontSize: '0.9rem', color: '#475569' }}>
-                                    Redondeo inteligente basado en la tendencia de glucosa (sube o baja).
-                                </div>
-                                <div style={{ background: '#f8fafc', padding: '1rem', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                        <div style={{ fontWeight: 600 }}>Techne Activado</div>
-                                        <div
-                                            onClick={toggleTechne}
-                                            style={{
-                                                width: '40px', height: '20px', borderRadius: '20px',
-                                                background: settings?.techne?.enabled ? '#3b82f6' : '#cbd5e1',
-                                                position: 'relative', cursor: 'pointer', transition: '0.3s'
-                                            }}
-                                        >
-                                            <div style={{
-                                                width: '16px', height: '16px', borderRadius: '50%',
-                                                background: 'white', position: 'absolute',
-                                                top: '2px', left: settings?.techne?.enabled ? '22px' : '2px',
-                                                transition: '0.3s'
-                                            }}></div>
-                                        </div>
-                                    </div>
-                                    <div style={{ fontSize: '0.8rem', color: '#64748b', marginTop: '0.5rem' }}>
-                                        {settings?.techne?.enabled ?
-                                            "✅ ON: Modifica sugerencias según flecha." :
-                                            "❌ OFF: Redondeo matemático estricto."}
                                     </div>
                                 </div>
                             </div>

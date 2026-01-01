@@ -1478,19 +1478,29 @@ function LabsPanel() {
 
     const handleUpdateLearning = async (enabled) => {
         if (!settings) return;
-        const updated = { ...settings, learning: { ...settings.learning, enabled } };
+        // Update labs.shadow_mode_enabled
+        const updated = {
+            ...settings,
+            labs: { ...settings.labs, shadow_mode_enabled: enabled }
+        };
         try {
             await updateSettings(updated);
-            setSettings(updated);
+            const fresh = await getSettings();
+            setSettings(fresh);
         } catch (e) { alert(e.message); }
     };
 
     const handleUpdateAutonomy = async (enabled) => {
         if (!settings) return;
-        const updated = { ...settings, learning: { ...settings.learning, autonomy_enabled: enabled } };
+        // Map to learning.auto_apply_safe for now, as autonomy_enabled doesn't exist
+        const updated = {
+            ...settings,
+            learning: { ...settings.learning, auto_apply_safe: enabled }
+        };
         try {
             await updateSettings(updated);
-            setSettings(updated);
+            const fresh = await getSettings();
+            setSettings(fresh);
         } catch (e) { alert(e.message); }
     };
 
@@ -1511,23 +1521,13 @@ function LabsPanel() {
                             Analizar patrones en segundo plano (Shadow Mode).
                         </div>
                     </div>
-                    <label className="switch" style={{ position: 'relative', display: 'inline-block', width: '40px', height: '24px', flexShrink: 0 }}>
+                    <label className="switch">
                         <input
                             type="checkbox"
-                            checked={settings?.learning?.enabled ?? false}
+                            checked={settings?.labs?.shadow_mode_enabled ?? false}
                             onChange={e => handleUpdateLearning(e.target.checked)}
-                            style={{ opacity: 0, width: 0, height: 0 }}
                         />
-                        <span style={{
-                            position: 'absolute', cursor: 'pointer', top: 0, left: 0, right: 0, bottom: 0,
-                            backgroundColor: settings?.learning?.enabled ? '#16a34a' : '#ccc', borderRadius: '34px', transition: '0.4s'
-                        }}>
-                            <span style={{
-                                position: 'absolute', content: "", height: '16px', width: '16px', left: '4px', bottom: '4px',
-                                backgroundColor: 'white', borderRadius: '50%', transition: '0.4s',
-                                transform: settings?.learning?.enabled ? 'translateX(16px)' : 'translateX(0)'
-                            }}></span>
-                        </span>
+                        <span className="slider"></span>
                     </label>
                 </div>
             </div>
@@ -1540,29 +1540,19 @@ function LabsPanel() {
                             Permitir que la IA ajuste tus bolos automáticamente si la confianza es alta.
                         </div>
                     </div>
-                    <label className="switch" style={{ position: 'relative', display: 'inline-block', width: '40px', height: '24px', flexShrink: 0 }}>
+                    <label className="switch">
                         <input
                             type="checkbox"
-                            checked={settings?.learning?.autonomy_enabled ?? false}
+                            checked={settings?.learning?.auto_apply_safe ?? false}
                             onChange={e => {
                                 if (e.target.checked && !window.confirm("⚠️ ¿Seguro? Esto permitirá a la IA modificar dosis. Requiere supervisión.")) return;
                                 handleUpdateAutonomy(e.target.checked);
                             }}
-                            style={{ opacity: 0, width: 0, height: 0 }}
                         />
-                        <span style={{
-                            position: 'absolute', cursor: 'pointer', top: 0, left: 0, right: 0, bottom: 0,
-                            backgroundColor: settings?.learning?.autonomy_enabled ? '#f97316' : '#ccc', borderRadius: '34px', transition: '0.4s'
-                        }}>
-                            <span style={{
-                                position: 'absolute', content: "", height: '16px', width: '16px', left: '4px', bottom: '4px',
-                                backgroundColor: 'white', borderRadius: '50%', transition: '0.4s',
-                                transform: settings?.learning?.autonomy_enabled ? 'translateX(16px)' : 'translateX(0)'
-                            }}></span>
-                        </span>
+                        <span className="slider"></span>
                     </label>
                 </div>
-                {settings?.learning?.autonomy_enabled && (
+                {settings?.learning?.auto_apply_safe && (
                     <div className="fade-in" style={{ marginTop: '0.8rem', fontSize: '0.8rem', color: '#c2410c', background: '#ffedd5', padding: '0.5rem', borderRadius: '6px' }}>
                         <strong>⚠️ PRECAUCIÓN:</strong> Modo autónomo activo. Revisa siempre los registros.
                     </div>
