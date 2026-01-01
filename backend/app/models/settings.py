@@ -223,7 +223,7 @@ class UserSettings(BaseModel):
     cr: MealFactors = Field(default_factory=MealFactors)
     max_bolus_u: float = 10.0
     max_correction_u: float = 5.0
-    round_step_u: float = 0.05
+    round_step_u: float = 0.5
     tdd_u: Optional[float] = Field(default=None, ge=1.0, description="Total Daily Dose typical (U)")
     iob: IOBConfig = Field(default_factory=IOBConfig)
     insulin: InsulinSettings = Field(default_factory=InsulinSettings)

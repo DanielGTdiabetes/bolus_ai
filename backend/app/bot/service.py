@@ -275,12 +275,25 @@ async def get_bot_user_settings(username: Optional[str] = "admin") -> UserSettin
                 from sqlalchemy import text
                 stmt = text("SELECT user_id, settings FROM user_settings LIMIT 20")
                 rows = (await session.execute(stmt)).fetchall()
+                candidate_settings = None
                 for r in rows:
-                    s = r.settings # row[1]
-                    if s.get("nightscout", {}).get("url"):
-                         db_settings = s
-                         logger.info(f"Bot found Settings via fallback user search (user_id={r.user_id}).")
-                         break
+                    s = r.settings
+                    # Check for "valid" settings (e.g. has CR/CF or Nightscout)
+                    # We prioritize one with NS URL, but will accept any non-empty one as fallback
+                    ns_url = s.get("nightscout", {}).get("url")
+                    
+                    if ns_url:
+                        db_settings = s
+                        logger.info(f"Bot found Settings via fallback user search (user_id={r.user_id}, has_ns=True).")
+                        break
+                    
+                    if not candidate_settings:
+                        candidate_settings = s
+                        # Keep looking for a better one with NS, but remember this one
+                
+                if not db_settings and candidate_settings:
+                    db_settings = candidate_settings
+                    logger.info("Bot using fallback user settings (no NS URL found).")
             
             if db_settings:
                 try:
@@ -1630,7 +1643,7 @@ async def on_new_meal_received(carbs: float, fat: float, protein: float, source:
             lines.append(f"• {ex}")
             
     lines.append("")
-    lines.append(f"Redondeo final: {rec.total_u_raw:.2f} → {rec.total_u_final} U")
+    lines.append(f"Total Calculado: {rec.total_u_raw:.2f} (Base) → {rec.total_u_final} U (Final)")
     lines.append("")
     lines.append(f"¿Registrar {rec_u} U?")
     
