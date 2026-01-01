@@ -165,7 +165,7 @@ export default function StatusPage() {
                             ))}
                         </div>
                     )}
-                    <Button variant="secondary" style={{ marginTop: '1rem', width: '100%' }} onClick={() => navigate('#/settings')}>
+                    <Button variant="secondary" style={{ marginTop: '1rem', width: '100%' }} onClick={() => navigate('#/labs')}>
                         Configurar Labs
                     </Button>
                 </Card>

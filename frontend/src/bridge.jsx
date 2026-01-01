@@ -27,6 +27,7 @@ import NotificationsPage from './pages/NotificationsPage';
 
 import ForecastPage from './pages/ForecastPage';
 import StatusPage from './pages/StatusPage';
+import LabsPage from './pages/LabsPage';
 
 const PAGES = {
     'favorites': FavoritesPage,
@@ -50,6 +51,7 @@ const PAGES = {
     'notifications': NotificationsPage,
     'forecast': ForecastPage,
     'status': StatusPage,
+    'labs': LabsPage,
 };
 
 if (RESTAURANT_MODE_ENABLED) {
