@@ -42,16 +42,21 @@ async def get_bot_user_settings_safe() -> UserSettings:
                 except Exception as e:
                     logger.warning(f"CtxBuilder: failed to fetch NS secrets: {e}")
 
-            # 2. Fallback: Any user with URL
+            # 2. Fallback: Any user with URL preferred, but take any if needed
             if not db_settings:
                 from sqlalchemy import text
                 stmt = text("SELECT user_id, settings FROM user_settings LIMIT 20")
                 rows = (await session.execute(stmt)).fetchall()
+                candidate = None
                 for r in rows:
                     s = r.settings
                     if s.get("nightscout", {}).get("url"):
                         db_settings = s
                         break
+                    if not candidate: candidate = s
+                
+                if not db_settings and candidate:
+                    db_settings = candidate
             
             if db_settings:
                 try:
@@ -127,7 +132,6 @@ async def build_context(username: str, chat_id: int) -> Dict[str, Any]:
                 cob_g = await compute_cob_from_sources(now_utc, ns_client, store)
                 
                 ctx["iob"] = round(iob_u, 2)
-                ctx["cob"] = col_g = round(cob_g, 1) # typo fix
                 ctx["cob"] = round(cob_g, 1)
             except Exception as e:
                 ctx["errors"].append(f"IOB_COB_ERROR: {e}")
@@ -145,6 +149,7 @@ async def build_context(username: str, chat_id: int) -> Dict[str, Any]:
                     if t.carbs: desc += f" {t.carbs}g"
                     minutes_ago = int((datetime.now(timezone.utc) - t.created_at).total_seconds() / 60)
                     desc += f" ({minutes_ago}m ago)"
+                    if t.notes: desc += f" [{t.notes}]"
                     summaries.append(desc)
                 ctx["recent_treatments"] = summaries
             except Exception as e:
