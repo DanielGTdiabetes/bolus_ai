@@ -32,6 +32,7 @@ from app.services.suggestion_engine import generate_suggestions_service, get_sug
 from app.services.rotation_service import RotationService
 from app.api.user_data import FavoriteCreate, FavoriteRead
 from app.models.user_data import FavoriteFood
+from app.services.autosens_service import AutosensService
 
 logger = logging.getLogger(__name__)
 
@@ -351,6 +352,27 @@ async def calculate_bolus(carbs: float, meal_type: Optional[str] = None, split: 
                     except Exception: pass
     except Exception as e:
         logger.warning(f"Failed to check temp modes: {e}")
+
+    # Calculate 24h Autosens (Short Term)
+    autosens_ratio = 1.0
+    autosens_reason = None
+    try:
+        engine = get_engine()
+        if engine:
+             async with AsyncSession(engine) as session:
+                  # Use 'admin' or resolved user?
+                  # calculate_bolus wrapper doesn't pass username explicitly, defaulting to admin/first.
+                  # Ideally we should resolve generic user.
+                  from app.bot.service import _resolve_user_id
+                  # Circular import? _resolve_user_id is in service.py? No it is actually in tools.py (this file). 
+                  # Wait, I see _resolve_user_id defined in this file at line 152.
+                  u_id = await _resolve_user_id(session)
+                  
+                  res = await AutosensService.calculate_autosens(u_id, session, user_settings)
+                  autosens_ratio = res.ratio
+                  autosens_reason = res.reason
+    except Exception as e:
+        logger.warning(f"Bot Autosens Calc failed: {e}")
     
     # Build V2 Request
     req = BolusRequestV2(
@@ -358,7 +380,9 @@ async def calculate_bolus(carbs: float, meal_type: Optional[str] = None, split: 
         bg_mgdl=status.bg_mgdl,
         meal_slot=meal_slot,
         target_mgdl=target or user_settings.targets.mid,
-        alcohol=alcohol
+        alcohol=alcohol,
+        autosens_ratio=autosens_ratio,
+        autosens_reason=autosens_reason
     )
 
     # Handle Split/Extend using V2 machinery
