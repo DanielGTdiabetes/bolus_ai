@@ -1540,7 +1540,7 @@ function LabsPanel() {
                             Permitir que la IA ajuste tus bolos automáticamente si la confianza es alta.
                         </div>
                     </div>
-                    <label className="switch">
+                    <label className="switch warning">
                         <input
                             type="checkbox"
                             checked={settings?.learning?.auto_apply_safe ?? false}

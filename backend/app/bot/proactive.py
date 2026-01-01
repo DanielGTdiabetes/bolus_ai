@@ -526,13 +526,16 @@ async def combo_followup(username: str = "admin", chat_id: Optional[int] = None)
     if not user_settings.bot.enabled:
         return
 
+    # Resolve Chat ID early so inner functions can access it
+    final_chat_id = chat_id or await _get_chat_id()
+    if not final_chat_id:
+        return
+
     # Helper to route safely at exit
     from app.bot.llm import router
     
     async def _route(payload_inner: dict):
-        # Resolve chat_id if not present (though we expect final_chat_id to be set by caller time)
-        # Use final_chat_id from outer scope which is set before this is called
-        cid = final_chat_id 
+        cid = final_chat_id
         if not cid:
              return
 
@@ -567,11 +570,6 @@ async def combo_followup(username: str = "admin", chat_id: Optional[int] = None)
     # 2. Config Check
     if not conf.enabled:
         await _route({"reason_hint": "heuristic_disabled"})
-        return
-
-    # Resolve Chat ID
-    final_chat_id = chat_id or await _get_chat_id()
-    if not final_chat_id:
         return
 
     # 3. Check Silence (Rules)

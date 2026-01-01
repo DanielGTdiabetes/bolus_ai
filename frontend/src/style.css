@@ -770,17 +770,20 @@ select:focus {
 }
 
 /* --- TOGGLE SWITCH --- */
+/* --- TOGGLE SWITCH --- */
 .switch {
   position: relative;
   display: inline-block;
-  width: 50px;
-  height: 28px;
+  width: 46px;
+  height: 26px;
+  flex-shrink: 0;
 }
 
 .switch input {
   opacity: 0;
   width: 0;
   height: 0;
+  position: absolute;
 }
 
 .slider {
@@ -790,7 +793,7 @@ select:focus {
   left: 0;
   right: 0;
   bottom: 0;
-  background-color: #ccc;
+  background-color: #cbd5e1;
   transition: .4s;
   border-radius: 34px;
 }
@@ -798,23 +801,33 @@ select:focus {
 .slider:before {
   position: absolute;
   content: "";
-  height: 20px;
-  width: 20px;
+  height: 18px;
+  width: 18px;
   left: 4px;
   bottom: 4px;
   background-color: white;
   transition: .4s;
   border-radius: 50%;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
 }
 
-input:checked + .slider {
+input:checked+.slider {
   background-color: var(--success);
 }
 
-input:focus + .slider {
+input:focus+.slider {
   box-shadow: 0 0 1px var(--success);
 }
 
-input:checked + .slider:before {
-  transform: translateX(22px);
+input:checked+.slider:before {
+  transform: translateX(20px);
+}
+
+/* Warning variant */
+.switch.warning input:checked+.slider {
+  background-color: #f97316;
+}
+
+.switch.warning input:focus+.slider {
+  box-shadow: 0 0 1px #f97316;
 }
