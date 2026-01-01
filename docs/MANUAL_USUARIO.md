@@ -13,7 +13,7 @@ Es el centro de control. Aquí puedes ver:
 - **Glucosa en tiempo real**: Valor actual, flecha de tendencia y una **Gráfica Avanzada** que superpone tu curva de glucosa con los bolos de insulina (azul) y carbohidratos (naranja) para ver el efecto post-prandial.
 - **Feedback Visual (Toasts)**: Las confirmaciones de acciones aparecen como burbujas suaves en la parte inferior, mejorando la experiencia frente a las alertas antiguas.
 - **Insulina Activa (IOB)**: Cuánta insulina queda trabajando en tu cuerpo.
-- **Acciones Rápidas**: Acceso directo a favoritos, calculadora, báscula y alimentos.
+- **Acciones Rápidas**: Acceso directo a Mis Platos, calculadora, báscula y alimentos.
 - **Actividad Reciente**: Listado de las últimas dosis e ingestas.
 
 ### 2. 📷 Escanear (Análisis de Comida)
@@ -23,7 +23,7 @@ Usa la cámara para identificar alimentos y estimar carbohidratos.
 
 ### 3. 💉 Bolo (Calculadora Inteligente)
 El cerebro de la app. Calcula la dosis necesaria basándose en:
-- **Smart Input**: Escribe qué vas a comer (ej: "Pizza") y el sistema buscará en tus favoritos para rellenar los carbohidratos automáticamente.
+- **Smart Input**: Escribe qué vas a comer (ej: "Pizza") y el sistema buscará en Mis Platos para rellenar los carbohidratos automáticamente.
 - **Simulación Predictiva**: Antes de confirmar, verás una **gráfica de futuro a 6 horas** que desglosa:
     - 🟣 **Curva Final**: Tu glucosa estimada.
     - 🟠 **Impacto Carbohidratos**: Cuánto subiría si no te pusieras insulina.
@@ -49,7 +49,7 @@ Herramientas para optimizar tu dosis basal:
 - **⏱️ Historial**: Registro completo de todos los tratamientos.
 - **📊 Patrones**: Análisis detallado de tendencias por franjas horarias.
 - **📍 Mapa Corporal**: Vista completa del estado de tus sitios de inyección.
-- **⭐ Favoritos**: Gestiona tus comidas guardadas.
+- **📚 Mis Platos**: Gestiona tu librería personal unificada (ahora se guardan automáticamente al marcar favoritos en la base de datos).
 - **👤 Perfil**: Configura tus dosis máximas, ratios y tipo de insulina.
 - **⚙️ Ajustes**: Configuración técnica.
 
