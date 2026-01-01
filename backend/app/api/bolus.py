@@ -525,19 +525,22 @@ async def save_treatment(
                      # Check if we already spammed today
                      # (Optional: duplicate check)
                      
+                     direction = "decrease" if new_isf < current_isf else "increase"
+                     
                      sug = ParameterSuggestion(
                          user_id=u_id,
-                         parameter=f"cf.{slot}",
-                         current_value=str(current_isf),
-                         suggested_value=str(new_isf),
+                         meal_slot=slot,
+                         parameter="isf",
+                         direction=direction,
                          reason=f"Autosens: {res.reason} (Ratio {ratio:.2f})",
                          evidence={
                              "ratio": ratio,
                              "source": "autosens_advisor",
-                             "old_isf": current_isf,
+                             "current_value": current_isf,
+                             "suggested_value": new_isf,
+                             "old_isf": current_isf, # redundant but keeping for back-compat if needed
                              "new_isf": new_isf
                          },
-                         priority="medium",
                          status="pending"
                      )
                      task_session.add(sug)
