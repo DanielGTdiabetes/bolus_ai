@@ -81,6 +81,8 @@ class NightscoutStats(BaseModel):
     tir_pct: Optional[float] = None
     lows: int = 0
     highs: int = 0
+    min_bg_val: Optional[float] = None
+    max_bg_val: Optional[float] = None
     sample_size: int = 0
     quality: str = "unknown"
 
@@ -460,11 +462,26 @@ async def get_nightscout_stats(range_hours: int = 24) -> NightscoutStats | ToolE
     values = [e.sgv for e in entries if e.sgv is not None]
     if not values:
         return NightscoutStats(range_hours=range_hours, quality="empty")
+    
+    # Stats
     lows = sum(1 for v in values if v < 70)
     highs = sum(1 for v in values if v > 250)
     tir = sum(1 for v in values if 70 <= v <= 180) / len(values) * 100
     avg = sum(values) / len(values)
-    return NightscoutStats(range_hours=range_hours, avg_bg=avg, tir_pct=tir, lows=lows, highs=highs, sample_size=len(values), quality="live")
+    min_bg = min(values)
+    max_bg = max(values)
+    
+    return NightscoutStats(
+        range_hours=range_hours, 
+        avg_bg=round(avg, 0), 
+        tir_pct=round(tir, 1), 
+        lows=lows, 
+        highs=highs, 
+        min_bg_val=min_bg, 
+        max_bg_val=max_bg,
+        sample_size=len(values), 
+        quality="live"
+    )
 
 
 
