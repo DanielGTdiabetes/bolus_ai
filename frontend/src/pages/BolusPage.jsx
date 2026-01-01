@@ -312,7 +312,7 @@ export default function BolusPage() {
         }
     };
 
-    const handleCalculate = async () => {
+    const handleCalculate = async (overrideParams = null) => {
         setCalculating(true);
         setResult(null);
         try {
@@ -391,7 +391,7 @@ export default function BolusPage() {
                     intensity: exerciseIntensity
                 },
                 // Pass Autosens Data explicitly if available
-                autosens_ratio: state.autosens?.ratio || 1.0,
+                autosens_ratio: (overrideParams?.useAutosens ? (state.autosens?.ratio || 1.0) : 1.0),
                 autosens_reason: state.autosens?.reason || null
             };
 
@@ -1325,7 +1325,15 @@ function ResultView({ result, slot, usedParams, onBack, onSave, saving, currentC
             {/* Autosens Suggestion Alert */}
             {result.calc?.explain?.find(l => l.includes('Autosens (Consejo)')) && (
                 <div style={{ background: '#eff6ff', color: '#1e40af', padding: '0.8rem', margin: '1rem 0', borderRadius: '8px', fontSize: '0.85rem', border: '1px solid #bfdbfe' }}>
-                    <strong>💡 Sugerencia Autosens:</strong>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                        <strong>💡 Sugerencia Autosens:</strong>
+                        <button onClick={() => handleCalculate({ useAutosens: true })} style={{
+                            background: '#2563eb', color: 'white', border: 'none', borderRadius: '6px',
+                            padding: '4px 10px', fontSize: '0.75rem', fontWeight: 'bold', cursor: 'pointer'
+                        }}>
+                            Aplicar
+                        </button>
+                    </div>
                     {result.calc.explain.filter(l => l.includes('Autosens') || l.includes('NO APLICADO')).map((l, i) => (
                         <div key={i} style={{ marginLeft: '10px' }}>{l.replace('🔍', '').replace('⚠️', '')}</div>
                     ))}
