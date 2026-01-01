@@ -7,7 +7,18 @@ from fastapi import APIRouter, Depends, HTTPException, Body
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import get_current_user
-from app.core.db import get_db_session as get_db
+from app.core.db import get_db_session
+
+# ... inside functions replace get_db with get_db_session if needed.
+# But wait, replace_file_content must be exact.
+# I will do two replaces.
+
+# 1. Fix import
+from app.core.db import get_db_session
+
+# ... skipping to next ...
+
+
 from app.core.settings import get_settings, Settings
 from app.services.store import DataStore
 from app.models.settings import UserSettings
@@ -124,7 +135,7 @@ async def get_shadow_logs(
     limit: int = 50,
     current_user: Any = Depends(get_current_user),
     store: DataStore = Depends(_data_store),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db_session)
 ):
     from app.models.learning import ShadowLog
     from sqlalchemy import select
