@@ -138,8 +138,11 @@ class OptimizationResult(BaseModel):
 def _build_ns_client(settings: UserSettings | None) -> Optional[NightscoutClient]:
     if not settings or not settings.nightscout.url:
         return None
+    base = settings.nightscout.url
+    if not base.startswith("http"):
+        base = "https://" + base
     return NightscoutClient(
-        base_url=settings.nightscout.url,
+        base_url=base,
         token=settings.nightscout.token,
         timeout_seconds=10,
     )
@@ -185,18 +188,36 @@ async def _load_user_settings(username: str = "admin") -> UserSettings:
             async with AsyncSession(engine) as session:
                 db_res = await get_user_settings_service(username, session)
                 if db_res and db_res.get("settings"):
-                    user_settings = UserSettings.migrate(db_res["settings"])
-                
-                # Fallback: Find any user with settings if admin is empty
+                    candidate = UserSettings.migrate(db_res["settings"])
+                    # Heuristic: Is this a "real" config?
+                    # If it has Nightscout URL OR non-default CR (Default is 10.0), accept it.
+                    # Otherwise, treat as fallback candidate and look for others.
+                    is_default = (candidate.cr.dinner == 10.0 and candidate.cf.dinner == 30.0 and not candidate.nightscout.url)
+                    
+                    if not is_default:
+                        user_settings = candidate
+                    else:
+                        # "admin" exists but is default. Allow searching for others.
+                        pass
+
+                # Fallback: Find any user with settings if primary (admin) was missing or default
                 if not user_settings:
                     from sqlalchemy import text
                     stmt = text("SELECT user_id, settings FROM user_settings LIMIT 20")
                     rows = (await session.execute(stmt)).fetchall()
                     for r in rows:
                         s = r.settings
-                        if s.get("nightscout", {}).get("url"):
+                        # Prefer one with Nightscout URL or Custom CR
+                        has_ns = s.get("nightscout", {}).get("url")
+                        cr_val = s.get("cr", {}).get("dinner", 10.0)
+                        
+                        if has_ns or (cr_val != 10.0):
                              user_settings = UserSettings.migrate(s)
                              break
+                    
+                    # If we still found nothing, but we had a default candidate (admin), use it.
+                    if not user_settings and 'candidate' in locals():
+                        user_settings = candidate
     except Exception as e:
         logger.warning(f"DB Settings load failed for {username}, falling back to file: {e}")
 
@@ -205,6 +226,11 @@ async def _load_user_settings(username: str = "admin") -> UserSettings:
         settings = get_settings()
         store = DataStore(Path(settings.data.data_dir))
         user_settings = store.load_settings(username)
+    
+    # 2.5 Ensure Defaults are not used blindly if file failed (Wait! load_settings already gives defaults)
+    # But if returned settings are purely default, checks if we can infer anything?
+    if user_settings.cr.dinner == 10.0 and user_settings.cf.dinner == 30.0:
+        logger.warning(f"Using DEFAULT settings for {username}. Check DB connection.")
     
     # 3. Hybrid Overlay: ALWAYS try to get NS secrets from DB (Source of Truth for Secrets)
     try:
@@ -275,7 +301,7 @@ async def get_status_context(username: str = "admin", user_settings: Optional[Us
     )
 
 
-async def calculate_bolus(carbs: float, meal_type: Optional[str] = None, split: Optional[float] = None, extend_minutes: Optional[int] = None, alcohol: bool = False) -> BolusResult | ToolError:
+async def calculate_bolus(carbs: float, meal_type: Optional[str] = None, split: Optional[float] = None, extend_minutes: Optional[int] = None, alcohol: bool = False, target: Optional[float] = None) -> BolusResult | ToolError:
     try:
         user_settings = await _load_user_settings()
     except Exception as exc:
@@ -331,7 +357,7 @@ async def calculate_bolus(carbs: float, meal_type: Optional[str] = None, split: 
         carbs_g=carbs,
         bg_mgdl=status.bg_mgdl,
         meal_slot=meal_slot,
-        target_mgdl=user_settings.targets.mid,
+        target_mgdl=target or user_settings.targets.mid,
         alcohol=alcohol
     )
 
