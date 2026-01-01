@@ -1454,148 +1454,150 @@ function SchedulePanel({ settings, onChange }) {
 }
 
 function LabsPanel() {
-    const [enabled, setEnabled] = React.useState(false);
-    const [confidence, setConfidence] = React.useState(0);
-    const [logs, setLogs] = React.useState([]);
-    const [loading, setLoading] = React.useState(true);
+    const [settings, setSettings] = useState(null);
+    const [logs, setLogs] = useState([]);
+    const [loading, setLoading] = useState(true);
 
-    React.useEffect(() => {
-        // Load settings from Backend (via Store/API)
-        import('../modules/core/store').then(({ getCalcParams }) => {
-            const params = getCalcParams();
-            if (params && params.labs) {
-                setEnabled(params.labs.shadow_mode_enabled || false);
+    useEffect(() => {
+        const loadData = async () => {
+            try {
+                const [s, l] = await Promise.all([
+                    getSettings(),
+                    getShadowLogs(5)
+                ]);
+                setSettings(s || {});
+                setLogs(l || []);
+            } catch (e) {
+                console.error(e);
+            } finally {
+                setLoading(false);
             }
-            setLoading(false);
-        });
-
-        // Load Logs
-        import('../lib/api').then(({ getShadowLogs }) => {
-            getShadowLogs().then(data => {
-                // Map backend format to UI format if needed
-                // Backend: { created_at, scenario, suggestion, is_better, improvement_pct ... }
-                // UI expects: { id, date, meal, suggestion, result, status }
-                if (Array.isArray(data)) {
-                    const mapped = data.map(log => ({
-                        id: log.id,
-                        date: new Date(log.created_at).toLocaleString(),
-                        meal: log.meal_name || 'Comida',
-                        suggestion: log.scenario,
-                        result: log.is_better ? `Mejora ${(log.improvement_pct || 0).toFixed(0)}%` : 'Sin mejora',
-                        status: log.is_better ? 'success' : 'neutral'
-                    }));
-                    setLogs(mapped);
-
-                    // Naive confidence calc
-                    if (mapped.length > 5) {
-                        const successCount = mapped.filter(l => l.status === 'success').length;
-                        setConfidence(Math.round((successCount / mapped.length) * 100));
-                    }
-                }
-            }).catch(e => console.warn(e));
-        });
+        };
+        loadData();
     }, []);
 
-    const toggle = () => {
-        const newVal = !enabled;
-        setEnabled(newVal);
-
-        // Save to Backend
-        import('../modules/core/store').then(({ getCalcParams, saveCalcParams }) => {
-            const current = getCalcParams() || {};
-            const newParams = {
-                ...current,
-                labs: { ...current.labs, shadow_mode_enabled: newVal }
-            };
-            saveCalcParams(newParams); // This syncs to backend API
-        });
+    const handleUpdateLearning = async (enabled) => {
+        if (!settings) return;
+        const updated = { ...settings, learning: { ...settings.learning, enabled } };
+        try {
+            await updateSettings(updated);
+            setSettings(updated);
+        } catch (e) { alert(e.message); }
     };
 
-    if (loading) return <div className="p-4 text-center text-muted">Cargando Labs...</div>;
+    const handleUpdateAutonomy = async (enabled) => {
+        if (!settings) return;
+        const updated = { ...settings, learning: { ...settings.learning, autonomy_enabled: enabled } };
+        try {
+            await updateSettings(updated);
+            setSettings(updated);
+        } catch (e) { alert(e.message); }
+    };
+
+    if (loading) return <div className="p-4 text-center">Cargando Labs...</div>;
 
     return (
         <div className="stack">
-            <h3 style={{ marginTop: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
-                🧪 Shadow Labs <span style={{ fontSize: '0.7rem', background: '#e0f2fe', color: '#0369a1', padding: '2px 6px', borderRadius: '4px' }}>BETA</span>
-            </h3>
+            <h3 style={{ marginTop: 0 }}>Laboratorio (Labs)</h3>
+            <p className="text-muted text-sm" style={{ marginBottom: '1.5rem' }}>
+                Funciones experimentales de aprendizaje automático. El sistema aprende de tus correcciones.
+            </p>
 
-            <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', padding: '1rem', borderRadius: '8px' }}>
-                <div style={{ marginBottom: '1rem' }}>
-                    <div style={{ fontWeight: 600, color: '#166534' }}>Análisis Continuo de Absorción</div>
-                    <div style={{ fontSize: '0.85rem', color: '#15803d', marginTop: '4px' }}>
-                        La IA analiza cada comida en segundo plano para detectar errores de absorción y sugerir mejoras.
-                    </div>
-                </div>
-
-                {/* Main Content Always Visible */}
-                <div style={{ background: 'white', borderRadius: '8px', padding: '1rem', border: '1px solid #e2e8f0' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
-                        <span style={{ fontSize: '0.9rem', fontWeight: 600 }}>Confianza del Modelo</span>
-                        <span style={{ fontWeight: 700, color: confidence > 80 ? '#16a34a' : '#ca8a04' }}>{confidence}%</span>
-                    </div>
-                    <div style={{ width: '100%', background: '#f1f5f9', height: '8px', borderRadius: '4px', overflow: 'hidden' }}>
-                        <div style={{ width: `${confidence}%`, background: confidence > 80 ? '#16a34a' : '#ca8a04', height: '100%' }}></div>
-                    </div>
-                    <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '6px' }}>
-                        {confidence > 80 ? '✅ Fiabilidad alta. Recomendado activar.' : 'Recopilando datos para calibración...'}
-                    </div>
-                </div>
-
-                <div style={{ marginTop: '1.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#ecfdf5', padding: '0.8rem', borderRadius: '8px', border: '1px solid #6ee7b7' }}>
-                    <div style={{ fontSize: '0.9rem', fontWeight: 600, color: '#064e3b' }}>
-                        Aplicar Correcciones
-                        <div style={{ fontSize: '0.75rem', fontWeight: 400, marginTop: '2px', color: '#047857', opacity: 0.9 }}>
-                            Permitir que la IA ajuste la absorción automáticamente en futuros cálculos.
+            <div style={{ padding: '1rem', background: '#f0fdf4', borderRadius: '8px', border: '1px solid #bbf7d0', marginBottom: '1rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div>
+                        <div style={{ fontWeight: 600, color: '#166534' }}>Aprendizaje Activo</div>
+                        <div style={{ fontSize: '0.8rem', color: '#15803d', marginTop: '2px' }}>
+                            Analizar patrones en segundo plano (Shadow Mode).
                         </div>
                     </div>
                     <label className="switch" style={{ position: 'relative', display: 'inline-block', width: '40px', height: '24px', flexShrink: 0 }}>
-                        <input type="checkbox" checked={enabled} onChange={toggle} style={{ opacity: 0, width: 0, height: 0 }} />
+                        <input
+                            type="checkbox"
+                            checked={settings?.learning?.enabled ?? false}
+                            onChange={e => handleUpdateLearning(e.target.checked)}
+                            style={{ opacity: 0, width: 0, height: 0 }}
+                        />
                         <span style={{
                             position: 'absolute', cursor: 'pointer', top: 0, left: 0, right: 0, bottom: 0,
-                            backgroundColor: enabled ? '#16a34a' : '#ccc', borderRadius: '34px', transition: '0.4s'
+                            backgroundColor: settings?.learning?.enabled ? '#16a34a' : '#ccc', borderRadius: '34px', transition: '0.4s'
                         }}>
                             <span style={{
                                 position: 'absolute', content: "", height: '16px', width: '16px', left: '4px', bottom: '4px',
                                 backgroundColor: 'white', borderRadius: '50%', transition: '0.4s',
-                                transform: enabled ? 'translateX(16px)' : 'translateX(0)'
+                                transform: settings?.learning?.enabled ? 'translateX(16px)' : 'translateX(0)'
                             }}></span>
                         </span>
                     </label>
                 </div>
+            </div>
 
-                {enabled && (
-                    <div className="fade-in" style={{ marginTop: '0.8rem', fontSize: '0.8rem', color: '#166534', background: '#dcfce7', padding: '0.5rem', borderRadius: '6px' }}>
-                        <strong>⚠️ Nota:</strong> Se requiere supervisión. Esta función solo se activará tras 20 comprobaciones seguras consecutivas.
-                    </div>
-                )}
-
-                <h4 style={{ margin: '1.5rem 0 0.5rem 0', fontSize: '0.9rem', color: '#475569' }}>Historial en la Sombra</h4>
-                {logs.length === 0 && (
-                    <div style={{ padding: '1rem', textAlign: 'center', color: '#94a3b8', fontSize: '0.85rem', border: '1px dashed #cbd5e1', borderRadius: '6px' }}>
-                        ⏳ La IA está analizando tus datos recientes...
-                    </div>
-                )}
-                <div className="stack" style={{ gap: '0.5rem' }}>
-                    {logs.map(log => (
-                        <div key={log.id} style={{
-                            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                            padding: '0.6rem', background: '#f8fafc', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '0.85rem'
-                        }}>
-                            <div>
-                                <div style={{ fontWeight: 600 }}>{log.meal} <span style={{ fontWeight: 400, color: '#94a3b8' }}>• {log.date}</span></div>
-                                <div style={{ color: '#64748b' }}>{log.suggestion}</div>
-                            </div>
-                            <div style={{
-                                fontWeight: 600,
-                                color: log.status === 'success' ? '#16a34a' : '#64748b',
-                                fontSize: '0.8rem'
-                            }}>
-                                {log.result}
-                            </div>
+            <div style={{ padding: '1rem', background: '#fff7ed', borderRadius: '8px', border: '1px solid #fed7aa', marginBottom: '1rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div>
+                        <div style={{ fontWeight: 600, color: '#c2410c' }}>Aplicar Correcciones (Autonomy)</div>
+                        <div style={{ fontSize: '0.8rem', color: '#9a3412', marginTop: '2px' }}>
+                            Permitir que la IA ajuste tus bolos automáticamente si la confianza es alta.
                         </div>
-                    ))}
+                    </div>
+                    <label className="switch" style={{ position: 'relative', display: 'inline-block', width: '40px', height: '24px', flexShrink: 0 }}>
+                        <input
+                            type="checkbox"
+                            checked={settings?.learning?.autonomy_enabled ?? false}
+                            onChange={e => {
+                                if (e.target.checked && !window.confirm("⚠️ ¿Seguro? Esto permitirá a la IA modificar dosis. Requiere supervisión.")) return;
+                                handleUpdateAutonomy(e.target.checked);
+                            }}
+                            style={{ opacity: 0, width: 0, height: 0 }}
+                        />
+                        <span style={{
+                            position: 'absolute', cursor: 'pointer', top: 0, left: 0, right: 0, bottom: 0,
+                            backgroundColor: settings?.learning?.autonomy_enabled ? '#f97316' : '#ccc', borderRadius: '34px', transition: '0.4s'
+                        }}>
+                            <span style={{
+                                position: 'absolute', content: "", height: '16px', width: '16px', left: '4px', bottom: '4px',
+                                backgroundColor: 'white', borderRadius: '50%', transition: '0.4s',
+                                transform: settings?.learning?.autonomy_enabled ? 'translateX(16px)' : 'translateX(0)'
+                            }}></span>
+                        </span>
+                    </label>
                 </div>
+                {settings?.learning?.autonomy_enabled && (
+                    <div className="fade-in" style={{ marginTop: '0.8rem', fontSize: '0.8rem', color: '#c2410c', background: '#ffedd5', padding: '0.5rem', borderRadius: '6px' }}>
+                        <strong>⚠️ PRECAUCIÓN:</strong> Modo autónomo activo. Revisa siempre los registros.
+                    </div>
+                )}
+            </div>
+
+            <h4 style={{ margin: '1.5rem 0 0.5rem 0', fontSize: '0.9rem', color: '#475569' }}>Historial de Aprendizaje</h4>
+            {logs.length === 0 && (
+                <div style={{ padding: '1rem', textAlign: 'center', color: '#94a3b8', fontSize: '0.85rem', border: '1px dashed #cbd5e1', borderRadius: '6px' }}>
+                    ⏳ Sin datos recientes. Usa el sistema para generar aprendizaje.
+                </div>
+            )}
+            <div className="stack" style={{ gap: '0.5rem' }}>
+                {logs.map(log => (
+                    <div key={log.id} style={{
+                        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                        padding: '0.6rem', background: '#f8fafc', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '0.85rem'
+                    }}>
+                        <div>
+                            <div style={{ fontWeight: 600, color: '#334155' }}>{log.meal_name || "Comida"}</div>
+                            <div style={{ fontSize: '0.75rem', color: '#64748b' }}>{new Date(log.created_at).toLocaleString()}</div>
+                            <div style={{ color: '#475569', marginTop: '2px' }}>{log.suggestion}</div>
+                        </div>
+                        <div style={{
+                            fontWeight: 700,
+                            color: (log.is_better || log.status === 'success') ? '#16a34a' : '#f59e0b',
+                            fontSize: '0.8rem'
+                        }}>
+                            {(log.is_better || log.status === 'success') ? "OK" : "Revisar"}
+                        </div>
+                    </div>
+                ))}
             </div>
         </div>
     );
 }
+
+
