@@ -626,11 +626,15 @@ async def combo_followup(username: str = "admin", chat_id: Optional[int] = None)
         markers = ["#dual", "#combo", "#extendido", "bolo_dual", "combo_followup"]
         if any(m in notes for m in markers):
             return True
-            
-        # Check metadata/JSON in notes if applicable (Nightscout sometimes puts JSON in notes)
-        # Or if "is_combo" is a separate field if we had full dict access, but NightscoutTreatment pydantic model 
-        # usually has 'notes'.
-        # Assuming notes is valid place.
+
+        # Check for 'split:' syntax (App Sync)
+        import re
+        if "split:" in notes:
+             # Basic check usually enough, but let's verify regex
+             split_pattern = r"split:\s*([0-9]+(?:\.[0-9]+)?)\s*now\s*\+\s*([0-9]+(?:\.[0-9]+)?)\s*delayed\s*([0-9]+)m"
+             if re.search(split_pattern, notes):
+                 return True
+
         return False
 
     for t in treatments:

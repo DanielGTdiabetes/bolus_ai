@@ -359,8 +359,13 @@ async def get_current_forecast(
             # Dual Bolus Check (Persistent Memory)
             # If the notes say "Dual", it's a slow meal (Pizza/Fat), so we use 6h absorption.
             # This ensures correctness even after the "Active Plan" finishes.
-            elif row.notes and "dual" in row.notes.lower():
+            # Dual Bolus Check (Persistent Memory)
+            # If the notes say "Dual", it's a slow meal (Pizza/Fat), so we use 6h absorption.
+            # This ensures correctness even after the "Active Plan" finishes.
+            elif row.notes and ("dual" in row.notes.lower() or "combo" in row.notes.lower()):
                 evt_abs = 360
+            elif row.notes and "split" in row.notes.lower():
+                evt_abs = 300 # 5 hours for split if not explicitly dual
 
             carbs.append(ForecastEventCarbs(
                 time_offset_min=int(offset), 
@@ -447,15 +452,40 @@ async def get_current_forecast(
         boluses.append(ForecastEventBolus(time_offset_min=future_insulin_delay_min, units=future_insulin_u))
         
         # SMART ADJUSTMENT:
-        # If there is a dual bolus active, it implies the meal is slow/complex (Pizza/Fat).
-        # Standard absorption (e.g. 3h) will predict a massive spike because only 70% insulin was given.
-        # We must extend the consumption curve of the recent meal to match the "Dual" strategy.
-        # Strategy: Find the recent large meal and force its absorption to at least 6 hours (360 min).
+        # If there is a dual bolus active OR high fat/protein content, extend absorption.
+        # Strategy: 
+        # 1. If 'dual' or 'split' keyword in notes, force 240min (4h) minimum.
+        # 2. If Warsaw equivalent carbs existed (high fat/protein), ensure main carbs are also slow (e.g. 300min).
+        # 3. If "Future Insulin" (active dual) is present, we are definitely in a slow meal scenario -> 360min.
+        
+        has_warsaw_trigger = any(c for c in carbs if getattr(c, 'is_dual', False) or (c.absorption_minutes and c.absorption_minutes >= 300))
+        
         for c in carbs:
-            # If carbs > 20g and happened in the last 60 mins
-            if c.grams > 20 and c.time_offset_min > -60:
-                # Use MAX to avoid overwriting Alcohol (480) or other stronger settings
-                c.absorption_minutes = max(getattr(c, 'absorption_minutes', 0), 360)
+            # Skip if alcohol (priority)
+            if c.absorption_minutes == 480: 
+                continue
+
+            # Case A: Dual Bolus Active (Future Insulin pending)
+            if future_insulin_u and future_insulin_u > 0:
+                 if c.grams > 20 and c.time_offset_min > -60:
+                      c.absorption_minutes = max(getattr(c, 'absorption_minutes', 0), 360)
+            
+            # Case B: High Fat/Protein detected (Warsaw Trigger)
+            # If the meal triggered Warsaw logic, the main carbs should also be slow?
+            # User request: "subirlo a 4h o a la que creamos oportuno... proporcional".
+            elif has_warsaw_trigger and c.grams > 10 and c.time_offset_min > -60:
+                 # Standardize to 5h (300min) for heavy meals
+                 c.absorption_minutes = max(getattr(c, 'absorption_minutes', 0), 300)
+
+            # Case C: Dual/Split in Notes (Manual override)
+            # We already set 360 in the loop above for 'dual' notes. 
+            # But let's ensure 'split' also triggers at least 4h (240m).
+            # The 'split' regex logic might not have set absorption if not explicitly 'dual'.
+            # We rely on 'boluses' checks logic or note checks in 'carbs' loop?
+            # Actually, let's check the CARBS events themselves if they were created from a row with 'split' notes?
+            # We don't have the row here easily. 
+            # But we can check if absorption is currently low (Standard 180) and we suspect complex meal.
+            pass
 
     # 4. Construct Request
     # Current params

@@ -24,6 +24,7 @@ class BotReply:
     text: str
     buttons: Optional[List[List[InlineKeyboardButton]]] = None
     pending_action: Optional[Dict[str, Any]] = None
+    image_path: Optional[str] = None
 
 def _is_admin(user_id: int) -> bool:
     allowed = config.get_allowed_telegram_user_id()
@@ -172,6 +173,7 @@ async def handle_text(username: str, chat_id: int, user_text: str, context_data:
     # Track execution for UI
     last_bolus_result = None
     last_bolus_args = {}
+    last_image_path = None
 
     try:
         # Round 0: Send User Text
@@ -200,7 +202,14 @@ async def handle_text(username: str, chat_id: int, user_text: str, context_data:
             if tool_name == "calculate_bolus" and not isinstance(tool_res, ToolError):
                 last_bolus_result = tool_res
                 last_bolus_args = tool_args
-
+            
+            # Capture Image from Injection Site
+            if tool_name == "add_treatment" and not isinstance(tool_res, ToolError):
+                if hasattr(tool_res, "injection_site") and tool_res.injection_site:
+                     site = tool_res.injection_site
+                     if isinstance(site, dict) and site.get("image"):
+                         last_image_path = site.get("image")
+            
             # Serialize result
             if isinstance(tool_res, ToolError):
                 tool_output = f"Error: {tool_res.message}"
@@ -263,7 +272,7 @@ async def handle_text(username: str, chat_id: int, user_text: str, context_data:
     memory.add(chat_id, "user", user_text)
     memory.add(chat_id, "assistant", reply_text)
     
-    return BotReply(reply_text, final_buttons)
+    return BotReply(reply_text, final_buttons, image_path=last_image_path)
 
 async def handle_event(username: str, chat_id: int, event_type: str, payload: Dict[str, Any]) -> Optional[BotReply]:
     """

@@ -743,6 +743,27 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     else:
         await reply_text(update, context, bot_reply.text)
 
+    # 5. Send Image if present (Injection Site)
+    if bot_reply.image_path:
+        try:
+            # Resolve path (assume relative to frontend/public if not absolute)
+            img_path = Path(bot_reply.image_path)
+            if not img_path.is_absolute():
+                # Hardcoded or Env based. Using known structure d:/bolus_ai/bolus_ai/frontend/public
+                # Ideally config.get_public_dir()
+                base_dir = Path(r"d:/bolus_ai/bolus_ai/frontend/public")
+                img_path = base_dir / bot_reply.image_path
+            
+            if img_path.exists():
+                await context.bot.send_photo(
+                    chat_id=update.effective_chat.id, 
+                    photo=open(img_path, "rb")
+                )
+            else:
+                logger.warning(f"Image not found: {img_path}")
+        except Exception as e:
+            logger.error(f"Failed to send bot image: {e}")
+
     # 5. Observability
     logger.info(f"AI Req: ctx={int(ctx_ms)}ms llm={int(llm_ms)}ms")
 

@@ -11,14 +11,14 @@ class InjectionSite:
     image_ref: str = None # Placeholder for static asset filename
 
 SITES = [
-    InjectionSite("abdomen_right", "Abdomen (Derecha)", "🟣👉"),
-    InjectionSite("abdomen_left", "Abdomen (Izquierda)", "👈🟣"),
-    InjectionSite("thigh_right", "Muslo (Derecha)", "🦵👉"),
-    InjectionSite("thigh_left", "Muslo (Izquierda)", "👈🦵"),
-    InjectionSite("arm_right", "Brazo (Derecha)", "💪👉"),
-    InjectionSite("arm_left", "Brazo (Izquierda)", "👈💪"),
-    InjectionSite("buttocks_right", "Glúteo (Derecha)", "🍑👉"),
-    InjectionSite("buttocks_left", "Glúteo (Izquierda)", "👈🍑"),
+    InjectionSite("abdomen_right", "Abdomen (Derecha)", "🟣👉", "body_abdomen.png"),
+    InjectionSite("abdomen_left", "Abdomen (Izquierda)", "👈🟣", "body_abdomen.png"),
+    InjectionSite("thigh_right", "Muslo (Derecha)", "🦵👉", "body_legs.png"),
+    InjectionSite("thigh_left", "Muslo (Izquierda)", "👈🦵", "body_legs.png"),
+    InjectionSite("arm_right", "Brazo (Derecha)", "💪👉", "body_full.png"),
+    InjectionSite("arm_left", "Brazo (Izquierda)", "👈💪", "body_full.png"),
+    InjectionSite("buttocks_right", "Glúteo (Derecha)", "🍑👉", "body_full.png"),
+    InjectionSite("buttocks_left", "Glúteo (Izquierda)", "👈🍑", "body_full.png"),
 ]
 
 class RotationService:
