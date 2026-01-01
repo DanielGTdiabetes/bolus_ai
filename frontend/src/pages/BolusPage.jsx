@@ -390,6 +390,9 @@ export default function BolusPage() {
                     minutes: exerciseEnabled ? (parseInt(exerciseMinutes) || 0) : 0,
                     intensity: exerciseIntensity
                 },
+                // Pass Autosens Data explicitly if available
+                autosens_ratio: state.autosens?.ratio || 1.0,
+                autosens_reason: state.autosens?.reason || null
             };
 
             let splitSettings = getSplitSettings() || {};
@@ -994,23 +997,23 @@ export default function BolusPage() {
 
                 {/* RESULT SECTION */}
                 {result && (
-                <ResultView
-                    result={result}
-                    slot={slot} // Pass slot for fallback
-                    usedParams={calcUsedParams}
-                    onBack={() => {
-                        setResult(null);
-                        setCalcUsedParams(null);
-                    }}
-                    onSave={handleSave}
-                    saving={saving}
-                    currentCarbs={carbs}
-                    foodName={foodName}
-                    favorites={favorites} // Pass favorites for checking existence
-                    onFavoriteAdded={(newFav) => setFavorites(prev => [...prev, newFav])} // Optimistic update or reload
-                    alcoholEnabled={alcoholEnabled}
-                />
-            )}
+                    <ResultView
+                        result={result}
+                        slot={slot} // Pass slot for fallback
+                        usedParams={calcUsedParams}
+                        onBack={() => {
+                            setResult(null);
+                            setCalcUsedParams(null);
+                        }}
+                        onSave={handleSave}
+                        saving={saving}
+                        currentCarbs={carbs}
+                        foodName={foodName}
+                        favorites={favorites} // Pass favorites for checking existence
+                        onFavoriteAdded={(newFav) => setFavorites(prev => [...prev, newFav])} // Optimistic update or reload
+                        alcoholEnabled={alcoholEnabled}
+                    />
+                )}
 
             </main>
             <BottomNav activeTab="bolus" />
@@ -1316,6 +1319,16 @@ function ResultView({ result, slot, usedParams, onBack, onSave, saving, currentC
                 <div style={{ background: '#fff7ed', color: '#c2410c', padding: '0.8rem', margin: '1rem 0', borderRadius: '8px', fontSize: '0.85rem', border: '1px solid #fed7aa' }}>
                     <strong>⚠️ Atención:</strong>
                     {result.warnings.map((w, i) => <div key={i}>• {w}</div>)}
+                </div>
+            )}
+
+            {/* Autosens Suggestion Alert */}
+            {result.calc?.explain?.find(l => l.includes('Autosens (Consejo)')) && (
+                <div style={{ background: '#eff6ff', color: '#1e40af', padding: '0.8rem', margin: '1rem 0', borderRadius: '8px', fontSize: '0.85rem', border: '1px solid #bfdbfe' }}>
+                    <strong>💡 Sugerencia Autosens:</strong>
+                    {result.calc.explain.filter(l => l.includes('Autosens') || l.includes('NO APLICADO')).map((l, i) => (
+                        <div key={i} style={{ marginLeft: '10px' }}>{l.replace('🔍', '').replace('⚠️', '')}</div>
+                    ))}
                 </div>
             )}
 
