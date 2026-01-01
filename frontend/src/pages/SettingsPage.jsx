@@ -9,7 +9,8 @@ import {
 } from '../modules/core/store';
 import {
     getNightscoutSecretStatus, saveNightscoutSecret, testNightscout,
-    fetchHealth, exportUserData, importUserData, fetchAutosens
+    fetchHealth, exportUserData, importUserData, fetchAutosens,
+    getSettings, updateSettings, getShadowLogs
 } from '../lib/api';
 import { IsfAnalyzer } from '../components/settings/IsfAnalyzer';
 
