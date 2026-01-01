@@ -235,7 +235,21 @@ async def handle_text(username: str, chat_id: int, user_text: str, context_data:
             )
 
         # Final Response extraction
-        reply_text = response.text
+        reply_text = ""
+        if response.candidates:
+            for candidate in response.candidates:
+                if candidate.content and candidate.content.parts:
+                    for part in candidate.content.parts:
+                        if part.text:
+                            reply_text += part.text + " "
+        reply_text = reply_text.strip()
+        
+        # Fallback if empty (e.g. safety block)
+        if not reply_text:
+             if response.prompt_feedback:
+                 reply_text = f"⚠️ Respuesta bloqueada por seguridad. ({response.prompt_feedback})"
+             else:
+                 reply_text = "..."
         
         # Add Buttons if we calculated a bolus
         if last_bolus_result and last_bolus_result.units > 0:
@@ -592,7 +606,12 @@ async def handle_event(username: str, chat_id: int, event_type: str, payload: Di
     
     try:
         response = await model.generate_content_async(full_prompt)
-        text = response.text.strip()
+        text = ""
+        if response.candidates:
+            for part in response.candidates[0].content.parts:
+                if part.text:
+                    text += part.text
+        text = text.strip()
         
         if text == "SKIP" or not text:
              health.record_event(event_type, False, "skipped_by_llm")
