@@ -457,6 +457,12 @@ async def get_current_forecast(
         # 1. If 'dual' or 'split' keyword in notes, force 240min (4h) minimum.
         # 2. If Warsaw equivalent carbs existed (high fat/protein), ensure main carbs are also slow (e.g. 300min).
         # 3. If "Future Insulin" (active dual) is present, we are definitely in a slow meal scenario -> 360min.
+    # 3. Adjust Carbs Absorption (Dynamic)
+    has_warsaw_trigger = False
+    
+    if carbs:
+        # Check for Alcohol Mode first
+        # Treat alcohol separate from meal carbs
         
         has_warsaw_trigger = any(c for c in carbs if getattr(c, 'is_dual', False) or (c.absorption_minutes and c.absorption_minutes >= 300))
         
