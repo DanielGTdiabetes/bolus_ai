@@ -166,7 +166,7 @@ def setup_periodic_tasks():
             except AttributeError:
                 pass # proactive might not have it yet if hot-reloading issues, but usually fine
 
-        schedule_task(_run_isf_check, CronTrigger(hour=10, minute=0), "isf_check")
+        schedule_task(_run_isf_check, CronTrigger(hour=8, minute=0), "isf_check")
         jobs_state.refresh_next_run("isf_check")
 
 

@@ -274,6 +274,17 @@ class UserSettings(BaseModel):
                             val = float(data[slot]["isf"])
                             if val > 0: new_cf[slot] = val
                         except: pass
+                    
+                    # Map Target -> targets.mid (Global)
+                    if "target" in data[slot]:
+                        try:
+                            val = int(float(data[slot]["target"]))
+                            if 70 <= val <= 400:
+                                if "targets" not in data or not isinstance(data["targets"], dict):
+                                    data["targets"] = {}
+                                # We update mid. Note: Last slot wins if they differ.
+                                data["targets"]["mid"] = val
+                        except: pass
             
             data["cr"] = new_cr
             data["cf"] = new_cf
