@@ -42,6 +42,10 @@ async def get_bot_user_settings_safe() -> UserSettings:
                 except Exception as e:
                     logger.warning(f"CtxBuilder: failed to fetch NS secrets: {e}")
 
+                # Check if we have a valid NS URL for admin. If not, we still prefer another user with NS.
+                if not db_settings.get("nightscout", {}).get("url"):
+                    db_settings = None
+
             # 2. Fallback: Any user with URL preferred, but take any if needed
             if not db_settings:
                 from sqlalchemy import text
@@ -50,6 +54,15 @@ async def get_bot_user_settings_safe() -> UserSettings:
                 candidate = None
                 for r in rows:
                     s = r.settings
+                    # Try to overlay secrets for this fallback user too
+                    try:
+                        ns_sec = await svc_ns_secrets.get_ns_config(session, r.user_id)
+                        if ns_sec:
+                            if "nightscout" not in s: s["nightscout"] = {}
+                            s["nightscout"]["url"] = ns_sec.url
+                            s["nightscout"]["token"] = ns_sec.api_secret
+                    except: pass
+
                     if s.get("nightscout", {}).get("url"):
                         db_settings = s
                         break
@@ -116,7 +129,8 @@ async def build_context(username: str, chat_id: int) -> Dict[str, Any]:
                 ctx["bg"] = sgv.sgv
                 ctx["trend"] = sgv.direction
                 ctx["delta"] = sgv.delta
-                ctx["bg_age_min"] = int((datetime.now(timezone.utc) - sgv.date).total_seconds() / 60)
+                bg_ts = datetime.fromtimestamp(sgv.date / 1000.0, timezone.utc)
+                ctx["bg_age_min"] = int((datetime.now(timezone.utc) - bg_ts).total_seconds() / 60)
             except Exception as e:
                 ctx["errors"].append(f"NS_BG_ERROR: {e}")
                 ctx["quality"] = "degraded"

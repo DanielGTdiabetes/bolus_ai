@@ -162,17 +162,18 @@ class LearningService:
 
     async def _compute_outcome(self, entry: MealEntry, ns_client: NightscoutClient):
         # 1. Fetch SGV data for [entry.created_at, entry.created_at + 4h]
-        # entry.created_at is naive UTC. We need aware UTC for Nightscout Client.
-        start_dt = entry.created_at.replace(tzinfo=timezone.utc)
-        end_dt = start_dt + timedelta(hours=4)
+        # entry.created_at is naive UTC. We need aware UTC for Nightscout Client, 
+        # but naive for DB queries (Timestamp without time zone).
+        start_dt_naive = entry.created_at
+        end_dt_naive = start_dt_naive + timedelta(hours=4)
         
         # 0. Validity Checks (Auto-Discard unreliable data)
         # Check against DB treatments for interference
         from app.models.treatment import Treatment
         stmt = select(Treatment).where(
             Treatment.user_id == entry.user_id,
-            Treatment.created_at > start_dt,
-            Treatment.created_at < end_dt
+            Treatment.created_at > start_dt_naive,
+            Treatment.created_at < end_dt_naive
         )
         res = await self.session.execute(stmt)
         interfering_treatments = res.scalars().all()
@@ -209,7 +210,7 @@ class LearningService:
                  if tag in ["#Alcohol", "#Enfermedad", "#Hipo"]: # Hipo means it was a hypo treatment?
                      reason_discard = f"Etiqueta excluida: {tag}"
                      break
-
+ 
         if reason_discard:
             logger.info(f"Memory: Discarding Entry {entry.id}. Reason: {reason_discard}")
             # Mark as evaluated but null score to skip future checks? 
@@ -226,7 +227,11 @@ class LearningService:
             return
 
         # 1. Fetch SGV data for [entry.created_at, entry.created_at + 4h]
-        sgvs = await ns_client.get_sgv_range(start_dt, end_dt, count=100)
+        sgvs = await ns_client.get_sgv_range(
+            start_dt_naive.replace(tzinfo=timezone.utc), 
+            end_dt_naive.replace(tzinfo=timezone.utc), 
+            count=100
+        )
         
         if not sgvs or len(sgvs) < 12: # Need at least ~1h of data to judge
             logger.warning(f"Insufficient data for {entry.id}")
