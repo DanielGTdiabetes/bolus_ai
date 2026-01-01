@@ -156,7 +156,8 @@ def calculate_bolus_v2(
         max_bolus_final=settings.max_bolus_u,
         isf_base=isf_base,
         autosens_ratio=effective_ratio,
-        autosens_reason=autosens_reason
+        autosens_reason=autosens_reason,
+        config_hash=settings.config_hash
     )
     
     # Global Warnings

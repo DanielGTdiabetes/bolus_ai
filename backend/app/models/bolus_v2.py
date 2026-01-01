@@ -94,6 +94,7 @@ class UsedParams(BaseModel):
     isf_base: Optional[float] = None
     autosens_ratio: float = 1.0
     autosens_reason: Optional[str] = None
+    config_hash: Optional[str] = None
 
 
 class BolusSuggestions(BaseModel):

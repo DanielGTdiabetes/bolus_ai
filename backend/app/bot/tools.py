@@ -344,12 +344,19 @@ async def calculate_bolus(carbs: float, meal_type: Optional[str] = None, split: 
         is_stale=False # Assume fresh if fetched via get_status_context
     )
 
+    # Security: Log Config Hash
+    cfg_hash = user_settings.config_hash
+    logger.info(f"Calculating bolus using config hash: {cfg_hash[:8]}")
+
     rec = calculate_bolus_v2(req, user_settings, iob_u, glucose_info)
     
     explain = rec.explain
     if rec.warnings:
         explain.extend([f"⚠️ {w}" for w in rec.warnings])
 
+    # Append Security Footprint
+    explain.append(f"🔒 Config Hash: {cfg_hash[:6]}")
+    
     return BolusResult(units=rec.total_u, explanation=explain, confidence="high", quality="data-driven")
 
 

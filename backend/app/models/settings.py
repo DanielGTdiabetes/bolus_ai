@@ -327,6 +327,34 @@ class UserSettings(BaseModel):
 
         return cls.model_validate(data)
 
+    def compute_hash(self) -> str:
+        """
+        Computes a SHA256 hash of the critical configuration parameters.
+        Used to ensure sync between Bot, App, and Calculations.
+        """
+        import hashlib
+        import json
+        
+        # We only care about fields that affect bolus calculation
+        critical_data = {
+            "targets": self.targets.model_dump(),
+            "cf": self.cf.model_dump(),
+            "cr": self.cr.model_dump(),
+            "iob": self.iob.model_dump(),
+            "schedule": self.schedule.model_dump(),
+            "insulin": self.insulin.model_dump(),
+            "autosens": self.autosens.model_dump(),
+            "warsaw": self.warsaw.model_dump(),
+        }
+        
+        # Sort keys to ensure deterministic JSON
+        raw_str = json.dumps(critical_data, sort_keys=True, default=str)
+        return hashlib.sha256(raw_str.encode("utf-8")).hexdigest()
+
+    @property
+    def config_hash(self) -> str:
+        return self.compute_hash()
+
     @classmethod
     def default(cls) -> "UserSettings":
         return cls()
