@@ -1455,7 +1455,7 @@ function SchedulePanel({ settings, onChange }) {
 }
 
 function LabsPanel() {
-    const [settings, setSettings] = useState(null);
+    const [response, setResponse] = useState(null);
     const [logs, setLogs] = useState([]);
     const [loading, setLoading] = useState(true);
 
@@ -1466,7 +1466,7 @@ function LabsPanel() {
                     getSettings(),
                     getShadowLogs(5)
                 ]);
-                setSettings(s || {});
+                setResponse(s || {});
                 setLogs(l || []);
             } catch (e) {
                 console.error(e);
@@ -1477,88 +1477,103 @@ function LabsPanel() {
         loadData();
     }, []);
 
+    const inner = response?.settings || {};
+    const version = response?.version;
+
     const handleUpdateLearning = async (enabled) => {
-        if (!settings) return;
+        if (!response) return;
 
         try {
             // 1. Optimistic Update
-            setSettings(prev => ({ ...prev, labs: { ...prev.labs, shadow_mode_enabled: enabled } }));
+            const newInner = {
+                ...inner,
+                labs: { ...inner.labs, shadow_mode_enabled: enabled }
+            };
+            setResponse(prev => ({ ...prev, settings: newInner }));
 
             // 2. Prepare Payload
             const payload = {
-                ...settings,
-                labs: { ...settings.labs, shadow_mode_enabled: enabled }
+                ...newInner,
+                version: version
             };
 
             await updateSettings(payload);
 
             // 3. Confirm with fresh data
             const fresh = await getSettings();
-            setSettings(fresh);
+            setResponse(fresh);
         } catch (e) {
+            console.error(e);
             if (e.isConflict && e.serverSettings) {
-                console.log("Conflict detected, retrying with server version...");
+                console.log("Conflict detected, retrying with server version...", e.serverVersion);
                 try {
                     // Retry with server settings
+                    const retryInner = e.serverSettings;
                     const retryPayload = {
-                        ...e.serverSettings,
-                        labs: { ...e.serverSettings.labs, shadow_mode_enabled: enabled }
+                        ...retryInner,
+                        labs: { ...(retryInner.labs || {}), shadow_mode_enabled: enabled },
+                        version: e.serverVersion
                     };
                     await updateSettings(retryPayload);
                     const fresh = await getSettings();
-                    setSettings(fresh);
+                    setResponse(fresh);
                 } catch (retryErr) {
                     alert("Error tras reintento: " + retryErr.message);
                     const fresh = await getSettings();
-                    setSettings(fresh);
+                    setResponse(fresh);
                 }
             } else {
                 alert("Error: " + e.message);
-                // Revert
                 const fresh = await getSettings();
-                setSettings(fresh);
+                setResponse(fresh);
             }
         }
     };
 
     const handleUpdateAutonomy = async (enabled) => {
-        if (!settings) return;
+        if (!response) return;
 
         try {
-            // 1. Optimistic Update
-            setSettings(prev => ({ ...prev, learning: { ...prev.learning, auto_apply_safe: enabled } }));
+            // 1. Optimistic
+            const newInner = {
+                ...inner,
+                learning: { ...inner.learning, auto_apply_safe: enabled }
+            };
+            setResponse(prev => ({ ...prev, settings: newInner }));
 
-            // 2. Prepare Payload
+            // 2. Payload
             const payload = {
-                ...settings,
-                learning: { ...settings.learning, auto_apply_safe: enabled }
+                ...newInner,
+                version: version
             };
 
             await updateSettings(payload);
 
             // 3. Confirm
             const fresh = await getSettings();
-            setSettings(fresh);
+            setResponse(fresh);
         } catch (e) {
             if (e.isConflict && e.serverSettings) {
                 console.log("Conflict detected on Autonomy, retrying...");
                 try {
+                    const retryInner = e.serverSettings;
                     const retryPayload = {
-                        ...e.serverSettings,
-                        learning: { ...e.serverSettings.learning, auto_apply_safe: enabled }
+                        ...retryInner,
+                        learning: { ...(retryInner.learning || {}), auto_apply_safe: enabled },
+                        version: e.serverVersion
                     };
                     await updateSettings(retryPayload);
                     const fresh = await getSettings();
-                    setSettings(fresh);
+                    setResponse(fresh);
                 } catch (retryErr) {
                     alert("Error tras reintento: " + retryErr.message);
                     const fresh = await getSettings();
-                    setSettings(fresh);
+                    setResponse(fresh);
                 }
             } else {
                 alert("Error: " + e.message);
                 const fresh = await getSettings();
-                setSettings(fresh);
+                setResponse(fresh);
             }
         }
     };
@@ -1583,7 +1598,7 @@ function LabsPanel() {
                     <label className="switch">
                         <input
                             type="checkbox"
-                            checked={settings?.labs?.shadow_mode_enabled ?? false}
+                            checked={inner?.labs?.shadow_mode_enabled ?? false}
                             onChange={e => handleUpdateLearning(e.target.checked)}
                         />
                         <span className="slider"></span>
@@ -1602,7 +1617,7 @@ function LabsPanel() {
                     <label className="switch warning">
                         <input
                             type="checkbox"
-                            checked={settings?.learning?.auto_apply_safe ?? false}
+                            checked={inner?.learning?.auto_apply_safe ?? false}
                             onChange={e => {
                                 if (e.target.checked && !window.confirm("⚠️ ¿Seguro? Esto permitirá a la IA modificar dosis. Requiere supervisión.")) return;
                                 handleUpdateAutonomy(e.target.checked);
@@ -1611,7 +1626,7 @@ function LabsPanel() {
                         <span className="slider"></span>
                     </label>
                 </div>
-                {settings?.learning?.auto_apply_safe && (
+                {inner?.learning?.auto_apply_safe && (
                     <div className="fade-in" style={{ marginTop: '0.8rem', fontSize: '0.8rem', color: '#c2410c', background: '#ffedd5', padding: '0.5rem', borderRadius: '6px' }}>
                         <strong>⚠️ PRECAUCIÓN:</strong> Modo autónomo activo. Revisa siempre los registros.
                     </div>
