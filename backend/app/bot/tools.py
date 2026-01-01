@@ -33,6 +33,7 @@ from app.services.rotation_service import RotationService
 from app.api.user_data import FavoriteCreate, FavoriteRead
 from app.models.user_data import FavoriteFood
 from app.services.autosens_service import AutosensService
+from app.bot.user_settings_resolver import resolve_bot_user_settings
 
 logger = logging.getLogger(__name__)
 
@@ -176,78 +177,10 @@ async def _resolve_user_id(session: Optional[AsyncSession] = None) -> str:
 
 
 async def _load_user_settings(username: str = "admin") -> UserSettings:
-
-    user_settings = None
-
-    # 1. Try DB First (Source of Truth for General Config)
-    try:
-        from app.core.db import get_engine, AsyncSession
-        from app.services.settings_service import get_user_settings_service
-        
-        engine = get_engine()
-        if engine:
-            async with AsyncSession(engine) as session:
-                db_res = await get_user_settings_service(username, session)
-                if db_res and db_res.get("settings"):
-                    candidate = UserSettings.migrate(db_res["settings"])
-                    # Heuristic: Is this a "real" config?
-                    # If it has Nightscout URL OR non-default CR (Default is 10.0), accept it.
-                    # Otherwise, treat as fallback candidate and look for others.
-                    is_default = (candidate.cr.dinner == 10.0 and candidate.cf.dinner == 30.0 and not candidate.nightscout.url)
-                    
-                    if not is_default:
-                        user_settings = candidate
-                    else:
-                        # "admin" exists but is default. Allow searching for others.
-                        pass
-
-                # Fallback: Find any user with settings if primary (admin) was missing or default
-                if not user_settings:
-                    from sqlalchemy import text
-                    stmt = text("SELECT user_id, settings FROM user_settings LIMIT 20")
-                    rows = (await session.execute(stmt)).fetchall()
-                    for r in rows:
-                        s = r.settings
-                        # Prefer one with Nightscout URL or Custom CR
-                        has_ns = s.get("nightscout", {}).get("url")
-                        cr_val = s.get("cr", {}).get("dinner", 10.0)
-                        
-                        if has_ns or (cr_val != 10.0):
-                             user_settings = UserSettings.migrate(s)
-                             break
-                    
-                    # If we still found nothing, but we had a default candidate (admin), use it.
-                    if not user_settings and 'candidate' in locals():
-                        user_settings = candidate
-    except Exception as e:
-        logger.warning(f"DB Settings load failed for {username}, falling back to file: {e}")
-
-    # 2. Fallback to File (Legacy / Offline)
-    if not user_settings:
-        settings = get_settings()
-        store = DataStore(Path(settings.data.data_dir))
-        user_settings = store.load_settings(username)
-    
-    # 2.5 Ensure Defaults are not used blindly if file failed (Wait! load_settings already gives defaults)
-    # But if returned settings are purely default, checks if we can infer anything?
-    if user_settings.cr.dinner == 10.0 and user_settings.cf.dinner == 30.0:
-        logger.warning(f"Using DEFAULT settings for {username}. Check DB connection.")
-    
-    # 3. Hybrid Overlay: ALWAYS try to get NS secrets from DB (Source of Truth for Secrets)
-    try:
-        from app.services.nightscout_secrets_service import get_ns_config
-        from app.core.db import get_engine, AsyncSession
-        engine = get_engine()
-        if engine:
-             async with AsyncSession(engine) as session:
-                 ns_conf = await get_ns_config(session, username)
-                 if ns_conf:
-                      user_settings.nightscout.url = ns_conf.url
-                      user_settings.nightscout.token = ns_conf.api_secret
-    except Exception as e:
-        logger.warning(f"Failed to overlay DB settings for {username}: {e}")
-        
-    return user_settings
+    """Load user settings using the shared resolver to avoid default/admin drift."""
+    resolved_settings, resolved_user = await resolve_bot_user_settings(username)
+    logger.info("Tools module using settings for user_id='%s'", resolved_user)
+    return resolved_settings
 
 
 async def get_status_context(username: str = "admin", user_settings: Optional[UserSettings] = None) -> BolusContext | ToolError:

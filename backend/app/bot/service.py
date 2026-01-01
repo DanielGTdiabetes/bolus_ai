@@ -46,6 +46,7 @@ from app.core.db import get_engine, AsyncSession
 from app.services import settings_service as svc_settings
 from app.services import nightscout_secrets_service as svc_ns_secrets
 from app.models.settings import UserSettings
+from app.bot.user_settings_resolver import resolve_bot_user_settings
 from app.models.treatment import Treatment
 
 async def fetch_history_context(user_settings: UserSettings, hours: int = 6) -> str:
@@ -243,66 +244,14 @@ async def _check_auth(update: Update, context: ContextTypes.DEFAULT_TYPE) -> boo
         return False
     return True
 
-async def get_bot_user_settings(username: Optional[str] = "admin") -> UserSettings:
-    """Helper to fetch settings from DB. Defaults to 'admin' (Single User focus)."""
-    settings = get_settings() # App settings
-    
-    # Try DB
-    engine = get_engine()
-    if engine:
-        async with AsyncSession(engine) as session:
-            # 1. Try provided username
-            res = await svc_settings.get_user_settings_service(username or "admin", session)
-            db_settings = None
-            
-            if res and res.get("settings"):
-                s = res["settings"]
-                # Overlay Nightscout Secrets
-                try:
-                    ns_secret = await svc_ns_secrets.get_ns_config(session, username or "admin")
-                    if ns_secret:
-                        if "nightscout" not in s: s["nightscout"] = {}
-                        s["nightscout"]["url"] = ns_secret.url
-                        s["nightscout"]["token"] = ns_secret.api_secret
-                except Exception as e:
-                    logger.warning(f"Bot failed to fetch NS secrets for {username}: {e}")
-
-                db_settings = s
-            
-            # 2. If no settings found for that user, try ANY user with a URL (Single Tenant fallback)
-            if not db_settings:
-                from sqlalchemy import text
-                stmt = text("SELECT user_id, settings FROM user_settings LIMIT 20")
-                rows = (await session.execute(stmt)).fetchall()
-                candidate_settings = None
-                for r in rows:
-                    s = r.settings
-                    # Check for "valid" settings (e.g. has CR/CF or Nightscout)
-                    # We prioritize one with NS URL, but will accept any non-empty one as fallback
-                    ns_url = s.get("nightscout", {}).get("url")
-                    
-                    if ns_url:
-                        db_settings = s
-                        logger.info(f"Bot found Settings via fallback user search (user_id={r.user_id}, has_ns=True).")
-                        break
-                    
-                    if not candidate_settings:
-                        candidate_settings = s
-                        # Keep looking for a better one with NS, but remember this one
-                
-                if not db_settings and candidate_settings:
-                    db_settings = candidate_settings
-                    logger.info("Bot using fallback user settings (no NS URL found).")
-            
-            if db_settings:
-                try:
-                    return UserSettings.migrate(db_settings)
-                except Exception as e:
-                    logger.error(f"Failed to validate DB settings: {e}")
-    
-    # Fallback to JSON Store
-    store = DataStore(Path(settings.data.data_dir))
-    return store.load_settings(username)
+async def get_bot_user_settings(username: Optional[str] = None) -> UserSettings:
+    """
+    Helper to fetch settings from the best available user.
+    Defaults to resolver priority (preferred -> BOT_DEFAULT_USERNAME -> freshest non-default).
+    """
+    resolved_settings, resolved_user = await resolve_bot_user_settings(username)
+    logger.info("Bot using settings for user_id='%s'", resolved_user)
+    return resolved_settings
 
 def get_current_meal_slot(settings: UserSettings) -> str:
     """Infers current meal slot based on User Schedule (Local Time)."""
@@ -2214,7 +2163,6 @@ async def _handle_voice_callback(update, context):
     """Placeholder for voice confirmation logic."""
     query = update.callback_query
     await query.edit_message_text("Función de voz en mantenimiento.")
-
 
 
 
