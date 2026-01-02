@@ -5,10 +5,10 @@ from typing import List, Optional, Literal
 class CalculationInput:
     # Essential Params
     carbs_g: float
-    fiber_g: float = 0.0
     target_mgdl: float
     cr: float
     isf: float
+    fiber_g: float = 0.0
     
     # Context
     bg_mgdl: Optional[float] = None
