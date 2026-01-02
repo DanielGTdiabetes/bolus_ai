@@ -9,7 +9,7 @@ export default function HistoryPage() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const [treatments, setTreatments] = useState([]);
-    const [stats, setStats] = useState({ insulin: 0, carbs: 0, protein: 0 });
+    const [stats, setStats] = useState({ insulin: 0, carbs: 0, protein: 0, fat: 0, fiber: 0 });
     const [editingTx, setEditingTx] = useState(null);
 
     // Search State
@@ -38,13 +38,15 @@ export default function HistoryPage() {
 
             // Process Stats
             const today = new Date().toDateString();
-            let iTotal = 0, cTotal = 0, pTotal = 0;
+            let iTotal = 0, cTotal = 0, pTotal = 0, fTotal = 0, fibTotal = 0;
 
             const valid = data.filter(t => {
                 const u = parseFloat(t.insulin) || 0;
                 const c = parseFloat(t.carbs) || 0;
                 const p = parseFloat(t.protein) || 0;
-                const hasData = (u > 0 || c > 0 || p > 0);
+                const f = parseFloat(t.fat) || 0;
+                const fib = parseFloat(t.fiber) || 0;
+                const hasData = (u > 0 || c > 0 || p > 0 || f > 0 || fib > 0);
 
                 if (hasData) {
                     const d = new Date(t.created_at || t.timestamp || t.date);
@@ -52,13 +54,15 @@ export default function HistoryPage() {
                         if (u > 0) iTotal += u;
                         if (c > 0) cTotal += c;
                         if (p > 0) pTotal += p;
+                        if (f > 0) fTotal += f;
+                        if (fib > 0) fibTotal += fib;
                     }
                 }
                 return hasData;
             });
 
             setTreatments(valid);
-            setStats({ insulin: iTotal, carbs: cTotal, protein: pTotal });
+            setStats({ insulin: iTotal, carbs: cTotal, protein: pTotal, fat: fTotal, fiber: fibTotal });
         } catch (e) {
             setError(e.message);
         } finally {
@@ -115,18 +119,32 @@ export default function HistoryPage() {
         <>
             <Header title="Historial" showBack={true} />
             <main className="page fade-in" style={{ paddingBottom: '80px' }}>
-                <div className="metrics-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.5rem' }}>
-                    <div className="metric-tile" style={{ background: '#eff6ff', textAlign: 'center', padding: '1.5rem 0.5rem', borderRadius: '12px' }}>
-                        <div style={{ fontSize: '1.5rem', fontWeight: 800, color: '#2563eb' }}>{loading ? '--' : stats.insulin.toFixed(1)}</div>
-                        <div style={{ fontSize: '0.7rem', color: '#93c5fd', fontWeight: 700 }}>INSULINA HOY</div>
+                <div className="metrics-grid" style={{ marginBottom: '0.8rem' }}>
+                    {/* Row 1: Primary Metrics */}
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', marginBottom: '0.5rem' }}>
+                        <div className="metric-tile" style={{ background: '#eff6ff', textAlign: 'center', padding: '1.2rem 0.5rem', borderRadius: '12px' }}>
+                            <div style={{ fontSize: '1.4rem', fontWeight: 800, color: '#2563eb' }}>{loading ? '--' : stats.insulin.toFixed(1)}</div>
+                            <div style={{ fontSize: '0.7rem', color: '#93c5fd', fontWeight: 700 }}>INSULINA</div>
+                        </div>
+                        <div className="metric-tile" style={{ background: '#fff7ed', textAlign: 'center', padding: '1.2rem 0.5rem', borderRadius: '12px' }}>
+                            <div style={{ fontSize: '1.4rem', fontWeight: 800, color: '#f97316' }}>{loading ? '--' : Math.round(stats.carbs)}</div>
+                            <div style={{ fontSize: '0.7rem', color: '#fdba74', fontWeight: 700 }}>CARBOS</div>
+                        </div>
                     </div>
-                    <div className="metric-tile" style={{ background: '#fff7ed', textAlign: 'center', padding: '1.5rem 0.5rem', borderRadius: '12px' }}>
-                        <div style={{ fontSize: '1.5rem', fontWeight: 800, color: '#f97316' }}>{loading ? '--' : Math.round(stats.carbs)}</div>
-                        <div style={{ fontSize: '0.7rem', color: '#fdba74', fontWeight: 700 }}>CARBOS HOY</div>
-                    </div>
-                    <div className="metric-tile" style={{ background: '#f5f3ff', textAlign: 'center', padding: '1.5rem 0.5rem', borderRadius: '12px' }}>
-                        <div style={{ fontSize: '1.5rem', fontWeight: 800, color: '#7c3aed' }}>{loading ? '--' : Math.round(stats.protein)}</div>
-                        <div style={{ fontSize: '0.7rem', color: '#a78bfa', fontWeight: 700 }}>PROT HOY</div>
+                    {/* Row 2: Macros */}
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.5rem' }}>
+                        <div className="metric-tile" style={{ background: '#f5f3ff', textAlign: 'center', padding: '0.8rem 0.2rem', borderRadius: '12px' }}>
+                            <div style={{ fontSize: '1.1rem', fontWeight: 800, color: '#7c3aed' }}>{loading ? '--' : Math.round(stats.protein)}</div>
+                            <div style={{ fontSize: '0.65rem', color: '#a78bfa', fontWeight: 700 }}>PROT</div>
+                        </div>
+                        <div className="metric-tile" style={{ background: '#ecfdf5', textAlign: 'center', padding: '0.8rem 0.2rem', borderRadius: '12px' }}>
+                            <div style={{ fontSize: '1.1rem', fontWeight: 800, color: '#059669' }}>{loading ? '--' : Math.round(stats.fat)}</div>
+                            <div style={{ fontSize: '0.65rem', color: '#6ee7b7', fontWeight: 700 }}>GRASAS</div>
+                        </div>
+                        <div className="metric-tile" style={{ background: '#f8fafc', textAlign: 'center', padding: '0.8rem 0.2rem', borderRadius: '12px' }}>
+                            <div style={{ fontSize: '1.1rem', fontWeight: 800, color: '#64748b' }}>{loading ? '--' : Math.round(stats.fiber)}</div>
+                            <div style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 700 }}>FIBRA</div>
+                        </div>
                     </div>
                 </div>
 
