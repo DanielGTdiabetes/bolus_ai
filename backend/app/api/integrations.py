@@ -40,10 +40,16 @@ class NutritionPayload(BaseModel):
     # Generic bucket
     metrics: Optional[List[Dict[str, Any]]] = None # Health Auto Export suele mandar una lista de métricas
 
+from fastapi import APIRouter, Depends, HTTPException, Body, Response, Query, Header
+from app.core import config
+from app.core.security import get_current_user_optional, CurrentUser
+
 @router.post("/nutrition", summary="Webhook for Health Auto Export / External Nutrition")
 async def ingest_nutrition(
-    payload: Dict[str, Any] = Body(...), # Usamos Dict raw par analizar la estructura variable
-    user: CurrentUser = Depends(get_current_user),
+    payload: Dict[str, Any] = Body(...),
+    user: Optional[CurrentUser] = Depends(get_current_user_optional),
+    api_key: Optional[str] = Query(None, alias="api_key"),
+    auth_header: Optional[str] = Header(None, alias="X-Auth-Token"),
     session: AsyncSession = Depends(get_db_session),
 ):
     """
@@ -52,9 +58,26 @@ async def ingest_nutrition(
     Es "silencioso": si falla, no rompe nada, solo loguea error.
     """
     try:
-        # logger.info(f"DEBUG INGEST: Raw Payload received: {payload}") # REDACTED FOR SECURITY (H2)
-        username = user.username
+        # Auth Logic: JWT User OR Shared Secret (API Key)
+        username = "admin" # Default for webhook
         
+        if user:
+            username = user.username
+        else:
+            # Check for API Key / Shared Secret
+            secret = config.get_admin_shared_secret()
+            provided = api_key or auth_header
+            
+            if secret:
+                # Enforce Secret if configured
+                if provided != secret:
+                    logger.warning(f"Unauthorized nutrition attempt. Invalid Key.")
+                    raise HTTPException(status_code=401, detail="Invalid API Key")
+            else:
+                # No secret configured: Allow with warning (Personal Mode)
+                logger.warning("Allowing nutrition ingest without Auth (ADMIN_SHARED_SECRET not set)")
+                # Proceed as "admin"
+                
         # 1. Normalización de Datos (Health Auto Export manda una lista "data": [...])
         # Buscamos carbs, fat, protein en el payload bruto
         
