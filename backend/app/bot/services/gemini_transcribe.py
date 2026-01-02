@@ -83,7 +83,7 @@ async def transcribe_audio(file_bytes: bytes, mime_type: str) -> Dict[str, Optio
         model = genai.GenerativeModel(model_name)
         response = await asyncio.wait_for(
             model.generate_content_async(
-                [prompt, {"mime_type": mime_type, "data": file_bytes}]
+                [prompt, {"mime_type": mime_type, "data": bytes(file_bytes)}]
             ),
             timeout=30.0,
         )
