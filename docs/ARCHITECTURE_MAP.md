@@ -243,8 +243,9 @@ digraph ModuleMap {
     *   *Mitigación:* Se recomienda warning "IOB DESCONOCIDO" si no hay historial > 4h.
 
 2.  **Dependencia de Webhook (Integrations):**
-    *   *Problema:* La estructura del JSON que envían Apps de terceros (Auto Export, Shortcuts) cambia sin aviso.
-    *   *Mitigación:* El endpoint es "silencioso" (loguea errores sin tirar 500 al cliente) pero puede perder datos de entrada.
+    *   *Problema:* La estructura del JSON que envían Apps de terceros (Auto Export, Shortcuts) puede cambiar.
+    *   *Mitigación:* [MITIGADO] Se ha implementado un parser flexible (busca claves como `data.metrics` o formato plano) y el endpoint devuelve `200 OK` incluso si falla el proceso interno (Fail Silent), evitando que la App emisora deje de reintentar. Se audita robustamente en logs.
+
 
 3.  **Timezones (Naive vs Aware):**
     *   *Problema:* El código mezcla `datetime.now(utc)` con fechas "naive" de SQLite.
@@ -257,7 +258,8 @@ digraph ModuleMap {
 
 5.  **Math acoplado a Payload API:**
     *   *Problema:* `calculate_bolus_v2` recibe el objeto `BolusRequestV2`. 
-    *   *Mejora:* Sería más higiénico que `bolus_engine` recibiera solo dataclasses puras.
+    *   *Mitigación:* [MITIGADO] Se ha refactorizado el núcleo matemático (`_calculate_core`) para usar un DTO puro (`CalculationInput`), desacoplando completamente la lógica de dominio de la capa HTTP/Pydantic.
+
 
 6.  **Autenticación Bot:**
     *   *Limitación:* El bot solo permite 1 usuario (`ALLOWED_TELEGRAM_USER_ID`). Familias (padres/madres) no pueden gestionar el mismo paciente simultáneamente desde cuentas distintas.
