@@ -34,7 +34,7 @@ async def main():
         print(f"FAILURE with {configured_model}: {e}")
 
         # Fallback test
-        fallback = "gemini-1.5-flash"
+        fallback = "gemini-2.0-flash-exp"
         print(f"\n--- Testing Fallback: {fallback} ---")
         try:
             model = genai.GenerativeModel(fallback)

@@ -160,8 +160,8 @@ async def handle_text(username: str, chat_id: int, user_text: str, context_data:
     # 5. Initialize Model (Robust Selection)
     primary_model = config.get_gemini_model()
     models_to_try = [primary_model]
-    if "gemini-1.5-flash" not in primary_model:
-        models_to_try.append("gemini-1.5-flash")
+    if "gemini-2.0-flash-exp" not in primary_model:
+        models_to_try.append("gemini-2.0-flash-exp")
 
     chat = None
     model_used = None
@@ -641,8 +641,8 @@ async def handle_event(username: str, chat_id: int, event_type: str, payload: Di
     # Model Fallback
     primary_model = config.get_gemini_model()
     models_to_try = [primary_model]
-    if "gemini-1.5-flash" not in primary_model:
-         models_to_try.append("gemini-1.5-flash")
+    if "gemini-2.0-flash-exp" not in primary_model:
+         models_to_try.append("gemini-2.0-flash-exp")
 
     response = None
     last_error = None

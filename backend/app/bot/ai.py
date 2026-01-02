@@ -34,8 +34,8 @@ async def analyze_image(image_bytes: bytes, mime_type: str = "image/jpeg", api_k
     # Always use Flash for Vision (Cost/Speed efficient)
     primary_model = config.get_gemini_model()
     models_to_try = [primary_model]
-    if "gemini-1.5-flash" not in primary_model:
-        models_to_try.append("gemini-1.5-flash")
+    if "gemini-2.0-flash-exp" not in primary_model:
+        models_to_try.append("gemini-2.0-flash-exp")
 
     last_error = None
 
