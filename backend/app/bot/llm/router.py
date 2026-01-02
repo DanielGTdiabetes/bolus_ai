@@ -159,9 +159,23 @@ async def handle_text(username: str, chat_id: int, user_text: str, context_data:
     # 5. Initialize Model
     # 5. Initialize Model (Robust Selection)
     primary_model = config.get_gemini_model()
-    models_to_try = [primary_model]
-    if "gemini-2.0-flash-exp" not in primary_model:
-        models_to_try.append("gemini-2.0-flash-exp")
+    
+    # Simple complexity router: If the user asks for deep reasoning, switch to Pro.
+    # We can refine this list of keywords or use an intent classifier step in the future.
+    complex_triggers = ["analiza", "explica", "estudia", "reporte", "dime por qué", "razona", "investiga", "why", "analyze", "explain"]
+    
+    is_complex = any(trigger in user_text.lower() for trigger in complex_triggers)
+    
+    if is_complex:
+        pro_model = config.get_gemini_pro_model()
+        logger.info(f"Router: Complex intent detected. Switching to Pro Model ({pro_model})")
+        models_to_try = [pro_model] # Try Pro first
+        # Fallback to Flash if Pro fails/times out is debatable, but let's keep it simple: Pro or bust for now, 
+        # or maybe append primary as backup.
+        if primary_model != pro_model:
+            models_to_try.append(primary_model)
+    else:
+        models_to_try = [primary_model]
 
     chat = None
     model_used = None
@@ -641,8 +655,6 @@ async def handle_event(username: str, chat_id: int, event_type: str, payload: Di
     # Model Fallback
     primary_model = config.get_gemini_model()
     models_to_try = [primary_model]
-    if "gemini-2.0-flash-exp" not in primary_model:
-         models_to_try.append("gemini-2.0-flash-exp")
 
     response = None
     last_error = None
