@@ -98,14 +98,16 @@ class ForecastEngine:
         if req.momentum and req.momentum.enabled and momentum_slope != 0:
             deviation_slope = momentum_slope - model_slope_0
             
-            # Dampening: If deviation is huge (>3), cap it to avoid panic loops
-            if abs(deviation_slope) > 3.0:
+            # Dampening: If deviation is huge (>1.5), cap it to avoid panic loops
+            # Reduced from 3.0 to 1.5 to prevent unrealistic spikes (User Report: Image 1/2)
+            if abs(deviation_slope) > 1.5:
                  warnings.append(f"Desviación masiva detectada ({deviation_slope:.1f}), amortiguada (capped).")
-                 deviation_slope = 3.0 if deviation_slope > 0 else -3.0
+                 deviation_slope = 1.5 if deviation_slope > 0 else -1.5
                  quality = "medium"
 
-        # Increase momentum influence duration for smoother blending (~45 mins)
-        momentum_duration = 45 
+        # Increase momentum influence duration for smoother blending (~30 mins)
+        # Reduced from 45 to 30 to limit projection of short-term noise
+        momentum_duration = 30 
 
         # C. Simulation Loop
         
@@ -306,7 +308,7 @@ class ForecastEngine:
         slope = (n * sum_xy - sum_x * sum_y) / denominator
         
         # Cap slope
-        MAX_SLOPE = 3.0 # mg/dL per min
+        MAX_SLOPE = 1.5 # mg/dL per min (Reduced from 3.0 to prevent jumpiness)
         if abs(slope) > MAX_SLOPE:
             warnings.append(f"Inercia limitada por seguridad (capped, era {slope:.2f})")
             slope = MAX_SLOPE if slope > 0 else -MAX_SLOPE
