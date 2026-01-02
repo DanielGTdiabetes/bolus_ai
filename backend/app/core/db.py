@@ -113,6 +113,9 @@ async def migrate_schema(conn):
         # 3. protein
         await conn.execute(text("ALTER TABLE treatments ADD COLUMN IF NOT EXISTS protein FLOAT DEFAULT 0.0"))
         
+        # 4. fiber
+        await conn.execute(text("ALTER TABLE treatments ADD COLUMN IF NOT EXISTS fiber FLOAT DEFAULT 0.0"))
+        
         # Commit changes if using a connection that requires it (begin() usually handles this, but let's be safe)
         await conn.commit()
         logger.info("✅ Database Migration: Columns 'duration', 'fat', 'protein' checked/added to treatments table.")
