@@ -106,7 +106,13 @@ def get_gemini_transcribe_model() -> str:
     return get_env("GEMINI_TRANSCRIBE_MODEL") or "gemini-1.5-flash"
 
 def is_telegram_voice_enabled() -> bool:
-    val = get_env("ENABLE_TELEGRAM_VOICE", "false")
+    """
+    Voice is auto-enabled when a Google/Gemini API key is present unless
+    ENABLE_TELEGRAM_VOICE is explicitly set.
+    """
+    val = get_env("ENABLE_TELEGRAM_VOICE")
+    if val is None:
+        return bool(get_google_api_key())
     return val.lower() == "true"
 
 def get_max_voice_seconds() -> int:
