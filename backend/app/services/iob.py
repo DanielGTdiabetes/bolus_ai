@@ -257,21 +257,43 @@ async def compute_iob_from_sources(
             
     boluses = unique_boluses
     
-    if not boluses and ns_error:
-        # If we have NO boluses and NS failed, we flag unavailable.
-        # If we have local/db boluses, we use partial.
-        iob_status = "unavailable"
-        warning_msg = f"IOB no disponible: {iob_reason}."
-    elif ns_error and boluses:
-        iob_status = "partial"
-        warning_msg = f"IOB parcial (Nightscout falló). Usando datos locales/DB."
-    elif not ns_error and not boluses:
+    # 3. Analyze Status & Safety
+    # Detect if we are relying on stale local data while NS is down
+    has_recent_local = False
+    if boluses:
+        try:
+             # Check if we have any bolus coverage in the last DIA window (e.g. 4h)
+             # If all boluses are older than 4h, and NS is down, we have a "Data Gap" risk.
+             cutoff_gap = now - timedelta(hours=settings.iob.dia_hours)
+             for b in boluses:
+                 bts = _safe_parse(b["ts"])
+                 if bts and bts > cutoff_gap:
+                     has_recent_local = True
+                     break
+        except Exception:
+             pass
+
+    if ns_error:
+        if not boluses:
+            # Case A: No data at all + NS Error -> Unavailable
+            iob_status = "unavailable"
+            warning_msg = f"IOB no disponible: {iob_reason} (sin datos locales)."
+        elif not has_recent_local:
+            # Case B: Old data only + NS Error -> Unavailable (Risk of missing recent NS treatments)
+            iob_status = "unavailable"
+            warning_msg = f"IOB DESCONOCIDO: {iob_reason}. Sin datos recientes (<{settings.iob.dia_hours}h) en local."
+        else:
+            # Case C: Recent local data exists + NS Error -> Partial
+            iob_status = "partial"
+            warning_msg = f"IOB parcial ({iob_reason}). Usando datos locales recientes."
+            
+    elif not boluses:
         # Success fetching, but nothing found. Value is 0.
         iob_status = "ok"
-    elif iob_status == "unavailable" and not ns_error and boluses:
-        # Nightscout disconnected/disabled but we have local data. IOB is valid based on local data.
+    else:
+        # Success and data found (or local only mode implies ok)
         iob_status = "ok"
-        iob_source = "local_only"
+        if iob_source == "unknown": iob_source = "local_only"
     
     # 3. Compute
     total = 0.0
