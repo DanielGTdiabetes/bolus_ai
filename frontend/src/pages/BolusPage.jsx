@@ -441,6 +441,16 @@ export default function BolusPage() {
 
             const customDate = new Date(date);
 
+            // Check for Fiber Deduction in Explanation (Transparency)
+            let fiberNote = "";
+            const explainList = result.explain || result.calc?.explain;
+            if (explainList) {
+                const fiberLine = explainList.find(l => l.includes('Fibra') || l.includes('Restando'));
+                if (fiberLine) {
+                    fiberNote = ` [${fiberLine}]`;
+                }
+            }
+
             const treatment = {
                 eventType: "Meal Bolus",
                 created_at: customDate.toISOString(),
@@ -450,7 +460,7 @@ export default function BolusPage() {
                 fiber: isUsingOrphan ? (orphanCarbs._diffMode ? (orphanCarbs._netFiber || 0) : (orphanCarbs.fiber || 0)) : (mealMetaRef.current?.fiber || 0),
                 insulin: finalInsulin,
                 enteredBy: state.user?.username || "BolusAI",
-                notes: `BolusAI: ${(result.kind === 'dual' || result.kind === 'extended') ? 'Dual' : 'Normal'}. Gr: ${carbs}${isUsingOrphan ? ' (Sincronizado)' : ''}. BG: ${glucose}. ${foodName ? 'Comida: ' + foodName + '.' : ''} ${alcoholEnabled ? 'Alcohol Detected.' : ''} ${plateItems.length > 0 ? 'Items: ' + plateItems.map(i => i.name).join(', ') : ''}`,
+                notes: `BolusAI: ${(result.kind === 'dual' || result.kind === 'extended') ? 'Dual' : 'Normal'}. Gr: ${carbs}${isUsingOrphan ? ' (Sincronizado)' : ''}. BG: ${glucose}. ${foodName ? 'Comida: ' + foodName + '.' : ''} ${alcoholEnabled ? 'Alcohol Detected.' : ''} ${plateItems.length > 0 ? 'Items: ' + plateItems.map(i => i.name).join(', ') : ''}${fiberNote}`,
                 nightscout: {
                     url: nsConfig.url || null,
                 }
@@ -1306,7 +1316,7 @@ function ResultView({ result, slot, usedParams, onBack, onSave, saving, currentC
             </div>
 
             {/* Safety Alerts */}
-            {result.calc?.explain?.filter(l => l.includes('⛔') || l.includes('⚠️')).map((line, i) => (
+            {(result.explain || result.calc?.explain)?.filter(l => l.includes('⛔') || l.includes('⚠️')).map((line, i) => (
                 <div key={'alert-' + i} style={{
                     background: line.includes('⛔') ? '#fee2e2' : '#fff7ed',
                     color: line.includes('⛔') ? '#991b1b' : '#c2410c',
@@ -1318,7 +1328,7 @@ function ResultView({ result, slot, usedParams, onBack, onSave, saving, currentC
             ))}
 
             <ul style={{ marginTop: '1.5rem', fontSize: '0.85rem', color: '#64748b', paddingLeft: '1.2rem' }}>
-                {result.calc?.explain?.filter(l => !l.includes('⛔') && !l.includes('⚠️')).map((line, i) => <li key={i}>{line}</li>)}
+                {(result.explain || result.calc?.explain)?.filter(l => !l.includes('⛔') && !l.includes('⚠️')).map((line, i) => <li key={i}>{line}</li>)}
             </ul>
 
             {result.warnings && result.warnings.length > 0 && (
@@ -1329,7 +1339,7 @@ function ResultView({ result, slot, usedParams, onBack, onSave, saving, currentC
             )}
 
             {/* Autosens Suggestion Alert */}
-            {result.calc?.explain?.find(l => l.includes('Autosens (Consejo)')) && (
+            {(result.explain || result.calc?.explain)?.find(l => l.includes('Autosens (Consejo)')) && (
                 <div style={{ background: '#eff6ff', color: '#1e40af', padding: '0.8rem', margin: '1rem 0', borderRadius: '8px', fontSize: '0.85rem', border: '1px solid #bfdbfe' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
                         <strong>💡 Sugerencia Autosens:</strong>
@@ -1340,7 +1350,7 @@ function ResultView({ result, slot, usedParams, onBack, onSave, saving, currentC
                             Aplicar
                         </button>
                     </div>
-                    {result.calc.explain.filter(l => l.includes('Autosens') || l.includes('NO APLICADO')).map((l, i) => (
+                    {(result.explain || result.calc?.explain).filter(l => l.includes('Autosens') || l.includes('NO APLICADO')).map((l, i) => (
                         <div key={i} style={{ marginLeft: '10px' }}>{l.replace('🔍', '').replace('⚠️', '')}</div>
                     ))}
                 </div>

@@ -996,6 +996,15 @@ async def _handle_add_treatment_tool(update: Update, context: ContextTypes.DEFAU
     
     # Request ID
     lines.append(f"(`{request_id}`)")
+
+    # E) Fiber Transparency
+    # Check if engine deducted fiber
+    fiber_msg = next((x for x in rec.explain if "Fibra" in x or "Restando" in x), None)
+    if fiber_msg:
+        # User Feedback
+        lines.append(f"ℹ️ {fiber_msg}")
+        # Persistence
+        notes += f" [{fiber_msg}]"
     
     msg_text = "\n".join(lines)
 
