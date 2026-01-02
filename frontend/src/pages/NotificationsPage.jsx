@@ -7,6 +7,22 @@ import { navigate } from '../modules/core/router';
 export default function NotificationsPage() {
     const [alerts, setAlerts] = useState([]);
 
+    const priorityOrder = {
+        critical: 0,
+        high: 1,
+        medium: 2,
+        low: 3,
+        info: 4
+    };
+
+    const priorityBadge = {
+        critical: { label: 'Crítica', color: '#b91c1c', bg: '#fee2e2' },
+        high: { label: 'Alta', color: '#b45309', bg: '#fef3c7' },
+        medium: { label: 'Media', color: '#1d4ed8', bg: '#dbeafe' },
+        low: { label: 'Baja', color: '#0f766e', bg: '#ccfbf1' },
+        info: { label: 'Info', color: '#334155', bg: '#e2e8f0' },
+    };
+
     useEffect(() => {
         async function load() {
             const list = [];
@@ -25,34 +41,43 @@ export default function NotificationsPage() {
                     // We'll calculate IDs to mark seen if that's the desired behavior.
                     // Let's just map them for now.
 
-                    summary.items.forEach(item => {
-                        let uiItem = {
-                            id: item.type, // distinct key
-                            type: 'info',
-                            title: item.title,
-                            msg: item.message,
-                            action: () => navigate(item.route),
-                            btn: 'Ver',
-                            dismissable: true,
-                            backendType: item.type // keep track for marking seen
-                        };
+                    summary.items
+                        .sort((a, b) => (priorityOrder[a.priority] ?? 99) - (priorityOrder[b.priority] ?? 99))
+                        .forEach(item => {
+                            const priority = item.priority || 'info';
+                            let uiType = 'info';
+                            if (priority === 'critical') uiType = 'danger';
+                            else if (priority === 'high') uiType = 'warning';
+                            else if (priority === 'low') uiType = 'success';
 
-                        if (item.type === 'shadow_labs_ready') {
-                            uiItem.type = 'success'; // Green/Special
-                            uiItem.btn = 'Activar Ahora';
-                            uiItem.title = '✨ ' + item.title;
-                        } else if (item.type === 'suggestion_pending') {
-                            uiItem.type = 'info';
-                            uiItem.btn = 'Revisar';
-                        } else if (item.type === 'basal_review_today') {
-                            uiItem.type = 'warning';
-                        } else if (item.type === 'post_prandial_warning') {
-                            uiItem.type = 'danger'; // High importance
-                            uiItem.btn = 'Corregir';
-                        }
+                            let uiItem = {
+                                id: item.type, // distinct key
+                                type: uiType,
+                                priority,
+                                title: item.title,
+                                msg: item.message,
+                                action: () => navigate(item.route),
+                                btn: 'Ver',
+                                dismissable: true,
+                                backendType: item.type // keep track for marking seen
+                            };
 
-                        list.push(uiItem);
-                    });
+                            if (item.type === 'shadow_labs_ready') {
+                                uiItem.type = 'success'; // Green/Special
+                                uiItem.btn = 'Activar Ahora';
+                                uiItem.title = '✨ ' + item.title;
+                            } else if (item.type === 'suggestion_pending') {
+                                uiItem.type = 'info';
+                                uiItem.btn = 'Revisar';
+                            } else if (item.type === 'basal_review_today') {
+                                uiItem.type = 'warning';
+                            } else if (item.type === 'post_prandial_warning') {
+                                uiItem.type = 'danger'; // High importance
+                                uiItem.btn = 'Corregir';
+                            }
+
+                            list.push(uiItem);
+                        });
                 }
             } catch (e) {
                 console.warn("Error fetching notifications", e);
@@ -64,6 +89,7 @@ export default function NotificationsPage() {
             if (needles < 20) {
                 list.push({
                     type: 'danger',
+                    priority: 'high',
                     title: 'Stock de Agujas muy bajo',
                     msg: `Solo quedan ${needles} agujas. Reponer urgentemente.`,
                     action: () => navigate('#/supplies'),
@@ -72,6 +98,7 @@ export default function NotificationsPage() {
             } else if (needles < 50) {
                 list.push({
                     type: 'warning',
+                    priority: 'medium',
                     title: 'Stock de Agujas bajo',
                     msg: `Quedan ${needles} agujas. Considera comprar pronto.`,
                     action: () => navigate('#/supplies'),
@@ -84,6 +111,7 @@ export default function NotificationsPage() {
             if (sensors < 4) {
                 list.push({
                     type: 'warning',
+                    priority: 'medium',
                     title: 'Stock de Sensores bajo',
                     msg: `Quedan ${sensors} sensores.`,
                     action: () => navigate('#/supplies'),
@@ -96,6 +124,7 @@ export default function NotificationsPage() {
             if (sick) {
                 list.push({
                     type: 'info',
+                    priority: 'low',
                     title: 'Modo Enfermedad Activo',
                     msg: 'Tus ratios están aumentados un 20%. Recuerda desactivarlo cuando mejores.',
                     action: () => navigate('#/profile'),
@@ -109,6 +138,7 @@ export default function NotificationsPage() {
                 list.push({
                     id: 'forecast-alert',
                     type: 'warning',
+                    priority: 'high',
                     title: 'Tendencia Riesgosa Detectada',
                     msg: 'El modelo de predicción indica un posible riesgo de hipo/hiperglucemia en las próximas horas.',
                     action: () => navigate('#/forecast'),
@@ -117,6 +147,7 @@ export default function NotificationsPage() {
                 });
             }
 
+            list.sort((a, b) => (priorityOrder[a.priority || 'info'] ?? 99) - (priorityOrder[b.priority || 'info'] ?? 99));
             setAlerts(list);
 
             // Auto-clear badge count (optional)
@@ -171,6 +202,21 @@ export default function NotificationsPage() {
                                     {alert.type === 'warning' && '⚠️ '}
                                     {alert.type === 'info' && 'ℹ️ '}
                                     {alert.title}
+                                    {alert.priority && (
+                                        <span style={{
+                                            marginLeft: '0.5rem',
+                                            fontSize: '0.75rem',
+                                            fontWeight: 700,
+                                            padding: '2px 8px',
+                                            borderRadius: '9999px',
+                                            color: priorityBadge[alert.priority]?.color || '#334155',
+                                            background: priorityBadge[alert.priority]?.bg || '#e2e8f0',
+                                            textTransform: 'uppercase',
+                                            letterSpacing: '0.02em'
+                                        }}>
+                                            {priorityBadge[alert.priority]?.label || 'Info'}
+                                        </span>
+                                    )}
                                 </div>
                                 <p style={{ fontSize: '0.9rem', color: '#64748b', margin: 0, lineHeight: 1.4 }}>
                                     {alert.msg}

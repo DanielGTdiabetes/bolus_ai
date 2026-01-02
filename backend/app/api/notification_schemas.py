@@ -1,16 +1,25 @@
-from pydantic import BaseModel
-from typing import Optional
+from pydantic import BaseModel, Field
+
 
 class PushSubscription(BaseModel):
     endpoint: str
-    keys: dict[str, str] # p256dh, auth
+    keys: dict[str, str]  # p256dh, auth
+
+
+class NotificationItem(BaseModel):
+    type: str
+    title: str
+    message: str
+    route: str
+    count: int = 0
+    unread: bool = False
+    priority: str
+
 
 class NotificationSummary(BaseModel):
-    has_suggestions: bool = False
-    pending_suggestions_count: int = 0
-    has_basal_advice: bool = False
-    advice_msg: Optional[str] = None
-    has_basal_change: bool = False
+    has_unread: bool = False
+    items: list[NotificationItem] = Field(default_factory=list)
+
 
 class MarkSeenRequest(BaseModel):
     types: list[str]
