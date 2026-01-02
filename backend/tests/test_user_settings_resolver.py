@@ -2,6 +2,7 @@ import pytest
 from datetime import datetime, timedelta
 from types import SimpleNamespace
 
+import app.bot.user_settings_resolver as user_settings_resolver
 from app.bot.user_settings_resolver import resolve_bot_user_settings
 from app.core import config
 from app.core import db as core_db
@@ -53,7 +54,7 @@ async def test_resolver_prefers_non_default_settings_over_admin(monkeypatch):
             )
             await session.commit()
 
-        monkeypatch.setattr("app.bot.user_settings_resolver.get_engine", lambda: engine)
+        monkeypatch.setattr(user_settings_resolver, "get_engine", lambda: engine)
         monkeypatch.setattr(config, "get_bot_default_username", lambda: "admin")
 
         resolved_settings, resolved_user = await resolve_bot_user_settings()
@@ -73,8 +74,8 @@ async def test_resolver_reads_file_store_when_no_db(monkeypatch, tmp_path):
     store.save_settings(file_settings, username="file_user")
 
     fake_settings = SimpleNamespace(data=SimpleNamespace(data_dir=str(tmp_path)))
-    monkeypatch.setattr("app.bot.user_settings_resolver.get_settings", lambda: fake_settings)
-    monkeypatch.setattr("app.bot.user_settings_resolver.get_engine", lambda: None)
+    monkeypatch.setattr(user_settings_resolver, "get_settings", lambda: fake_settings)
+    monkeypatch.setattr(user_settings_resolver, "get_engine", lambda: None)
     monkeypatch.setattr(config, "get_bot_default_username", lambda: "file_user")
 
     resolved_settings, resolved_user = await resolve_bot_user_settings()
