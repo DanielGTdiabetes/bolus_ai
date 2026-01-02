@@ -32,7 +32,9 @@ from app.services.rotation_service import RotationService
 from app.api.user_data import FavoriteCreate, FavoriteRead
 from app.models.user_data import FavoriteFood
 from app.services.autosens_service import AutosensService
+from app.services.autosens_service import AutosensService
 from app.bot.user_settings_resolver import resolve_bot_user_settings
+from app.services.restaurant_db import RestaurantDBService
 
 logger = logging.getLogger(__name__)
 
@@ -132,11 +134,15 @@ class SearchFoodResult(BaseModel):
     error: Optional[str] = None
 
 
-class InjectionSiteResult(BaseModel):
-    name: str
-    emoji: str
-    image: Optional[str] = None
     quality: str = "ok"
+
+
+class RestaurantSessionResult(BaseModel):
+    ok: bool
+    session_id: Optional[str] = None
+    status: str
+    summary: Optional[str] = None
+    error: Optional[str] = None
 
 
 class OptimizationResult(BaseModel):
@@ -1017,7 +1023,107 @@ AI_TOOL_DECLARATIONS = [
             "properties": {},
         },
     },
+    {
+        "name": "start_restaurant_session",
+        "description": "Inicia sesión modo restaurante. Define carbohidratos esperados totales.",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "expected_carbs": {"type": "NUMBER"},
+                "expected_fat": {"type": "NUMBER"},
+                "expected_protein": {"type": "NUMBER"},
+                "notes": {"type": "STRING"}
+            },
+            "required": ["expected_carbs"]
+        }
+    },
+    {
+        "name": "add_plate_to_session",
+        "description": "Añade un plato real a la sesión de restaurante activa.",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "session_id": {"type": "STRING"},
+                "carbs": {"type": "NUMBER"},
+                "fat": {"type": "NUMBER"},
+                "protein": {"type": "NUMBER"},
+                "name": {"type": "STRING"}
+            },
+            "required": ["session_id", "carbs"]
+        }
+    },
+    {
+        "name": "end_restaurant_session",
+        "description": "Finaliza sesión restaurante y calcula desviación.",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "session_id": {"type": "STRING"},
+                "outcome_score": {"type": "INTEGER", "description": "1-5"}
+            },
+            "required": ["session_id"]
+        }
+    }
 ]
+
+
+async def start_restaurant_session(expected_carbs: float, expected_fat: float = 0.0, expected_protein: float = 0.0, notes: str = "") -> RestaurantSessionResult:
+    try:
+        user_settings = await _load_user_settings() # Gets admin/bot user
+        engine = get_engine()
+        user_id = "admin"
+        if engine:
+             async with AsyncSession(engine) as session:
+                  user_id = await _resolve_user_id(session)
+
+        sess = await RestaurantDBService.create_session(
+            user_id=user_id,
+            expected_carbs=expected_carbs,
+            expected_fat=expected_fat,
+            expected_protein=expected_protein,
+            items=[],
+            notes=notes
+        )
+        if sess:
+            return RestaurantSessionResult(ok=True, session_id=str(sess.id), status="started", summary=f"Sesión iniciada. Esperado: {expected_carbs}g HC.")
+        else:
+             return RestaurantSessionResult(ok=False, status="error", error="DB no disponible")
+    except Exception as e:
+        logger.error(f"Error starting restaurant session: {e}")
+        return RestaurantSessionResult(ok=False, status="error", error=str(e))
+
+
+async def add_plate_to_session(session_id: str, carbs: float, fat: float = 0.0, protein: float = 0.0, name: str = "Plato") -> RestaurantSessionResult:
+    try:
+        plate = {
+            "carbs": carbs,
+            "fat": fat,
+            "protein": protein,
+            "name": name,
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        res = await RestaurantDBService.add_plate(session_id, plate)
+        if res:
+            return RestaurantSessionResult(ok=True, session_id=str(res.id), status="updated", summary=f"Plato añadido. Total actual: {res.actual_carbs}g HC.")
+        else:
+            return RestaurantSessionResult(ok=False, status="error", error="Sesión no encontrada")
+    except Exception as e:
+        logger.error(f"Error adding plate: {e}")
+        return RestaurantSessionResult(ok=False, status="error", error=str(e))
+
+
+async def end_restaurant_session(session_id: str, outcome_score: int = None) -> RestaurantSessionResult:
+    try:
+        res = await RestaurantDBService.finalize_session(session_id, outcome_score)
+        if res:
+            diff = res.delta_carbs
+            msg = f"Sesión finalizada. Desviación: {diff:+.1f}g HC."
+            return RestaurantSessionResult(ok=True, session_id=str(res.id), status="closed", summary=msg)
+        else:
+            return RestaurantSessionResult(ok=False, status="error", error="Sesión no encontrada")
+    except Exception as e:
+        logger.error(f"Error closing session: {e}")
+        return RestaurantSessionResult(ok=False, status="error", error=str(e))
 
 
 # Map tool names to callables
@@ -1055,6 +1161,26 @@ async def execute_tool(name: str, args: Dict[str, Any]) -> Any:
             return await search_food(args)
         if name == "get_injection_site":
             return await get_injection_site(args)
+        if name == "start_restaurant_session":
+            return await start_restaurant_session(
+                expected_carbs=float(args.get("expected_carbs")),
+                expected_fat=float(args.get("expected_fat", 0)),
+                expected_protein=float(args.get("expected_protein", 0)),
+                notes=args.get("notes", "")
+            )
+        if name == "add_plate_to_session":
+            return await add_plate_to_session(
+                session_id=args.get("session_id"),
+                carbs=float(args.get("carbs")),
+                fat=float(args.get("fat", 0)),
+                protein=float(args.get("protein", 0)),
+                name=args.get("name", "Plato")
+            )
+        if name == "end_restaurant_session":
+            return await end_restaurant_session(
+                session_id=args.get("session_id"),
+                outcome_score=int(args.get("outcome_score")) if args.get("outcome_score") else None
+            )
     except ValidationError as exc:
         return ToolError(type="validation_error", message=str(exc))
     except Exception as exc:  # pragma: no cover
