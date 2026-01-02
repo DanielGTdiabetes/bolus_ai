@@ -32,6 +32,9 @@ class CalculationInput:
     slow_meal_enabled: bool = False
     slow_meal_upfront_pct: float = 1.0
     
+    # Rules
+    use_fiber_deduction: bool = False
+    
     # Safety User Settings (Limits)
     max_bolus_u: float = 15.0
     max_correction_u: float = 5.0

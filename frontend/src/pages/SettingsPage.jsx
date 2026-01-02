@@ -193,7 +193,8 @@ function CalcParamsPanel() {
         max_bolus_u: 10,
         techne: { enabled: false, max_step_change: 0.5, safety_iob_threshold: 1.5 },
         warsaw: { enabled: true, trigger_threshold_kcal: 300, safety_factor: 0.1, safety_factor_dual: 0.2 },
-        autosens: { enabled: true, min_ratio: 0.7, max_ratio: 1.2 }
+        autosens: { enabled: true, min_ratio: 0.7, max_ratio: 1.2 },
+        calculator: { subtract_fiber: false }
     };
 
     const [params, setParams] = useState(defaults);
@@ -211,7 +212,8 @@ function CalcParamsPanel() {
                 ...p,
                 techne: { ...defaults.techne, ...(p.techne || {}) },
                 warsaw: { ...defaults.warsaw, ...(p.warsaw || {}) },
-                autosens: { ...defaults.autosens, ...(p.autosens || {}) }
+                autosens: { ...defaults.autosens, ...(p.autosens || {}) },
+                calculator: { ...defaults.calculator, ...(p.calculator || {}) }
             };
             setParams(merged);
         }
@@ -545,6 +547,23 @@ function CalcParamsPanel() {
                         </div>
                     </div>
                 )}
+            </div>
+
+            <div style={{ marginTop: '1rem', padding: '1rem', background: '#fdf4ff', borderRadius: '8px', border: '1px solid #f0abfc' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '0.8rem', fontWeight: 600, color: '#86198f', cursor: 'pointer' }}>
+                    <input
+                        type="checkbox"
+                        checked={params.calculator?.subtract_fiber}
+                        onChange={e => setParams(prev => ({ ...prev, calculator: { ...prev.calculator, subtract_fiber: e.target.checked } }))}
+                        style={{ width: '1.2rem', height: '1.2rem' }}
+                    />
+                    Restar Fibra (Net Carbs)
+                </label>
+                <div style={{ margin: '0.5rem 0 0 2rem', fontSize: '0.8rem', color: '#701a75' }}>
+                    Si se activa: <strong>Carbos - (Fibra * 0.5)</strong> cuando Fibra {'>'} 5g.
+                    <br />
+                    <i>Ejemplo: 30g Carbos - 8g Fibra = 26g para el cálculo.</i>
+                </div>
             </div>
 
             <div style={{ marginTop: '1rem', padding: '1rem', background: '#f0fdf4', borderRadius: '8px', border: '1px solid #bbf7d0' }}>

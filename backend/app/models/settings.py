@@ -109,6 +109,10 @@ class TechneRoundingConfig(BaseModel):
     safety_iob_threshold: float = 1.5  # If IOB > this, disable Techne rounding (avoid stacking)
 
 
+class CalculatorConfig(BaseModel):
+    subtract_fiber: bool = Field(default=False, description="Subtract 50% of fiber if > 5g")
+
+
 
 class WarsawConfig(BaseModel):
     enabled: bool = True
@@ -232,6 +236,7 @@ class UserSettings(BaseModel):
     adaptive: AdaptiveConfig = Field(default_factory=AdaptiveConfig)
     nightscout: NightscoutConfig = Field(default_factory=NightscoutConfig)
     techne: TechneRoundingConfig = Field(default_factory=TechneRoundingConfig)
+    calculator: CalculatorConfig = Field(default_factory=CalculatorConfig)
     warsaw: WarsawConfig = Field(default_factory=WarsawConfig)
     vision: VisionConfig = Field(default_factory=VisionConfig)
     labs: LabsConfig = Field(default_factory=LabsConfig)
@@ -346,6 +351,7 @@ class UserSettings(BaseModel):
             "insulin": self.insulin.model_dump(),
             "autosens": self.autosens.model_dump(),
             "warsaw": self.warsaw.model_dump(),
+            "calculator": self.calculator.model_dump(),
         }
         
         # Sort keys to ensure deterministic JSON

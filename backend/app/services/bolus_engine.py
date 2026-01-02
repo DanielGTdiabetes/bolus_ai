@@ -137,9 +137,19 @@ def _calculate_core(inp: CalculationInput) -> CalculationResult:
         
     # --- 2. Meal Bolus ---
     meal_u = 0.0
-    if inp.carbs_g > 0:
-        meal_u = inp.carbs_g / cr
-        explain.append(f"A) Comida: {inp.carbs_g:.1f}g / {cr:.1f} = {meal_u:.2f} U")
+    # --- 2. Meal Bolus ---
+    meal_u = 0.0
+    
+    # Fiber Deduction (Net Carbs)
+    eff_carbs = inp.carbs_g
+    if inp.use_fiber_deduction and inp.fiber_g > 5.0 and inp.carbs_g > 0:
+         deduction = inp.fiber_g * 0.5
+         eff_carbs = max(0, inp.carbs_g - deduction)
+         explain.append(f"🥗 Fibra > 5g ({inp.fiber_g}g): Restando {deduction:.1f}g. Netos: {eff_carbs:.1f}g")
+
+    if eff_carbs > 0:
+        meal_u = eff_carbs / cr
+        explain.append(f"A) Comida: {eff_carbs:.1f}g / {cr:.1f} = {meal_u:.2f} U")
     else:
         explain.append("A) Comida: 0g")
         
@@ -224,6 +234,7 @@ def calculate_bolus_v2(
     
     inp = CalculationInput(
         carbs_g=request.carbs_g,
+        fiber_g=request.fiber_g,
         target_mgdl=target,
         cr=cr_base,
         isf=isf_base,
@@ -239,7 +250,8 @@ def calculate_bolus_v2(
         exercise_intensity=request.exercise.intensity,
         max_bolus_u=settings.max_bolus_u,
         max_correction_u=settings.max_correction_u,
-        round_step=settings.round_step_u
+        round_step=settings.round_step_u,
+        use_fiber_deduction=settings.calculator.subtract_fiber
     )
     
     # 2. Call Core (Pure Math)
