@@ -647,21 +647,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await reply_text(update, context, "\n".join(out))
         return
 
-    if cmd == "ping":
-        await reply_text(update, context, "pong")
-        return
-
-    if cmd == "debug":
-        # Keep existing debug logic...
-        # For brevity in this diff, I am assuming the user might want to keep debug but 
-        # I cannot replace partial blocks easily without copying it all.
-        # Ideally I should keep debug.
-        # But 'ping' and 'debug' are the only hardcoded ones I want to keep unique.
-        pass # I will put debug block back in a separate edit or just copy it here if I had it.
-        # Since I am replacing the whole function body basically...
-        # I'll rely on the existing debug block being complex. 
-        # I will only replace from "Quick heuristics" downwards.
-        return
+    # (Legacy redundant checks removed)
 
     # --- AI Layer ---
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=constants.ChatAction.TYPING)
@@ -855,14 +841,8 @@ async def _handle_add_treatment_tool(update: Update, context: ContextTypes.DEFAU
         rec.total_u = insulin_req
         rec.explain.append(f"Override: Usuario solicitó explícitamente {insulin_req} U")
 
-    # 3. Store Snapshot
+    # 3. Message Generation (Strict Format)
     # ---------------------------------------------------------
-    SNAPSHOT_STORAGE[request_id] = {
-        "rec": rec,
-        "carbs": carbs,
-        "notes": notes,
-        "ts": datetime.now()
-    }
 
     # 4. Message Generation (Strict Format)
     # ---------------------------------------------------------
@@ -929,7 +909,8 @@ async def _handle_add_treatment_tool(update: Update, context: ContextTypes.DEFAU
         "carbs": carbs,
         "bg": bg_val,
         "notes": notes,
-        "source": "CalculateBolus"
+        "source": "CalculateBolus",
+        "ts": datetime.now()
     }
     logger.info(f"Snapshot saved for request_{request_id}. Keys: {len(SNAPSHOT_STORAGE)}")
     
@@ -2159,10 +2140,85 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
          await query.edit_message_text(f"{query.message.text}\n\n✏️ **Escribe la cantidad de unidades:**")
          return
 
-async def _handle_voice_callback(update, context):
-    """Placeholder for voice confirmation logic."""
+async def _handle_voice_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handles voice confirmation callbacks."""
     query = update.callback_query
-    await query.edit_message_text("Función de voz en mantenimiento.")
+    data = query.data
+    
+    # data: "voice_confirm_yes", "voice_confirm_retry", "voice_confirm_cancel"
+    action = data.replace("voice_confirm_", "")
+    
+    pending_text = context.user_data.get("pending_voice_text")
+    
+    if action == "cancel":
+        context.user_data.pop("pending_voice_text", None)
+        await query.edit_message_text("❌ Nota de voz descartada.")
+        return
+
+    if action == "retry":
+        context.user_data.pop("pending_voice_text", None)
+        await query.edit_message_text("🔄 Vale, descarte. Envía otra nota de voz o escribe.")
+        return
+
+    if action == "yes":
+        if not pending_text:
+             await query.edit_message_text("⚠️ Error: Texto perdido. Por favor repite.")
+             return
+             
+        # Simulate text message
+        await query.edit_message_text(f"🗣️ Procesando: \"{pending_text}\"...")
+        
+        # We need to call handle_message, but update.message might be None or pointing to the button click?
+        # We can't easily fake the update object fully without side effects.
+        # Better: Create a mock update or extract the logic of handle_message that processes text.
+        # But handle_message takes Update.
+        # Let's try to mutate the update to look like a message update.
+        # Or better: Extract logic. But for now, let's try calling handle_message by faking specific attributes if possible.
+        # Actually, since handle_message reads update.message.text, we can't easily use the callback update.
+        
+        # Alternative: We can execute the logic directly if it's simple command routing, 
+        # but handle_message does AI routing.
+        
+        # Let's try to construct a minimal Update/Message object?
+        # That's risky.
+        
+        # Simplest valid approach: Send a real message from the user? No API for that.
+        # We process it as if it passed the check.
+        # Reuse router logic directly?
+        
+        # For this fix, let's call the AI Router manually, similar to handle_message.
+        # This is duplication but safer than faking Update.
+        
+        try:
+            user_username = update.effective_user.username
+            chat_id = update.effective_chat.id
+            
+            # Show typing
+            await context.bot.send_chat_action(chat_id=chat_id, action=constants.ChatAction.TYPING)
+            
+            # Build Context
+            ctx = await context_builder.build_context(user_username, chat_id)
+            
+            # Router
+            bot_reply = await router.handle_text(user_username, chat_id, pending_text, ctx)
+            
+            # Reply
+            if bot_reply.pending_action:
+                p = bot_reply.pending_action
+                p["timestamp"] = datetime.now().timestamp()
+                SNAPSHOT_STORAGE[p["id"]] = p
+            
+            if bot_reply.buttons:
+                reply_markup = InlineKeyboardMarkup(bot_reply.buttons)
+                await reply_text(update, context, bot_reply.text, reply_markup=reply_markup)
+            else:
+                await reply_text(update, context, bot_reply.text)
+                
+            context.user_data.pop("pending_voice_text", None)
+            
+        except Exception as e:
+            logger.error(f"Voice confirm processing error: {e}")
+            await reply_text(update, context, f"Error procesando voz: {e}")
 
 
 
