@@ -619,6 +619,8 @@ async def get_injection_site(tool_input: dict[str, Any]) -> InjectionSiteResult 
     except Exception as e:
         logger.error(f"Error getting injection site: {e}")
         return ToolError(type="runtime_error", message=str(e))
+
+async def search_food(tool_input: dict[str, Any]) -> SearchFoodResult | ToolError:
     query = tool_input.get("query", "").lower()
     if not query:
         return SearchFoodResult(found=False, items=[])
@@ -642,6 +644,7 @@ async def get_injection_site(tool_input: dict[str, Any]) -> InjectionSiteResult 
     except Exception as e:
         logger.exception("Error searching food")
         return ToolError(type="runtime_error", message=str(e))
+
 
 
 async def set_temp_mode(temp: TempMode) -> dict[str, Any]:
