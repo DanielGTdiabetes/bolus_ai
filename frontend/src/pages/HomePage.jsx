@@ -322,10 +322,11 @@ function ActivityList({ onRefresh }) {
                     const c = parseFloat(t.carbs) || 0;
                     const f = parseFloat(t.fat) || 0;
                     const p = parseFloat(t.protein) || 0;
+                    const fib = parseFloat(t.fiber) || 0;
 
                     const isBolus = u > 0;
                     // Also consider it a "food entry" if it has nutrition but no insulin
-                    const isFood = c > 0 || f > 0 || p > 0;
+                    const isFood = c > 0 || f > 0 || p > 0 || fib > 0;
 
                     const date = new Date(t.created_at || t.timestamp || t.date);
 
@@ -337,11 +338,12 @@ function ActivityList({ onRefresh }) {
                             <div style={{ flex: 1 }}>
                                 <div style={{ fontWeight: 700, fontSize: '0.9rem', color: '#334155' }}>
                                     {u > 0 && `${parseFloat(u.toFixed(2))} U `}
-                                    {(c > 0 || f > 0 || p > 0) && (
+                                    {(c > 0 || f > 0 || p > 0 || fib > 0) && (
                                         <span style={{ fontSize: '0.8rem', color: '#475569' }}>
                                             {c > 0 && `${Math.round(c)}g HC`}
                                             {f > 0 && ` • ${Math.round(f)}g Gr.`}
                                             {p > 0 && ` • ${Math.round(p)}g Pr.`}
+                                            {fib > 0 && ` • ${Math.round(fib)}g Fib.`}
                                         </span>
                                     )}
                                 </div>
