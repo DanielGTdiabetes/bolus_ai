@@ -53,44 +53,46 @@ async def get_notification_summary_service(user_id: str, db: AsyncSession):
         # The unread flag drives the dot.
         
         if is_unread:
-             items.append({
-                 "type": "suggestion_pending",
-                 "count": count_pend,
-                 "title": "Sugerencias pendientes",
-                 "message": f"Tienes {count_pend} sugerencias por revisar.",
-                 "route": "#/suggestions",
-                 "unread": True
-             })
+            items.append({
+                "type": "suggestion_pending",
+                "count": count_pend,
+                "title": "Sugerencias pendientes",
+                "message": f"Tienes {count_pend} sugerencias por revisar.",
+                "route": "#/suggestions",
+                "unread": True,
+                "priority": "medium"
+            })
         else:
-             # Even if read, user implies we might list them? 'abrir panel ... listar items'.
-             # PROMPT clarification: "Si no tienes seen... considera no visto".
-             # "Items (solo estos 3)". If seen, does it disappear from list?
-             # "Solo avisos accionables". If I already saw it, do I need to see it again in the list?
-             # Probably yes, until action taken. But red dot goes away.
-             # Let's include it with unread=False for UI logic?
-             # Prompt example response shows items. It doesn't explicitly say hide if read.
-             # BUT 'basal_review_today' says "Revisa ... y aun no se ha marcado visto".
-             # This implies if seen, it disappears from list?
-             # Let's assume list contains ACTIVE alerts. Unread status denotes NEW.
-             # EXCEPT basal advice: if seen for today, maybe we hide it to reduce noise?
-             # "Basal review today: Condicion ... y aun no se ha marcado visto".
-             # This implies if seen, it is GONE from list.
-             #
-             # Let's apply "Hide if seen" for basal review.
-             # For suggestions:Pending exists regardless of seen.
-             # "suggestion_pending ... Condicion: existen parameter_suggestion".
-             # It doesn't say "and not seen".
-             # Red dot logic: "Punto rojo se enciende si hay >= 1 aviso no visto".
-             # So list shows Pending Suggestions (even if seen), but red dot is off.
-             
-             items.append({
-                 "type": "suggestion_pending",
-                 "count": count_pend,
-                 "title": "Sugerencias pendientes",
-                 "message": f"Tienes {count_pend} sugerencias por revisar.",
-                 "route": "#/suggestions",
-                 "unread": False
-             })
+            # Even if read, user implies we might list them? 'abrir panel ... listar items'.
+            # PROMPT clarification: "Si no tienes seen... considera no visto".
+            # "Items (solo estos 3)". If seen, does it disappear from list?
+            # "Solo avisos accionables". If I already saw it, do I need to see it again in the list?
+            # Probably yes, until action taken. But red dot goes away.
+            # Let's include it with unread=False for UI logic?
+            # Prompt example response shows items. It doesn't explicitly say hide if read.
+            # BUT 'basal_review_today' says "Revisa ... y aun no se ha marcado visto".
+            # This implies if seen, it disappears from list?
+            # Let's assume list contains ACTIVE alerts. Unread status denotes NEW.
+            # EXCEPT basal advice: if seen for today, maybe we hide it to reduce noise?
+            # "Basal review today: Condicion ... y aun no se ha marcado visto".
+            # This implies if seen, it is GONE from list.
+            #
+            # Let's apply "Hide if seen" for basal review.
+            # For suggestions:Pending exists regardless of seen.
+            # "suggestion_pending ... Condicion: existen parameter_suggestion".
+            # It doesn't say "and not seen".
+            # Red dot logic: "Punto rojo se enciende si hay >= 1 aviso no visto".
+            # So list shows Pending Suggestions (even if seen), but red dot is off.
+
+            items.append({
+                "type": "suggestion_pending",
+                "count": count_pend,
+                "title": "Sugerencias pendientes",
+                "message": f"Tienes {count_pend} sugerencias por revisar.",
+                "route": "#/suggestions",
+                "unread": False,
+                "priority": "medium"
+            })
 
     # --- Check 2: Evaluation Ready ---
     # Evaluations accepted but not seen/acknowledged.
@@ -120,7 +122,8 @@ async def get_notification_summary_service(user_id: str, db: AsyncSession):
              "title": "Impacto disponible",
              "message": f"Hay {count_eval} evaluación{'es' if count_eval>1 else ''} de impacto list{'as' if count_eval>1 else 'a'}.",
              "route": "#/suggestions",
-             "unread": True # Always unread if appearing here per logic
+             "unread": True,  # Always unread if appearing here per logic
+             "priority": "high"
         })
         
     # --- Check 3: Basal Review Today ---
@@ -141,7 +144,8 @@ async def get_notification_summary_service(user_id: str, db: AsyncSession):
                 "title": "Basal a revisar",
                 "message": msg,
                 "route": "#/basal",
-                "unread": True
+                "unread": True,
+                "priority": "high"
             })
 
     # --- Check 4: Shadow Labs Ready (Beta) ---
@@ -189,8 +193,9 @@ async def get_notification_summary_service(user_id: str, db: AsyncSession):
                             "title": "⚡ Labs: Auto-Absorción",
                             "message": f"Tu análisis de sombra es seguro (0 fallos en 20 test) y fiable ({int(conf)}%). Actívalo en Ajustes.",
                             "route": "#/settings",
-                        "unread": True
-                    })
+                            "unread": True,
+                            "priority": "low"
+                        })
             
     # --- Check 5: Smart Post-Prandial Guardian (Pen Friendly) ---
     # Trigger: Meal ~2h ago AND High BG AND No Recent bolus (last 45m)
@@ -267,7 +272,8 @@ async def get_notification_summary_service(user_id: str, db: AsyncSession):
                                 "title": "⚠️ Revisión Post-Comida",
                                 "message": f"Glucosa alta ({int(current_bg)}) 2h después de comer. ¿Olvidaste corregir o la 2ª dosis?",
                                 "route": "#/bolus",
-                                "unread": True
+                                "unread": True,
+                                "priority": "critical"
                             })
 
     # Summary
