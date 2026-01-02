@@ -276,10 +276,10 @@ class CarbCurves:
             return {'f': 0.5, 't_max_r': 40, 't_max_l': 90}
 
         # 1. Fiber Impact (Strong delay)
-        # Ratio of Fiber to Carbs
-        # E.g. Lentils: 20g carbs, 8g fiber -> ratio 0.4 -> very slow
-        # E.g. Pasta: 40g carbs, 2g fiber -> ratio 0.05 -> medium
-        fiber_ratio = fiber_g / carbs_g
+        # IGNORE if fiber is negligible (< 5g) based on user rule
+        fiber_ratio = 0.0
+        if fiber_g >= 5.0 and carbs_g > 0:
+             fiber_ratio = fiber_g / carbs_g
         
         # Decrease fast fraction as fiber increases
         # If ratio is 0.0 -> f=0.8 (Upper bound for pure sugar/starch)

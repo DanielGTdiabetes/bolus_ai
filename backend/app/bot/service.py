@@ -537,8 +537,82 @@ async def _process_text_input(update: Update, context: ContextTypes.DEFAULT_TYPE
             await reply_text(update, context, f"¿Registrar **{units} U** para la 2ª parte del bolo?", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
             return
         except ValueError:
-            await reply_text(update, context, "⚠️ Por favor, introduce un número válido (ej. 2.5).")
-            return
+             await reply_text(update, context, "⚠️ Por favor, introduce un número válido (ej. 2.5).")
+             return
+
+    # 0. Intercept Rename Treatment
+    renaming_id = context.user_data.get("renaming_treatment_id")
+    if renaming_id:
+        new_note = text
+        del context.user_data["renaming_treatment_id"]
+        
+        # Logic to update
+        try:
+             # Update Local
+             settings = get_settings()
+             store = DataStore(Path(settings.data.data_dir))
+             events = store.load_events()
+             found = False
+             for e in events:
+                 if e.get("id") == renaming_id or e.get("_id") == renaming_id:
+                     e["notes"] = new_note
+                     # Also update items if possible? MealEntry? 
+                     # For now just notes.
+                     found = True
+             if found: store.save_events(events)
+
+             # Update DB
+             engine = get_engine()
+             if engine:
+                 async with AsyncSession(engine) as session:
+                      from app.models.treatment import Treatment
+                      from sqlalchemy import update as sql_update
+                      stmt = sql_update(Treatment).where(Treatment.id == renaming_id).values(notes=new_note)
+                      await session.execute(stmt)
+                      await session.commit()
+             
+             await reply_text(update, context, f"✅ Nota actualizada: {new_note}")
+        except Exception as e:
+             logger.error(f"Rename failed: {e}")
+             await reply_text(update, context, "❌ Error actualizando nota.")
+        return
+
+    # 0. Intercept Save Favorite
+    fav_tid = context.user_data.get("saving_favorite_tid")
+    if fav_tid:
+        fav_name = text
+        del context.user_data["saving_favorite_tid"]
+        
+        try:
+            # Fetch treatment to get macros
+            settings = get_settings()
+            store = DataStore(Path(settings.data.data_dir))
+            events = store.load_events()
+            txn = next((e for e in events if e.get("id") == fav_tid or e.get("_id") == fav_tid), None)
+            
+            if txn:
+                carbs = txn.get("carbs", 0)
+                fat = txn.get("fat", 0)
+                protein = txn.get("protein", 0)
+                
+                # Call tool save_favorite logic directly
+                res = await tools.save_favorite_food({
+                    "name": fav_name,
+                    "carbs": carbs,
+                    "fat": fat,
+                    "protein": protein,
+                    "notes": "Desde Historial"
+                })
+                if res.ok:
+                    await reply_text(update, context, f"⭐ Guardado plato: **{fav_name}** ({carbs}g HC)")
+                else:
+                    await reply_text(update, context, f"❌ Error guardando: {res.error}")
+            else:
+                 await reply_text(update, context, "⚠️ No encuentro el tratamiento original.")
+        except Exception as e:
+            logger.error(f"Fav save failed: {e}")
+            await reply_text(update, context, "❌ Error procesando favorito.")
+        return
 
     if cmd in ["status", "estado"]:
         res = await tools.execute_tool("get_status_context", {})
@@ -1727,7 +1801,15 @@ async def _handle_snapshot_callback(query, data: str) -> None:
             success_msg += f"\n\n📍 Rotado. Siguiente: {new_next}"
         except Exception: pass
 
-        await query.edit_message_text(text=success_msg, parse_mode="Markdown")
+        # New Buttons
+        kb_post = []
+        if result.treatment_id:
+             kb_post.append([
+                 InlineKeyboardButton("✏️ Renombrar", callback_data=f"rename_txn|{result.treatment_id}"),
+                 InlineKeyboardButton("⭐ Guardar Plato", callback_data=f"save_fav_txn|{result.treatment_id}")
+             ])
+
+        await query.edit_message_text(text=success_msg, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb_post) if kb_post else None)
         SNAPSHOT_STORAGE.pop(request_id, None)
         health.record_action(f"callback:accept:{request_id}", True)
 
@@ -2033,7 +2115,21 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         elif action == "combo_no":
              await query.edit_message_text("❌ Descartado.")
              health.record_action(f"callback:combo_no:{tid}", True)
+             health.record_action(f"callback:combo_no:{tid}", True)
         return
+
+    # --- 3.5 Rename / Fav Flow ---
+    if data.startswith("rename_txn|"):
+         tid = data.split("|")[1]
+         context.user_data["renaming_treatment_id"] = tid
+         await query.edit_message_text(f"{query.message.text}\n\n✏️ **Escribe el nuevo nombre/nota para el historial:**")
+         return
+
+    if data.startswith("save_fav_txn|"):
+         tid = data.split("|")[1]
+         context.user_data["saving_favorite_tid"] = tid
+         await query.edit_message_text(f"{query.message.text}\n\n⭐ **Escribe el nombre para guardar en Mis Platos:**")
+         return
 
     # --- 4. Basal Interactive Flow ---
     if data == "basal_later":

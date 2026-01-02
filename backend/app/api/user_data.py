@@ -18,6 +18,7 @@ class FavoriteCreate(BaseModel):
     carbs: float
     fat: float = 0.0
     protein: float = 0.0
+    fiber: float = 0.0
     notes: Optional[str] = None
 
 class FavoriteRead(BaseModel):
@@ -26,6 +27,7 @@ class FavoriteRead(BaseModel):
     carbs: float
     fat: float = 0.0
     protein: float = 0.0
+    fiber: float = 0.0
     notes: Optional[str] = None
     
     class Config:
@@ -39,6 +41,7 @@ class FavoriteRead(BaseModel):
             carbs=obj.carbs,
             fat=obj.fat or 0.0,
             protein=obj.protein or 0.0,
+            fiber=obj.fiber or 0.0,
             notes=obj.notes
         )
 
@@ -73,6 +76,7 @@ async def create_favorite(
         carbs=fav.carbs,
         fat=fav.fat,
         protein=fav.protein,
+        fiber=fav.fiber,
         notes=fav.notes
     )
     db.add(new_fav)
@@ -85,6 +89,7 @@ class FavoriteUpdate(BaseModel):
     carbs: Optional[float] = None
     fat: Optional[float] = None
     protein: Optional[float] = None
+    fiber: Optional[float] = None
     notes: Optional[str] = None
 
 @router.put("/favorites/{fav_id}", response_model=FavoriteRead)
@@ -114,6 +119,7 @@ async def update_favorite(
     if payload.carbs is not None: fav.carbs = payload.carbs
     if payload.fat is not None: fav.fat = payload.fat
     if payload.protein is not None: fav.protein = payload.protein
+    if payload.fiber is not None: fav.fiber = payload.fiber
     if payload.notes is not None: fav.notes = payload.notes
     
     await db.commit()

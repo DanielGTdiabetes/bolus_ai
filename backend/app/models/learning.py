@@ -22,6 +22,7 @@ class MealEntry(Base):
     carbs_g = Column(Float, nullable=False, default=0.0)
     fat_g = Column(Float, nullable=True, default=0.0)
     protein_g = Column(Float, nullable=True, default=0.0)
+    fiber_g = Column(Float, nullable=True, default=0.0)
     
     # How it was treated
     bolus_kind = Column(String, nullable=True) # "normal", "extended", "dual"

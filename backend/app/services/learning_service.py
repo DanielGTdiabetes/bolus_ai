@@ -21,6 +21,7 @@ class LearningService:
         carbs: float,
         fat: float,
         protein: float,
+        fiber: float,
         bolus_data: dict, # {kind, total, upfront, later, delay}
         context: dict = None, # {bg, trend, etc}
         notes: str = None
@@ -65,6 +66,7 @@ class LearningService:
             carbs_g=carbs,
             fat_g=fat,
             protein_g=protein,
+            fiber_g=fiber,
             
             bolus_kind=bolus_data.get("kind"),
             bolus_u_total=bolus_data.get("total"),

@@ -104,6 +104,7 @@ class AddTreatmentRequest(BaseModel):
     insulin: Optional[float] = None
     fat: Optional[float] = None
     protein: Optional[float] = None
+    fiber: Optional[float] = None
     notes: Optional[str] = None
     replace_id: Optional[str] = None
 
@@ -532,6 +533,7 @@ async def save_favorite_food(tool_input: dict[str, Any]) -> SaveFavoriteResult |
             carbs=float(tool_input.get("carbs", 0)),
             fat=float(tool_input.get("fat", 0)),
             protein=float(tool_input.get("protein", 0)),
+            fiber=float(tool_input.get("fiber", 0)),
             notes=tool_input.get("notes")
         )
         
@@ -552,6 +554,7 @@ async def save_favorite_food(tool_input: dict[str, Any]) -> SaveFavoriteResult |
                  existing.carbs = fav_create.carbs
                  existing.fat = fav_create.fat
                  existing.protein = fav_create.protein
+                 existing.fiber = fav_create.fiber
                  existing.notes = fav_create.notes
                  await session.commit()
                  await session.refresh(existing)
@@ -564,6 +567,7 @@ async def save_favorite_food(tool_input: dict[str, Any]) -> SaveFavoriteResult |
                      carbs=fav_create.carbs,
                      fat=fav_create.fat,
                      protein=fav_create.protein,
+                     fiber=fav_create.fiber,
                      notes=fav_create.notes
                  )
                  session.add(new_fav)
@@ -643,6 +647,7 @@ async def add_treatment(tool_input: dict[str, Any]) -> AddTreatmentResult | Tool
                     carbs=carbs,
                     fat=float(payload.fat or 0),
                     protein=float(payload.protein or 0),
+                    fiber=float(payload.fiber or 0),
                     notes=notes,
                     entered_by="TelegramBot",
                     event_type="Correction Bolus" if carbs == 0 else "Meal Bolus",
@@ -658,6 +663,7 @@ async def add_treatment(tool_input: dict[str, Any]) -> AddTreatmentResult | Tool
                 carbs=carbs,
                 fat=float(payload.fat or 0),
                 protein=float(payload.protein or 0),
+                fiber=float(payload.fiber or 0),
                 notes=notes,
                 entered_by="TelegramBot",
                 event_type="Correction Bolus" if carbs == 0 else "Meal Bolus",
@@ -930,6 +936,7 @@ AI_TOOL_DECLARATIONS = [
                 "notes": {"type": "STRING"},
                 "fat": {"type": "NUMBER", "description": "Grasas (g)"},
                 "protein": {"type": "NUMBER", "description": "Proteínas (g)"},
+                "fiber": {"type": "NUMBER", "description": "Fibra (g)"},
             },
         },
     },
@@ -953,6 +960,7 @@ AI_TOOL_DECLARATIONS = [
                 "carbs": {"type": "NUMBER", "description": "Carbohidratos (g)"},
                 "fat": {"type": "NUMBER", "description": "Grasas (g)"},
                 "protein": {"type": "NUMBER", "description": "Proteínas (g)"},
+                "fiber": {"type": "NUMBER", "description": "Fibra (g)"},
                 "notes": {"type": "STRING"},
             },
             "required": ["name", "carbs"],
