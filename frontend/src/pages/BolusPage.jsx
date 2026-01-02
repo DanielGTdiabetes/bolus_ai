@@ -134,8 +134,6 @@ export default function BolusPage() {
                     if (recentSaves.length > 0) {
                         // Sum up what we already covered
                         alreadyApplied = recentSaves.reduce((acc, t) => acc + (t.carbs || 0), 0);
-                        const alreadyAppliedFat = recentSaves.reduce((acc, t) => acc + (t.fat || 0), 0);
-                        const alreadyAppliedProtein = recentSaves.reduce((acc, t) => acc + (t.protein || 0), 0);
 
                         // If the new total is just an accumulation, offer the difference
                         if (bestOrphan.carbs > alreadyApplied) {
@@ -146,8 +144,13 @@ export default function BolusPage() {
                             adjustedOrphan._netCarbs = diffCarbs;
 
                             // Net Macros (Prevent negatives)
+                            const alreadyAppliedFat = recentSaves.reduce((acc, t) => acc + (t.fat || 0), 0);
+                            const alreadyAppliedProtein = recentSaves.reduce((acc, t) => acc + (t.protein || 0), 0);
+                            const alreadyAppliedFiber = recentSaves.reduce((acc, t) => acc + (t.fiber || 0), 0);
+
                             adjustedOrphan._netFat = Math.max(0, (bestOrphan.fat || 0) - alreadyAppliedFat);
                             adjustedOrphan._netProtein = Math.max(0, (bestOrphan.protein || 0) - alreadyAppliedProtein);
+                            adjustedOrphan._netFiber = Math.max(0, (bestOrphan.fiber || 0) - alreadyAppliedFiber);
 
                         } else if (bestOrphan.carbs <= alreadyApplied + 2) {
                             // Close enough to consider covered
@@ -198,7 +201,8 @@ export default function BolusPage() {
             mealMetaRef.current = {
                 items: state.tempItems || [],
                 fat: state.tempFat || 0,
-                protein: state.tempProtein || 0
+                protein: state.tempProtein || 0,
+                fiber: state.tempFiber || 0
             };
         }
 
@@ -210,6 +214,7 @@ export default function BolusPage() {
 
         state.tempFat = null;
         state.tempProtein = null;
+        state.tempFiber = null;
         state.tempItems = null;
 
         // Auto-fetch Glucose and IOB
@@ -442,6 +447,7 @@ export default function BolusPage() {
                 carbs: isUsingOrphan ? 0 : (parseFloat(carbs) || 0),
                 fat: isUsingOrphan ? (orphanCarbs._diffMode ? (orphanCarbs._netFat || 0) : (orphanCarbs.fat || 0)) : (mealMetaRef.current?.fat || 0),
                 protein: isUsingOrphan ? (orphanCarbs._diffMode ? (orphanCarbs._netProtein || 0) : (orphanCarbs.protein || 0)) : (mealMetaRef.current?.protein || 0),
+                fiber: isUsingOrphan ? (orphanCarbs._diffMode ? (orphanCarbs._netFiber || 0) : (orphanCarbs.fiber || 0)) : (mealMetaRef.current?.fiber || 0),
                 insulin: finalInsulin,
                 enteredBy: state.user?.username || "BolusAI",
                 notes: `BolusAI: ${(result.kind === 'dual' || result.kind === 'extended') ? 'Dual' : 'Normal'}. Gr: ${carbs}${isUsingOrphan ? ' (Sincronizado)' : ''}. BG: ${glucose}. ${foodName ? 'Comida: ' + foodName + '.' : ''} ${alcoholEnabled ? 'Alcohol Detected.' : ''} ${plateItems.length > 0 ? 'Items: ' + plateItems.map(i => i.name).join(', ') : ''}`,
