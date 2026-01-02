@@ -413,6 +413,7 @@ async def get_treatments_server(
                     # Ensure nutrition fields
                     d["fat"] = getattr(m, 'fat', 0)
                     d["protein"] = getattr(m, 'protein', 0)
+                    d["fiber"] = getattr(m, 'fiber', 0)
 
                     # Ensure created_at is strictly ISO with Z if it is UTC
                     if m.created_at: 
@@ -463,6 +464,7 @@ async def get_treatments_server(
                     "carbs": row.carbs,
                     "fat": getattr(row, 'fat', 0), # Added
                     "protein": getattr(row, 'protein', 0), # Added
+                    "fiber": getattr(row, 'fiber', 0), # Added
                     "notes": row.notes,
                     "enteredBy": row.entered_by,
                     "is_uploaded": row.is_uploaded,
@@ -579,6 +581,8 @@ async def get_treatments_server(
                         existing["fat"] = item["fat"]
                     if not existing.get("protein") and item.get("protein"):
                         existing["protein"] = item["protein"]
+                    if not existing.get("fiber") and item.get("fiber"):
+                        existing["fiber"] = item["fiber"]
                     break
         
         if not is_duplicate:
@@ -658,6 +662,9 @@ async def get_entries(
 class TreatmentUpdate(BaseModel):
     insulin: Optional[float] = None
     carbs: Optional[float] = None
+    fat: Optional[float] = None
+    protein: Optional[float] = None
+    fiber: Optional[float] = None
     created_at: Optional[str] = None # ISO format
     notes: Optional[str] = None
 
@@ -695,6 +702,9 @@ async def update_treatment(
         if db_item:
              if payload.insulin is not None: db_item.insulin = payload.insulin
              if payload.carbs is not None: db_item.carbs = payload.carbs
+             if payload.fat is not None: db_item.fat = payload.fat
+             if payload.protein is not None: db_item.protein = payload.protein
+             if payload.fiber is not None: db_item.fiber = payload.fiber
              if payload.notes is not None: db_item.notes = payload.notes
              if payload.created_at:
                  try:
@@ -757,6 +767,9 @@ async def update_treatment(
                  ns_payload = {}
                  if payload.insulin is not None: ns_payload["insulin"] = payload.insulin
                  if payload.carbs is not None: ns_payload["carbs"] = payload.carbs
+                 if payload.fat is not None: ns_payload["fat"] = payload.fat
+                 if payload.protein is not None: ns_payload["protein"] = payload.protein
+                 if payload.fiber is not None: ns_payload["fiber"] = payload.fiber
                  if payload.notes is not None: ns_payload["notes"] = payload.notes
                  if payload.created_at: ns_payload["created_at"] = payload.created_at
                  
