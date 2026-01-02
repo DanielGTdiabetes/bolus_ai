@@ -1,5 +1,7 @@
 
 import logging
+import os
+import hashlib
 from typing import Optional, Dict, Any
 from sqlalchemy import text
 from app.core.db import get_engine
@@ -34,10 +36,14 @@ async def init_auth_db():
         
         # Seed 'admin'
         # Seed 'admin'
-        # Default password 'admin123'
-        # use SHA256 hash to ensure stability and avoid bcrypt variations at startup
-        # SHA256('admin123') = 240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9
-        pwd = "240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9"
+        # Default password 'admin123' or from ENV
+        initial_pwd = os.environ.get("INITIAL_ADMIN_PASSWORD", "admin123")
+        # SHA256 manual calculation to match table schema expectations
+        pwd_hash = hashlib.sha256(initial_pwd.encode()).hexdigest()
+        
+        # Hardcoded fallback for 'admin123' matches what was there: 240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9
+        # But we calculate dynamically now to support ENV.
+        pwd = pwd_hash
         
         await conn.execute(text(seed_sql), {
             "username": "admin",

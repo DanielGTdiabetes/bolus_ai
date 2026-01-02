@@ -1,7 +1,9 @@
 from pathlib import Path
 from pathlib import Path
 
-from fastapi import APIRouter, Body, Depends, HTTPException, status
+from fastapi import APIRouter, Body, Depends, HTTPException, status, Request
+import time
+from collections import defaultdict
 from pydantic import BaseModel, Field
 
 from app.core.datastore import UserStore
@@ -9,6 +11,12 @@ from app.core.security import auth_required, get_token_manager, hash_password, v
 from app.core.settings import Settings, get_settings
 
 router = APIRouter()
+
+# Rate Limiting State (In-Memory)
+# Key: IP_Username, Value: list of timestamps
+_login_attempts = defaultdict(list)
+MAX_ATTEMPTS = 5
+WINDOW_SECONDS = 60
 
 
 class LoginRequest(BaseModel):
@@ -36,18 +44,33 @@ class PasswordChangeRequest(BaseModel):
 @router.post("/login", response_model=LoginResponse, summary="Login")
 async def login(
     payload: LoginRequest,
+    request: Request,
     settings: Settings = Depends(get_settings),
 ):
+    # Audit: Rate Limiting
+    client_ip = request.client.host if request.client else "unknown"
+    rate_key = f"{client_ip}_{payload.username}"
+    now = time.time()
+    
+    # Filter old attempts
+    _login_attempts[rate_key] = [t for t in _login_attempts[rate_key] if now - t < WINDOW_SECONDS]
+    
+    if len(_login_attempts[rate_key]) >= MAX_ATTEMPTS:
+         logger.warning(f"Rate limit exceeded for {rate_key}")
+         raise HTTPException(status_code=429, detail="Demasiados intentos de inicio de sesión. Espere 1 minuto.")
+
     from app.services.auth_repo import get_user_by_username
     user = await get_user_by_username(payload.username)
     
     if not user:
+        _login_attempts[rate_key].append(now)
         # Check legacy/fallback if DB migration isn't full?
         # Or just fail.
         # Fallback to local store for initial migration if needed, but 'init_auth_db' should have seeded admin.
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
 
     if not verify_password(payload.password, user.get("password_hash", "")):
+        _login_attempts[rate_key].append(now)
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
 
     token_manager = get_token_manager(settings)

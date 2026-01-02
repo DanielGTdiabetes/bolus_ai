@@ -103,7 +103,8 @@ class NightscoutClient:
                 return []
             return response.json()
         except httpx.HTTPStatusError as exc:
-            logger.error("Nightscout API error", extra={"status_code": exc.response.status_code, "body": exc.response.text})
+            # Audit: Sanitized error body
+            logger.error("Nightscout API error", extra={"status_code": exc.response.status_code, "body": "REDACTED"})
             raise NightscoutError(f"Nightscout returned status {exc.response.status_code}") from exc
         except ValueError as exc:  # pragma: no cover - invalid JSON
             preview = response.text[:200]

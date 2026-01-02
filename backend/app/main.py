@@ -71,12 +71,19 @@ async def startup_event() -> None:
     logger.info("Using data directory: %s", data_dir)
     
     
-    # Audit H8: Validate Secret Key
+    # Audit H8: Validate Secret Key (JWT + App Secret)
     # If key is missing, crypto will fail at runtime. Better to fail early.
     if not settings.security.jwt_secret or len(settings.security.jwt_secret) < 16:
          logger.warning("CRITICAL: JWT_SECRET is missing or too short! Encrypted data will be inaccessible or insecure.")
          # if os.environ.get("ENV") == "production":
          #    raise RuntimeError("JWT_SECRET missing in production")
+    
+    import os
+    app_secret = os.environ.get("APP_SECRET_KEY")
+    if not app_secret or len(app_secret) < 10:
+         logger.warning("CRITICAL: APP_SECRET_KEY (for Nightscout encryption) is missing or too short!")
+         # if os.environ.get("ENV") == "production":
+         #   raise RuntimeError("APP_SECRET_KEY missing/weak in production")
 
     # Ensure models are loaded before creating tables
     
