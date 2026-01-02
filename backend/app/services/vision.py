@@ -41,7 +41,7 @@ Output STRICT JSON (RFC 8259 compliant).
 - Concise notes (max 10 words)
 Structure:
 {
-  "items": [{"name": "...", "carbs_g": number, "fat_g": number, "protein_g": number, "notes": "..."}],
+  "items": [{"name": "...", "carbs_g": number, "fat_g": number, "protein_g": number, "fiber_g": number, "notes": "..."}],
   "confidence": "low"|"medium"|"high",
   "fat_score": 0.0 to 1.0 (1.0 = very high fat/protein content like pizza, burger, creamy pasta),
   "slow_absorption_score": 0.0 to 1.0 (1.0 = very slow absorption expected),

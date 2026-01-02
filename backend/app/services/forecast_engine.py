@@ -78,8 +78,13 @@ class ForecastEngine:
         carb_rate_0 = 0.0
         for c in req.events.carbs:
              t_since = 0 - c.time_offset_min
-             dur = c.absorption_minutes or req.params.carb_absorption_minutes
-             r = CarbCurves.variable_absorption(t_since, dur, peak_min=dur/2)
+             
+             if c.fiber_g > 0 or c.fat_g > 0 or c.protein_g > 0:
+                 params = CarbCurves.get_biexponential_params(c.grams, c.fiber_g, c.fat_g, c.protein_g)
+                 r = CarbCurves.biexponential_absorption(t_since, params)
+             else:
+                 dur = c.absorption_minutes or req.params.carb_absorption_minutes
+                 r = CarbCurves.variable_absorption(t_since, dur, peak_min=dur/2)
              # Resolve CS
              this_icr = c.icr if c.icr and c.icr > 0 else req.params.icr
              this_cs = (req.params.isf / this_icr) if this_icr > 0 else 0.0
@@ -169,8 +174,12 @@ class ForecastEngine:
             step_carb_impact_rate = 0.0
             for c in req.events.carbs:
                 t_since_meal = t_mid - c.time_offset_min
-                dur = c.absorption_minutes or req.params.carb_absorption_minutes
-                rate = CarbCurves.variable_absorption(t_since_meal, dur, peak_min=dur/2)
+                if c.fiber_g > 0 or c.fat_g > 0 or c.protein_g > 0:
+                    params = CarbCurves.get_biexponential_params(c.grams, c.fiber_g, c.fat_g, c.protein_g)
+                    rate = CarbCurves.biexponential_absorption(t_since_meal, params)
+                else:
+                    dur = c.absorption_minutes or req.params.carb_absorption_minutes
+                    rate = CarbCurves.variable_absorption(t_since_meal, dur, peak_min=dur/2)
                 this_icr = c.icr if c.icr and c.icr > 0 else req.params.icr
                 this_cs = (req.params.isf / this_icr) if this_icr > 0 else 0.0
                 step_carb_impact_rate += rate * c.grams * this_cs

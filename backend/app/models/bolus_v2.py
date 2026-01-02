@@ -42,6 +42,7 @@ class BolusRequestV2(BaseModel):
     carbs_g: float = Field(ge=0)
     fat_g: float = Field(default=0, ge=0)
     protein_g: float = Field(default=0, ge=0)
+    fiber_g: float = Field(default=0, ge=0)
     bg_mgdl: Optional[float] = Field(default=None, ge=0)
     meal_slot: Literal["breakfast", "lunch", "dinner", "snack"] = "lunch"
     target_mgdl: Optional[float] = Field(default=None, ge=60)

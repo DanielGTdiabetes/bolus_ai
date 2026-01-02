@@ -229,3 +229,81 @@ class CarbCurves:
              return h * (t_min / peak_min)
         else:
              return h * ((duration_min - t_min) / (duration_min - peak_min))
+
+    @staticmethod
+    def hovorka_shape(t: float, t_max: float) -> float:
+        """
+        Returns normalized rate at time t for a curve peaking at t_max.
+        Shape: t * exp(-t/t_max) scaled to be unit area? 
+        The standard density function is (t / t_max^2) * exp(-t/t_max).
+        Total area = 1.
+        """
+        if t <= 0 or t_max <= 0: return 0.0
+        return (t / (t_max * t_max)) * math.exp(-t / t_max)
+
+    @staticmethod
+    def biexponential_absorption(t_min: float, params: dict) -> float:
+        """
+        params: {
+            'f': float,        # Fraction fast (0.0 - 1.0)
+            't_max_r': float,  # Time to peak for fast component (min)
+            't_max_l': float   # Time to peak for slow component (min)
+        }
+        """
+        f = params.get('f', 0.5)
+        tr = params.get('t_max_r', 45.0)
+        tl = params.get('t_max_l', 120.0)
+        
+        # Fast component
+        rate_r = CarbCurves.hovorka_shape(t_min, tr)
+        
+        # Slow component
+        rate_l = CarbCurves.hovorka_shape(t_min, tl)
+        
+        return (f * rate_r) + ((1 - f) * rate_l)
+
+    @staticmethod
+    def get_biexponential_params(carbs_g: float, fiber_g: float = 0, fat_g: float = 0, protein_g: float = 0) -> dict:
+        """
+        Heuristic to determine absorption parameters based on composition.
+        """
+        # Base values (Default to "Medium GI")
+        f = 0.7 
+        t_max_r = 40.0
+        t_max_l = 90.0
+        
+        if carbs_g <= 0:
+            return {'f': 0.5, 't_max_r': 40, 't_max_l': 90}
+
+        # 1. Fiber Impact (Strong delay)
+        # Ratio of Fiber to Carbs
+        # E.g. Lentils: 20g carbs, 8g fiber -> ratio 0.4 -> very slow
+        # E.g. Pasta: 40g carbs, 2g fiber -> ratio 0.05 -> medium
+        fiber_ratio = fiber_g / carbs_g
+        
+        # Decrease fast fraction as fiber increases
+        # If ratio is 0.0 -> f=0.8 (Upper bound for pure sugar/starch)
+        # If ratio is 0.5 -> f=0.3
+        # Linear slope
+        f_fiber_adj = max(0.0, fiber_ratio * 1.0) 
+        f -= f_fiber_adj
+
+        # 2. Fat/Protein Impact (Pizza Effect)
+        # 1g Fat ~ delays like 2g carbs? Heuristic:
+        # High fat extends the TAIL (t_max_l) and reduces f
+        fp_units = fat_g + (protein_g * 0.5)
+        if fp_units > 10:
+             # Reduce fast fraction
+             f -= (fp_units / 100.0)
+             # Extend slow curve peak
+             t_max_l += (fp_units * 1.5)
+
+        # Clamping
+        f = max(0.2, min(0.9, f))
+        t_max_l = max(60.0, min(240.0, t_max_l))
+        
+        return {
+            'f': f,
+            't_max_r': t_max_r,
+            't_max_l': t_max_l
+        }

@@ -17,6 +17,7 @@ class Treatment(Base):
     carbs: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     fat: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     protein: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    fiber: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     glucose: Mapped[Optional[float]] = mapped_column(Float, nullable=True, comment="BG at time of bolus")
     duration: Mapped[float] = mapped_column(Float, default=0.0, comment="Duration in minutes (0=instant)")
     

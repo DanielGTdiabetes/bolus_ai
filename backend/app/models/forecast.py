@@ -24,6 +24,9 @@ class ForecastEventBolus(BaseModel):
 class ForecastEventCarbs(BaseModel):
     time_offset_min: int = Field(0, description="Minutes from now (0=now, negative=past)")
     grams: float
+    fiber_g: float = 0.0
+    fat_g: float = 0.0
+    protein_g: float = 0.0
     absorption_minutes: Optional[int] = None # Override global absorption if set
     icr: Optional[float] = None # Specific ICR for this meal (g/U)
 
