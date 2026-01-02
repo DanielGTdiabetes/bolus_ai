@@ -9,7 +9,7 @@ export default function HistoryPage() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const [treatments, setTreatments] = useState([]);
-    const [stats, setStats] = useState({ insulin: 0, carbs: 0 });
+    const [stats, setStats] = useState({ insulin: 0, carbs: 0, protein: 0 });
     const [editingTx, setEditingTx] = useState(null);
 
     // Search State
@@ -38,25 +38,27 @@ export default function HistoryPage() {
 
             // Process Stats
             const today = new Date().toDateString();
-            let iTotal = 0, cTotal = 0;
+            let iTotal = 0, cTotal = 0, pTotal = 0;
 
             const valid = data.filter(t => {
                 const u = parseFloat(t.insulin) || 0;
                 const c = parseFloat(t.carbs) || 0;
-                const hasData = (u > 0 || c > 0);
+                const p = parseFloat(t.protein) || 0;
+                const hasData = (u > 0 || c > 0 || p > 0);
 
                 if (hasData) {
                     const d = new Date(t.created_at || t.timestamp || t.date);
                     if (d.toDateString() === today) {
                         if (u > 0) iTotal += u;
                         if (c > 0) cTotal += c;
+                        if (p > 0) pTotal += p;
                     }
                 }
                 return hasData;
             });
 
             setTreatments(valid);
-            setStats({ insulin: iTotal, carbs: cTotal });
+            setStats({ insulin: iTotal, carbs: cTotal, protein: pTotal });
         } catch (e) {
             setError(e.message);
         } finally {
@@ -113,7 +115,7 @@ export default function HistoryPage() {
         <>
             <Header title="Historial" showBack={true} />
             <main className="page fade-in" style={{ paddingBottom: '80px' }}>
-                <div className="metrics-grid">
+                <div className="metrics-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.5rem' }}>
                     <div className="metric-tile" style={{ background: '#eff6ff', textAlign: 'center', padding: '1.5rem 0.5rem', borderRadius: '12px' }}>
                         <div style={{ fontSize: '1.5rem', fontWeight: 800, color: '#2563eb' }}>{loading ? '--' : stats.insulin.toFixed(1)}</div>
                         <div style={{ fontSize: '0.7rem', color: '#93c5fd', fontWeight: 700 }}>INSULINA HOY</div>
@@ -121,6 +123,10 @@ export default function HistoryPage() {
                     <div className="metric-tile" style={{ background: '#fff7ed', textAlign: 'center', padding: '1.5rem 0.5rem', borderRadius: '12px' }}>
                         <div style={{ fontSize: '1.5rem', fontWeight: 800, color: '#f97316' }}>{loading ? '--' : Math.round(stats.carbs)}</div>
                         <div style={{ fontSize: '0.7rem', color: '#fdba74', fontWeight: 700 }}>CARBOS HOY</div>
+                    </div>
+                    <div className="metric-tile" style={{ background: '#f5f3ff', textAlign: 'center', padding: '1.5rem 0.5rem', borderRadius: '12px' }}>
+                        <div style={{ fontSize: '1.5rem', fontWeight: 800, color: '#7c3aed' }}>{loading ? '--' : Math.round(stats.protein)}</div>
+                        <div style={{ fontSize: '0.7rem', color: '#a78bfa', fontWeight: 700 }}>PROT HOY</div>
                     </div>
                 </div>
 
@@ -281,6 +287,9 @@ function EditHistoryModal({ treatment, onClose, onSave, onDelete }) {
 
     const [insulin, setInsulin] = useState(treatment.insulin || '');
     const [carbs, setCarbs] = useState(treatment.carbs || '');
+    const [fat, setFat] = useState(treatment.fat || '');
+    const [protein, setProtein] = useState(treatment.protein || '');
+    const [fiber, setFiber] = useState(treatment.fiber || '');
     const [dateVal, setDateVal] = useState(getInitialDate(treatment));
     const [submitting, setSubmitting] = useState(false);
 
@@ -293,6 +302,9 @@ function EditHistoryModal({ treatment, onClose, onSave, onDelete }) {
         const payload = {
             insulin: parseFloat(insulin) || 0,
             carbs: parseFloat(carbs) || 0,
+            fat: parseFloat(fat) || 0,
+            protein: parseFloat(protein) || 0,
+            fiber: parseFloat(fiber) || 0,
             created_at: new Date(dateVal).toISOString()
         };
 
@@ -315,9 +327,23 @@ function EditHistoryModal({ treatment, onClose, onSave, onDelete }) {
                     <Input type="number" step="0.1" value={insulin} onChange={e => setInsulin(e.target.value)} />
                 </div>
 
-                <div style={{ marginBottom: '1rem' }}>
-                    <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600, color: '#64748b' }}>Carbohidratos (g)</label>
-                    <Input type="number" step="1" value={carbs} onChange={e => setCarbs(e.target.value)} />
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '0.5rem', marginBottom: '1rem' }}>
+                    <div>
+                        <label style={{ display: 'block', marginBottom: '0.3rem', fontWeight: 600, color: '#64748b', fontSize: '0.8rem' }}>Carbos</label>
+                        <Input type="number" step="1" value={carbs} onChange={e => setCarbs(e.target.value)} />
+                    </div>
+                    <div>
+                        <label style={{ display: 'block', marginBottom: '0.3rem', fontWeight: 600, color: '#64748b', fontSize: '0.8rem' }}>Grasas</label>
+                        <Input type="number" step="1" value={fat} onChange={e => setFat(e.target.value)} />
+                    </div>
+                    <div>
+                        <label style={{ display: 'block', marginBottom: '0.3rem', fontWeight: 600, color: '#64748b', fontSize: '0.8rem' }}>Prot</label>
+                        <Input type="number" step="1" value={protein} onChange={e => setProtein(e.target.value)} />
+                    </div>
+                    <div>
+                        <label style={{ display: 'block', marginBottom: '0.3rem', fontWeight: 600, color: '#64748b', fontSize: '0.8rem' }}>Fibra</label>
+                        <Input type="number" step="1" value={fiber} onChange={e => setFiber(e.target.value)} />
+                    </div>
                 </div>
 
                 <div style={{ marginBottom: '1.5rem' }}>
