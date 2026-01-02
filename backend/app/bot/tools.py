@@ -132,6 +132,13 @@ class SearchFoodResult(BaseModel):
     error: Optional[str] = None
 
 
+class InjectionSiteResult(BaseModel):
+    name: str
+    emoji: str
+    image: Optional[str] = None
+    quality: str = "ok"
+
+
 class OptimizationResult(BaseModel):
     suggestions: List[Dict[str, Any]]
     run_summary: Dict[str, Any]
@@ -581,7 +588,31 @@ async def save_favorite_food(tool_input: dict[str, Any]) -> SaveFavoriteResult |
         return ToolError(type="runtime_error", message=str(e))
 
 
-async def search_food(tool_input: dict[str, Any]) -> SearchFoodResult | ToolError:
+        return ToolError(type="runtime_error", message=str(e))
+
+
+async def get_injection_site(tool_input: dict[str, Any]) -> InjectionSiteResult | ToolError:
+    try:
+        # Load store
+        settings = get_settings()
+        store = DataStore(Path(settings.data.data_dir))
+        rotator = RotationService(store)
+        
+        # We can implement 'rotate=True' if user confirms, but for query we just peek
+        # Actually user usually asks "Where do I inject?". If they confirm bolus, we rotate.
+        # But if they just ask, maybe we show current or next?
+        # Let's show NEXT (preview)
+        
+        site = rotator.get_next_site_preview("admin") # Default user
+        
+        return InjectionSiteResult(
+            name=site.name,
+            emoji=site.emoji,
+            image=site.image_ref
+        )
+    except Exception as e:
+        logger.error(f"Error getting injection site: {e}")
+        return ToolError(type="runtime_error", message=str(e))
     query = tool_input.get("query", "").lower()
     if not query:
         return SearchFoodResult(found=False, items=[])
@@ -978,6 +1009,14 @@ AI_TOOL_DECLARATIONS = [
             "required": ["query"],
         },
     },
+    {
+        "name": "get_injection_site",
+        "description": "Consultar siguiente punto de inyección recomendado (rotación). Devuelve imagen si es posible.",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {},
+        },
+    },
 ]
 
 
@@ -1014,6 +1053,8 @@ async def execute_tool(name: str, args: Dict[str, Any]) -> Any:
             return await save_favorite_food(args)
         if name == "search_food":
             return await search_food(args)
+        if name == "get_injection_site":
+            return await get_injection_site(args)
     except ValidationError as exc:
         return ToolError(type="validation_error", message=str(exc))
     except Exception as exc:  # pragma: no cover
