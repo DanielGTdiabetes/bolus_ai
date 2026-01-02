@@ -8,12 +8,12 @@ export default function FavoritesPage({ navigate }) {
     const [favorites, setFavorites] = useState([]);
     const [searchQuery, setSearchQuery] = useState("");
     const [isAdding, setIsAdding] = useState(false);
-    const [newFav, setNewFav] = useState({ name: "", carbs: "", fat: "", protein: "", notes: "" });
+    const [newFav, setNewFav] = useState({ name: "", carbs: "", fat: "", protein: "", fiber: "", notes: "" });
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     // Edit State
     const [editingId, setEditingId] = useState(null);
-    const [editForm, setEditForm] = useState({ name: "", carbs: "", fat: "", protein: "", notes: "" });
+    const [editForm, setEditForm] = useState({ name: "", carbs: "", fat: "", protein: "", fiber: "", notes: "" });
 
     const loadData = async () => {
         setLoading(true);
@@ -41,10 +41,13 @@ export default function FavoritesPage({ navigate }) {
                 carbs: parseFloat(newFav.carbs),
                 fat: parseFloat(newFav.fat) || 0,
                 protein: parseFloat(newFav.protein) || 0,
+                fat: parseFloat(newFav.fat) || 0,
+                protein: parseFloat(newFav.protein) || 0,
+                fiber: parseFloat(newFav.fiber) || 0,
                 notes: newFav.notes
             });
             await loadData();
-            setNewFav({ name: "", carbs: "", fat: "", protein: "", notes: "" });
+            setNewFav({ name: "", carbs: "", fat: "", protein: "", fiber: "", notes: "" });
             setIsAdding(false);
         } catch (e) {
             alert(e.message);
@@ -69,13 +72,15 @@ export default function FavoritesPage({ navigate }) {
             carbs: fav.carbs,
             fat: fav.fat || "",
             protein: fav.protein || "",
+            protein: fav.protein || "",
+            fiber: fav.fiber || "",
             notes: fav.notes || ""
         });
     };
 
     const cancelEdit = () => {
         setEditingId(null);
-        setEditForm({ name: "", carbs: "", fat: "", protein: "", notes: "" });
+        setEditForm({ name: "", carbs: "", fat: "", protein: "", fiber: "", notes: "" });
     };
 
     const handleUpdate = async () => {
@@ -87,6 +92,9 @@ export default function FavoritesPage({ navigate }) {
                 carbs: parseFloat(editForm.carbs),
                 fat: parseFloat(editForm.fat) || 0,
                 protein: parseFloat(editForm.protein) || 0,
+                fat: parseFloat(editForm.fat) || 0,
+                protein: parseFloat(editForm.protein) || 0,
+                fiber: parseFloat(editForm.fiber) || 0,
                 notes: editForm.notes
             });
             // Update list locally
@@ -148,24 +156,30 @@ export default function FavoritesPage({ navigate }) {
                                                     value={editForm.name}
                                                     onChange={e => setEditForm({ ...editForm, name: e.target.value })}
                                                 />
-                                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.5rem' }}>
+                                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '0.5rem' }}>
                                                     <Input
-                                                        label="Carbos (g)"
+                                                        label="Carbos"
                                                         type="number"
                                                         value={editForm.carbs}
                                                         onChange={e => setEditForm({ ...editForm, carbs: e.target.value })}
                                                     />
                                                     <Input
-                                                        label="Grasas (g)"
+                                                        label="Grasas"
                                                         type="number"
                                                         value={editForm.fat}
                                                         onChange={e => setEditForm({ ...editForm, fat: e.target.value })}
                                                     />
                                                     <Input
-                                                        label="Proteínas (g)"
+                                                        label="Prot"
                                                         type="number"
                                                         value={editForm.protein}
                                                         onChange={e => setEditForm({ ...editForm, protein: e.target.value })}
+                                                    />
+                                                    <Input
+                                                        label="Fibra"
+                                                        type="number"
+                                                        value={editForm.fiber}
+                                                        onChange={e => setEditForm({ ...editForm, fiber: e.target.value })}
                                                     />
                                                 </div>
                                                 <Input
@@ -183,7 +197,10 @@ export default function FavoritesPage({ navigate }) {
                                         <Card className="summary-row" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '1rem' }}>
                                             <div>
                                                 <div style={{ fontWeight: 700, fontSize: '1.1rem' }}>{fav.name}</div>
-                                                <div className="text-teal">{fav.carbs}g Carbs</div>
+                                                <div className="text-teal">
+                                                    {fav.carbs}g HC
+                                                    {(fav.fiber > 0) && <span style={{ fontSize: '0.8em', color: '#64748b' }}> ({fav.fiber}g Fibra)</span>}
+                                                </div>
                                             </div>
                                             <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
                                                 <Button variant="secondary" onClick={() => handleLoad(fav)} style={{ padding: '0.5rem 1rem' }}>
@@ -213,27 +230,34 @@ export default function FavoritesPage({ navigate }) {
                                 value={newFav.name}
                                 onChange={e => setNewFav({ ...newFav, name: e.target.value })}
                             />
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.5rem' }}>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '0.5rem' }}>
                                 <Input
-                                    label="Carbos (g)"
+                                    label="Carbos"
                                     type="number"
                                     placeholder="0"
                                     value={newFav.carbs}
                                     onChange={e => setNewFav({ ...newFav, carbs: e.target.value })}
                                 />
                                 <Input
-                                    label="Grasas (g)"
+                                    label="Grasas"
                                     type="number"
                                     placeholder="0"
                                     value={newFav.fat}
                                     onChange={e => setNewFav({ ...newFav, fat: e.target.value })}
                                 />
                                 <Input
-                                    label="Proteínas (g)"
+                                    label="Prot"
                                     type="number"
                                     placeholder="0"
                                     value={newFav.protein}
                                     onChange={e => setNewFav({ ...newFav, protein: e.target.value })}
+                                />
+                                <Input
+                                    label="Fibra"
+                                    type="number"
+                                    placeholder="0"
+                                    value={newFav.fiber}
+                                    onChange={e => setNewFav({ ...newFav, fiber: e.target.value })}
                                 />
                             </div>
                             <Input
