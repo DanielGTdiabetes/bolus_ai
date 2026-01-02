@@ -108,9 +108,10 @@ async def ingest_nutrition(
                 m_data = metric.get("data", [])
                 
                 metric_type = None
-                if m_name in ["carbohydrates", "dietary_carbohydrates", "total_carbs"]: metric_type = "c"
-                elif m_name in ["total_fat", "dietary_fat", "fat"]: metric_type = "f"
-                elif m_name in ["protein", "dietary_protein", "total_protein"]: metric_type = "p"
+                if m_name in ["carbohydrates", "dietary_carbohydrates", "total_carbs", "hkquantitytypeidentifierdietarycarbohydrates"]: metric_type = "c"
+                elif m_name in ["total_fat", "dietary_fat", "fat", "hkquantitytypeidentifierdietaryfattotal"]: metric_type = "f"
+                elif m_name in ["protein", "dietary_protein", "total_protein", "hkquantitytypeidentifierdietaryprotein"]: metric_type = "p"
+                elif m_name in ["fiber", "dietary_fiber", "total_fiber", "hkquantitytypeidentifierdietaryfiber"]: metric_type = "fib"
                 
                 if metric_type and isinstance(m_data, list):
                     for entry in m_data:
@@ -129,7 +130,7 @@ async def ingest_nutrition(
                         # HealthKit data for same meal usually shares EXACT timestamp down to second
                         if raw_date:
                             if raw_date not in parsed_meals:
-                                parsed_meals[raw_date] = {"c":0.0, "f":0.0, "p":0.0, "ts": raw_date}
+                                parsed_meals[raw_date] = {"c":0.0, "f":0.0, "p":0.0, "fib":0.0, "ts": raw_date}
                             
                             # Add to existing (in case multiple entries for same type/time? unlikely but safe)
                             # Actually, usually unique per type per time.
@@ -207,8 +208,9 @@ async def ingest_nutrition(
                 t_carbs = round(meal["c"], 1)
                 t_fat = round(meal["f"], 1)
                 t_protein = round(meal["p"], 1)
+                t_fiber = round(meal.get("fib", 0), 1)
                 
-                if t_carbs < 1 and t_fat < 1 and t_protein < 1: continue
+                if t_carbs < 1 and t_fat < 1 and t_protein < 1 and t_fiber < 1: continue
 
                 # Parse Date
                 try:
@@ -237,6 +239,7 @@ async def ingest_nutrition(
                     Treatment.carbs == t_carbs,
                     Treatment.fat == t_fat,
                     Treatment.protein == t_protein,
+                    Treatment.fiber == t_fiber
                     # Treatment.entered_by == "webhook-integration" # Relax this check in case manual entry matched? No, keep strict.
                 )
                 result = await session.execute(stmt)
@@ -257,6 +260,7 @@ async def ingest_nutrition(
                     carbs=t_carbs,
                     fat=t_fat,
                     protein=t_protein,
+                    fiber=t_fiber,
                     notes=f"Imported from Health: {date_key} #imported",
                     entered_by="webhook-integration",
                     is_uploaded=False
