@@ -119,6 +119,10 @@ async def migrate_schema(conn):
         # 5. fiber (favorite_foods)
         await conn.execute(text("ALTER TABLE favorite_foods ADD COLUMN IF NOT EXISTS fiber FLOAT DEFAULT 0.0"))
         
+        # 6. fiber_g (meal_entries)
+        await conn.execute(text("ALTER TABLE meal_entries ADD COLUMN IF NOT EXISTS fiber_g FLOAT DEFAULT 0.0"))
+
+        
         # Commit changes if using a connection that requires it (begin() usually handles this, but let's be safe)
         await conn.commit()
         await conn.commit()
