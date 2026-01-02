@@ -791,6 +791,9 @@ export async function deleteFavorite(id) {
 
 // Legacy Alias for backward compatibility
 export async function addFavorite(name, carbs) {
+  if (typeof name === 'object' && name !== null) {
+      return saveFavorite(name);
+  }
   return saveFavorite({ name, carbs });
 }
 
