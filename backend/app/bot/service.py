@@ -1082,8 +1082,12 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             tmp.write(file_bytes)
             tmp_path = tmp.name
 
+        # Determine Gemini Model from User Settings
+        user_settings = await get_bot_user_settings(update.effective_user.username)
+        model_name = user_settings.vision.gemini_transcribe_model or config.get_gemini_transcribe_model()
+        
         mime_type = voice_msg.mime_type or "audio/ogg"
-        result = await voice.transcribe_audio(file_bytes, mime_type=mime_type)
+        result = await voice.transcribe_audio(file_bytes, mime_type=mime_type, model_name=model_name)
 
         if result.error:
             error_code = result.error

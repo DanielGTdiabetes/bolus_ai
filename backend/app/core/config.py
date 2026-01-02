@@ -103,7 +103,8 @@ def get_voice_min_confidence() -> float:
         return 0.6
 
 def get_gemini_transcribe_model() -> str:
-    return get_env("GEMINI_TRANSCRIBE_MODEL") or "gemini-1.5-flash"
+    # Use 2.0 Flash Exp for audio/vision by default if not set
+    return get_env("GEMINI_TRANSCRIBE_MODEL") or "gemini-2.0-flash-exp"
 
 def is_telegram_voice_enabled() -> bool:
     """

@@ -55,7 +55,7 @@ def _normalize_confidence(candidate: Any) -> Optional[float]:
         return None
 
 
-async def transcribe_audio(file_bytes: bytes, mime_type: str) -> Dict[str, Optional[Any]]:
+async def transcribe_audio(file_bytes: bytes, mime_type: str, model_name: Optional[str] = None) -> Dict[str, Optional[Any]]:
     """
     Transcribe audio with Gemini Flash.
 
@@ -72,7 +72,8 @@ async def transcribe_audio(file_bytes: bytes, mime_type: str) -> Dict[str, Optio
     if len(file_bytes) > max_bytes:
         return {"text": None, "confidence": None, "error": "too_large"}
 
-    model_name = config.get_gemini_transcribe_model()
+    if not model_name:
+        model_name = config.get_gemini_transcribe_model()
 
     prompt = (
         "Transcribe la nota de voz de forma literal y concisa en el mismo idioma. "

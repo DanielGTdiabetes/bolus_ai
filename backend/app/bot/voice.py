@@ -12,9 +12,9 @@ class TranscriptionResult:
     error: Optional[str] = None
 
 
-async def transcribe_audio(file_bytes: bytes, mime_type: str = "audio/ogg") -> TranscriptionResult:
+async def transcribe_audio(file_bytes: bytes, mime_type: str = "audio/ogg", model_name: Optional[str] = None) -> TranscriptionResult:
     provider = "gemini"
-    result = await gemini_transcribe.transcribe_audio(file_bytes, mime_type)
+    result = await gemini_transcribe.transcribe_audio(file_bytes, mime_type, model_name=model_name)
     return TranscriptionResult(
         text=result.get("text"),
         confidence=result.get("confidence"),
