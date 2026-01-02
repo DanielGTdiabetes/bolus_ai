@@ -119,32 +119,36 @@ export default function HistoryPage() {
         <>
             <Header title="Historial" showBack={true} />
             <main className="page fade-in" style={{ paddingBottom: '80px' }}>
-                <div className="metrics-grid" style={{ marginBottom: '0.8rem' }}>
-                    {/* Row 1: Primary Metrics */}
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', marginBottom: '0.5rem' }}>
-                        <div className="metric-tile" style={{ background: '#eff6ff', textAlign: 'center', padding: '1.2rem 0.5rem', borderRadius: '12px' }}>
-                            <div style={{ fontSize: '1.4rem', fontWeight: 800, color: '#2563eb' }}>{loading ? '--' : stats.insulin.toFixed(1)}</div>
-                            <div style={{ fontSize: '0.7rem', color: '#93c5fd', fontWeight: 700 }}>INSULINA</div>
-                        </div>
-                        <div className="metric-tile" style={{ background: '#fff7ed', textAlign: 'center', padding: '1.2rem 0.5rem', borderRadius: '12px' }}>
-                            <div style={{ fontSize: '1.4rem', fontWeight: 800, color: '#f97316' }}>{loading ? '--' : Math.round(stats.carbs)}</div>
-                            <div style={{ fontSize: '0.7rem', color: '#fdba74', fontWeight: 700 }}>CARBOS</div>
-                        </div>
+                <div className="metrics-grid" style={{ marginBottom: '0.8rem', display: 'flex', gap: '0.5rem', flexWrap: 'nowrap', width: '100%', overflowX: 'auto' }}>
+
+                    {/* INSULINA */}
+                    <div className="metric-tile" style={{ flex: '1', minWidth: '0', background: '#eff6ff', textAlign: 'center', padding: '1rem 0.2rem', borderRadius: '12px', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center' }}>
+                        <div style={{ fontSize: '1.3rem', fontWeight: 800, color: '#2563eb', lineHeight: '1.1' }}>{loading ? '--' : stats.insulin.toFixed(1)}</div>
+                        <div style={{ fontSize: '0.65rem', color: '#60a5fa', fontWeight: 700, marginTop: '2px', textTransform: 'uppercase' }}>Insulina</div>
                     </div>
-                    {/* Row 2: Macros */}
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.5rem' }}>
-                        <div className="metric-tile" style={{ background: '#f5f3ff', textAlign: 'center', padding: '0.8rem 0.2rem', borderRadius: '12px' }}>
-                            <div style={{ fontSize: '1.1rem', fontWeight: 800, color: '#7c3aed' }}>{loading ? '--' : Math.round(stats.protein)}</div>
-                            <div style={{ fontSize: '0.65rem', color: '#a78bfa', fontWeight: 700 }}>PROT</div>
-                        </div>
-                        <div className="metric-tile" style={{ background: '#ecfdf5', textAlign: 'center', padding: '0.8rem 0.2rem', borderRadius: '12px' }}>
-                            <div style={{ fontSize: '1.1rem', fontWeight: 800, color: '#059669' }}>{loading ? '--' : Math.round(stats.fat)}</div>
-                            <div style={{ fontSize: '0.65rem', color: '#6ee7b7', fontWeight: 700 }}>GRASAS</div>
-                        </div>
-                        <div className="metric-tile" style={{ background: '#f8fafc', textAlign: 'center', padding: '0.8rem 0.2rem', borderRadius: '12px' }}>
-                            <div style={{ fontSize: '1.1rem', fontWeight: 800, color: '#64748b' }}>{loading ? '--' : Math.round(stats.fiber)}</div>
-                            <div style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 700 }}>FIBRA</div>
-                        </div>
+
+                    {/* CARBOS */}
+                    <div className="metric-tile" style={{ flex: '1', minWidth: '0', background: '#fff7ed', textAlign: 'center', padding: '1rem 0.2rem', borderRadius: '12px', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center' }}>
+                        <div style={{ fontSize: '1.3rem', fontWeight: 800, color: '#ea580c', lineHeight: '1.1' }}>{loading ? '--' : Math.round(stats.carbs)}</div>
+                        <div style={{ fontSize: '0.65rem', color: '#fb923c', fontWeight: 700, marginTop: '2px', textTransform: 'uppercase' }}>Carbos</div>
+                    </div>
+
+                    {/* PROT */}
+                    <div className="metric-tile" style={{ flex: '1', minWidth: '0', background: '#f5f3ff', textAlign: 'center', padding: '1rem 0.2rem', borderRadius: '12px', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center' }}>
+                        <div style={{ fontSize: '1.1rem', fontWeight: 800, color: '#7c3aed', lineHeight: '1.1' }}>{loading ? '--' : Math.round(stats.protein)}</div>
+                        <div style={{ fontSize: '0.6rem', color: '#a78bfa', fontWeight: 700, marginTop: '2px', textTransform: 'uppercase' }}>Prot</div>
+                    </div>
+
+                    {/* GRASAS */}
+                    <div className="metric-tile" style={{ flex: '1', minWidth: '0', background: '#ecfdf5', textAlign: 'center', padding: '1rem 0.2rem', borderRadius: '12px', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center' }}>
+                        <div style={{ fontSize: '1.1rem', fontWeight: 800, color: '#059669', lineHeight: '1.1' }}>{loading ? '--' : Math.round(stats.fat)}</div>
+                        <div style={{ fontSize: '0.6rem', color: '#34d399', fontWeight: 700, marginTop: '2px', textTransform: 'uppercase' }}>Grasas</div>
+                    </div>
+
+                    {/* FIBRA */}
+                    <div className="metric-tile" style={{ flex: '1', minWidth: '0', background: '#f8fafc', textAlign: 'center', padding: '1rem 0.2rem', borderRadius: '12px', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center' }}>
+                        <div style={{ fontSize: '1.1rem', fontWeight: 800, color: '#64748b', lineHeight: '1.1' }}>{loading ? '--' : Math.round(stats.fiber)}</div>
+                        <div style={{ fontSize: '0.6rem', color: '#94a3b8', fontWeight: 700, marginTop: '2px', textTransform: 'uppercase' }}>Fibra</div>
                     </div>
                 </div>
 
