@@ -374,8 +374,51 @@ Permitir ajustes posteriores sin reescribir el núcleo del modelo.
 
   
    
-1. [https://analizalab.com/es/intolerancia-los-hidratos-de-carbono/](https://analizalab.com/es/intolerancia-los-hidratos-de-carbono/)
-El problema que estoy viendo es que necesitaría el IGC de los alimentos, algo difícil Ahora mismo
-La fibra no habría problema , se puede importar igual que lo hacemos con el resto de nutrientes
-Esos son todos los mugrienta que en teoría podríamos sacar
-Vamos por pasos,  hay que planificado bien,  primero hay que integrar la fibra de momento la app no la importa.  Por lo quita hay que prepararlo, también ahora me pregunto si la fibra deberíamos de utilizarla en los cálculos de los bolos y no sólo en la predicción.  Luego hay que preparar el tema de como cerrar las curvas de absorción como comentabas,  hay que parar bien un plan
+
+## Integración de la Fibra en Bolus AI (Implementado)
+
+A 02 de Enero de 2026, se ha implementado un tratamiento integral de la fibra tanto en la predicción como en el cálculo del bolo.
+
+### 1. Importación y Datos
+La aplicación ahora captura y almacena el dato `fiber_g` (fibra en gramos) en todas las etapas:
+- **Base de Datos**: Tabla `meal_entries` y `favorite_foods` tienen columna `fiber_g`.
+- **Nightscout**: Se envía el campo `fiber` en las notas o atributos del tratamiento.
+- **Bot / Vision AI**: Gemini (Vision) ha sido instruido para estimar la fibra visualmente.
+- **Herramientas**: Los comandos `/bolo` y `/save_favorite` aceptan y procesan `fiber`.
+
+### 2. Impacto en la Curva de Absorción (Predicción)
+Para mejorar la simulación de la glucosa futura (`/whatif` y gráficas), la fibra modifica la curva Bi-Exponencial:
+- **Umbral**: Solo se aplica si la fibra es > 5g.
+- **Efecto**: 
+  - Reduce la fracción rápida (`f_fast`) proporcionalmente a la cantidad de fibra.
+  - Retrasa el tiempo pico de la fracción lenta (`t_max_l`), simulando un aplanamiento de la curva.
+  - *Nota*: Esto no cambia la dosis de insulina, solo cómo se prevé que llegue la glucosa a la sangre.
+
+### 3. Impacto en el Cálculo del Bolo (Dosis)
+Se ha añadido una opción configurable por el usuario para decidir cómo afecta la fibra a la dosis.
+
+#### Configuración
+- **Ajuste**: "Restar Fibra (Net Carbs)" en *Ajustes > Cálculo*.
+- **Por defecto**: Desactivado (`False`). El sistema es conservador.
+
+#### Lógica (cuando está Activado)
+Si el usuario activa esta opción:
+1. Se verifica si `fiber_g > 5.0`.
+2. Se calculan los **Carbohidratos Netos (Efectivos)** con la fórmula:
+   $$ \text{NetCarbs} = \text{Carbs} - (\text{Fibra} \times 0.5) $$
+3. Se utiliza `NetCarbs` en lugar de los carbohidratos totales para dividir por el Ratio (ICR).
+4. El sistema informa explícitamente de la deducción: *"🥗 Fibra > 5g (8g): Restando 4.0g."*
+
+#### Lógica (cuando está Desactivado)
+- La fibra **ignora** para el cálculo de la dosis.
+- Se utiliza el 100% de los carbohidratos.
+- Se mantiene el efecto de retardo en la curva de absorción (si aplica), pero la cantidad total de insulina cubre todos los carbohidratos.
+
+### 4. Flujo de Usuario
+1. **Foto/Texto**: El usuario envía "entejas con verduras" o una foto.
+2. **IA**: Estima `carbs=40g`, `fiber=12g`.
+3. **Bot**:
+   - Si `subtract_fiber=True`: Calcula bolo para `40 - 6 = 34g`.
+   - Si `subtract_fiber=False`: Calcula bolo para `40g`.
+   - Muestra explicación al usuario.
+4. **Registro**: Se guarda el tratamiento con los valores originales (40g carbs, 12g fibra) para futuros análisis.
