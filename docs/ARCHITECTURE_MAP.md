@@ -247,12 +247,17 @@ digraph ModuleMap {
     *   *Mitigación:* El endpoint es "silencioso" (loguea errores sin tirar 500 al cliente) pero puede perder datos de entrada.
 
 3.  **Timezones (Naive vs Aware):**
-    *   *Problema:* El código actual mezcla `datetime.now(utc)` con fechas "naive" de SQLite.
-    *   *Impacto:* Posibles errores en cálculo de decaimiento de insulina (IOB) o en visualización de gráficos.
+    *   *Problema:* El código mezcla `datetime.now(utc)` con fechas "naive" de SQLite.
+    *   *Mitigación:* [MITIGADO] Auditoría confirma que `TreatmentLogger` normaliza estrictamente a UTC antes de guardar (`created_dt.astimezone(timezone.utc).replace(tzinfo=None)`), garantizando consistencia.
 
-4.  **Math acoplado a Payload API:**
+4.  **Silent In-Memory Fallback (CRÍTICO):**
+    *   *Problema:* Si `DATABASE_URL` no está definida, `db.py` inicia en modo "In-Memory" (volátil) con un simple warning.
+    *   *Mitigación:* [MITIGADO v1.1] La aplicación ahora **falla al inicio (Crash)** si no tiene `DATABASE_URL`, a menos que se defina explícitamente `BOLUS_AI_ALLOW_IN_MEMORY=true`. Esto evita arranques accidentales sin persistencia.
+
+
+5.  **Math acoplado a Payload API:**
     *   *Problema:* `calculate_bolus_v2` recibe el objeto `BolusRequestV2`. 
-    *   *Mejora:* Sería más higiénico que `bolus_engine` recibiera solo dataclasses puras, desacoplando la capa HTTP de la lógica de dominio.
+    *   *Mejora:* Sería más higiénico que `bolus_engine` recibiera solo dataclasses puras.
 
-5.  **Autenticación Bot:**
-    *   *Seguridad:* Depende de `ALLOWED_TELEGRAM_USER_ID`. Si no se configura, el bot podría estar expuesto o inactivo. Es un modelo monousuario hardcodeado por diseño.
+6.  **Autenticación Bot:**
+    *   *Limitación:* El bot solo permite 1 usuario (`ALLOWED_TELEGRAM_USER_ID`). Familias (padres/madres) no pueden gestionar el mismo paciente simultáneamente desde cuentas distintas.

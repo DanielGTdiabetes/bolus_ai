@@ -61,6 +61,19 @@ def init_db():
 
         _async_session_factory = async_sessionmaker(_async_engine, expire_on_commit=False)
     else:
+        # Safety Check for Production
+        import os
+        allow_in_memory = os.environ.get("BOLUS_AI_ALLOW_IN_MEMORY", "false").lower() == "true"
+        
+        if not allow_in_memory:
+            msg = (
+                "CRITICAL: DATABASE_URL is not set. Starting in In-Memory mode is DANGEROUS "
+                "because IOB history will be lost on restart, leading to potential insulin stacking. "
+                "To force in-memory mode (e.g. for testing), set env BOLUS_AI_ALLOW_IN_MEMORY=true."
+            )
+            logger.critical(msg)
+            raise RuntimeError(msg)
+            
         logger.warning("DATABASE_URL not set. Using in-memory (dict) storage. Data will be lost on restart.")
 
 def get_engine():
