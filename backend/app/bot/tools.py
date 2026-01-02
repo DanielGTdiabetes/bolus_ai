@@ -62,6 +62,7 @@ class BolusResult(BaseModel):
     explanation: List[str]
     confidence: str = "high"
     quality: str = "ok"
+    recommended_site: Optional[Dict[str, Any]] = None
 
 
 class CorrectionResult(BaseModel):
@@ -365,7 +366,26 @@ async def calculate_bolus(carbs: float, meal_type: Optional[str] = None, split: 
     # Append Security Footprint
     explain.append(f"🔒 Hash: {cfg_hash[:6]} | 🕒 Datos: {snap_ts}")
     
-    return BolusResult(units=rec.total_u, explanation=explain, confidence="high", quality="data-driven")
+    # Calculate Rotation Preview
+    preview_site = None
+    try:
+        store = DataStore(Path(get_settings().data.data_dir))
+        rotator = RotationService(store)
+        # Resolve user (simple, rely on what we have, or default admin)
+        # Ideally pass username from router but for now defaulting is safe for single user
+        # We can try to peek at user_settings owner if available? No easiest is admin/default.
+        target_user = "admin"
+        preview = rotator.get_next_site_preview(target_user)
+        preview_site = {
+             "name": preview.name,
+             "emoji": preview.emoji,
+             "image": preview.image_ref
+        }
+        explain.append(f"📍 Sugerencia: {preview.name} {preview.emoji}")
+    except Exception as e:
+        logger.warning(f"Rotation preview failed: {e}")
+
+    return BolusResult(units=rec.total_u, explanation=explain, confidence="high", quality="data-driven", recommended_site=preview_site)
 
 
 async def calculate_correction(target_bg: Optional[float] = None) -> CorrectionResult | ToolError:

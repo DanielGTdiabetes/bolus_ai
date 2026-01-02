@@ -232,6 +232,12 @@ async def handle_text(username: str, chat_id: int, user_text: str, context_data:
             if tool_name == "calculate_bolus" and not isinstance(tool_res, ToolError):
                 last_bolus_result = tool_res
                 last_bolus_args = tool_args
+                
+                # Preview Injection Site Image if recommended
+                if hasattr(tool_res, "recommended_site") and tool_res.recommended_site:
+                    rs = tool_res.recommended_site
+                    if isinstance(rs, dict) and rs.get("image"):
+                         last_image_path = rs.get("image")
             
             # Capture Image from Injection Site
             if tool_name == "add_treatment" and not isinstance(tool_res, ToolError):
