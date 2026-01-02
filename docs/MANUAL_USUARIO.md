@@ -175,6 +175,13 @@ Define cuándo y cuánto corregir por comidas grasas.
 *   **Factor de Seguridad:** Porcentaje de la grasa que se cubre con insulina.
     *   *Por defecto:* **0.1 (10%)**. Un inicio muy conservador para evitar hipoglucemias tardías. Usuarios expertos pueden subirlo a 0.5 (50%) si su basal lo requiere.
 
+### Configuración de Fibra (Calculadora)
+Por defecto, la fibra **no resta** insulina en esta aplicación (enfoque conservador). Sin embargo, puedes cambiar este comportamiento:
+*   **Restar Fibra (Net Carbs)**: Si activas esta casilla, el sistema restará automáticamente el **50% de la fibra** a los carbohidratos totales, **siempre que la comida tenga más de 5g de fibra**.
+    *   *Ejemplo*: Si comes 30g de carbohidratos y 10g de fibra.
+    *   *Desactivado*: La app calcula insulina para **30g**.
+    *   *Activado*: La app calcula insulina para **25g** (30 - 10*0.5).
+
 ---
 
 ## 13. 🤖 Asistente IA (Bot Telegram)
