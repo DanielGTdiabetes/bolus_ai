@@ -15,13 +15,15 @@ Para una explicación completa de cómo funciona la aplicación, consulta nuestr
 - **🤖 Autosens (Nuevo)**: Detección automática de resistencia/sensibilidad en tiempo real (ajusta tus ratios si tienes un mal día).
 - **🕸️ Shadow Labs (Experimental)**: Pruebas de algoritmos de absorción en segundo plano sin riesgo (Auto-ISF, curvas personalizadas).
 - **🧠 Motor de Aprendizaje**: Sugerencias clínicas basadas en tus patrones (ej. "Baja tu ratio del desayuno").
-- **📸 Análisis de Comida por IA**: Estima carbohidratos, grasas y proteínas a partir de una foto.
+- **📸 Análisis de Comida por IA**: Estima carbohidratos, grasas, proteínas **y fibra** a partir de una foto.
+- **🥦 Gestión de Fibra**: Tracker completo de fibra con impacto en predicción de glucosa y (opcionalmente) en el cálculo de dosis.
 - **📍 Mapa Corporal**: Rotación de sitios de inyección con memoria visual.
 - **⏰ Calculadora de Olvido**: Seguridad para recálculo de basal tardía.
 - **🍴 Modo Restaurante**: Seguimiento inteligente de comidas complejas.
 - **⚖️ Báscula Bluetooth**: Conexión directa con básculas inteligentes.
 - **⏱️ Bolo Dual/Extendido/Micro**: Estrategias avanzadas para grasas, proteínas y correcciones post-pandriales ("Dessert Mode").
 - **🔄 Integración Nightscout**: Lectura en tiempo real + Subida de Tratamientos.
+- **⏱️ Historial Interactivo**: Edita tratamientos pasados (incluyendo macros), guárdalos como favoritos y visualiza métricas diarias.
 - **📊 Gestión de Basal**: Análisis de "Amanecer" y eficacia nocturna.
 
 ---

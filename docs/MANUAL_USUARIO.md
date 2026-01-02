@@ -46,7 +46,7 @@ Herramientas para optimizar tu dosis basal:
 - **📦 Suministros (NUEVO)**: Control de inventario de consumibles.
     - **Agujas**: Se descuentan solas cada vez que registras una dosis. Tú solo tienes que darle a "+1 Caja" cuando compres.
     - **Sensores**: Control manual simple (+1 / -1).
-- **⏱️ Historial**: Registro completo de todos los tratamientos. Ahora permite **editar** todos los macronutrientes (Glúcidos, Grasas, Proteínas, Fibra) y ver un **resumen diario** de Insulina, Carbohidratos y Proteínas totales. También puedes **Guardar como Favorito** cualquier plato del historial.
+- **⏱️ Historial**: Registro completo de todos los tratamientos. Ahora permite **editar** todos los macronutrientes y ver un **resumen diario** de Insulina, Carbohidratos, Proteínas, Grasas y Fibra. También puedes **Guardar como Favorito** cualquier plato del historial.
 - **📊 Patrones**: Análisis detallado de tendencias por franjas horarias.
 - **📍 Mapa Corporal**: Vista completa del estado de tus sitios de inyección.
 - **📚 Mis Platos**: Gestiona tu librería personal unificada (ahora incluye campo de **Fibra** para mejorar la precisión de las predicciones).
