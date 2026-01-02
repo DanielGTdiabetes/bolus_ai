@@ -642,25 +642,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
         except Exception as e:
             out.append(f"💥 **Error Script:** `{e}`")
-            
+        
         # Send without markdown to avoid parsing errors (underscores in URLs, etc.)
         await reply_text(update, context, "\n".join(out))
-        return
-
-    if cmd == "ping":
-        await reply_text(update, context, "pong")
-        return
-
-    if cmd == "debug":
-        # Keep existing debug logic...
-        # For brevity in this diff, I am assuming the user might want to keep debug but 
-        # I cannot replace partial blocks easily without copying it all.
-        # Ideally I should keep debug.
-        # But 'ping' and 'debug' are the only hardcoded ones I want to keep unique.
-        pass # I will put debug block back in a separate edit or just copy it here if I had it.
-        # Since I am replacing the whole function body basically...
-        # I'll rely on the existing debug block being complex. 
-        # I will only replace from "Quick heuristics" downwards.
         return
 
     # --- AI Layer ---
@@ -855,16 +839,7 @@ async def _handle_add_treatment_tool(update: Update, context: ContextTypes.DEFAU
         rec.total_u = insulin_req
         rec.explain.append(f"Override: Usuario solicitó explícitamente {insulin_req} U")
 
-    # 3. Store Snapshot
-    # ---------------------------------------------------------
-    SNAPSHOT_STORAGE[request_id] = {
-        "rec": rec,
-        "carbs": carbs,
-        "notes": notes,
-        "ts": datetime.now()
-    }
-
-    # 4. Message Generation (Strict Format)
+    # 3. Message Generation (Strict Format)
     # ---------------------------------------------------------
     # Sugerencia: **2.5 U**
     # - Carbos: 22.5g → 2.25 U
@@ -929,7 +904,8 @@ async def _handle_add_treatment_tool(update: Update, context: ContextTypes.DEFAU
         "carbs": carbs,
         "bg": bg_val,
         "notes": notes,
-        "source": "CalculateBolus"
+        "source": "CalculateBolus",
+        "ts": datetime.now(),
     }
     logger.info(f"Snapshot saved for request_{request_id}. Keys: {len(SNAPSHOT_STORAGE)}")
     
@@ -2160,11 +2136,34 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
          return
 
 async def _handle_voice_callback(update, context):
-    """Placeholder for voice confirmation logic."""
+    """Process confirmation/cancellation for low-confidence voice transcriptions."""
     query = update.callback_query
-    await query.edit_message_text("Función de voz en mantenimiento.")
+    action = query.data
+    pending_text = context.user_data.pop("pending_voice_text", None)
 
+    if action == "voice_confirm_cancel":
+        await query.edit_message_text("❌ Transcripción descartada.")
+        return
 
+    if action == "voice_confirm_retry":
+        await query.edit_message_text("✏️ Ok, envía otra nota de voz o escribe el mensaje.")
+        return
 
+    if not pending_text:
+        await query.edit_message_text("⚠️ No tengo ninguna transcripción pendiente.")
+        return
+
+    if action == "voice_confirm_yes":
+        await query.edit_message_text("✅ Entendido. Procesando la transcripción...")
+        # Reuse the text pipeline by injecting the transcript as a message
+        try:
+            update.message = type("VoiceTranscript", (), {"text": pending_text})
+            await handle_message(update, context)
+        except Exception as exc:
+            logger.error("Voice callback routing failed: %s", exc)
+            await reply_text(update, context, "❌ Error procesando la transcripción.")
+        return
+
+    await query.edit_message_text("⚠️ Acción de voz no reconocida.")
 
 
