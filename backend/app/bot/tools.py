@@ -236,7 +236,7 @@ async def get_status_context(username: str = "admin", user_settings: Optional[Us
     )
 
 
-async def calculate_bolus(carbs: float, meal_type: Optional[str] = None, split: Optional[float] = None, extend_minutes: Optional[int] = None, alcohol: bool = False, target: Optional[float] = None) -> BolusResult | ToolError:
+async def calculate_bolus(carbs: float, fiber: float = 0.0, meal_type: Optional[str] = None, split: Optional[float] = None, extend_minutes: Optional[int] = None, alcohol: bool = False, target: Optional[float] = None) -> BolusResult | ToolError:
     try:
         user_settings = await _load_user_settings()
     except Exception as exc:
@@ -311,6 +311,7 @@ async def calculate_bolus(carbs: float, meal_type: Optional[str] = None, split: 
     # Build V2 Request
     req = BolusRequestV2(
         carbs_g=carbs,
+        fiber_g=fiber,
         bg_mgdl=status.bg_mgdl,
         meal_slot=meal_slot,
         target_mgdl=target or user_settings.targets.mid,
@@ -988,6 +989,7 @@ async def execute_tool(name: str, args: Dict[str, Any]) -> Any:
         if name == "calculate_bolus":
             return await calculate_bolus(
                 carbs=float(args.get("carbs")),
+                fiber=float(args.get("fiber", 0)),
                 meal_type=args.get("meal_type"),
                 split=args.get("split"),
                 extend_minutes=args.get("extend_minutes"),

@@ -22,6 +22,7 @@ If the image is a RESTAURANT MENU, list the distinct dishes visible.
 **IMPORTANT: FAT & PROTEIN FOCUS:**
 The user relies on the "Warsaw Method" for insulin dosing. This method uses Fat and Protein grams to calculate extended boluses. 
 - You MUST estimate **Fats (g)** and **Proteins (g)** with the same care as Carbohydrates.
+- You MUST estimate **Fiber (g)** if possible, as it may reduce the insulin dose.
 - Do NOT ignore hidden fats (oils, sauces, cheese).
 - Do NOT ignore protein density (meat, eggs, legumes).
 
