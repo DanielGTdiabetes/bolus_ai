@@ -469,46 +469,23 @@ async def ping_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     await reply_text(update, context, "pong")
 
 
-async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Standard /start command."""
-    if not await _check_auth(update, context): return
-    
-    user = update.effective_user
-    mode = health.mode.value if health else "unknown"
-    allowed = config.get_allowed_telegram_user_id()
-    whitelist_msg = "⚠️ ALLOWED_TELEGRAM_USER_ID falta: el bot responderá solo a /start" if not allowed else f"Usuario permitido: {allowed}"
-    await reply_text(
-        update,
-        context,
-        f"Hola {user.first_name}! Soy tu asistente de diabetes (Bolus AI).\n"
-        f"Modo bot: {mode}.\n"
-        f"{whitelist_msg}\n"
-        "Puedes pedirme: calcular bolo, corrección, simulación what-if, ver estado o stats. "
-        "Envía texto libre o nota de voz."
-    )
 
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Text Handler - The Python Router."""
-    if not await _check_auth(update, context): return
+async def _process_text_input(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str) -> None:
+    """Shared logic for text and transcribed voice."""
+    if not text: return
     
     # Check Master Switch
     try:
         user_settings = await get_bot_user_settings()
         if not user_settings.bot.enabled:
-             # Only allow specific commands or silence?
-             # Let's silence or short reply.
-             # Check if it is a command we might want to allow? No, "Totalmente desactivado".
-             # But /start should probably work to at least say "I am here but disabled".
-             if update.message.text and update.message.text.startswith("/"):
-                 pass # Allow commands to potentially proceed or just generic reply.
-                 # Actually, let's just block text chat with a message.
-             await reply_text(update, context, "😴 Bot desactivado desde la App.")
-             return
+             # Allow commands to potentially proceed if they start with / (except if we want total silence/block)
+             if text.startswith("/"):
+                 pass 
+             else:
+                 await reply_text(update, context, "😴 Bot desactivado desde la App.")
+                 return
     except Exception as e:
         logger.error(f"Failed to check bot status: {e}")
-
-    text = update.message.text
-    if not text: return
 
     cmd = text.lower().strip()
 
@@ -595,8 +572,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             if engine:
                 async with AsyncSession(engine) as session:
                     # List all users
-                    from sqlalchemy import text
-                    stmt = text("SELECT user_id, settings FROM user_settings")
+                    from sqlalchemy import text as sql_text
+                    stmt = sql_text("SELECT user_id, settings FROM user_settings")
                     rows = (await session.execute(stmt)).fetchall()
                     out.append(f"📊 **Usuarios en DB:** {len(rows)}")
                     for r in rows:
@@ -629,8 +606,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             engine = get_engine()
             if engine:
                  async with AsyncSession(engine) as session:
-                    from sqlalchemy import text
-                    stmt = text("SELECT created_at, insulin FROM treatments ORDER BY created_at DESC LIMIT 1")
+                    from sqlalchemy import text as sql_text
+                    stmt = sql_text("SELECT created_at, insulin FROM treatments ORDER BY created_at DESC LIMIT 1")
                     row = (await session.execute(stmt)).fetchone() 
                     if row:
                          out.append(f"💉 **Último Bolo (DB):** {row.insulin} U ({row.created_at.strftime('%H:%M')})")
@@ -645,8 +622,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         # Send without markdown to avoid parsing errors (underscores in URLs, etc.)
         await reply_text(update, context, "\n".join(out))
         return
-
-    # (Legacy redundant checks removed)
 
     # --- AI Layer ---
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=constants.ChatAction.TYPING)
@@ -680,8 +655,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         p["timestamp"] = datetime.now().timestamp()
         SNAPSHOT_STORAGE[p["id"]] = p
         
-        # Log cleanup task? (Usually handled by TTL in access or periodic job)
-    
     # 4. Send Reply
     if bot_reply.buttons:
         reply_markup = InlineKeyboardMarkup(bot_reply.buttons)
@@ -695,13 +668,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             # Resolve path (assume relative to frontend/public if not absolute)
             img_path = Path(bot_reply.image_path)
             if not img_path.is_absolute():
-                # Use project root + frontend/public logic
-                # Assuming app is running from backend/ or root implies valid structure.
-                # Better: Use relative path from known root.
-                # backend/app/bot/service.py -> backend/ -> root/ -> frontend/public
-                # root = Path(__file__).parents[3]
-                # Let's try to find 'frontend' relative to current working dir or relative to this file.
-                
                 # Dynamic resolution:
                 base_dir = Path("frontend/public").resolve()
                 if not base_dir.exists():
@@ -709,8 +675,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                      base_dir = Path("../frontend/public").resolve()
                 
                 if not base_dir.exists():
-                     # Fallback to hardcoded only if dynamic fails, or just log warning?
-                     # Let's try one more common structure
+                     # Fallback to hardcoded only if dynamic fails
                      base_dir = Path(__file__).parent.parent.parent.parent / "frontend" / "public"
 
                 img_path = base_dir / bot_reply.image_path
@@ -727,6 +692,33 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     # 5. Observability
     logger.info(f"AI Req: ctx={int(ctx_ms)}ms llm={int(llm_ms)}ms")
+
+async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Standard /start command."""
+    if not await _check_auth(update, context): return
+    
+    user = update.effective_user
+    mode = health.mode.value if health else "unknown"
+    allowed = config.get_allowed_telegram_user_id()
+    whitelist_msg = "⚠️ ALLOWED_TELEGRAM_USER_ID falta: el bot responderá solo a /start" if not allowed else f"Usuario permitido: {allowed}"
+    await reply_text(
+        update,
+        context,
+        f"Hola {user.first_name}! Soy tu asistente de diabetes (Bolus AI).\n"
+        f"Modo bot: {mode}.\n"
+        f"{whitelist_msg}\n"
+        "Puedes pedirme: calcular bolo, corrección, simulación what-if, ver estado o stats. "
+        "Envía texto libre o nota de voz."
+    )
+
+
+
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Text Handler - The Python Router."""
+    if not await _check_auth(update, context): return
+    
+    text = update.message.text
+    await _process_text_input(update, context, text)
 
 # --- AI Tools Definition ---
 AI_TOOLS = [
@@ -1126,8 +1118,7 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             return
 
         # Re-route as text
-        update.message.text = transcript
-        await handle_message(update, context)
+        await _process_text_input(update, context, transcript)
     except Exception as exc:
         logger.error("Voice handler failed: %s", exc)
         await reply_text(update, context, "❌ Error transcribiendo la nota de voz.")
