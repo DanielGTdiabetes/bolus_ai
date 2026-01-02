@@ -691,8 +691,8 @@ async def get_current_iob(
         return {
             "iob_total": round(total_iob, 2),
             "cob_total": round(total_cob, 0),
-            "breakdown": breakdown, # Top contributors
-            "graph": curve_points,
+            "breakdown": breakdown, 
+            "graph": curve_points, # Legacy name, actually IOB Curve
             "iob_info": iob_info.model_dump(),
             "warning": iob_warning
         }

@@ -1111,12 +1111,12 @@ function ResultView({ result, slot, usedParams, onBack, onSave, saving, currentC
 
             const payload = {
                 start_bg: bgVal,
-                horizon_minutes: 360,
+                horizon_minutes: 300, // Reduced slightly to focus on relevant action time
                 params: {
                     isf: isf,
                     icr: icr,
                     dia_minutes: dia * 60,
-                    carb_absorption_minutes: 180,
+                    carb_absorption_minutes: 150, // TUNED: Faster absorption (2.5h) to match Fiasp/Novo better and avoid fake dips
                     insulin_model: insulinModel
                 },
                 events: events
