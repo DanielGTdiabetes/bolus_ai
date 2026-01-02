@@ -189,6 +189,7 @@ export default function HistoryPage() {
                         const c = parseFloat(t.carbs) || 0;
                         const f = parseFloat(t.fat) || 0;
                         const p = parseFloat(t.protein) || 0;
+                        const fiber = parseFloat(t.fiber) || 0;
 
                         const isBolus = u > 0;
                         const icon = isBolus ? "💉" : "🍪";
@@ -203,6 +204,7 @@ export default function HistoryPage() {
                         if (c > 0) nutr.push(`${Math.round(c)} g HC`);
                         if (f > 0) nutr.push(`${Math.round(f)} g Gras.`);
                         if (p > 0) nutr.push(`${Math.round(p)} g Prot.`);
+                        if (fiber > 0) nutr.push(`${Math.round(fiber)} g Fib.`);
 
                         if (nutr.length > 0) {
                             if (val) val += " • ";
