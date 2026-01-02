@@ -32,7 +32,6 @@ from app.services.basal_repo import get_latest_basal_dose
 from app.models.bolus_v2 import BolusRequestV2, BolusResponseV2, GlucoseUsed
 from app.services.injection_sites import InjectionManager
 from app.bot.capabilities.registry import build_registry, Permission
-import uuid
 
 
 SNAPSHOT_STORAGE: Dict[str, Any] = {}
@@ -696,9 +695,24 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             # Resolve path (assume relative to frontend/public if not absolute)
             img_path = Path(bot_reply.image_path)
             if not img_path.is_absolute():
-                # Hardcoded or Env based. Using known structure d:/bolus_ai/bolus_ai/frontend/public
-                # Ideally config.get_public_dir()
-                base_dir = Path(r"d:/bolus_ai/bolus_ai/frontend/public")
+                # Use project root + frontend/public logic
+                # Assuming app is running from backend/ or root implies valid structure.
+                # Better: Use relative path from known root.
+                # backend/app/bot/service.py -> backend/ -> root/ -> frontend/public
+                # root = Path(__file__).parents[3]
+                # Let's try to find 'frontend' relative to current working dir or relative to this file.
+                
+                # Dynamic resolution:
+                base_dir = Path("frontend/public").resolve()
+                if not base_dir.exists():
+                     # Try going up if we are in backend
+                     base_dir = Path("../frontend/public").resolve()
+                
+                if not base_dir.exists():
+                     # Fallback to hardcoded only if dynamic fails, or just log warning?
+                     # Let's try one more common structure
+                     base_dir = Path(__file__).parent.parent.parent.parent / "frontend" / "public"
+
                 img_path = base_dir / bot_reply.image_path
             
             if img_path.exists():
@@ -1316,6 +1330,18 @@ async def initialize() -> None:
 async def shutdown() -> None:
     """Called on FastAPI shutdown."""
     global _bot_app
+    global _polling_task
+    
+    if _polling_task:
+        logger.info("Canceling Telegram polling task...")
+        _polling_task.cancel()
+        try:
+            await _polling_task
+        except asyncio.CancelledError:
+            logger.info("Polling task cancelled.")
+        except Exception as e:
+            logger.error(f"Error cancelling polling task: {e}")
+            
     if _bot_app:
         logger.info("Shutting down Telegram Bot...")
         try:

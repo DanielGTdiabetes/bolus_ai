@@ -7,7 +7,6 @@ from typing import Any, Awaitable, Callable, Optional
 from app import jobs_state
 from app.bot import tools as bot_tools
 from app.bot import proactive as bot_proactive
-from app.bot import proactive as bot_proactive
 
 from app.core.scheduler import get_scheduler
 from app.services import bolus_engine, bolus_split

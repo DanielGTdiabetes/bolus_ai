@@ -24,7 +24,6 @@ from app.models.forecast import (
     SimulationParams,
     MomentumConfig,
 )
-from app.models.bolus_v2 import BolusRequestV2, GlucoseUsed
 from app.services.bolus_engine import calculate_bolus_v2
 from app.models.settings import UserSettings
 from app.services.treatment_logger import log_treatment
