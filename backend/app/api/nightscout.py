@@ -794,6 +794,7 @@ async def delete_treatment(
     id: str,
     user: CurrentUser = Depends(get_current_user),
     session: AsyncSession = Depends(get_db_session),
+    store: DataStore = Depends(_data_store)
 ):
     from app.models.treatment import Treatment
     from app.models.basal import BasalEntry
@@ -850,25 +851,51 @@ async def delete_treatment(
                     deleted_in_db = True
         except Exception as e:
              logger.error(f"Error deleting basal from DB: {e}")
+
+    # 1.5 Local File Store (Backup)
+    # Ensure it doesn't reappear from the backup file
+    try:
+        events = store.load_events()
+        original_len = len(events)
+        # Filter (check both 'id' and '_id')
+        filtered_events = [e for e in events if str(e.get('id', '')) != id and str(e.get('_id', '')) != id]
+        
+        if len(filtered_events) < original_len:
+            store.save_events(filtered_events)
+            logger.info(f"Deleted treatment {id} from local file store.")
+    except Exception as e:
+        logger.error(f"Error deleting from local file store: {e}")
+
              
-    # 2. Nightscout
-    is_uuid = len(id) >= 24
+    # 2. Nightscout (Always attempt sync)
     ns_deleted = False
     
-    if not deleted_in_db:
-         ns = await get_ns_config(session, user.username)
-         if ns and ns.enabled and ns.url:
-             try:
-                 client = NightscoutClient(ns.url, ns.api_secret)
-                 await client.delete_treatment(id)
-                 await client.aclose()
-                 ns_deleted = True
-             except Exception as e:
-                 logger.error(f"Error deleting from NS: {e}")
-                 if not deleted_in_db and not is_uuid:
-                      raise HTTPException(status_code=500, detail=f"Failed to delete: {str(e)}")
+    ns = await get_ns_config(session, user.username)
+    if ns and ns.enabled and ns.url:
+         try:
+             client = NightscoutClient(ns.url, ns.api_secret)
+             await client.delete_treatment(id)
+             await client.aclose()
+             ns_deleted = True
+         except Exception as e:
+             logger.error(f"Error deleting from NS: {e}")
+             # Only raise error if we failed both Local AND Nightscout
+             if not deleted_in_db:
+                  is_uuid = len(id) >= 24
+                  if not is_uuid:
+                       raise HTTPException(status_code=500, detail=f"Failed to delete: {str(e)}")
 
     if not deleted_in_db and not ns_deleted:
-        raise HTTPException(status_code=404, detail="Treatment not found")
+        # If we found it in file store, it's effectively a success too?
+        # But we usually require DB/NS presence.
+        # Let's verify file store deletion count? 
+        # Actually returning 404 is fine if it wasn't in DB/NS as those are primary.
+        # But if it was ONLY in file store (unlikely for "treatment"), we might want to say success.
+        pass
+        
+    # Simplify return: if we deleted from ANY source, it's success.
+    # But effectively, if we didn't raise exception above, we are OK or 404.
+    if not deleted_in_db and not ns_deleted:
+         raise HTTPException(status_code=404, detail="Treatment not found")
          
     return {"success": True, "deleted_db": deleted_in_db, "deleted_ns": ns_deleted}
