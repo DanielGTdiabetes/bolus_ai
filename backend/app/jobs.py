@@ -81,6 +81,7 @@ async def _run_learning_evaluation_task():
     from app.services.learning_service import LearningService
     from app.services.nightscout_secrets_service import get_ns_config
     from app.services.nightscout_client import NightscoutClient, NightscoutError
+    from sqlalchemy import text
 
     logger.info("Running Learning Evaluation Job...")
     engine = get_engine()
@@ -89,6 +90,9 @@ async def _run_learning_evaluation_task():
         return
 
     settings = get_settings()
+    data_dir = Path(settings.data.data_dir)
+    user_store = UserStore(data_dir / "users.json")
+    
     # Audit H14: Use DB users
     users = []
     try:
@@ -96,7 +100,7 @@ async def _run_learning_evaluation_task():
             res = await conn.execute(text("SELECT username FROM users"))
             users = [{"username": r[0]} for r in res.fetchall()]
     except Exception:
-        users = user_store.get_all_users()
+         users = user_store.get_all_users()
     
     async with AsyncSession(engine) as session:
         ls = LearningService(session)
@@ -194,14 +198,4 @@ def setup_periodic_tasks():
         jobs_state.refresh_next_run("isf_check")
 
 
-async def run_data_cleanup():
-    """
-    Background Task: Cleans up old data retention > 90 days.
-    """
-    from app.services.basal_repo import delete_old_data
-    logger.info("Running Data Cleanup Job...")
-    try:
-        res = await delete_old_data(retention_days=90)
-        logger.info(f"Cleanup finished. Stats: {res}")
-    except Exception as e:
-        logger.error(f"Cleanup failed: {e}")
+
