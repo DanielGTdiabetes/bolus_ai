@@ -26,9 +26,7 @@ async def init_auth_db():
     seed_sql = """
     INSERT INTO users (username, password_hash, role, needs_password_change)
     VALUES (:username, :pwd, :role, :change)
-    ON CONFLICT (username) DO UPDATE
-    SET password_hash = EXCLUDED.password_hash,
-        role = EXCLUDED.role;
+    ON CONFLICT (username) DO NOTHING;
     """
 
     async with get_engine().begin() as conn:

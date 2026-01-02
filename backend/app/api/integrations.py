@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime, timezone, timedelta
 from sqlalchemy import select, and_
 
-from app.core.security import get_current_user_optional, CurrentUser
+from app.core.security import get_current_user, CurrentUser
 from app.api.bolus import save_treatment
 from app.services.store import DataStore
 from app.core.settings import get_settings, Settings
@@ -43,7 +43,7 @@ class NutritionPayload(BaseModel):
 @router.post("/nutrition", summary="Webhook for Health Auto Export / External Nutrition")
 async def ingest_nutrition(
     payload: Dict[str, Any] = Body(...), # Usamos Dict raw par analizar la estructura variable
-    user: Optional[CurrentUser] = Depends(get_current_user_optional),
+    user: CurrentUser = Depends(get_current_user),
     session: AsyncSession = Depends(get_db_session),
 ):
     """
@@ -52,8 +52,8 @@ async def ingest_nutrition(
     Es "silencioso": si falla, no rompe nada, solo loguea error.
     """
     try:
-        logger.info(f"DEBUG INGEST: Raw Payload received: {payload}")
-        username = user.username if user else "admin"
+        # logger.info(f"DEBUG INGEST: Raw Payload received: {payload}") # REDACTED FOR SECURITY (H2)
+        username = user.username
         
         # 1. Normalización de Datos (Health Auto Export manda una lista "data": [...])
         # Buscamos carbs, fat, protein en el payload bruto

@@ -21,7 +21,25 @@ async def _run_auto_night_scan_task():
     data_dir = Path(settings.data.data_dir)
     user_store = UserStore(data_dir / "users.json")
     
-    users = user_store.get_all_users()
+    # Audit H14: Use DB users instead of local file
+    from app.core.db import get_engine
+    from sqlalchemy import text
+    
+    users = []
+    try:
+        engine = get_engine()
+        if engine:
+            async with engine.connect() as conn:
+                res = await conn.execute(text("SELECT username FROM users"))
+                rows = res.fetchall()
+                # mimic dict structure expected by code
+                users = [{"username": r[0]} for r in rows]
+        else:
+             # Fallback
+             users = user_store.get_all_users()
+    except Exception as e:
+        logger.error(f"Failed to load users from DB: {e}")
+        users = user_store.get_all_users()
     
     count = 0
     for user in users:
@@ -71,8 +89,14 @@ async def _run_learning_evaluation_task():
         return
 
     settings = get_settings()
-    user_store = UserStore(Path(settings.data.data_dir) / "users.json")
-    users = user_store.get_all_users()
+    # Audit H14: Use DB users
+    users = []
+    try:
+         async with engine.connect() as conn:
+            res = await conn.execute(text("SELECT username FROM users"))
+            users = [{"username": r[0]} for r in res.fetchall()]
+    except Exception:
+        users = user_store.get_all_users()
     
     async with AsyncSession(engine) as session:
         ls = LearningService(session)

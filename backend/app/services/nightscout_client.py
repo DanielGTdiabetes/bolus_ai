@@ -42,7 +42,9 @@ class NightscoutClient:
         # Heuristic: Access tokens often start with 'app-' or contain hyphens, and are NOT JWTs
         is_jwt_token = self.token and len(self.token) > 20 and self.token.count(".") >= 2
         if self.token and not is_jwt_token and "-" in self.token:
-            params["token"] = self.token
+            # Audit H5: Do not send token in query params to avoid logging
+            # params["token"] = self.token
+            pass
 
         self.client = client or httpx.AsyncClient(
             base_url=self.base_url,

@@ -138,7 +138,7 @@ async def get_current_glucose_stateless(
         except NightscoutError as nse:
             logger.error(f"Nightscout client error: {nse}")
             # Request says 502 if Nightscout fails
-            raise HTTPException(status_code=502, detail=f"Nightscout Error: {str(nse)}")
+            raise HTTPException(status_code=502, detail="Nightscout Unreachable")
         except Exception as e:
             logger.exception("Unexpected error fetching glucose")
             raise HTTPException(status_code=502, detail=f"Unexpected Error: {str(e)}")
@@ -271,7 +271,8 @@ async def get_current_glucose_server(
         finally:
             await client.aclose()
     except NightscoutError as nse:
-        raise HTTPException(status_code=502, detail=str(nse))
+        logger.error(f"Nightscout Error: {nse}")
+        raise HTTPException(status_code=502, detail="Nightscout Unreachable")
     except Exception as e:
         logger.exception("Error fetching current glucose (server)")
         raise HTTPException(status_code=500, detail=str(e))
@@ -360,10 +361,13 @@ async def get_treatments_server(
             # Calculate hours for NS (since it uses hours=X)
             diff = datetime.utcnow() - start_dt
             ns_hours = int(diff.total_seconds() / 3600) + 2 # +2 buffer
-            if ns_hours < 0: ns_hours = 24 # Fallback
+            # Audit H12: Limit to 1 week (168h) to prevent huge queries
+            if ns_hours > 168: 
+                ns_hours = 168
             
-            # If explicit range, boost count limit
+            # If explicit range, boost count limit but cap it
             if count < 1000: count = 1000 
+            if count > 2000: count = 2000 
         except:
              pass
 

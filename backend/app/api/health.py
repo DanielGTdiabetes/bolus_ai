@@ -27,9 +27,12 @@ async def health_options() -> Response:
     return Response(status_code=200)
 
 
+from app.core.security import get_current_user, CurrentUser
+
 @router.get("/full", summary="Full health check")
 async def full_health(
     settings: Settings = Depends(get_settings),
+    user: CurrentUser = Depends(get_current_user),
 ) -> dict:
     status: dict[str, object] = {
         "ok": True,
@@ -52,7 +55,8 @@ async def full_health(
             finally:
                 await client.aclose()
         except Exception as exc:  # pragma: no cover - defensive fallback
-            status["nightscout"] = {"reachable": False, "error": str(exc)}
+            # Audit H6: Sanitize error
+            status["nightscout"] = {"reachable": False, "error": "Connection Failed"}
     else:
         status["nightscout"] = {"reachable": False, "reason": "Not configured (system)"}
 

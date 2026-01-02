@@ -70,14 +70,15 @@ async def startup_event() -> None:
     data_dir.mkdir(parents=True, exist_ok=True)
     logger.info("Using data directory: %s", data_dir)
     
-    # Debug Env Vars
-    import os
-    keys = list(os.environ.keys())
-    logger.info(f"Environment Keys available: {keys}")
-    if "DATABASE_URL" in os.environ:
-         logger.info("DATABASE_URL is PRESENT length=" + str(len(os.environ["DATABASE_URL"])))
-    else:
-         logger.info("DATABASE_URL is MISSING")
+    
+    # Audit H8: Validate Secret Key
+    # If key is missing, crypto will fail at runtime. Better to fail early.
+    if not settings.security.jwt_secret or len(settings.security.jwt_secret) < 16:
+         logger.warning("CRITICAL: JWT_SECRET is missing or too short! Encrypted data will be inaccessible or insecure.")
+         # if os.environ.get("ENV") == "production":
+         #    raise RuntimeError("JWT_SECRET missing in production")
+
+    # Ensure models are loaded before creating tables
     
     # Ensure models are loaded before creating tables
     import app.models 
