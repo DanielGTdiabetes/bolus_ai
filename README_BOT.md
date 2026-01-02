@@ -14,8 +14,8 @@
   - `MAX_VOICE_MB` (default 10)
 
 ### Activar notas de voz (Gemini)
-1. Configura `ENABLE_TELEGRAM_VOICE=true` y `GEMINI_API_KEY`.
-2. (Opcional) Ajusta `GEMINI_TRANSCRIBE_MODEL`, `MAX_VOICE_SECONDS` o `MAX_VOICE_MB` según tu despliegue.
+1. Añade `GEMINI_API_KEY` (o `GOOGLE_API_KEY`). Si no defines `ENABLE_TELEGRAM_VOICE`, la voz se **autoactiva** cuando detecta la clave.
+2. (Opcional) Forzar encendido/apagado con `ENABLE_TELEGRAM_VOICE=true|false`. Ajusta `GEMINI_TRANSCRIBE_MODEL`, `MAX_VOICE_SECONDS` o `MAX_VOICE_MB` según tu despliegue.
 3. Reinicia el backend. Los logs de arranque indicarán si la voz está habilitada y el proveedor (Gemini).
 4. Envía una nota de voz en Telegram: si la transcripción es dudosa, recibirás confirmación con botones ✅/✏️/❌ antes de continuar.
 
@@ -53,7 +53,7 @@ Respuesta de ejemplo:
 2. Arrancar backend: `uvicorn app.main:app --reload`.
 3. Sin URL pública: el bot entra en **polling** y responde a `/start`.
 4. Con URL pública: configurar `BOT_PUBLIC_URL=https://<ngrok>/...` y revisar logs de webhook.
-5. Notas de voz: requiere `ENABLE_TELEGRAM_VOICE=true` y `GEMINI_API_KEY`. Si el audio supera `MAX_VOICE_SECONDS` o `MAX_VOICE_MB` se rechazará con un mensaje claro.
+5. Notas de voz: basta con `GEMINI_API_KEY` (se autoactiva); si quieres desactivar, usa `ENABLE_TELEGRAM_VOICE=false`. Si el audio supera `MAX_VOICE_SECONDS` o `MAX_VOICE_MB` se rechazará con un mensaje claro.
 
 ## Herramientas expuestas al LLM (function calling)
 - `get_status_context` (BG, tendencia, IOB, COB, calidad)
