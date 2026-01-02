@@ -152,6 +152,7 @@ async def log_treatment(
                 "carbs": carbs,
                 "fat": fat,
                 "protein": protein,
+                "fiber": fiber,
                 "notes": notes,
                 "enteredBy": entered_by,
             }

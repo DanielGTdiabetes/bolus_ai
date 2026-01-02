@@ -786,7 +786,8 @@ async def add_treatment(tool_input: dict[str, Any]) -> AddTreatmentResult | Tool
                          protein=float(payload.protein or 0),
                          bolus_data=strategy,
                          context={},
-                         notes=notes
+                         notes=notes,
+                         fiber=float(payload.fiber or 0)
                      )
              except Exception as mem_e:
                  logger.warning(f"Memory save failed: {mem_e}")

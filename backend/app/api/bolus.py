@@ -403,6 +403,7 @@ class BolusAcceptRequest(BaseModel):
     carbs: float = Field(default=0, ge=0)
     fat: float = Field(default=0, ge=0)
     protein: float = Field(default=0, ge=0)
+    fiber: float = Field(default=0, ge=0)
     created_at: str
     notes: Optional[str] = ""
     enteredBy: str = "BolusAI"
@@ -435,7 +436,8 @@ async def save_treatment(
                 fat=payload.meal_meta.get("fat", 0),
                 protein=payload.meal_meta.get("protein", 0),
                 bolus_data=payload.meal_meta.get("strategy", {}),
-                context={} # Todo: Pass BG/Trend explicitly if needed
+                context={}, # Todo: Pass BG/Trend explicitly if needed
+                fiber=payload.fiber
             )
         except Exception as e:
             logger.error(f"Failed to save meal learning entry: {e}")
@@ -464,6 +466,7 @@ async def save_treatment(
         duration=payload.duration,
         fat=payload.fat,
         protein=payload.protein,
+        fiber=payload.fiber,
         created_at=created_dt,
         store=store,
         session=session,
