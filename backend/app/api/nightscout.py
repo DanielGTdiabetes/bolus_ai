@@ -447,6 +447,23 @@ async def get_treatments_server(
         except Exception as db_ex:
             logger.error(f"Error reading treatments from DB: {db_ex}")
             
+    # --- 1.1 Filter Local Duplicates (Fix for Double Origin) ---
+    # If a treatment is already in the DB, we must remove it from the local file list
+    # to prevent the "Double Origin" duplicate issue.
+    if db_treatments and local_treatments:
+        db_ids = {t["_id"] for t in db_treatments if "_id" in t}
+        # Also check 'id' just in case
+        for t in db_treatments:
+            if "id" in t: db_ids.add(t["id"])
+            
+        clean_local = []
+        for loc in local_treatments:
+            lid = loc.get("_id") or loc.get("id")
+            if lid and lid in db_ids:
+                continue # Skip, it's already in DB
+            clean_local.append(loc)
+        local_treatments = clean_local
+
     # --- 2. Merge and Deduplicate ---
     
     # helper to get timestamp (ms)
