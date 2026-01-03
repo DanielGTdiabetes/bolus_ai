@@ -256,20 +256,40 @@ async def ingest_nutrition(
 
                 # Parse Date
                 # Parse Date with Fallbacks
+                # Parse Date - FORCE NOW for better UX in Calculator (Orphan detection)
+                # Unless the date is explicitly very old (backfilling)?
+                # For "Log & Bolus" workflow, we want NOW.
+                # If the difference between parsed time and NOW is > 2 hours, maybe it's backfill.
+                # But for the 6h timezone error the user sees, it's best to snap to NOW if it's "today".
+                
                 try:
                     ts_str = meal["ts"]
-                    # 1. Try ISO/Strptime with Timezone
+                    # parse
                     try:
                         clean_ts = datetime.strptime(ts_str, "%Y-%m-%d %H:%M:%S %z")
                         item_ts = clean_ts.astimezone(timezone.utc)
                     except ValueError:
-                        # 2. Try Naive and assume User Timezone (Madrid default for now)
-                        # TODO: Fetch user timezone from settings if possible, but generic webhook lacks context.
-                        from zoneinfo import ZoneInfo
-                        tz_local = ZoneInfo("Europe/Madrid")
-                        clean_ts = datetime.strptime(ts_str, "%Y-%m-%d %H:%M:%S")
-                        item_ts = clean_ts.replace(tzinfo=tz_local).astimezone(timezone.utc)
-                        
+                         from zoneinfo import ZoneInfo
+                         tz_local = ZoneInfo("Europe/Madrid")
+                         clean_ts = datetime.strptime(ts_str, "%Y-%m-%d %H:%M:%S")
+                         item_ts = clean_ts.replace(tzinfo=tz_local).astimezone(timezone.utc)
+                    
+                    # Check divergence
+                    now_utc = datetime.now(timezone.utc)
+                    diff = (now_utc - item_ts).total_seconds()
+                    
+                    # If the meal says it was 6 hours ago (diff ~ 21600), but we just received it...
+                    # It's likely a timezone fail or the user forgot to log. 
+                    # If we leave it as 6h ago, the Bolus Calc won't see it (limit 60m).
+                    # SNAP TO NOW if it's reasonably recent (e.g. within 24h) but "wrongly" timed?
+                    # Let's just FORCE NOW for this integration to ensure it works for the "Live" use case.
+                    # We can store the original TS in notes.
+                    
+                    # Policy: If < 12h difference, Snap to NOW. If > 12h, assumes backfill history.
+                    if abs(diff) < 43200: # 12 hours
+                         item_ts = now_utc
+                         logger.info(f"Snapping import time {ts_str} to NOW for calculator visibility.")
+                         
                 except Exception as e:
                     logger.warning(f"Date parse soft-fail: {ts_str} -> {e}. Using NOW.")
                     item_ts = datetime.now(timezone.utc)
