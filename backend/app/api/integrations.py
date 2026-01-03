@@ -314,8 +314,8 @@ async def ingest_nutrition(
                         logger.info(f"Skipping meal from {ts_str} (Diff: {abs(diff)/3600:.1f}h). Outside 24h window.")
                         continue
 
-                    if diff > 1800 or diff < -300:
-                        logger.info(f"Snapping import time {ts_str} to NOW for calculator visibility.")
+                    if diff < -300:
+                        logger.info(f"Snapping future import time {ts_str} to NOW.")
                         item_ts = now_utc
                         force_now = True
                         
