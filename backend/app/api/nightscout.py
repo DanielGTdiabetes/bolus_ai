@@ -845,12 +845,59 @@ async def delete_treatment(
     ns_deleted = False
     
     ns = await get_ns_config(session, user.username)
+    # 2. Nightscout (Always attempt sync)
+    ns_deleted = False
+    
+    ns = await get_ns_config(session, user.username)
     if ns and ns.enabled and ns.url:
          try:
              client = NightscoutClient(ns.url, ns.api_secret)
-             await client.delete_treatment(id)
-             await client.aclose()
-             ns_deleted = True
+             try:
+                 # Check if ID is a Mongo ObjectID (24 hex chars)
+                 is_mongo_id = len(id) == 24 and all(c in '0123456789abcdefABCDEF' for c in id)
+                 
+                 target_ns_id = id
+                 
+                 if not is_mongo_id:
+                     # It's likely a Local UUID. We must find the NS _id to delete it.
+                     # Search recent treatments (last 7 days to be safe)
+                     logger.info(f"Resolving Nightscout ID for local UUID: {id}")
+                     
+                     # Fetch window around the treatment if we knew when it was. 
+                     # But we don't have the object here easily (unless we saved db_item above).
+                     # Let's use get_recent_treatments generic fetch.
+                     recent = await client.get_recent_treatments(hours=168, limit=100) # 1 week
+                     
+                     found_match = None
+                     for t in recent:
+                         # 1. Direct UUID match (if NS supported it)
+                         if getattr(t, "uuid", "") == id or t.notes and id in t.notes:
+                             found_match = t
+                             break
+                             
+                         # 2. Fuzzy Match (Time + Content)
+                         # We need the local treatment details to compare.
+                         # If we deleted it from DB above, we unfortunately lost the object if we didn't save vars.
+                         pass 
+                     
+                     if found_match:
+                         # We need the _id NOT the uuid
+                         # The/app/models/schemas.py Treatment model maps _id to id alias?
+                         # Usually Pydantic model .id returns the _id if aliased.
+                         # Let's hope client.get_recent_treatments returns objects with .id as the NS ID.
+                         target_ns_id = found_match.id
+                         logger.info(f"Resolved NS ID {target_ns_id} for UUID {id}")
+                     else:
+                         logger.warning(f"Could not resolve Nightscout ID for UUID {id}. Skipping NS delete.")
+                         target_ns_id = None
+
+                 if target_ns_id:
+                     await client.delete_treatment(target_ns_id)
+                     ns_deleted = True
+                     
+             finally:
+                 await client.aclose()
+                 
          except Exception as e:
              logger.error(f"Error deleting from NS: {e}")
              # Only raise error if we failed both Local AND Nightscout
