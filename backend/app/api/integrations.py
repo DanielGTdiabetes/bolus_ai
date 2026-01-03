@@ -31,6 +31,10 @@ class NutritionPayload(BaseModel):
     carbs_alt: Optional[float] = Field(default=None, alias="carbohydrates_total_g")
     fat_alt: Optional[float] = Field(default=None, alias="fat_total_g")
     protein_alt: Optional[float] = Field(default=None, alias="protein_total_g")
+    fiber_alt: Optional[float] = Field(default=None, alias="fiber_total_g")
+    
+    # Common simple names
+    fiber: Optional[float] = Field(default=0, alias="dietary_fiber")
 
     food_name: Optional[str] = Field(default=None, alias="name")
     calories: Optional[float] = Field(default=0, alias="active_energy_burned") # A veces viene aquí o en dietary_energy
@@ -104,14 +108,15 @@ async def ingest_nutrition(
         if metrics_list:
             logger.info(f"DEBUG: Found {len(metrics_list)} metric groups")
             for metric in metrics_list:
-                m_name = metric.get("name", "").lower()
+                # Normalize name: lower case AND replace spaces with underscores (e.g. "Dietary Fiber" -> "dietary_fiber")
+                m_name = metric.get("name", "").lower().replace(" ", "_")
                 m_data = metric.get("data", [])
                 
                 metric_type = None
                 if m_name in ["carbohydrates", "dietary_carbohydrates", "total_carbs", "hkquantitytypeidentifierdietarycarbohydrates"]: metric_type = "c"
                 elif m_name in ["total_fat", "dietary_fat", "fat", "hkquantitytypeidentifierdietaryfattotal"]: metric_type = "f"
                 elif m_name in ["protein", "dietary_protein", "total_protein", "hkquantitytypeidentifierdietaryprotein"]: metric_type = "p"
-                elif m_name in ["fiber", "dietary_fiber", "total_fiber", "hkquantitytypeidentifierdietaryfiber"]: metric_type = "fib"
+                elif m_name in ["fiber", "dietary_fiber", "total_fiber", "hkquantitytypeidentifierdietaryfiber", "fibra", "fibra_dietetica", "fibra_total"]: metric_type = "fib"
                 
                 if metric_type and isinstance(m_data, list):
                     for entry in m_data:

@@ -27,18 +27,17 @@ async def ensure_basal_schema(engine: AsyncEngine):
             row = result.fetchone()
             if row:
                 logger.info("Column checkin_date exists in basal_checkin. OK.")
-                return
+            else:
+                # 2. Add column
+                logger.warning("Column checkin_date MISSING in basal_checkin. Adding it...")
+                try:
+                    await conn.execute(text("ALTER TABLE basal_checkin ADD COLUMN checkin_date DATE;"))
+                    await conn.commit()
+                    logger.info("Column checkin_date added.")
+                except Exception as e:
+                    logger.warning(f"Failed to add column checkin_date (might exist): {e}")
         except Exception as e:
             logger.warning(f"Error checking schema: {e}. Assuming we might need to fix.")
-
-        # 2. Add column
-        logger.warning("Column checkin_date MISSING in basal_checkin. Adding it...")
-        try:
-            await conn.execute(text("ALTER TABLE basal_checkin ADD COLUMN checkin_date DATE;"))
-            await conn.commit()
-            logger.info("Column checkin_date added.")
-        except Exception as e:
-            logger.warning(f"Failed to add column checkin_date (might exist): {e}")
 
         # Ensure other columns: source, age_min
         logger.info("Checking source/age_min columns...")
@@ -60,10 +59,50 @@ async def ensure_basal_schema(engine: AsyncEngine):
             await conn.commit()
             logger.info("Backfill complete.")
             
-            # 4. Add constraint if possible?
-            # Existing constraint might be on (user_id, created_at) or something else.
-            # The model defines UniqueConstraint('user_id', 'checkin_date')
-            # creating it properly involves dropping old unique constraints if they conflict, but let's safely skip that for hotfix.
-            
         except Exception as e:
             logger.error(f"Failed to backfill: {e}")
+
+async def ensure_treatment_columns(engine: AsyncEngine):
+    """
+    Ensures that 'treatments' table has 'fiber', 'fat', 'protein' columns.
+    Common issue when migrating from older usage.
+    """
+    if not engine:
+        return
+
+    logger.info("Checking treatments table schema...")
+    
+    async with engine.connect() as conn:
+        columns_to_check = [
+            ("fiber", "FLOAT DEFAULT 0"),
+            ("fat", "FLOAT DEFAULT 0"),
+            ("protein", "FLOAT DEFAULT 0"),
+            ("notes", "TEXT"),
+            ("is_uploaded", "BOOLEAN DEFAULT FALSE"),
+            ("nightscout_id", "VARCHAR")
+        ]
+        
+        for col_name, col_type in columns_to_check:
+            try:
+                # Check existance (Postgres)
+                res = await conn.execute(text(
+                    f"SELECT column_name FROM information_schema.columns WHERE table_name='treatments' AND column_name='{col_name}'"
+                ))
+                if not res.fetchone():
+                    logger.warning(f"Column {col_name} missing in treatments. Adding...")
+                    await conn.execute(text(f"ALTER TABLE treatments ADD COLUMN {col_name} {col_type};"))
+                    await conn.commit()
+                    
+                    # Backfill nulls
+                    if "DEFAULT" in col_type:
+                        default_val = col_type.split("DEFAULT")[1].strip()
+                        await conn.execute(text(f"UPDATE treatments SET {col_name} = {default_val} WHERE {col_name} IS NULL;"))
+                        await conn.commit()
+            except Exception as e:
+                # Fallback for SQLite (no information_schema)
+                # Just try adding it and ignore error
+                try: 
+                     await conn.execute(text(f"ALTER TABLE treatments ADD COLUMN {col_name} {col_type};"))
+                     await conn.commit()
+                except Exception:
+                    pass

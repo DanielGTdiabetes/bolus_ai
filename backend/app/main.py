@@ -98,8 +98,9 @@ async def startup_event() -> None:
     await init_auth_db()
     
     # Hotfix: Ensure schema for Basal Checkin
-    from app.core.migration import ensure_basal_schema
+    from app.core.migration import ensure_basal_schema, ensure_treatment_columns
     await ensure_basal_schema(get_engine())
+    await ensure_treatment_columns(get_engine())
 
     from app.core.datastore import UserStore
 

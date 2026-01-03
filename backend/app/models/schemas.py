@@ -36,6 +36,7 @@ class Treatment(BaseModel):
     carbs: Optional[float] = None
     fat: Optional[float] = None
     protein: Optional[float] = None
+    fiber: Optional[float] = None
     notes: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)

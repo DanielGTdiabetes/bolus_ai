@@ -395,38 +395,12 @@ async def get_treatments_server(
     except Exception as ex:
         logger.warning(f"Error loading local events: {ex}")
 
-    # B. Nightscout (Priority Source)
+    # B. Nightscout (Legacy/Backup Source - DISABLED for History Source of Truth)
+    # User Request: "Migration to Local DB as source of truth".
+    # We no longer pull from Nightscout to avoid data loss (cleaning of fiber/tags).
     ns_treatments = []
-    ns = await get_ns_config(session, user.username)
-    if ns and ns.enabled and ns.url:
-        try:
-            client = NightscoutClient(base_url=ns.url, token=ns.api_secret, timeout_seconds=5)
-            try:
-                # get_recent_treatments returns Pydantic models
-                models = await client.get_recent_treatments(hours=ns_hours, limit=count)
-                for m in models:
-                    d = m.model_dump()
-                    # Ensure _id is present for frontend
-                    if m.id:
-                        d["_id"] = m.id
-                    
-                    # Ensure nutrition fields
-                    d["fat"] = getattr(m, 'fat', 0)
-                    d["protein"] = getattr(m, 'protein', 0)
-                    d["fiber"] = getattr(m, 'fiber', 0)
-
-                    # Ensure created_at is strictly ISO with Z if it is UTC
-                    if m.created_at: 
-                        # m.created_at is timezone-aware in the model
-                        d["created_at"] = m.created_at.isoformat().replace("+00:00", "Z")
-                        d["date"] = m.created_at.timestamp() * 1000
-                    ns_treatments.append(d)
-            finally:
-                await client.aclose()
-        except Exception as nse:
-            logger.error(f"Nightscout fetch failed: {nse}")
-
-    # C. Database (Reliable Persistence)
+    # if ns and ns.enabled and ns.url:
+    #     ... (Legacy logic disabled)
     db_treatments = []
     if session:
         try:
