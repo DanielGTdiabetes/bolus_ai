@@ -54,6 +54,13 @@ class BolusContext(BaseModel):
     config_hash: Optional[str] = None # Security: Configuration Snapshot Hash
     quality: str = "unknown"
     source: str = "unknown"
+    
+    # Daily Totals (Awareness)
+    daily_insulin_u: float = 0.0
+    daily_carbs_g: float = 0.0
+    daily_fat_g: float = 0.0
+    daily_protein_g: float = 0.0
+    daily_fiber_g: float = 0.0
 
 
 # Alias for backward compatibility if needed, though we will update usages
@@ -236,6 +243,48 @@ async def get_status_context(username: str = "admin", user_settings: Optional[Us
         if ns_client:
             await ns_client.aclose()
 
+    # Calculate Daily Totals (Since Midnight UTC)
+    daily_stats = {
+        "insulin": 0.0, "carbs": 0.0, "fat": 0.0, "protein": 0.0, "fiber": 0.0
+    }
+    try:
+        engine = get_engine()
+        if engine:
+             async with AsyncSession(engine) as session:
+                  # Use the username passed to function (typically admin) or resolve
+                  # Ideally we resolve to actual user_id
+                  from sqlalchemy import select, func
+                  from app.models.treatment import Treatment
+                  
+                  # We iterate to find the active user ID if "admin" is passed but mapped differently
+                  # Re-use _resolve_user logic inside the session
+                  target_user = username
+                  if username == "admin":
+                       target_user = await _resolve_user_id(session)
+
+                  start_of_day = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+                  
+                  stmt = (
+                      select(
+                          func.sum(Treatment.insulin),
+                          func.sum(Treatment.carbs),
+                          func.sum(Treatment.fat),
+                          func.sum(Treatment.protein),
+                          func.sum(Treatment.fiber)
+                      )
+                      .where(Treatment.user_id == target_user)
+                      .where(Treatment.created_at >= start_of_day)
+                  )
+                  row = (await session.execute(stmt)).fetchone()
+                  if row:
+                      daily_stats["insulin"] = row[0] or 0.0
+                      daily_stats["carbs"] = row[1] or 0.0
+                      daily_stats["fat"] = row[2] or 0.0
+                      daily_stats["protein"] = row[3] or 0.0
+                      daily_stats["fiber"] = row[4] or 0.0
+    except Exception as e:
+        logger.warning(f"Failed to fetch daily stats: {e}")
+
     return BolusContext(
         bg_mgdl=bg_val,
         direction=direction,
@@ -245,7 +294,12 @@ async def get_status_context(username: str = "admin", user_settings: Optional[Us
         timestamp=timestamp_str,
         quality=quality,
         source="nightscout" if ns_client else "local",
-        config_hash=user_settings.config_hash # Snapshot of config used to fetch this data
+        config_hash=user_settings.config_hash, # Snapshot of config used to fetch this data
+        daily_insulin_u=round(daily_stats["insulin"], 2),
+        daily_carbs_g=round(daily_stats["carbs"], 1),
+        daily_fat_g=round(daily_stats["fat"], 1),
+        daily_protein_g=round(daily_stats["protein"], 1),
+        daily_fiber_g=round(daily_stats["fiber"], 1)
     )
 
 
