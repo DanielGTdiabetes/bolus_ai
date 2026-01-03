@@ -264,32 +264,71 @@ async def ingest_nutrition(
                 
                 try:
                     ts_str = meal["ts"]
-                    # parse
-                    try:
-                        clean_ts = datetime.strptime(ts_str, "%Y-%m-%d %H:%M:%S %z")
-                        item_ts = clean_ts.astimezone(timezone.utc)
-                    except ValueError:
-                         from zoneinfo import ZoneInfo
-                         tz_local = ZoneInfo("Europe/Madrid")
-                         clean_ts = datetime.strptime(ts_str, "%Y-%m-%d %H:%M:%S")
-                         item_ts = clean_ts.replace(tzinfo=tz_local).astimezone(timezone.utc)
-                    
-                    # Check divergence
                     now_utc = datetime.now(timezone.utc)
+                    item_ts = None
+                    
+                    # Multi-format date parser for Health Auto Export / MyFitnessPal
+                    # Supports: ISO 8601 with T, with/without timezone, spaces, etc.
+                    parse_formats = [
+                        "%Y-%m-%d %H:%M:%S %z",      # "2026-01-03 16:54:00 +0100"
+                        "%Y-%m-%dT%H:%M:%S%z",       # "2026-01-03T16:54:00+0100" (ISO 8601)
+                        "%Y-%m-%dT%H:%M:%S.%f%z",    # "2026-01-03T16:54:00.000+0100"
+                        "%Y-%m-%dT%H:%M:%SZ",        # "2026-01-03T16:54:00Z" (UTC)
+                        "%Y-%m-%dT%H:%M:%S.%fZ",     # "2026-01-03T16:54:00.000Z"
+                        "%Y-%m-%dT%H:%M:%S",         # "2026-01-03T16:54:00" (no TZ)
+                        "%Y-%m-%d %H:%M:%S",         # "2026-01-03 16:54:00" (no TZ)
+                    ]
+                    
+                    for fmt in parse_formats:
+                        try:
+                            clean_ts = datetime.strptime(ts_str, fmt)
+                            if clean_ts.tzinfo is not None:
+                                item_ts = clean_ts.astimezone(timezone.utc)
+                            else:
+                                # No timezone: assume Europe/Madrid (user's local)
+                                from zoneinfo import ZoneInfo
+                                tz_local = ZoneInfo("Europe/Madrid")
+                                item_ts = clean_ts.replace(tzinfo=tz_local).astimezone(timezone.utc)
+                            break
+                        except ValueError:
+                            continue
+                    
+                    # Fallback: try fromisoformat (Python 3.11+ handles many formats)
+                    if item_ts is None:
+                        try:
+                            # Handle 'Z' suffix that fromisoformat doesn't like in older Python
+                            clean_str = ts_str.replace("Z", "+00:00")
+                            parsed = datetime.fromisoformat(clean_str)
+                            if parsed.tzinfo is None:
+                                from zoneinfo import ZoneInfo
+                                parsed = parsed.replace(tzinfo=ZoneInfo("Europe/Madrid"))
+                            item_ts = parsed.astimezone(timezone.utc)
+                        except Exception:
+                            pass
+                    
+                    # Final fallback: use NOW
+                    if item_ts is None:
+                        logger.warning(f"Could not parse date '{ts_str}', using NOW.")
+                        item_ts = now_utc
+                    
+                    # Check divergence from NOW
                     diff = (now_utc - item_ts).total_seconds()
                     
-                    # If the meal says it was 6 hours ago (diff ~ 21600), but we just received it...
-                    # It's likely a timezone fail or the user forgot to log. 
-                    # If we leave it as 6h ago, the Bolus Calc won't see it (limit 60m).
-                    # SNAP TO NOW if it's reasonably recent (e.g. within 24h) but "wrongly" timed?
-                    # Let's just FORCE NOW for this integration to ensure it works for the "Live" use case.
-                    # We can store the original TS in notes.
-                    
-                    # Policy: Only Snap to NOW if the delay is short (e.g., < 20 mins) 
-                    # to avoid bringing historical meals (breakfast) to present (dinner) causing duplication.
-                    if abs(diff) < 1200: # 20 minutes
-                         item_ts = now_utc
-                         logger.info(f"Snapping import time {ts_str} to NOW for calculator visibility.")
+                    # SNAP TO NOW POLICY:
+                    # This webhook is called in REAL-TIME when user logs food in MFP.
+                    # If the parsed time differs significantly from NOW, it's likely:
+                    # 1. A timezone parsing error
+                    # 2. MFP sending an old cached timestamp
+                    # 
+                    # To ensure the Bolus Calculator sees this as a pending "orphan" meal,
+                    # we snap to NOW if data was just received AND the time seems wrong.
+                    # 
+                    # New Policy: If diff > 30 minutes into the PAST, snap to NOW.
+                    # (We assume realtime webhook = user just logged food NOW)
+                    # For FUTURE timestamps (negative diff), also snap to NOW.
+                    if diff > 1800 or diff < -300:  # > 30 min ago OR > 5 min in future
+                        logger.info(f"Snapping import time {ts_str} (diff={diff:.0f}s) to NOW for calculator visibility.")
+                        item_ts = now_utc
                          
                 except Exception as e:
                     logger.warning(f"Date parse soft-fail: {ts_str} -> {e}. Using NOW.")
