@@ -1019,6 +1019,7 @@ export default function BolusPage() {
                     </div>
                 )}
 
+
                 {/* RESULT SECTION */}
                 {result && (
                     <ResultView
@@ -1036,6 +1037,12 @@ export default function BolusPage() {
                         favorites={favorites} // Pass favorites for checking existence
                         onFavoriteAdded={(newFav) => setFavorites(prev => [...prev, newFav])} // Optimistic update or reload
                         alcoholEnabled={alcoholEnabled}
+                        onApplyAutosens={(ratio, reason) => {
+                            import('../modules/core/store').then(({ state }) => {
+                                state.autosens = { ratio, reason };
+                                handleCalculate({ useAutosens: true });
+                            });
+                        }}
                     />
                 )}
 
@@ -1045,7 +1052,7 @@ export default function BolusPage() {
     );
 }
 
-function ResultView({ result, slot, usedParams, onBack, onSave, saving, currentCarbs, foodName, favorites, onFavoriteAdded, alcoholEnabled }) {
+function ResultView({ result, slot, usedParams, onBack, onSave, saving, currentCarbs, foodName, favorites, onFavoriteAdded, alcoholEnabled, onApplyAutosens }) {
     // Local state for edit before confirm
     const [finalDose, setFinalDose] = useState(result.upfront_u);
     const [injectionSite, setInjectionSite] = useState(null);
@@ -1066,6 +1073,23 @@ function ResultView({ result, slot, usedParams, onBack, onSave, saving, currentC
             }
         }
     }, [foodName, favorites]);
+
+    // Extract Autosens Suggestion if present
+    const autosensLine = (result.explain || result.calc?.explain)?.find(l => l.includes('Autosens (Consejo)'));
+    let suggestedRatio = null;
+    let suggestedMsg = null;
+
+    if (autosensLine) {
+        // Regex to find "Factor 1.09" or similar
+        const match = autosensLine.match(/Factor\s+(\d+(\.\d+)?)/);
+        if (match) {
+            suggestedRatio = parseFloat(match[1]);
+            suggestedMsg = autosensLine;
+        }
+    }
+
+    // ... (rest of logic) ...
+
 
     const [predictionData, setPredictionData] = useState(null);
     const [simulating, setSimulating] = useState(false);
@@ -1347,19 +1371,22 @@ function ResultView({ result, slot, usedParams, onBack, onSave, saving, currentC
             )}
 
             {/* Autosens Suggestion Alert */}
-            {(result.explain || result.calc?.explain)?.find(l => l.includes('Autosens (Consejo)')) && (
+            {autosensLine && suggestedRatio && (
                 <div style={{ background: '#eff6ff', color: '#1e40af', padding: '0.8rem', margin: '1rem 0', borderRadius: '8px', fontSize: '0.85rem', border: '1px solid #bfdbfe' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
                         <strong>💡 Sugerencia Autosens:</strong>
-                        <button onClick={() => handleCalculate({ useAutosens: true })} style={{
+                        <button onClick={() => {
+                            if (onApplyAutosens) onApplyAutosens(suggestedRatio, suggestedMsg);
+                        }} style={{
                             background: '#2563eb', color: 'white', border: 'none', borderRadius: '6px',
                             padding: '4px 10px', fontSize: '0.75rem', fontWeight: 'bold', cursor: 'pointer'
                         }}>
                             Aplicar
                         </button>
                     </div>
+                    {/* Render the extracted explanation cleanly */}
                     {(result.explain || result.calc?.explain).filter(l => l.includes('Autosens') || l.includes('NO APLICADO')).map((l, i) => (
-                        <div key={i} style={{ marginLeft: '10px' }}>{l.replace('🔍', '').replace('⚠️', '')}</div>
+                        <div key={i} style={{ marginLeft: '10px', marginBottom: '4px' }}>{l.replace('🔍', '').replace('⚠️', '')}</div>
                     ))}
                 </div>
             )}
