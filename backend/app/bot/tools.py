@@ -300,26 +300,37 @@ async def calculate_bolus(carbs: float, fiber: float = 0.0, meal_type: Optional[
     except Exception as e:
         logger.warning(f"Failed to check temp modes: {e}")
 
-    # Calculate 24h Autosens (Short Term)
+    # Calculate Hybrid Autosens
     autosens_ratio = 1.0
     autosens_reason = None
     try:
         engine = get_engine()
         if engine:
              async with AsyncSession(engine) as session:
-                  # Use 'admin' or resolved user?
-                  # calculate_bolus wrapper doesn't pass username explicitly, defaulting to admin/first.
-                  # Ideally we should resolve generic user.
                   from app.bot.service import _resolve_user_id
-                  # Circular import? _resolve_user_id is in service.py? No it is actually in tools.py (this file). 
-                  # Wait, I see _resolve_user_id defined in this file at line 152.
                   u_id = await _resolve_user_id(session)
                   
-                  res = await AutosensService.calculate_autosens(u_id, session, user_settings)
-                  autosens_ratio = res.ratio
-                  autosens_reason = res.reason
+                  # 1. Macro (TDD)
+                  from app.services.dynamic_isf_service import DynamicISFService
+                  tdd_ratio = await DynamicISFService.calculate_dynamic_ratio(u_id, session, user_settings)
+                  
+                  # 2. Micro (Local)
+                  local_ratio = 1.0
+                  try:
+                       res = await AutosensService.calculate_autosens(u_id, session, user_settings)
+                       local_ratio = res.ratio
+                  except: pass
+                  
+                  # 3. Combine
+                  autosens_ratio = tdd_ratio * local_ratio
+                  autosens_ratio = max(0.6, min(1.4, autosens_ratio))
+                  
+                  if autosens_ratio != 1.0:
+                       autosens_reason = f"Híbrido (TDD {tdd_ratio:.2f}x · Local {local_ratio:.2f}x)"
+                  else:
+                       autosens_reason = "Estable"
     except Exception as e:
-        logger.warning(f"Bot Autosens Calc failed: {e}")
+        logger.warning(f"Bot Hybrid Autosens failed: {e}")
     
     # Build V2 Request
     req = BolusRequestV2(

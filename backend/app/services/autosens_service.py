@@ -151,19 +151,24 @@ class AutosensService:
             # We map the hour to the closest Meal Slot configuration
             hour_local = (t_prev.hour + 1) % 24 # +1 approximate local time adjustment assumption
             
-            # Default to Snack (often safe choice or used for night)
-            current_isf = settings.cf.snack
-            current_icr = settings.cr.snack
+            # Align buckets with IsfAnalysisService
+            # 00-06: Night (Dinner)
+            # 06-12: Morn (Breakfast)
+            # 12-18: Afternoon (Lunch)
+            # 18-24: Night (Dinner)
             
-            if 5 <= hour_local < 11:
+            # Default to Dinner for overnight/late safety
+            current_isf = settings.cf.dinner
+            current_icr = settings.cr.dinner
+            
+            if 6 <= hour_local < 12:
                 current_isf = settings.cf.breakfast
                 current_icr = settings.cr.breakfast
-            elif 11 <= hour_local < 16:
+            elif 12 <= hour_local < 18:
                 current_isf = settings.cf.lunch
                 current_icr = settings.cr.lunch
-            elif 19 <= hour_local < 23:
-                current_isf = settings.cf.dinner
-                current_icr = settings.cr.dinner
+            # Else (18-24 and 00-06) remains Dinner
+
             
             current_dia = settings.iob.dia_hours * 60
             current_model = settings.iob.curve
@@ -259,8 +264,9 @@ class AutosensService:
             
             ratio = 1.0 + (k * med)
             
-            # Clamp
-            return max(0.7, min(1.2, ratio))
+            # Clamp (Tighter limits for Local/Hybrid Autosens)
+            # Was 0.7 - 1.2. Now 0.9 - 1.1 per hybrid design.
+            return max(0.9, min(1.1, ratio))
             
         ratio_8h = calculate_ratio_from_deviations(deviations_8h)
         ratio_24h = calculate_ratio_from_deviations(deviations_24h)

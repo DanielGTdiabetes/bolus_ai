@@ -332,16 +332,42 @@ async def calculate_bolus_stateless(
     
     if should_run_autosens and session:
          try:
-             res = await AutosensService.calculate_autosens(
+             # HYBRID AUTOSENS IMPLEMENTATION
+             # 1. Macro Layer (Dynamic TDD) - Global State
+             from app.services.dynamic_isf_service import DynamicISFService
+             tdd_ratio = await DynamicISFService.calculate_dynamic_ratio(
                  username=user.username,
                  session=session,
                  settings=user_settings
              )
-             autosens_ratio = res.ratio
-             autosens_reason = res.reason
-             logger.info(f"Autosens computed: {autosens_ratio} ({autosens_reason})")
+
+             # 2. Micro Layer (Local Deviations) - Local Correction
+             # We use the existing AutosensService which now has clamped limits (0.9-1.1)
+             local_ratio = 1.0
+             local_reason = ""
+             try:
+                res = await AutosensService.calculate_autosens(
+                    username=user.username,
+                    session=session,
+                    settings=user_settings
+                )
+                local_ratio = res.ratio
+                if local_ratio != 1.0:
+                    local_reason = f" + Local {res.reason}"
+             except Exception:
+                pass # Fail open to Macro only if Micro fails
+
+             # 3. Combine
+             autosens_ratio = tdd_ratio * local_ratio
+             
+             # Final Clamp for Safety (Global limits)
+             autosens_ratio = max(0.6, min(1.4, autosens_ratio))
+             
+             autosens_reason = f"Híbrido: TDD {tdd_ratio:.2f}x * Local {local_ratio:.2f}x"
+                 
+             logger.info(f"Hybrid Autosens: {autosens_ratio} ({autosens_reason})")
          except Exception as e:
-             logger.error(f"Autosens failed: {e}")
+             logger.error(f"Hybrid Autosens failed: {e}")
              autosens_reason = "Error (usando 1.0)"
 
     try:
@@ -501,7 +527,8 @@ async def save_treatment(
                      
                      if not us.autosens.enabled: return # Respect Global Switch
                      
-                     # Run Calc
+                     # Double check to prevent "risk" even if code was called
+                     if not us.autosens.enabled: return
                      res = await AutosensService.calculate_autosens(u_id, task_session, us)
                      ratio = res.ratio
                      

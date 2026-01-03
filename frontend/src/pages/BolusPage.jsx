@@ -426,6 +426,14 @@ export default function BolusPage() {
             setResult(res);
             const used = res?.calc?.used_params || res?.used_params || res?.calc?.usedParams || res?.usedParams;
             setCalcUsedParams(used || null);
+
+            // Sync Autosens state for "Apply" button (Dynamic TDD update)
+            if (used?.autosens_ratio && used.autosens_ratio !== 1.0) {
+                state.autosens = {
+                    ratio: used.autosens_ratio,
+                    reason: used.autosens_reason || 'Dynamic TDD'
+                };
+            }
         } catch (e) {
             alert("Error: " + e.message);
         } finally {
