@@ -152,6 +152,47 @@ def _calculate_core(inp: CalculationInput) -> CalculationResult:
         explain.append(f"A) Comida: {eff_carbs:.1f}g / {cr:.1f} = {meal_u:.2f} U")
     else:
         explain.append("A) Comida: 0g")
+
+    # Warsaw Method (Fat/Protein)
+    # Logic:
+    # IF Kcal >= Trigger -> DUAL MODE (Factor Dual, Insulin goes to Later/Extended)
+    # IF Kcal < Trigger  -> SIMPLE MODE (Factor Simple, Insulin adds to Upfront)
+    
+    warsaw_later_u = 0.0
+    is_split_recommended = False
+    
+    if inp.warsaw_enabled and (inp.fat_g > 0 or inp.protein_g > 0):
+        kcal_fat = inp.fat_g * 9
+        kcal_prot = inp.protein_g * 4
+        total_kcal = kcal_fat + kcal_prot
+        
+        # Only apply if significant (> 50kcal)
+        if total_kcal > 50:
+            fpu_count = total_kcal / 100.0
+            
+            if total_kcal >= inp.warsaw_trigger:
+                # --- AUTO DUAL MODE ---
+                factor = inp.warsaw_factor_dual
+                effective_fpu_carbs = fpu_count * 10.0 * factor
+                warsaw_ins = effective_fpu_carbs / cr
+                
+                # In Dual Mode, Warsaw enters as "Extended" part
+                warsaw_later_u = warsaw_ins
+                is_split_recommended = True
+                
+                explain.append(f"   + Warsaw Auto-Dual ({total_kcal:.0f}kcal >= {inp.warsaw_trigger}): {fpu_count:.1f} FPU x {factor:.1f} -> {warsaw_ins:.2f} U (EXTENDIDA)")
+                
+            else:
+                # --- SIMPLE MODE ---
+                factor = inp.warsaw_factor_simple
+                effective_fpu_carbs = fpu_count * 10.0 * factor
+                warsaw_ins = effective_fpu_carbs / cr
+                
+                # In Simple Mode, Warsaw adds to Upfront (Meal)
+                meal_u += warsaw_ins
+                
+                explain.append(f"   + Warsaw Simple ({total_kcal:.0f}kcal): {fpu_count:.1f} FPU x {factor:.1f} -> {warsaw_ins:.2f} U (INMEDIATA)")
+
         
     # --- 3. Correction ---
     corr_u = 0.0
@@ -179,42 +220,67 @@ def _calculate_core(inp: CalculationInput) -> CalculationResult:
         explain.append("B) Corrección: 0 U (Falta glucosa o antigua)")
         
     # --- 4. IOB ---
-    total_base = meal_u + corr_u
-    total_net = max(0.0, total_base - inp.iob_u)
+    # Only reduces Upfront part (Simple)
+    total_base_upfront = meal_u + corr_u
+    upfront_net = max(0.0, total_base_upfront - inp.iob_u)
     
     if inp.iob_u > 0:
-        explain.append(f"C) IOB: {inp.iob_u:.2f} U activos. Neto: {total_net:.2f} U")
+        explain.append(f"C) IOB: {inp.iob_u:.2f} U activos. Neto Upfront: {upfront_net:.2f} U")
     else:
         explain.append("C) IOB: 0 U")
         
+    later_base = warsaw_later_u
+    if later_base > 0:
+        explain.append(f"   (Warsaw Dual): {later_base:.2f} U programadas para extensión.")
+
     # --- 5. Exercise ---
-    total_after_ex = total_net
+    final_upfront = upfront_net
+    final_later = later_base
+    
     if inp.exercise_minutes > 0:
         red = calculate_exercise_reduction(inp.exercise_minutes, inp.exercise_intensity)
         red = min(red, 0.9)
-        total_after_ex = total_net * (1.0 - red)
+        final_upfront = upfront_net * (1.0 - red)
+        final_later = later_base * (1.0 - red)
         explain.append(f"D) Ejercicio ({inp.exercise_intensity} {inp.exercise_minutes}m): -{int(red*100)}%")
         
     # --- 6. Rounding & Limits ---
-    final_u = _round_step(total_after_ex, inp.round_step)
+    # Round separately
+    final_upfront = _round_step(final_upfront, inp.round_step)
+    final_later = _round_step(final_later, inp.round_step)
     
-    if final_u > inp.max_bolus_u:
-        warnings.append(f"Límite Máx {inp.max_bolus_u} U superado.")
-        final_u = inp.max_bolus_u
+    final_total = final_upfront + final_later
+    
+    if final_total > inp.max_bolus_u:
+        warnings.append(f"Límite Máx {inp.max_bolus_u} U superado (Total).")
+        # Scale down proportionally? Or just cap upfront?
+        # Safe approach: Cap upfront first.
+        excess = final_total - inp.max_bolus_u
+        if final_upfront >= excess:
+            final_upfront -= excess
+        else:
+            final_upfront = 0
+            final_later = max(0, final_later - (excess - final_upfront))
+        final_total = inp.max_bolus_u
         
     # Hard Stop Hipo
     if inp.bg_mgdl and inp.bg_mgdl < 70:
-        final_u = 0.0
+        final_upfront = 0.0
+        # Should we cancel later part too? Yes, safety first.
+        final_later = 0.0
+        final_total = 0.0
         explain.append("⛔ SEGURIDAD: HIPO DETECTADA. BOLO 0.")
         warnings.append("PELIGRO: Hipo. Bolo cancelado.")
         
     return CalculationResult(
-        total_u=final_u,
-        meal_u=meal_u,
+        total_u=final_total,
+        meal_u=meal_u, # This includes simple warsaw
         corr_u=corr_u,
         breakdown=explain,
         warnings=warnings,
-        upfront_u=final_u # Default plain
+        upfront_u=final_upfront,
+        later_u=final_later,
+        duration_min=240 if final_later > 0 else 0 # 4 hours default for Warsaw Dual
     )
 
 def calculate_bolus_v2(
@@ -235,6 +301,8 @@ def calculate_bolus_v2(
     inp = CalculationInput(
         carbs_g=request.carbs_g,
         fiber_g=request.fiber_g,
+        fat_g=request.fat_g,
+        protein_g=request.protein_g,
         target_mgdl=target,
         cr=cr_base,
         isf=isf_base,
@@ -251,7 +319,11 @@ def calculate_bolus_v2(
         max_bolus_u=settings.max_bolus_u,
         max_correction_u=settings.max_correction_u,
         round_step=settings.round_step_u,
-        use_fiber_deduction=settings.calculator.subtract_fiber
+        use_fiber_deduction=settings.calculator.subtract_fiber,
+        warsaw_enabled=settings.warsaw.enabled,
+        warsaw_factor_simple=request.warsaw_safety_factor or settings.warsaw.safety_factor,
+        warsaw_factor_dual=request.warsaw_safety_factor_dual or settings.warsaw.safety_factor_dual,
+        warsaw_trigger=request.warsaw_trigger_threshold_kcal or settings.warsaw.trigger_threshold_kcal
     )
     
     # 2. Call Core (Pure Math)
@@ -275,7 +347,7 @@ def calculate_bolus_v2(
 
     return BolusResponseV2(
         total_u=res.total_u,
-        kind="normal", # Simplified for this refactor step
+        kind="dual" if res.later_u > 0 else "normal",
         upfront_u=res.upfront_u,
         later_u=res.later_u,
         duration_min=res.duration_min,

@@ -9,6 +9,8 @@ class CalculationInput:
     cr: float
     isf: float
     fiber_g: float = 0.0
+    fat_g: float = 0.0
+    protein_g: float = 0.0
     
     # Context
     bg_mgdl: Optional[float] = None
@@ -39,6 +41,12 @@ class CalculationInput:
     max_bolus_u: float = 15.0
     max_correction_u: float = 5.0
     round_step: float = 0.1
+    
+    # Warsaw Params
+    warsaw_enabled: bool = False
+    warsaw_factor_simple: float = 0.1
+    warsaw_factor_dual: float = 0.2
+    warsaw_trigger: int = 300
     
 @dataclass
 class CalculationResult:
