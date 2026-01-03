@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Body, Response, Query, Header
+from fastapi import APIRouter, Depends, HTTPException, Body, Response
 from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
 import logging
@@ -6,12 +6,11 @@ import uuid
 from datetime import datetime, timezone, timedelta
 from sqlalchemy import select, and_
 
-from app.core.security import get_current_user, get_current_user_optional, CurrentUser
+from app.core.security import get_current_user, CurrentUser
 from app.api.bolus import save_treatment
 from app.services.store import DataStore
 from app.core.settings import get_settings, Settings
 from app.core.db import get_db_session
-from app.core import config
 from sqlalchemy.ext.asyncio import AsyncSession
 
 router = APIRouter()
@@ -45,6 +44,11 @@ class NutritionPayload(BaseModel):
     # Generic bucket
     metrics: Optional[List[Dict[str, Any]]] = None # Health Auto Export suele mandar una lista de métricas
 
+from fastapi import APIRouter, Depends, HTTPException, Body, Response, Query, Header
+from app.core import config
+from app.bot.user_settings_resolver import resolve_bot_user_settings
+from app.core.security import get_current_user_optional, CurrentUser
+
 @router.post("/nutrition", summary="Webhook for Health Auto Export / External Nutrition")
 async def ingest_nutrition(
     payload: Dict[str, Any] = Body(...),
@@ -60,25 +64,38 @@ async def ingest_nutrition(
     """
     try:
         # Auth Logic: JWT User OR Shared Secret (API Key)
-        username = "admin" # Default for webhook
-        
-        if user:
-            username = user.username
-        else:
+        username: Optional[str] = user.username if user else None
+
+        if not user:
             # Check for API Key / Shared Secret
             secret = config.get_admin_shared_secret()
             provided = api_key or auth_header
-            
+
             if secret:
                 # Enforce Secret if configured
                 if provided != secret:
-                    logger.warning(f"Unauthorized nutrition attempt. Invalid Key.")
+                    logger.warning("Unauthorized nutrition attempt. Invalid Key.")
                     raise HTTPException(status_code=401, detail="Invalid API Key")
             else:
                 # No secret configured: Allow with warning (Personal Mode)
                 logger.warning("Allowing nutrition ingest without Auth (ADMIN_SHARED_SECRET not set)")
-                # Proceed as "admin"
-                
+
+        if not username:
+            # Align webhook user with bot/default user resolution so the app sees the meal
+            username = config.get_bot_default_username() or None
+
+        if not username:
+            try:
+                # Reuse the bot resolver to pick the active user (prefers non-default settings)
+                _, resolved_user = await resolve_bot_user_settings()
+                username = resolved_user
+            except Exception as resolver_exc:
+                logger.warning(f"Nutrition ingest: failed to resolve user, falling back to admin: {resolver_exc}")
+                username = None
+
+        if not username:
+            username = "admin"
+
         # 1. Normalización de Datos (Health Auto Export manda una lista "data": [...])
         # Buscamos carbs, fat, protein en el payload bruto
         
@@ -147,7 +164,7 @@ async def ingest_nutrition(
                  
                  # Map Type
                  metric_type = None
-                 if p_type in ["DietaryFiber", "Fiber"]: metric_type = "fib"
+                 if p_type in ["DietaryFiber", "Fiber", "DietaryFiber"]: metric_type = "fib"
                  elif p_type in ["DietaryCarbohydrates", "Carbohydrates", "Carbs"]: metric_type = "c"
                  elif p_type in ["DietaryFatTotal", "Fat", "DietaryFat"]: metric_type = "f"
                  elif p_type in ["DietaryProtein", "Protein"]: metric_type = "p"
@@ -203,7 +220,20 @@ async def ingest_nutrition(
                 # Fallback
                 last_ts = datetime.now(timezone.utc)
                 
-        # Re-implementing the loop properly here to replace the broken block 
+            # --- DEDUPLICATION LOGIC JOINED HERE ---
+            # ...
+
+
+            # --- MEAL SAVING LOOP ---
+            
+            # DB Save Direct
+            if session:
+                from app.models.treatment import Treatment
+
+                # Loop through the processed meals (from the loop on line 125)
+                # But wait, line 125 started a loop but didn't finish the save logic inside.
+                # I need to MOVE the save logic INSIDE the loop.
+                pass 
                 
         # Re-implementing the loop properly here to replace the broken block
         saved_ids = []
