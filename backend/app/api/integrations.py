@@ -324,6 +324,19 @@ async def ingest_nutrition(
                     item_ts = datetime.now(timezone.utc)
                     force_now = True
 
+                # 0. STRICT DEDUP CHECK (History-based)
+                # Check if we have already imported this specific external timestamp/ID.
+                # This handles cases where we "snap to now" and thus lose the temporal correlation 
+                # with the original event in the DB's created_at field.
+                import_sig = f"Imported from Health: {date_key}"
+                stmt_strict = select(Treatment).where(Treatment.notes.contains(import_sig))
+                result_strict = await session.execute(stmt_strict)
+                existing_strict = result_strict.scalars().first()
+                
+                if existing_strict:
+                     logger.info(f"Skipping import {date_key} - found exact match in history (ID: {existing_strict.id})")
+                     continue
+
                 # Dedup check
                 # Rule: Short window (3h) for the NEWEST meal (count=0) to allow repeat meals.
                 # Rule: Long window (18h) for HISTORY to prevent re-importing old meals.
