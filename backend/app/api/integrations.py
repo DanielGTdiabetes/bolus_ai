@@ -304,7 +304,16 @@ async def ingest_nutrition(
                     diff = (now_utc - item_ts).total_seconds()
                     
                     # SNAP POLICY
+                    # 1. If date is > 24 hours old -> IGNORE (History dump).
+                    # 2. If date is > 30 mins old but < 24h -> SNAP TO NOW (Timezone fix/Delay).
+                    # 3. If date is "future" (> 5 mins ahead) -> SNAP TO NOW.
+                    
                     force_now = False
+                    
+                    if diff > 86400: # Older than 24 hours
+                        logger.info(f"Skipping old meal from {ts_str} (Diff: {diff/3600:.1f}h). Too old to import.")
+                        continue
+                        
                     if diff > 1800 or diff < -300:
                         logger.info(f"Snapping import time {ts_str} to NOW for calculator visibility.")
                         item_ts = now_utc
