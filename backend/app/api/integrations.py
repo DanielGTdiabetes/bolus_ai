@@ -46,6 +46,7 @@ class NutritionPayload(BaseModel):
 
 from fastapi import APIRouter, Depends, HTTPException, Body, Response, Query, Header
 from app.core import config
+from app.bot.user_settings_resolver import resolve_bot_user_settings
 from app.core.security import get_current_user_optional, CurrentUser
 
 @router.post("/nutrition", summary="Webhook for Health Auto Export / External Nutrition")
@@ -63,25 +64,38 @@ async def ingest_nutrition(
     """
     try:
         # Auth Logic: JWT User OR Shared Secret (API Key)
-        username = "admin" # Default for webhook
-        
-        if user:
-            username = user.username
-        else:
+        username: Optional[str] = user.username if user else None
+
+        if not user:
             # Check for API Key / Shared Secret
             secret = config.get_admin_shared_secret()
             provided = api_key or auth_header
-            
+
             if secret:
                 # Enforce Secret if configured
                 if provided != secret:
-                    logger.warning(f"Unauthorized nutrition attempt. Invalid Key.")
+                    logger.warning("Unauthorized nutrition attempt. Invalid Key.")
                     raise HTTPException(status_code=401, detail="Invalid API Key")
             else:
                 # No secret configured: Allow with warning (Personal Mode)
                 logger.warning("Allowing nutrition ingest without Auth (ADMIN_SHARED_SECRET not set)")
-                # Proceed as "admin"
-                
+
+        if not username:
+            # Align webhook user with bot/default user resolution so the app sees the meal
+            username = config.get_bot_default_username() or None
+
+        if not username:
+            try:
+                # Reuse the bot resolver to pick the active user (prefers non-default settings)
+                _, resolved_user = await resolve_bot_user_settings()
+                username = resolved_user
+            except Exception as resolver_exc:
+                logger.warning(f"Nutrition ingest: failed to resolve user, falling back to admin: {resolver_exc}")
+                username = None
+
+        if not username:
+            username = "admin"
+
         # 1. Normalización de Datos (Health Auto Export manda una lista "data": [...])
         # Buscamos carbs, fat, protein en el payload bruto
         
