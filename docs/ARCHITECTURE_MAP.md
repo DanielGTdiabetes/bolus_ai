@@ -257,8 +257,8 @@ digraph ModuleMap {
 
 ## 8. Identified Risks & Points of Attention (Grey Zones)
 
-1.  **Crucial Dependency on Nightscout**: Even with a local DB, `IOBService` and `AutosensService` heavily prioritize Nightscout data. If NS is down or slow, calculations may fallback to potentially incomplete local data (Cold Start risk).
-2.  **Duplicate Meal Entry**: The `integrations.py` dedup logic uses a 10-minute window and exact macro matching. If a user manually enters a meal in the App *slightly* differently than MFP exports it, it will result in double carb entry (1 manual + 1 orphan from webhook).
-3.  **Bot <-> API Coupling**: The `Proactive` modules directly import `NightscoutClient` and database models instead of going through the `API` layer or a unified Service layer. This code duplication implies that logic changes in `api/bolus.py` (like how IOB is calculated) might not automatically propagate to the Bot's context unless carefully maintained.
-4.  **Timezone Naivety**: The ingestion service forces `naive` datetimes for DB compatibility, but Nightscout operates in UTC. There is a risk of "Ghost Carbs" appearing ±1 hour off during DST changes.
-5.  **Dynamic ISF Safety**: The "Hybrid" ISF logic relies on `Autosens` (Micro) * `DynamicISF` (Macro). While clamped (0.6 - 1.4), purely mathematical derived sensitivity can oscillate if the user's TDD (Total Daily Dose) data in Nightscout is "dirty" (e.g., missed entries).
+1.  **Crucial Dependency on Nightscout**: Even with a local DB, `IOBService` and `AutosensService` heavily prioritize Nightscout data. If NS is down or slow, calculations may fallback to potentially incomplete local data (Cold Start risk). **[PARTIALLY MITIGATED: Dynamic ISF now has self-defense 1.0 fallback]**.
+2.  **Duplicate Meal Entry [CORRECTED]**: The `integrations.py` dedup logic uses a 10-minute window and fuzzy macro matching (+/- 2g). Logic updated to be robust against minor numeric differences.
+3.  **Bot <-> API Coupling [CORRECTED]**: The `Proactive` modules heavily duplicated Nightscout logic. **Refactored** to use a centralized `get_nightscout_client()` factory in `services/nightscout_client.py`.
+4.  **Timezone Naivety [CORRECTED]**: The ingestion service previously forced naive datetimes blindly. **Updated** to attempt smart localization (e.g. Europe/Madrid fallback) before UTC conversion to prevent "Ghost Carbs".
+5.  **Dynamic ISF Safety [CORRECTED]**: The "Hybrid" ISF logic relies on mathematical derivation. **Added Guardrails**: If TDD deviates >30% from 7-day average (suggesting missing data), the system forces a neutral 1.0 ratio and warns the user.
