@@ -105,7 +105,7 @@ export default function BolusPage() {
                     const diffMin = (now.getTime() - tDate.getTime()) / 60000;
                     const hasNutrition = (t.carbs > 0 || t.fat > 0 || t.protein > 0);
                     // Standard orphan check
-                    return hasNutrition && (!t.insulin || t.insulin === 0) && diffMin > 0 && diffMin < 60;
+                    return hasNutrition && (!t.insulin || t.insulin === 0) && diffMin > -5 && diffMin < 60;
                 });
 
                 if (orphans.length > 0) {
