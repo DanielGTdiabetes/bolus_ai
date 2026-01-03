@@ -116,7 +116,7 @@ class BolusResponseV2(BaseModel):
     total_u_raw: float
     total_u_final: float
     
-    kind: Literal["normal", "extended"]
+    kind: Literal["normal", "extended", "dual"]
     upfront_u: float
     later_u: float
     duration_min: int = 0
