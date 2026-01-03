@@ -322,7 +322,6 @@ def calculate_bolus_v2(
         iob_u=iob_u,
         autosens_ratio=autosens_ratio,
         autosens_reason=autosens_reason,
-        alcohol_mode=request.alcohol,
         exercise_minutes=request.exercise.minutes if request.exercise.planned else 0,
         exercise_intensity=request.exercise.intensity,
         max_bolus_u=settings.max_bolus_u,
