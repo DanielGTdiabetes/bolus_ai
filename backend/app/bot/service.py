@@ -1778,6 +1778,28 @@ async def _handle_snapshot_callback(query, data: str) -> None:
             health.record_action(f"callback:{'accept' if is_accept else 'cancel'}:{request_id}", False, "snapshot_missing")
             await query.edit_message_text(f"⚠️ Error: No encuentro el snapshot ({request_id}). Recalcula.")
             return
+
+        # --- Handle Cancellation (Ignorar) ---
+        if not is_accept:
+             origin_id = snapshot.get("origin_id")
+             base_text = query.message.text if query.message else ""
+             if origin_id:
+                  try:
+                      engine = get_engine()
+                      if engine:
+                          async with AsyncSession(engine) as session:
+                               from sqlalchemy import text
+                               await session.execute(text("DELETE FROM treatments WHERE id = :oid"), {"oid": origin_id})
+                               await session.commit()
+                      await query.edit_message_text(f"{base_text}\n\n🗑️ Descartado y borrado.")
+                  except Exception as e:
+                      logger.error(f"Failed to delete ignored treatment: {e}")
+                      await query.edit_message_text(f"{base_text}\n\n❌ Descartado (Error al borrar: {e})")
+             else:
+                  await query.edit_message_text(f"{base_text}\n\n❌ Descartado.")
+             
+             SNAPSHOT_STORAGE.pop(request_id, None)
+             return
             
         if "rec" in snapshot:
              rec: BolusResponseV2 = snapshot["rec"]
