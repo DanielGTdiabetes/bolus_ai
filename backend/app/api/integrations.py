@@ -308,18 +308,24 @@ async def ingest_nutrition(
                 stmt = select(Treatment).where(
                     Treatment.created_at >= dedup_window_start,
                     Treatment.created_at <= dedup_window_end,
-                    # Fuzzy match for carbs to handle 50.0 vs 50.4 or 49.8
-                    Treatment.carbs >= (t_carbs - 2.0),
-                    Treatment.carbs <= (t_carbs + 2.0)
-                    # We ignore fat/protein mismatch if carbs match in time window? 
-                    # Yes, typically carbs are the unique identifier for "Main Meal".
-                    # If carbs are 0 (e.g. Keto), we might rely on the others, but let's keep it simple.
-                    # If input is 0 carbs, the check is -2 to +2.
+                    Treatment.carbs >= (t_carbs - 0.1),
+                    Treatment.carbs <= (t_carbs + 0.1)
                 )
                 result = await session.execute(stmt)
-                existing = result.scalars().first()
+                candidates = result.scalars().all()
                 
-                if existing:
+                is_duplicate = False
+                for c in candidates:
+                    # Secondary Check: Fat & Protein (Strict Tolerance +/- 0.1g)
+                    # We want exact matches for tech duplicates.
+                    diff_fat = abs(c.fat - t_fat)
+                    diff_prot = abs(c.protein - t_protein)
+                    
+                    if diff_fat < 0.1 and diff_prot < 0.1:
+                        is_duplicate = True
+                        break
+                
+                if is_duplicate:
                     logger.info(f"Skipping duplicate meal from {ts_str}")
                     continue
                 
