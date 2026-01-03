@@ -115,17 +115,16 @@ def _calculate_core(inp: CalculationInput) -> CalculationResult:
     if sug_ratio < 0.7: sug_ratio = 0.7
     if sug_ratio > 1.3: sug_ratio = 1.3
     
-    effective_ratio = 1.0 # User policy: No auto change, just advise
+    effective_ratio = sug_ratio 
     
     # Advice Log
-    if abs(sug_ratio - 1.0) > 0.01:
-        sug_isf = inp.isf / sug_ratio
-        explain.append(f"🔍 Autosens (Consejo): Detectado Factor {sug_ratio:.2f} ({inp.autosens_reason or 'Dinámico'})")
-        explain.append(f"   ⚠️ NO APLICADO. Sugiere ISF: {inp.isf:.1f} -> {sug_isf:.1f}")
+    if abs(effective_ratio - 1.0) > 0.01:
+        explain.append(f"🔍 Autosens: Ajustando ratios por {effective_ratio:.2f}x ({inp.autosens_reason or 'Dinámico'})")
 
-    # Use Base params (since effective_ratio is 1.0)
-    cr = inp.cr
-    isf = inp.isf
+    # Appply Autosens (Resistance usually > 1 means need MORE insulin -> Decreased CR/ISF)
+    # Factor 1.2 -> CR / 1.2 (Needs less carbs per unit) -> Correct.
+    cr = inp.cr / effective_ratio
+    isf = inp.isf / effective_ratio
     
     # Safety Guards
     if cr <= 0.1: 
@@ -222,12 +221,16 @@ def _calculate_core(inp: CalculationInput) -> CalculationResult:
     # --- 4. IOB ---
     # Only reduces Upfront part (Simple)
     total_base_upfront = meal_u + corr_u
-    upfront_net = max(0.0, total_base_upfront - inp.iob_u)
     
-    if inp.iob_u > 0:
-        explain.append(f"C) IOB: {inp.iob_u:.2f} U activos. Neto Upfront: {upfront_net:.2f} U")
+    if inp.ignore_iob:
+        upfront_net = total_base_upfront
+        explain.append(f"C) IOB: {inp.iob_u:.2f} U IGNORADO (Estrategia Postre)")
     else:
-        explain.append("C) IOB: 0 U")
+        upfront_net = max(0.0, total_base_upfront - inp.iob_u)
+        if inp.iob_u > 0:
+            explain.append(f"C) IOB: {inp.iob_u:.2f} U activos. Neto Upfront: {upfront_net:.2f} U")
+        else:
+            explain.append("C) IOB: 0 U")
         
     later_base = warsaw_later_u
     if later_base > 0:
@@ -246,7 +249,13 @@ def _calculate_core(inp: CalculationInput) -> CalculationResult:
         
     # --- 6. Rounding & Limits ---
     # Round separately
-    final_upfront = _round_step(final_upfront, inp.round_step)
+    
+    # Techne Rounding for Upfront (if enabled and NOT alcohol)
+    if inp.techne_enabled and not inp.alcohol_mode and inp.bg_trend:
+         final_upfront = _smart_round(final_upfront, inp.round_step, inp.bg_trend, inp.techne_max_step, explain)
+    else:
+         final_upfront = _round_step(final_upfront, inp.round_step)
+         
     final_later = _round_step(final_later, inp.round_step)
     
     final_total = final_upfront + final_later
@@ -323,7 +332,11 @@ def calculate_bolus_v2(
         warsaw_enabled=settings.warsaw.enabled,
         warsaw_factor_simple=request.warsaw_safety_factor or settings.warsaw.safety_factor,
         warsaw_factor_dual=request.warsaw_safety_factor_dual or settings.warsaw.safety_factor_dual,
-        warsaw_trigger=request.warsaw_trigger_threshold_kcal or settings.warsaw.trigger_threshold_kcal
+        warsaw_trigger=request.warsaw_trigger_threshold_kcal or settings.warsaw.trigger_threshold_kcal,
+        techne_enabled=settings.techne.enabled,
+        techne_max_step=settings.techne.max_step_change,
+        ignore_iob=request.ignore_iob,
+        alcohol_mode=request.alcohol
     )
     
     # 2. Call Core (Pure Math)

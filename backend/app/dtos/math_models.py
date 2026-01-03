@@ -46,7 +46,11 @@ class CalculationInput:
     warsaw_enabled: bool = False
     warsaw_factor_simple: float = 0.1
     warsaw_factor_dual: float = 0.2
-    warsaw_trigger: int = 300
+    # Techne & Safety
+    techne_enabled: bool = False
+    techne_max_step: float = 0.5
+    ignore_iob: bool = False # Dessert mode
+    alcohol_mode: bool = False
     
 @dataclass
 class CalculationResult:
