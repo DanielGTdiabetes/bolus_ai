@@ -314,36 +314,33 @@ async def ingest_nutrition(
                     # Check divergence from NOW
                     diff = (now_utc - item_ts).total_seconds()
                     
+                
                     # SNAP TO NOW POLICY:
-                    # This webhook is called in REAL-TIME when user logs food in MFP.
-                    # If the parsed time differs significantly from NOW, it's likely:
-                    # 1. A timezone parsing error
-                    # 2. MFP sending an old cached timestamp
-                    # 
-                    # To ensure the Bolus Calculator sees this as a pending "orphan" meal,
-                    # we snap to NOW if data was just received AND the time seems wrong.
-                    # 
                     # New Policy: If diff > 30 minutes into the PAST, snap to NOW.
-                    # (We assume realtime webhook = user just logged food NOW)
                     # For FUTURE timestamps (negative diff), also snap to NOW.
+                    force_now = False
                     if diff > 1800 or diff < -300:  # > 30 min ago OR > 5 min in future
                         logger.info(f"Snapping import time {ts_str} (diff={diff:.0f}s) to NOW for calculator visibility.")
                         item_ts = now_utc
+                        force_now = True
                          
                 except Exception as e:
                     logger.warning(f"Date parse soft-fail: {ts_str} -> {e}. Using NOW.")
                     item_ts = datetime.now(timezone.utc)
+                    force_now = True
 
                 # Dedup check
-                # Check for same macros AND roughly same time (within 10 min of the original timestamp)
-                # Because we are processing history, we must check history
+                # -------------------------------------------------------------
+                # Standard Dedup: Check within +/- 10 min window if time is trusted
+                # Force Now Dedup: If we snapped to NOW, the original meal might exist ANYWHERE today.
+                # So we widen the search window to 24h to prevent re-importing history as "New".
                 
-                # Fix for SQLA error: ensure comparison datetimes are compatible with DB driver (often naive UTC preferred)
-                dedup_window_start = (item_ts - timedelta(minutes=10)).replace(tzinfo=None)
+                check_window_hours = 24 if force_now else 0.2 # 0.2h = ~12 min
+                
                 dedup_window_end = (item_ts + timedelta(minutes=10)).replace(tzinfo=None)
+                dedup_window_start = (item_ts - timedelta(hours=check_window_hours)).replace(tzinfo=None) # Look back
                 
-                # Also ensure item_ts for saving is naive if needed by model, though usually model handles it.
-                # Let's keep item_ts aware for now unless save fails too. The error was in WHERE clause comparison.
+                # Also ensure item_ts for saving is naive if needed by model.
                 
                 stmt = select(Treatment).where(
                     Treatment.created_at >= dedup_window_start,
@@ -366,7 +363,7 @@ async def ingest_nutrition(
                         break
                 
                 if is_duplicate:
-                    logger.info(f"Skipping duplicate meal from {ts_str}")
+                    logger.info(f"Skipping duplicate meal from {ts_str} (ForceNow={force_now})")
                     continue
                 
                 # New Treatment
