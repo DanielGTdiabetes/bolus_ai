@@ -61,6 +61,12 @@ SI FALLA NIGHTSCOUT (Contexto degradado):
    - Cuando uses herramientas de cálculo (`calculate_bolus`, etc.), fíjate que incluyen un "Hash" (ej.🔒 Hash: A1B2) y una hora de datos.
    - Si explicas el cálculo, menciona SIEMPRE la hora de los datos ("Calculado con datos de las HH:MM...").
    - Si ves un aviso de "Config Hash mismatch" o similar, avisa al usuario de que sus ajustes podrían estar desactualizados.
+
+8. ESTADÍSTICAS DEL DÍA (Daily Totals):
+   - El contexto contiene totales del día bajo 'daily_*' (insulin, carbs, fat, protein, fiber).
+   - Si el usuario pregunta "cuánta proteina llevo hoy?", "resumen del día", etc.
+   - USA ESOS DATOS que ya tienes en el contexto inicial. NO necesitas llamar a ninguna tool extra.
+   - Responde directo: "Hoy llevas X g de carbohidratos, Y U de insulina...".
 """
 
 def get_system_prompt() -> str:
