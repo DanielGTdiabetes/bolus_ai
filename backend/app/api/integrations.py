@@ -254,29 +254,21 @@ async def ingest_nutrition(
                 
                 if t_carbs < 1 and t_fat < 1 and t_protein < 1 and t_fiber < 1: continue
 
-                # Parse Date
-                # Parse Date with Fallbacks
-                # Parse Date - FORCE NOW for better UX in Calculator (Orphan detection)
-                # Unless the date is explicitly very old (backfilling)?
-                # For "Log & Bolus" workflow, we want NOW.
-                # If the difference between parsed time and NOW is > 2 hours, maybe it's backfill.
-                # But for the 6h timezone error the user sees, it's best to snap to NOW if it's "today".
-                
+                # Parse Date with Force-Now Logic
                 try:
                     ts_str = meal["ts"]
                     now_utc = datetime.now(timezone.utc)
                     item_ts = None
                     
-                    # Multi-format date parser for Health Auto Export / MyFitnessPal
-                    # Supports: ISO 8601 with T, with/without timezone, spaces, etc.
+                    # Multi-format date parser
                     parse_formats = [
-                        "%Y-%m-%d %H:%M:%S %z",      # "2026-01-03 16:54:00 +0100"
-                        "%Y-%m-%dT%H:%M:%S%z",       # "2026-01-03T16:54:00+0100" (ISO 8601)
-                        "%Y-%m-%dT%H:%M:%S.%f%z",    # "2026-01-03T16:54:00.000+0100"
-                        "%Y-%m-%dT%H:%M:%SZ",        # "2026-01-03T16:54:00Z" (UTC)
-                        "%Y-%m-%dT%H:%M:%S.%fZ",     # "2026-01-03T16:54:00.000Z"
-                        "%Y-%m-%dT%H:%M:%S",         # "2026-01-03T16:54:00" (no TZ)
-                        "%Y-%m-%d %H:%M:%S",         # "2026-01-03 16:54:00" (no TZ)
+                        "%Y-%m-%d %H:%M:%S %z",
+                        "%Y-%m-%dT%H:%M:%S%z",
+                        "%Y-%m-%dT%H:%M:%S.%f%z",
+                        "%Y-%m-%dT%H:%M:%SZ",
+                        "%Y-%m-%dT%H:%M:%S.%fZ",
+                        "%Y-%m-%dT%H:%M:%S",
+                        "%Y-%m-%d %H:%M:%S",
                     ]
                     
                     for fmt in parse_formats:
@@ -285,7 +277,6 @@ async def ingest_nutrition(
                             if clean_ts.tzinfo is not None:
                                 item_ts = clean_ts.astimezone(timezone.utc)
                             else:
-                                # No timezone: assume Europe/Madrid (user's local)
                                 from zoneinfo import ZoneInfo
                                 tz_local = ZoneInfo("Europe/Madrid")
                                 item_ts = clean_ts.replace(tzinfo=tz_local).astimezone(timezone.utc)
@@ -293,10 +284,9 @@ async def ingest_nutrition(
                         except ValueError:
                             continue
                     
-                    # Fallback: try fromisoformat (Python 3.11+ handles many formats)
+                    # Fallback fromisoformat
                     if item_ts is None:
                         try:
-                            # Handle 'Z' suffix that fromisoformat doesn't like in older Python
                             clean_str = ts_str.replace("Z", "+00:00")
                             parsed = datetime.fromisoformat(clean_str)
                             if parsed.tzinfo is None:
@@ -306,41 +296,36 @@ async def ingest_nutrition(
                         except Exception:
                             pass
                     
-                    # Final fallback: use NOW
+                    # Fallback NOW
                     if item_ts is None:
-                        logger.warning(f"Could not parse date '{ts_str}', using NOW.")
                         item_ts = now_utc
-                    
-                    # Check divergence from NOW
+
+                    # Check divergence
                     diff = (now_utc - item_ts).total_seconds()
                     
-                
-                    # SNAP TO NOW POLICY:
-                    # New Policy: If diff > 30 minutes into the PAST, snap to NOW.
-                    # For FUTURE timestamps (negative diff), also snap to NOW.
+                    # SNAP POLICY
                     force_now = False
-                    if diff > 1800 or diff < -300:  # > 30 min ago OR > 5 min in future
-                        logger.info(f"Snapping import time {ts_str} (diff={diff:.0f}s) to NOW for calculator visibility.")
+                    if diff > 1800 or diff < -300:
+                        logger.info(f"Snapping import time {ts_str} to NOW for calculator visibility.")
                         item_ts = now_utc
                         force_now = True
-                         
+                        
                 except Exception as e:
                     logger.warning(f"Date parse soft-fail: {ts_str} -> {e}. Using NOW.")
                     item_ts = datetime.now(timezone.utc)
                     force_now = True
 
                 # Dedup check
-                # -------------------------------------------------------------
-                # Standard Dedup: Check within +/- 10 min window if time is trusted
-                # Force Now Dedup: If we snapped to NOW, the original meal might exist ANYWHERE today.
-                # So we widen the search window to 24h to prevent re-importing history as "New".
+                # Rule: Short window (3h) for the NEWEST meal (count=0) to allow repeat meals.
+                # Rule: Long window (18h) for HISTORY to prevent re-importing old meals.
                 
-                check_window_hours = 24 if force_now else 0.2 # 0.2h = ~12 min
-                
+                if force_now:
+                    check_window_hours = 3.0 if count == 0 else 18.0
+                else:
+                    check_window_hours = 0.2
+
                 dedup_window_end = (item_ts + timedelta(minutes=10)).replace(tzinfo=None)
-                dedup_window_start = (item_ts - timedelta(hours=check_window_hours)).replace(tzinfo=None) # Look back
-                
-                # Also ensure item_ts for saving is naive if needed by model.
+                dedup_window_start = (item_ts - timedelta(hours=check_window_hours)).replace(tzinfo=None)
                 
                 stmt = select(Treatment).where(
                     Treatment.created_at >= dedup_window_start,
@@ -353,17 +338,14 @@ async def ingest_nutrition(
                 
                 is_duplicate = False
                 for c in candidates:
-                    # Secondary Check: Fat & Protein (Strict Tolerance +/- 0.1g)
-                    # We want exact matches for tech duplicates.
                     diff_fat = abs(c.fat - t_fat)
                     diff_prot = abs(c.protein - t_protein)
-                    
                     if diff_fat < 0.1 and diff_prot < 0.1:
                         is_duplicate = True
                         break
                 
                 if is_duplicate:
-                    logger.info(f"Skipping duplicate meal from {ts_str} (ForceNow={force_now})")
+                    logger.info(f"Skipping duplicate meal {t_carbs}g from {ts_str} (ForceNow={force_now}, Win={check_window_hours}h)")
                     continue
                 
                 # New Treatment
