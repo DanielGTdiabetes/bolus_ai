@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Body, Response
+from fastapi import APIRouter, Depends, HTTPException, Body, Response, Query, Header
 from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
 import logging
@@ -6,11 +6,12 @@ import uuid
 from datetime import datetime, timezone, timedelta
 from sqlalchemy import select, and_
 
-from app.core.security import get_current_user, CurrentUser
+from app.core.security import get_current_user, get_current_user_optional, CurrentUser
 from app.api.bolus import save_treatment
 from app.services.store import DataStore
 from app.core.settings import get_settings, Settings
 from app.core.db import get_db_session
+from app.core import config
 from sqlalchemy.ext.asyncio import AsyncSession
 
 router = APIRouter()
@@ -43,10 +44,6 @@ class NutritionPayload(BaseModel):
     
     # Generic bucket
     metrics: Optional[List[Dict[str, Any]]] = None # Health Auto Export suele mandar una lista de métricas
-
-from fastapi import APIRouter, Depends, HTTPException, Body, Response, Query, Header
-from app.core import config
-from app.core.security import get_current_user_optional, CurrentUser
 
 @router.post("/nutrition", summary="Webhook for Health Auto Export / External Nutrition")
 async def ingest_nutrition(
@@ -150,7 +147,7 @@ async def ingest_nutrition(
                  
                  # Map Type
                  metric_type = None
-                 if p_type in ["DietaryFiber", "Fiber", "DietaryFiber"]: metric_type = "fib"
+                 if p_type in ["DietaryFiber", "Fiber"]: metric_type = "fib"
                  elif p_type in ["DietaryCarbohydrates", "Carbohydrates", "Carbs"]: metric_type = "c"
                  elif p_type in ["DietaryFatTotal", "Fat", "DietaryFat"]: metric_type = "f"
                  elif p_type in ["DietaryProtein", "Protein"]: metric_type = "p"
@@ -206,20 +203,7 @@ async def ingest_nutrition(
                 # Fallback
                 last_ts = datetime.now(timezone.utc)
                 
-            # --- DEDUPLICATION LOGIC JOINED HERE ---
-            # ...
-
-
-            # --- MEAL SAVING LOOP ---
-            
-            # DB Save Direct
-            if session:
-                from app.models.treatment import Treatment
-
-                # Loop through the processed meals (from the loop on line 125)
-                # But wait, line 125 started a loop but didn't finish the save logic inside.
-                # I need to MOVE the save logic INSIDE the loop.
-                pass 
+        # Re-implementing the loop properly here to replace the broken block 
                 
         # Re-implementing the loop properly here to replace the broken block
         saved_ids = []
