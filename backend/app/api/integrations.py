@@ -213,13 +213,23 @@ async def ingest_nutrition(
                 if t_carbs < 1 and t_fat < 1 and t_protein < 1 and t_fiber < 1: continue
 
                 # Parse Date
+                # Parse Date with Fallbacks
                 try:
                     ts_str = meal["ts"]
-                    # Format: "2025-12-26 13:01:00 +0100"
-                    clean_ts = datetime.strptime(ts_str, "%Y-%m-%d %H:%M:%S %z")
-                    item_ts = clean_ts.astimezone(timezone.utc)
+                    # 1. Try ISO/Strptime with Timezone
+                    try:
+                        clean_ts = datetime.strptime(ts_str, "%Y-%m-%d %H:%M:%S %z")
+                        item_ts = clean_ts.astimezone(timezone.utc)
+                    except ValueError:
+                        # 2. Try Naive and assume User Timezone (Madrid default for now)
+                        # TODO: Fetch user timezone from settings if possible, but generic webhook lacks context.
+                        from zoneinfo import ZoneInfo
+                        tz_local = ZoneInfo("Europe/Madrid")
+                        clean_ts = datetime.strptime(ts_str, "%Y-%m-%d %H:%M:%S")
+                        item_ts = clean_ts.replace(tzinfo=tz_local).astimezone(timezone.utc)
+                        
                 except Exception as e:
-                    logger.warning(f"Date parse error: {ts_str} -> {e}")
+                    logger.warning(f"Date parse soft-fail: {ts_str} -> {e}. Using NOW.")
                     item_ts = datetime.now(timezone.utc)
 
                 # Dedup check
@@ -236,11 +246,13 @@ async def ingest_nutrition(
                 stmt = select(Treatment).where(
                     Treatment.created_at >= dedup_window_start,
                     Treatment.created_at <= dedup_window_end,
-                    Treatment.carbs == t_carbs,
-                    Treatment.fat == t_fat,
-                    Treatment.protein == t_protein,
-                    Treatment.fiber == t_fiber
-                    # Treatment.entered_by == "webhook-integration" # Relax this check in case manual entry matched? No, keep strict.
+                    # Fuzzy match for carbs to handle 50.0 vs 50.4 or 49.8
+                    Treatment.carbs >= (t_carbs - 2.0),
+                    Treatment.carbs <= (t_carbs + 2.0)
+                    # We ignore fat/protein mismatch if carbs match in time window? 
+                    # Yes, typically carbs are the unique identifier for "Main Meal".
+                    # If carbs are 0 (e.g. Keto), we might rely on the others, but let's keep it simple.
+                    # If input is 0 carbs, the check is -2 to +2.
                 )
                 result = await session.execute(stmt)
                 existing = result.scalars().first()

@@ -104,6 +104,19 @@ class DynamicISFService:
             )
             recent_tdd = recent_bolus_sum + daily_basal
             
+            # --- SAFETY GUARDRAIL ---
+            # If recent TDD (24h) deviates significantly (>30%) from 7d Average, 
+            # we likely have missing data or an anomaly. Unsafe to use Dynamic ISF.
+            if week_tdd_avg > 5.0:
+                deviation = abs(recent_tdd - week_tdd_avg) / week_tdd_avg
+                if deviation > 0.30:
+                    logger.warning(
+                        f"DynamicISF Safety Trigger: TDD Deviation {deviation:.2%} > 30% "
+                        f"(Recent={recent_tdd:.1f}, Avg={week_tdd_avg:.1f}). "
+                        "Fallback to Ratio 1.0."
+                    )
+                    return 1.0
+
             # Weighted TDD
             # 60% Recent, 40% Week Trend (Responsiveness vs Stability)
             weighted_tdd = (recent_tdd * 0.6) + (week_tdd_avg * 0.4)

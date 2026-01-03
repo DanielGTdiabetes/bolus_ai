@@ -351,3 +351,34 @@ class NightscoutClient:
 
     async def aclose(self) -> None:
         await self.client.aclose()
+
+
+def get_nightscout_client(user_settings=None) -> Optional[NightscoutClient]:
+    """
+    Factory to create client from UserSettings or Global Env Fallback.
+    Reduces coupling by centralizing the resolution logic.
+    """
+    from app.core.settings import get_settings
+    
+    url = None
+    token = None
+    
+    # 1. User Settings (Priority)
+    if user_settings and hasattr(user_settings, "nightscout") and user_settings.nightscout.url:
+        url = user_settings.nightscout.url
+        token = user_settings.nightscout.token
+        
+    # 2. Global Env Fallback
+    if not url:
+        try:
+            global_curr = get_settings()
+            if global_curr.nightscout.base_url:
+                url = str(global_curr.nightscout.base_url)
+                token = global_curr.nightscout.token
+        except Exception:
+            pass
+            
+    if not url:
+        return None
+        
+    return NightscoutClient(url, token)

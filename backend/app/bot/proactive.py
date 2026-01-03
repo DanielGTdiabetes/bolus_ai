@@ -9,7 +9,7 @@ from app.bot.state import cooldowns, health
 from app.core import config
 from app.core.settings import get_settings
 from app.services.store import DataStore
-from app.services.nightscout_client import NightscoutClient
+from app.services.nightscout_client import NightscoutClient, get_nightscout_client
 from app.services.iob import compute_iob_from_sources
 from app.models.bolus_v2 import BolusRequestV2, BolusResponseV2, GlucoseUsed
 from app.services.bolus_engine import calculate_bolus_v2
@@ -419,16 +419,11 @@ async def combo_followup(username: str = "admin", chat_id: Optional[int] = None)
              return
 
     # 4. Fetch Treatments
-    # Use UserSettings NS config first, then Global
-    ns_url = user_settings.nightscout.url or global_settings.nightscout.base_url
-    # Note: UserSettings token is usually api_secret, global is token.
-    ns_token = user_settings.nightscout.token or global_settings.nightscout.token
+    client = get_nightscout_client(user_settings)
     
-    if not ns_url:
+    if not client:
          await _route({"reason_hint": "missing_ns_config"})
          return
-         
-    client = NightscoutClient(str(ns_url), ns_token)
     treatments = []
     fetch_error = None
     try:
@@ -575,20 +570,17 @@ async def morning_summary(username: str = "admin", chat_id: Optional[int] = None
     # 3. Fetch Data (Nightscout)
     from app.services.nightscout_client import NightscoutClient
     
+    # 3. Fetch Data (Nightscout)
+    client = None
     try:
         user_settings = await context_builder.get_bot_user_settings_safe()
-        global_settings = get_settings()
-        ns_url = user_settings.nightscout.url or global_settings.nightscout.base_url
-        ns_token = user_settings.nightscout.token or global_settings.nightscout.token
-    except Exception:
-        ns_url = None
-        ns_token = None
-
-    if not ns_url:
+        client = get_nightscout_client(user_settings)
+    except Exception as e:
+        logger.error(f"Settings load error: {e}")
+        
+    if not client:
         await _send(None, chat_id, "⚠️ Falta configuración de Nightscout.")
         return
-
-    client = NightscoutClient(str(ns_url), ns_token)
     entries = []
     try:
         now_utc = datetime.now(timezone.utc)
@@ -642,10 +634,9 @@ async def post_meal_feedback(username: str = "admin", chat_id: Optional[int] = N
     store = DataStore(Path(global_settings.data.data_dir))
     
     # We need NS or DB treatments. Let's use NightscoutClient as primary source for recent history
-    ns_url = user_settings.nightscout.url or global_settings.nightscout.base_url
-    if not ns_url: return
-
-    client = NightscoutClient(str(ns_url), user_settings.nightscout.token)
+    # We need NS or DB treatments. Let's use NightscoutClient as primary source for recent history
+    client = get_nightscout_client(user_settings)
+    if not client: return
     treatments = []
     try:
         treatments = await client.get_recent_treatments(hours=4)
@@ -860,13 +851,12 @@ async def trend_alert(username: str = "admin", chat_id: Optional[int] = None, tr
         return
 
     # 2. Fetch Data (Nightscout)
-    from app.services.nightscout_client import NightscoutClient
+    # 2. Fetch Data (Nightscout)
+    client = get_nightscout_client(user_settings)
     
-    if not ns_url:
+    if not client:
         health.record_event("trend_alert", False, "missing_ns_config")
         return
-
-    client = NightscoutClient(str(ns_url), ns_token)
     entries = []
     try:
         now_utc = datetime.now(timezone.utc)
@@ -1035,13 +1025,8 @@ async def check_isf_suggestions(username: str = "admin", chat_id: Optional[int] 
     
     # 2. Prepare Analysis Service
     # We need NS Client and Profile from Settings
-    from app.services.nightscout_client import NightscoutClient
-    global_settings = get_settings()
-    
-    ns_url = user_settings.nightscout.url or global_settings.nightscout.base_url
-    ns_token = user_settings.nightscout.token or global_settings.nightscout.token
-    
-    if not ns_url: return
+    client = get_nightscout_client(user_settings)
+    if not client: return
     
     # Construct simplistic profile for analysis
     current_cf = {
@@ -1055,7 +1040,6 @@ async def check_isf_suggestions(username: str = "admin", chat_id: Optional[int] 
         "peak_minutes": getattr(user_settings.iob, "peak_minutes", 75)
     }
 
-    client = NightscoutClient(str(ns_url), ns_token)
     service = IsfAnalysisService(client, current_cf, profile_settings)
     
     try:
