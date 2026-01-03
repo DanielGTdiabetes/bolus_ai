@@ -377,6 +377,7 @@ export default function BolusPage() {
                 carbs_g: correctionOnly ? 0 : carbsVal,
                 fat_g: correctionOnly ? 0 : fatVal,
                 protein_g: correctionOnly ? 0 : proteinVal,
+                fiber_g: (correctionOnly || !mealMetaRef.current) ? 0 : (mealMetaRef.current.fiber || 0),
                 bg_mgdl: isNaN(bgVal) ? null : bgVal,
                 meal_slot: slot,
                 target_mgdl: slotParams.target,
