@@ -42,15 +42,24 @@ async def ensure_basal_schema(engine: AsyncEngine):
             logger.warning(f"Error checking schema: {e}. Assuming we might need to fix.")
 
         # Ensure other columns: source, age_min
-        logger.info("Checking source/age_min columns...")
+        logger.info("Checking source/age_min columns (Safe idempotency check)...")
         for col, type_ in [("source", "VARCHAR"), ("age_min", "INTEGER")]:
             try:
-                await conn.execute(text(f"ALTER TABLE basal_checkin ADD COLUMN {col} {type_};"))
-                await conn.commit()
-                logger.info(f"Column {col} added.")
-            except Exception:
+                # 1. Check if exists
+                check_res = await conn.execute(text(
+                    f"SELECT column_name FROM information_schema.columns "
+                    f"WHERE table_name='basal_checkin' AND column_name='{col}'"
+                ))
+                if check_res.fetchone():
+                    logger.info(f"Column {col} already exists in basal_checkin.")
+                else:
+                    # 2. Add if missing
+                    logger.info(f"Adding missing column {col}...")
+                    await conn.execute(text(f"ALTER TABLE basal_checkin ADD COLUMN {col} {type_};"))
+                    await conn.commit()
+            except Exception as e:
                 await conn.rollback()
-                pass # Assume exists
+                logger.warning(f"Error ensuring column {col}: {e}")
 
 
         # 3. Backfill
