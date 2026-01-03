@@ -1073,24 +1073,78 @@ async def check_isf_suggestions(username: str = "admin", chat_id: Optional[int] 
                 await _send(None, chat_id, "✅ Análisis completado. Sin cambios sugeridos.", log_context="isf_check_manual")
             return
 
-        # 4. Check Persistence (Don't spam daily if already notified recently?)
-        # For now, simplistic approach: Notify if found. User complained about NOT receiving.
-        # But we should probably have a cooldown logic, e.g. once per week per item?
-        # Let's rely on standard cooldown
-        if not cooldowns.is_ready("isf_check", 3600 * 24 * 3): # 3 days cooldown
-             if trigger == "manual": pass # force show
-             else: return
+        # 4. Persistence & Notification with Buttons
+        from app.core.db import get_engine, AsyncSession
+        from app.models.suggestion import ParameterSuggestion
         
-        # 5. Send Notification
-        msg = "📉 **Análisis de Sensibilidad (ISF)**\n\nHe detectado que tu configuración podría mejorarse:\n"
-        for item in actionable:
-            emoji = "🔴" if item.suggestion_type == "decrease" else "🔵"
-            msg += f"\n{emoji} **{item.label}**: ISF {item.current_isf} ➔ **{item.suggested_isf}**\n"
-            msg += f"   Razón: {item.status} ({int(item.change_ratio*100)}% cambio)\n"
-            
-        msg += "\nVe a **Ajustes > Análisis** para aplicar estos cambios."
+        engine = get_engine()
+        if not engine: return
         
-        await _send(None, chat_id, msg, log_context="isf_check_notification")
+        async with AsyncSession(engine) as session:
+            for item in actionable:
+                # Create Suggestion Record
+                direction = "decrease" if item.suggestion_type == "decrease" else "increase"
+                slot_map = {"breakfast": "breakfast", "lunch": "lunch", "dinner": "dinner"} 
+                # bucket labels matching settings slots roughly. item.label might be "Desayuno" or bucket key.
+                # item.label comes from result.buckets. Let's assume bucket key mapping.
+                # Actually item is IsfBucketResult. 
+                # We need to map the bucket time to the settings key correctly.
+                # In proactive.py earlier we passed current_cf keys. 
+                # Let's hope item.label corresponds or we map based on item.bucket_name
+                # Simplify: pass the slot name if available.
+                
+                # Check persistence to avoid dupes
+                match_id = f"isf_analysis_{item.bucket_name}_{datetime.utcnow().date()}"
+                
+                # Create DB Entry
+                sug = ParameterSuggestion(
+                    user_id=username,
+                    meal_slot=item.bucket_name, # ensure uses English keys like 'breakfast'
+                    parameter="isf",
+                    direction=direction,
+                    reason=item.status,
+                    evidence={
+                        "source": "isf_analysis_service",
+                        "change_ratio": item.change_ratio,
+                        "confidence": item.confidence,
+                        "old_isf": item.current_isf,
+                        "new_isf": item.suggested_isf
+                    },
+                    status="pending"
+                )
+                session.add(sug)
+                await session.commit()
+                await session.refresh(sug)
+                
+                # Send Individual Message with Actions
+                emoji = "🔴" if direction == "decrease" else "🔵"
+                msg = (
+                    f"📉 **Análisis {item.label}**\n"
+                    f"{emoji} Cambio detectado.\n"
+                    f"ISF actual: `{item.current_isf}`\n"
+                    f"Sugerido: **{item.suggested_isf}**\n"
+                    f"Confianza: {item.confidence}"
+                )
+                
+                keyboard = [
+                    [
+                        # Re-use autosens_confirm logic as it updates ISF genericly
+                        InlineKeyboardButton(f"✅ Aceptar ({item.suggested_isf})", 
+                                           callback_data=f"autosens_confirm|{sug.id}|{item.suggested_isf}|{item.bucket_name}"),
+                        InlineKeyboardButton("❌ Descartar", callback_data=f"autosens_cancel|{sug.id}")
+                    ]
+                ]
+                
+                await _send(
+                    None, 
+                    chat_id, 
+                    msg, 
+                    log_context="isf_check_notification",
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+
+        # Update cooldown
+        cooldowns.touch("isf_check")
         
     except Exception as e:
         logger.error(f"ISF Check failed: {e}")

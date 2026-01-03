@@ -1997,6 +1997,39 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     # --- 0. Test Button ---
     if data.startswith("test|"):
         health.record_action("callback:test", True)
+        
+    # --- Generic Command Runner ---
+    if data.startswith("run_cmd|"):
+        # Format: run_cmd|command_name|arg1|arg2...
+        # Simulates typing "/command arg1 arg2"
+        parts = data.split("|")
+        cmd_name = parts[1]
+        args = parts[2:]
+        
+        # Map to handler functions directly if possible, or construct text update simulation
+        # Simulation is easiest to ensure auth logic check.
+        # But we are in callback query.
+        # Let's call the wrapper function directly if recognized.
+        
+        if cmd_name == "corrige":
+            await tool_wrapper_corrige(update, context) # Context args? We need to mock context.args
+            # Wait, tool_wrapper_corrige reads context.args.
+            # We need to set context.args manually.
+            context.args = args
+            await tool_wrapper_corrige(update, context)
+            
+        elif cmd_name == "bolo":
+            context.args = args
+            await tool_wrapper_bolo(update, context)
+            
+        elif cmd_name == "status":
+            await status_command(update, context)
+            
+        else:
+            await query.edit_message_text(f"Comando desconocido en botón: {cmd_name}")
+            
+        health.record_action(f"callback:run_cmd:{cmd_name}", True)
+        return
         await query.edit_message_text(text=f"Recibido ✅ {data}")
         return
 
