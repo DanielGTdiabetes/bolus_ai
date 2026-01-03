@@ -262,7 +262,9 @@ async def get_status_context(username: str = "admin", user_settings: Optional[Us
                   if username == "admin":
                        target_user = await _resolve_user_id(session)
 
-                  start_of_day = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+                  # FIX: Remove timezone info to match naive DB column (TIMESTAMP WITHOUT TIME ZONE)
+                  # In AsyncPG, passing an aware datetime to a naive column causes "can't subtract offset-naive" error.
+                  start_of_day = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0, tzinfo=None)
                   
                   stmt = (
                       select(
