@@ -474,8 +474,18 @@ export default function BolusPage() {
                 }
             };
 
-            // Add Meal Meta for Learning
-            if (mealMetaRef.current) {
+            // Add Meal Meta for Learning (CRITICAL for Labs/Shadow Mode)
+            // We use the Ref if it exists (high fidelity from Vision/Scale), otherwise we construct from UI state.
+            const metaItems = (mealMetaRef.current?.items?.length > 0)
+                ? mealMetaRef.current.items
+                : (plateItems.length > 0 ? plateItems.map(i => i.name) : (foodName ? [foodName] : []));
+
+            const metaFat = mealMetaRef.current?.fat || (plateItems.reduce((acc, i) => acc + (i.fat || 0), 0)) || 0;
+            const metaProtein = mealMetaRef.current?.protein || (plateItems.reduce((acc, i) => acc + (i.protein || 0), 0)) || 0;
+            const metaFiber = mealMetaRef.current?.fiber || (plateItems.reduce((acc, i) => acc + (i.fiber || 0), 0)) || 0;
+
+            // Only attach meta if there's something to learn from (food exists)
+            if (metaItems.length > 0 || parseFloat(carbs) > 0) {
                 // If dual, we capture strategy
                 const strategy = (result.kind === 'dual' || result.kind === 'extended') ? {
                     kind: 'dual',
@@ -486,7 +496,10 @@ export default function BolusPage() {
                 } : { kind: 'normal', total: result.total_u_final };
 
                 treatment.meal_meta = {
-                    ...mealMetaRef.current,
+                    items: metaItems,
+                    fat: metaFat,
+                    protein: metaProtein,
+                    fiber: metaFiber,
                     strategy
                 };
             }
