@@ -285,8 +285,9 @@ async def ingest_nutrition(
                     # Let's just FORCE NOW for this integration to ensure it works for the "Live" use case.
                     # We can store the original TS in notes.
                     
-                    # Policy: If < 12h difference, Snap to NOW. If > 12h, assumes backfill history.
-                    if abs(diff) < 43200: # 12 hours
+                    # Policy: Only Snap to NOW if the delay is short (e.g., < 20 mins) 
+                    # to avoid bringing historical meals (breakfast) to present (dinner) causing duplication.
+                    if abs(diff) < 1200: # 20 minutes
                          item_ts = now_utc
                          logger.info(f"Snapping import time {ts_str} to NOW for calculator visibility.")
                          
