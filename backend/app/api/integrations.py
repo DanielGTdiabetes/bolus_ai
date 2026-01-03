@@ -302,18 +302,18 @@ async def ingest_nutrition(
 
                     # Check divergence
                     diff = (now_utc - item_ts).total_seconds()
-                    
+
                     # SNAP POLICY
-                    # 1. If date is > 24 hours old -> IGNORE (History dump).
+                    # 1. If date is > 24 hours away (past or future) -> IGNORE (History dump / stale export).
                     # 2. If date is > 30 mins old but < 24h -> SNAP TO NOW (Timezone fix/Delay).
                     # 3. If date is "future" (> 5 mins ahead) -> SNAP TO NOW.
-                    
+
                     force_now = False
-                    
-                    if diff > 86400: # Older than 24 hours
-                        logger.info(f"Skipping old meal from {ts_str} (Diff: {diff/3600:.1f}h). Too old to import.")
+
+                    if abs(diff) > 86400: # Older than 24 hours (in past) OR too far in the future
+                        logger.info(f"Skipping meal from {ts_str} (Diff: {abs(diff)/3600:.1f}h). Outside 24h window.")
                         continue
-                        
+
                     if diff > 1800 or diff < -300:
                         logger.info(f"Snapping import time {ts_str} to NOW for calculator visibility.")
                         item_ts = now_utc
@@ -350,6 +350,7 @@ async def ingest_nutrition(
                 dedup_window_start = (item_ts - timedelta(hours=check_window_hours)).replace(tzinfo=None)
                 
                 stmt = select(Treatment).where(
+                    Treatment.user_id == username,
                     Treatment.created_at >= dedup_window_start,
                     Treatment.created_at <= dedup_window_end,
                     Treatment.carbs >= (t_carbs - 0.1),
