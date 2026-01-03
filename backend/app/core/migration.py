@@ -35,8 +35,10 @@ async def ensure_basal_schema(engine: AsyncEngine):
                     await conn.commit()
                     logger.info("Column checkin_date added.")
                 except Exception as e:
+                    await conn.rollback()
                     logger.warning(f"Failed to add column checkin_date (might exist): {e}")
         except Exception as e:
+            await conn.rollback()
             logger.warning(f"Error checking schema: {e}. Assuming we might need to fix.")
 
         # Ensure other columns: source, age_min
@@ -47,6 +49,7 @@ async def ensure_basal_schema(engine: AsyncEngine):
                 await conn.commit()
                 logger.info(f"Column {col} added.")
             except Exception:
+                await conn.rollback()
                 pass # Assume exists
 
 
@@ -99,10 +102,12 @@ async def ensure_treatment_columns(engine: AsyncEngine):
                         await conn.execute(text(f"UPDATE treatments SET {col_name} = {default_val} WHERE {col_name} IS NULL;"))
                         await conn.commit()
             except Exception as e:
+                await conn.rollback()
                 # Fallback for SQLite (no information_schema)
                 # Just try adding it and ignore error
                 try: 
                      await conn.execute(text(f"ALTER TABLE treatments ADD COLUMN {col_name} {col_type};"))
                      await conn.commit()
                 except Exception:
+                    await conn.rollback()
                     pass
