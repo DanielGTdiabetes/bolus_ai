@@ -141,11 +141,34 @@ async def ingest_nutrition(
                             # Actually, usually unique per type per time.
                             parsed_meals[raw_date][metric_type] += raw_qty
         
-        # If flat format was sent (fallback)
         else:
-             # Try flat parser logic from before
-             # ... (omitted for brevity, relying on user confirming complex format)
-             pass
+             # Support for "Type", "Value" flat format (Shortcuts/Raw Export)
+             if "Type" in payload and "Value" in payload:
+                 p_type = payload.get("Type", "")
+                 p_val = payload.get("Value", 0)
+                 p_date = payload.get("Date") or payload.get("StartDate")
+                 
+                 # Map Type
+                 metric_type = None
+                 if p_type in ["DietaryFiber", "Fiber", "DietaryFiber"]: metric_type = "fib"
+                 elif p_type in ["DietaryCarbohydrates", "Carbohydrates", "Carbs"]: metric_type = "c"
+                 elif p_type in ["DietaryFatTotal", "Fat", "DietaryFat"]: metric_type = "f"
+                 elif p_type in ["DietaryProtein", "Protein"]: metric_type = "p"
+                 
+                 if metric_type:
+                     try:
+                         val = float(p_val)
+                         # Use Date or Now
+                         ts_key = p_date or datetime.now(timezone.utc).isoformat()
+                         
+                         if ts_key not in parsed_meals:
+                             parsed_meals[ts_key] = {"c":0.0, "f":0.0, "p":0.0, "fib":0.0, "ts": ts_key}
+                         
+                         parsed_meals[ts_key][metric_type] += val
+                         logger.info(f"Parsed Flat Payload: {metric_type}={val} from {p_type}")
+                         
+                     except ValueError:
+                         pass
 
         if not parsed_meals:
              return {"success": False, "message": "No parseable metrics found in payload"}
