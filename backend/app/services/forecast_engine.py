@@ -172,20 +172,28 @@ class ForecastEngine:
             
             # Carbs
             step_carb_impact_rate = 0.0
+            total_carb_rise_at_t = 0.0
+            
+            # Metadata for absorption tracking (summary of the first carb event or merged)
+            # Usually there's only one main carb event in these simulations.
+            chosen_profile = "none"
+            chosen_confidence = "low"
+            chosen_reasons = []
+
             for c in req.events.carbs:
                 t_since_meal = t_mid - c.time_offset_min
                 
                 # Selection of Carb Model
-                if c.carb_profile:
-                    params = CarbCurves.get_profile_params(c.carb_profile)
-                    rate = CarbCurves.biexponential_absorption(t_since_meal, params)
-                elif c.fiber_g > 0 or c.fat_g > 0 or c.protein_g > 0:
-                    params = CarbCurves.get_biexponential_params(c.grams, c.fiber_g, c.fat_g, c.protein_g)
-                    rate = CarbCurves.biexponential_absorption(t_since_meal, params)
-                else:
-                    # Default: Medium profile
-                    params = CarbCurves.get_profile_params("med")
-                    rate = CarbCurves.biexponential_absorption(t_since_meal, params)
+                profile_res = ForecastEngine._decide_absorption_profile(c)
+                
+                # If multiple carb events, we take the dominant one (latest/biggest) for reporting metadata
+                if chosen_profile == "none" or (c.grams > 10 and t_since_meal < 60):
+                    chosen_profile = profile_res["profile"]
+                    chosen_confidence = profile_res["confidence"]
+                    chosen_reasons = profile_res["reasons"]
+
+                params = CarbCurves.get_profile_params(profile_res["profile"])
+                rate = CarbCurves.biexponential_absorption(t_since_meal, params)
                 
                 this_icr = c.icr if c.icr and c.icr > 0 else req.params.icr
                 this_cs = (req.params.isf / this_icr) if this_icr > 0 else 0.0
@@ -222,31 +230,50 @@ class ForecastEngine:
                     # Integral of decaying slope
                     dev_val_at_t = deviation_slope * dt_eff - (deviation_slope * (dt_eff**2) / (2 * momentum_duration))
 
-            # --- 3. The "Golden Rule" / Anti-Panic Damping ---
-            # If we have a matched bolus+carb event, we ensure that the prediction 
-            # doesn't generate "sawtooth" hypos just because of model lag.
+            # --- 3. Advanced Anti-Panic Gating (The "Golden Rule" V2) ---
+            # Replaces fixed 1-hour amortization with intelligent meal-linked gating.
             
             insulin_net = accum_insulin_impact
             carb_net = accum_carb_impact
             
-            # If the model says we are dropping hard (insulin > carbs) but it's a recent meal 
-            # where insulin was calculated FOR those carbs, we apply a damping factor to the insulin drop 
-            # in the FIRST 60 minutes to prevent "Flash Hypos" if the user body is actually slower to absorb insulin.
-            if t < 60 and abs(insulin_net) > carb_net:
-                # Is there a matched meal? (One bolus and one carb within 10 mins of each other)
-                is_matched = False
-                for b in req.events.boluses:
-                    for c in req.events.carbs:
-                        if abs(b.time_offset_min - c.time_offset_min) <= 10:
-                            is_matched = True
-                            break
-                    if is_matched: break
+            # GATING CRITERIA:
+            # 1. Carbs >= threshold (10g)
+            # 2. Associated bolus in +/- 15 min
+            # 3. Not a pure correction (c.grams > 0)
+            
+            is_linked_meal = False
+            linked_carbs = 0.0
+            linked_bolus_u = 0.0
+            
+            for c in req.events.carbs:
+                if c.grams >= 10:
+                    for b in req.events.boluses:
+                        if abs(b.time_offset_min - c.time_offset_min) <= 15:
+                            is_linked_meal = True
+                            linked_carbs += c.grams
+                            linked_bolus_u += b.units
+            
+            # If linked meal detected and we are in the early phase (decays over 90 mins)
+            if is_linked_meal and t < 90:
+                # Calculate physics-based drop
+                net_drop = abs(insulin_net) - carb_net
                 
-                if is_matched:
-                    # Soften the drop in the first hour to avoid panic
-                    # We blend the drop: 50% impact at t=10, 100% impact at t=60
-                    damp_factor = 0.5 + (0.5 * min(t/60.0, 1.0))
-                    insulin_net *= damp_factor
+                if net_drop > 0:
+                    # Safety Guards: Disable damping if risks are detected
+                    # A) Fast drop in simulation
+                    instant_slope = (net_bg - series[-1].bg) if series else 0
+                    
+                    # B) Predicted BG is already low
+                    is_low_risk = net_bg < 80
+                    
+                    # C) Reality is already dropping fast (momentum)
+                    is_fast_dropping = deviation_slope < -1.5
+                    
+                    if not (is_low_risk or is_fast_dropping):
+                        # Apply decay damping factor (1.0 at 90m, ~0.6 at start)
+                        # Decays progressively to avoid sudden jumps.
+                        damp_factor = 0.6 + (0.4 * (t / 90.0))
+                        insulin_net *= damp_factor
 
             # Combine
             net_bg = current_bg + dev_val_at_t + insulin_net + carb_net + accum_basal_impact
@@ -298,7 +325,10 @@ class ForecastEngine:
             components=components,
             summary=summary,
             quality=quality,
-            warnings=warnings
+            warnings=warnings,
+            absorption_profile_used=chosen_profile,
+            absorption_confidence=chosen_confidence,
+            absorption_reasons=chosen_reasons
         )
     
     @staticmethod
@@ -356,3 +386,62 @@ class ForecastEngine:
             slope = MAX_SLOPE if slope > 0 else -MAX_SLOPE
             
         return slope, warnings
+
+    @staticmethod
+    def _decide_absorption_profile(c) -> dict:
+        """
+        Deterministically decides the best absorption profile based on macros.
+        Returns: {profile: 'fast'|'med'|'slow', confidence: 'high'|'medium'|'low', reasons: []}
+        """
+        # 1. Manual Override
+        if c.carb_profile:
+            return {
+                "profile": c.carb_profile,
+                "confidence": "high",
+                "reasons": ["Selección manual del usuario"]
+            }
+        
+        # 2. Heuristics
+        reasons = []
+        profile = "med"
+        confidence = "low"
+        
+        if c.grams <= 0:
+            return {"profile": "none", "confidence": "high", "reasons": []}
+            
+        fat_protein = c.fat_g + c.protein_g
+        
+        # Rule B: Fats + Protein high => Slow
+        if fat_protein > 30: # Multi-hour delay sign
+            profile = "slow"
+            confidence = "high"
+            reasons.append(f"Grasas+Proteínas altas ({fat_protein}g)")
+        elif fat_protein > 15:
+            profile = "slow"
+            confidence = "medium"
+            reasons.append(f"Grasas+Proteínas ({fat_protein}g)")
+            
+        # Rule C: Fiber high => Slow/Medium modifier
+        if c.fiber_g > 10:
+            profile = "slow"
+            confidence = "high"
+            reasons.append(f"Fibra muy alta ({c.fiber_g}g)")
+        elif c.fiber_g > 5 and profile == "med":
+            profile = "med" # Stays medium but adds confidence
+            confidence = "medium"
+            reasons.append(f"Fibra ({c.fiber_g}g)")
+
+        # Rule D: Liquid sugars (Placeholder - typically would come from a 'tags' field or food name)
+        # For now, if carbs > 0 and everything else is 0, we treat it as faster than normal if it's small, 
+        # but standard "med" is safer for "No Info".
+        
+        if not reasons:
+            profile = "med"
+            confidence = "low"
+            reasons.append("Sin información adicional de macros")
+            
+        return {
+            "profile": profile,
+            "confidence": confidence,
+            "reasons": reasons
+        }

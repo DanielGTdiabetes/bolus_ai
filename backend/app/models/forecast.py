@@ -94,5 +94,11 @@ class ForecastResponse(BaseModel):
     
     quality: Literal["high", "medium", "low"] = "high"
     warnings: List[str] = []
+    
+    # NEW: Absorption Profile Feedback
+    absorption_profile_used: Optional[str] = None # 'fast', 'med', 'slow', 'none'
+    absorption_confidence: Literal["high", "medium", "low"] = "medium"
+    absorption_reasons: List[str] = []
+
     slow_absorption_active: bool = False # Flag for Visual Feedback (Comida Grasa / Dual)
     slow_absorption_reason: Optional[str] = None # Reason for slow mode (e.g. Alcohol, Dual Bolus)

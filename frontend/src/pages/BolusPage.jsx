@@ -26,7 +26,7 @@ export default function BolusPage() {
     // State
     const [glucose, setGlucose] = useState('');
     const [carbs, setCarbs] = useState('');
-    const [carbProfile, setCarbProfile] = useState('med'); // 'fast', 'med', 'slow'
+    const [carbProfile, setCarbProfile] = useState(null); // null = Auto, 'fast', 'med', 'slow'
     const [foodName, setFoodName] = useState('');
     const [suggestedStrategy, setSuggestedStrategy] = useState(null); // Strategy from favorites
     const [date, setDate] = useState(() => {
@@ -44,6 +44,7 @@ export default function BolusPage() {
     const [dessertMode, setDessertMode] = useState(false);
     const [dualEnabled, setDualEnabled] = useState(false);
     const [alcoholEnabled, setAlcoholEnabled] = useState(false);
+    const [showAdvancedCarbs, setShowAdvancedCarbs] = useState(false);
     const [plateItems, setPlateItems] = useState([]);
 
     // Exercise / Activity State
@@ -828,30 +829,54 @@ export default function BolusPage() {
                                 <span style={{ position: 'absolute', right: '1rem', top: '1rem', color: 'var(--text-muted)' }}>g</span>
                             </div>
 
-                            {/* Carb Profile Selector */}
+                            {/* Carb Profile Info / Auto Selector */}
                             {!correctionOnly && parseFloat(carbs) > 0 && (
-                                <div className="fade-in" style={{ display: 'flex', gap: '8px', marginTop: '10px' }}>
-                                    {[
-                                        { id: 'fast', label: '⚡ Rápida', color: '#ef4444' },
-                                        { id: 'med', label: '🥗 Media', color: '#10b981' },
-                                        { id: 'slow', label: '🍕 Lenta', color: '#f59e0b' }
-                                    ].map(p => (
+                                <div className="fade-in" style={{ marginTop: '10px' }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                                        <div style={{ fontSize: '0.85rem', color: '#64748b', fontWeight: 600 }}>
+                                            Absorción: <span style={{ color: 'var(--primary)' }}>
+                                                {carbProfile === 'fast' ? '⚡ Rápida' : (carbProfile === 'slow' ? '🍕 Lenta' : (carbProfile === 'med' ? '🥗 Media' : '🤖 Auto'))}
+                                            </span>
+                                        </div>
                                         <button
-                                            key={p.id}
-                                            onClick={() => setCarbProfile(p.id)}
-                                            style={{
-                                                flex: 1, padding: '6px', borderRadius: '8px', fontSize: '0.8rem',
-                                                border: '1px solid',
-                                                borderColor: carbProfile === p.id ? p.color : '#e2e8f0',
-                                                background: carbProfile === p.id ? p.color : '#fff',
-                                                color: carbProfile === p.id ? '#fff' : '#64748b',
-                                                fontWeight: carbProfile === p.id ? 700 : 400,
-                                                transition: 'all 0.2s'
-                                            }}
+                                            onClick={() => setShowAdvancedCarbs(!showAdvancedCarbs)}
+                                            style={{ background: 'none', border: 'none', color: '#3b82f6', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer', padding: 0 }}
                                         >
-                                            {p.label}
+                                            {showAdvancedCarbs ? 'Ocultar' : 'Ajustar'}
                                         </button>
-                                    ))}
+                                    </div>
+
+                                    {showAdvancedCarbs && (
+                                        <div className="stack fade-in" style={{ gap: '8px', padding: '10px', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                                            <div style={{ display: 'flex', gap: '8px' }}>
+                                                {[
+                                                    { id: null, label: '🤖 Auto', color: '#6366f1' },
+                                                    { id: 'fast', label: '⚡ Rápida', color: '#ef4444' },
+                                                    { id: 'med', label: '🥗 Media', color: '#10b981' },
+                                                    { id: 'slow', label: '🍕 Lenta', color: '#f59e0b' }
+                                                ].map(p => (
+                                                    <button
+                                                        key={p.id}
+                                                        onClick={() => setCarbProfile(p.id)}
+                                                        style={{
+                                                            flex: 1, padding: '6px', borderRadius: '6px', fontSize: '0.75rem',
+                                                            border: '1px solid',
+                                                            borderColor: carbProfile === p.id ? p.color : '#cbd5e1',
+                                                            background: carbProfile === p.id ? p.color : '#fff',
+                                                            color: carbProfile === p.id ? '#fff' : '#64748b',
+                                                            fontWeight: carbProfile === p.id ? 700 : 400,
+                                                            transition: 'all 0.2s'
+                                                        }}
+                                                    >
+                                                        {p.label}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                            <p style={{ fontSize: '0.7rem', color: '#94a3b8', margin: 0, textAlign: 'center' }}>
+                                                El modo Auto decide la curva según macros e inulina.
+                                            </p>
+                                        </div>
+                                    )}
                                 </div>
                             )}
 
@@ -1340,45 +1365,93 @@ function ResultView({ result, slot, usedParams, onBack, onSave, saving, currentC
 
                 {(predictionData || simulating) && (
                     <div className="fade-in" style={{
-                        padding: '0.8rem',
+                        padding: '1rem',
                         marginBottom: '1.5rem',
-                        borderRadius: '12px',
-                        background: (!predictionData || simulating) ? '#f8fafc' : (predictionData.summary.min_bg < 70 ? '#fef2f2' : '#f0fdf4'),
-                        border: (!predictionData || simulating) ? '1px dashed #cbd5e1' : (predictionData.summary.min_bg < 70 ? '1px solid #fecaca' : '1px solid #bbf7d0'),
-                        display: 'flex', flexDirection: 'column', alignItems: 'center', transition: 'all 0.3s ease'
+                        borderRadius: '16px',
+                        background: '#f8fafc',
+                        border: '1px solid #e2e8f0',
+                        display: 'flex', flexDirection: 'column', transition: 'all 0.3s ease'
                     }}>
-                        {!simulating && predictionData && predictionData.summary.min_bg < 70 && (
-                            <div style={{
-                                color: '#b91c1c', fontWeight: 800, fontSize: '0.85rem',
-                                marginBottom: '0.8rem', width: '100%', textAlign: 'center',
-                                background: 'rgba(254, 202, 202, 0.3)', padding: '6px',
-                                borderRadius: '6px', border: '1px solid #fecaca'
-                            }}>
-                                ⚠️ SE ESPERA BAJA
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1rem' }}>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                <span style={{ fontSize: '0.85rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>
+                                    Pronóstico Metabólico
+                                </span>
+                                {!simulating && predictionData?.absorption_profile_used && (
+                                    <div style={{ fontSize: '0.75rem', color: '#94a3b8', display: 'flex', gap: '6px', alignItems: 'center' }}>
+                                        <span style={{ fontWeight: 600 }}>
+                                            {predictionData.absorption_profile_used === 'fast' ? '⚡ Rápida' :
+                                                predictionData.absorption_profile_used === 'slow' ? '🍕 Lenta' :
+                                                    predictionData.absorption_profile_used === 'med' ? '🥗 Media' : '⚪ Sin carbs'}
+                                        </span>
+                                        <span style={{
+                                            padding: '1px 5px', borderRadius: '4px', fontSize: '0.65rem', fontWeight: 800,
+                                            background: predictionData.absorption_confidence === 'high' ? '#dcfce7' : (predictionData.absorption_confidence === 'medium' ? '#fef9c3' : '#fee2e2'),
+                                            color: predictionData.absorption_confidence === 'high' ? '#166534' : (predictionData.absorption_confidence === 'medium' ? '#854d0e' : '#991b1b')
+                                        }}>
+                                            Confianza {predictionData.absorption_confidence === 'high' ? 'Alta' : (predictionData.absorption_confidence === 'medium' ? 'Media' : 'Baja')}
+                                        </span>
+                                    </div>
+                                )}
                             </div>
-                        )}
+                            <div style={{ textAlign: 'right' }}>
+                                {simulating ? (
+                                    <div style={{ fontSize: '0.8rem', color: '#64748b', fontStyle: 'italic' }}>Calculando...</div>
+                                ) : (
+                                    <>
+                                        <div style={{ fontSize: '1.2rem', fontWeight: 800, color: '#1e293b' }}>
+                                            {Math.round(predictionData.summary.ending_bg)}<span style={{ fontSize: '0.7rem', color: '#64748b', marginLeft: '2px' }}>mg/dL</span>
+                                        </div>
+                                        <div style={{ fontSize: '0.7rem', color: '#94a3b8' }}>En 4 horas</div>
+                                    </>
+                                )}
+                            </div>
+                        </div>
 
-                        <div style={{ display: 'flex', justifyContent: 'space-around', alignItems: 'center', width: '100%' }}>
+                        {/* Chart Area */}
+                        <div style={{ height: '160px', width: '100%', position: 'relative', marginBottom: '1rem' }}>
                             {simulating ? (
-                                <div style={{ color: '#64748b', fontSize: '0.9rem', fontStyle: 'italic' }}>🔮 Calculando futuro...</div>
+                                <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                    <div className="pulse-animation" style={{ width: '40px', height: '40px', borderRadius: '50%', background: '#e2e8f0' }}></div>
+                                </div>
                             ) : (
-                                <>
-                                    <div style={{ textAlign: "center" }}>
-                                        <div style={{ fontSize: "0.75rem", color: "#64748b", textTransform: 'uppercase', letterSpacing: '0.5px' }}>Mínimo</div>
-                                        <div style={{ fontSize: "1.2rem", fontWeight: 800, color: predictionData.summary.min_bg < 70 ? '#dc2626' : '#166534' }}>
-                                            {Math.round(predictionData.summary.min_bg)}
-                                        </div>
-                                    </div>
-                                    <div style={{ height: '30px', width: '1px', background: '#cbd5e1' }}></div>
-                                    <div style={{ textAlign: "center" }}>
-                                        <div style={{ fontSize: "0.75rem", color: "#64748b", textTransform: 'uppercase', letterSpacing: '0.5px' }}>Final (6h)</div>
-                                        <div style={{ fontSize: "1.2rem", fontWeight: 800, color: "#334155" }}>
-                                            {Math.round(predictionData.summary.ending_bg)}
-                                        </div>
-                                    </div>
-                                </>
+                                <MainGlucoseChart
+                                    predictionData={predictionData}
+                                    height={160}
+                                    hideLegend
+                                    syncId="bolus-preview"
+                                    showTargetBand
+                                    targetLow={resolvedParams.target - 20}
+                                    targetHigh={resolvedParams.target + 20}
+                                />
                             )}
                         </div>
+
+                        {/* Indicators Row */}
+                        {!simulating && predictionData && (
+                            <div style={{ display: 'flex', justifyContent: 'space-around', alignItems: 'center', width: '100%', borderTop: '1px solid #e2e8f0', paddingTop: '10px' }}>
+                                <div style={{ textAlign: "center" }}>
+                                    <div style={{ fontSize: "0.65rem", color: "#64748b", textTransform: 'uppercase' }}>Mínimo</div>
+                                    <div style={{ fontSize: "1rem", fontWeight: 800, color: predictionData.summary.min_bg < 70 ? '#dc2626' : '#166534' }}>
+                                        {Math.round(predictionData.summary.min_bg)}
+                                    </div>
+                                </div>
+                                <div style={{ height: '20px', width: '1px', background: '#cbd5e1' }}></div>
+                                <div style={{ textAlign: "center" }}>
+                                    <div style={{ fontSize: "0.65rem", color: "#64748b", textTransform: 'uppercase' }}>Máximo</div>
+                                    <div style={{ fontSize: "1rem", fontWeight: 800, color: "#1e293b" }}>
+                                        {Math.round(predictionData.summary.max_bg)}
+                                    </div>
+                                </div>
+                                <div style={{ height: '20px', width: '1px', background: '#cbd5e1' }}></div>
+                                <div style={{ textAlign: "center" }}>
+                                    <div style={{ fontSize: "0.65rem", color: "#64748b", textTransform: 'uppercase' }}>Pico en</div>
+                                    <div style={{ fontSize: "1rem", fontWeight: 800, color: "#1e293b" }}>
+                                        {predictionData.summary.time_to_min}m
+                                    </div>
+                                </div>
+                            </div>
+                        )}
                     </div>
                 )}
 
