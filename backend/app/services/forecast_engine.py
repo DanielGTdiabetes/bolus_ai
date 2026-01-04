@@ -235,6 +235,9 @@ class ForecastEngine:
             insulin_net = accum_insulin_impact
             carb_net = accum_carb_impact
             
+            # Pre-calculate BG for safety checks (before potential damping)
+            current_predicted_bg = current_bg + dev_val_at_t + insulin_net + carb_net + accum_basal_impact
+
             # GATING CRITERIA:
             # 1. Carbs >= threshold (10g)
             # 2. Associated bolus in +/- 15 min
@@ -260,10 +263,10 @@ class ForecastEngine:
                 if net_drop > 0:
                     # Safety Guards: Disable damping if risks are detected
                     # A) Fast drop in simulation
-                    instant_slope = (net_bg - series[-1].bg) if series else 0
+                    instant_slope = (current_predicted_bg - series[-1].bg) if series else 0
                     
                     # B) Predicted BG is already low
-                    is_low_risk = net_bg < 80
+                    is_low_risk = current_predicted_bg < 80
                     
                     # C) Reality is already dropping fast (momentum)
                     is_fast_dropping = deviation_slope < -1.5
