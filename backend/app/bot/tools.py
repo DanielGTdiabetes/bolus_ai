@@ -1418,7 +1418,14 @@ async def check_supplies_stock(tool_input: dict[str, Any]) -> SupplyCheckResult 
 
     except Exception as e:
         logger.exception("Error checking supplies")
-        return ToolError(type="runtime_error", message=str(e))
+        # Debug to file
+        try:
+            with open("debug_supplies_error.txt", "w") as f:
+                f.write(str(e))
+                import traceback
+                f.write(traceback.format_exc())
+        except: pass
+        return ToolError(type="runtime_error", message=f"Error consultando stock: {str(e)}")
 
 
 async def update_supply_quantity(tool_input: dict[str, Any]) -> SupplyCheckResult | ToolError:

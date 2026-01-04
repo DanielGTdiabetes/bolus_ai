@@ -122,6 +122,18 @@ async def migrate_schema(conn):
         # 6. fiber_g (meal_entries)
         await conn.execute(text("ALTER TABLE meal_entries ADD COLUMN IF NOT EXISTS fiber_g FLOAT DEFAULT 0.0"))
 
+        # 7. supply_items (Ensure table exists if model sync failed)
+        await conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS supply_items (
+                id UUID PRIMARY KEY,
+                user_id VARCHAR NOT NULL,
+                item_key VARCHAR NOT NULL,
+                quantity INTEGER DEFAULT 0,
+                updated_at TIMESTAMP,
+                CONSTRAINT uq_user_supply_item UNIQUE (user_id, item_key)
+            )
+        """))
+
         
         # Commit changes if using a connection that requires it (begin() usually handles this, but let's be safe)
         await conn.commit()

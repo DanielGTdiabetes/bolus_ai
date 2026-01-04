@@ -1,29 +1,17 @@
-# Suministros (Stock Check)
+# Suministros (Stock Check) - Debugging
 
-## Funcionalidad Implementada
-El usuario solicitó que el bot tuviese acceso al stock de suministros (agujas y sensores) para avisar proactivamente cuando queden pocos.
-Confirmó que estos datos ya existen en el menú de "Suministros" (tabla `supply_items`).
+## Situación
+El bot respondió con un error al intentar consultar el stock.
+El usuario confirma que los datos existen en el menú de suministros (API funcional).
 
-He implementado lo siguiente:
-
-1.  **Herramientas del Bot (`tools.py`)**:
-    *   `check_supplies_stock`: Consulta la base de datos `supply_items` y devuelve una lista de items con advertencias si están por debajo del umbral (Agujas < 10, Sensores < 3, Reservorios < 3).
-    *   `update_supply_quantity`: Permite al usuario (o al bot mediante comandos) actualizar el stock manualmente.
-
-2.  **Registro de Capacidades (`registry.py`)**:
-    *   Se registraron las nuevas herramientas en el bot.
-    *   Se creó un nuevo **Job** (`supplies_check`) que ejecuta `bot_proactive.check_supplies_status`.
-
-3.  **Lógica Proactiva (`proactive.py`)**:
-    *   Se añadió la función `check_supplies_status` que:
-        *   Verifica el stock.
-        *   Envía un mensaje proactivo al usuario si detecta niveles bajos.
-        *   Tiene un "cooldown" de ~21h para no spamear (aviso diario).
-
-## Estado
-- Código implementado y corregido (errores de sintaxis en `registry.py` resueltos).
-- Servidor reiniciado correctamente para aplicar los cambios y registrar las nuevas herramientas.
+## Acciones Realizadas
+1.  **Instrumentación de Debug**: Se modificó `tools.py` para escribir el error exacto en un archivo local `debug_supplies_error.txt` si falla la consulta.
+2.  **Garantía de Esquema**: Se añadió un paso de migración explícito en `db.py` para asegurar que la tabla `supply_items` exista y sea accesible, por si hubiese discrepancias de inicialización.
+3.  **Análisis de Causa Potencial**:
+    *   Posible fallo en la sesión de base de datos (`AsyncSession`) dentro de la herramienta.
+    *   Posible fallo de permisos o resolución de usuario.
 
 ## Próximos Pasos
-- Verificar que el job se ejecute correctamente en el planificador (ya está registrado).
-- El usuario puede probar preguntando "¿Cuántas agujas me quedan?" o esperar al aviso automático.
+1.  **Solicitar al Usuario Reintentar**: Pedir al usuario que pregunte de nuevo por las agujas.
+2.  **Verificar Logs**: Si falla de nuevo, consultaré el archivo `debug_supplies_error.txt` para ver el traceback exacto (ahora que el código está instrumentado).
+3.  **Confirmar Resolución**: Si funciona, el error podría haber sido transitorio o resuelto por la recarga del esquema.
