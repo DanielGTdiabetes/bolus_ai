@@ -273,7 +273,16 @@ def _build_tools() -> list[ToolDef]:
             permission=Permission.user_write,
         ),
         ToolDef(
+            name="get_last_injection_site",
+            description="Consultar dónde se realizó la última inyección. Útil para recordar el sitio previo.",
+            input_schema={"type": "object", "properties": {"plan": {"type": "string", "enum": ["rapid", "basal"]}}},
+            output_schema={"type": "object", "properties": {"name": {"type": "string"}}},
+            fn=bot_tools.get_last_injection_site,
+            permission=Permission.public_read,
+        ),
+        ToolDef(
             name="search_food",
+
             description="Buscar comida en favoritos por nombre.",
             input_schema={"type": "object", "properties": {"query": {"type": "string"}}},
             output_schema={"type": "object", "properties": {"found": {"type": "boolean"}, "items": {"type": "array"}}},

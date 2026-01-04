@@ -82,3 +82,14 @@ class RotationService:
         idx = state.get("last_index", -1)
         next_idx = (idx + 1) % len(site_list)
         return site_list[next_idx]
+
+    def get_last_site_preview(self, username: str, plan: str = "rapid") -> InjectionSite | None:
+        """Peak at the last used site."""
+        state = self.get_current_state(username, plan)
+        site_list = self._get_list(plan)
+        
+        idx = state.get("last_index", -1)
+        if idx == -1:
+            return None
+        return site_list[idx]
+

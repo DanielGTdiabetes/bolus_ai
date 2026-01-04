@@ -240,11 +240,15 @@ async def handle_text(username: str, chat_id: int, user_text: str, context_data:
                          last_image_path = rs.get("image")
             
             # Capture Image from Injection Site
-            if tool_name == "add_treatment" and not isinstance(tool_res, ToolError):
+            if tool_name in ["add_treatment", "get_injection_site", "get_last_injection_site"] and not isinstance(tool_res, ToolError):
+                # check both .injection_site (add_treatment) and direct image (InjectionSiteResult)
                 if hasattr(tool_res, "injection_site") and tool_res.injection_site:
                      site = tool_res.injection_site
                      if isinstance(site, dict) and site.get("image"):
                          last_image_path = site.get("image")
+                elif hasattr(tool_res, "image") and tool_res.image:
+                     last_image_path = tool_res.image
+
             
             # Serialize result
             if isinstance(tool_res, ToolError):

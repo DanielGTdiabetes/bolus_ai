@@ -772,12 +772,13 @@ async def get_injection_site(tool_input: dict[str, Any]) -> InjectionSiteResult 
         store = DataStore(Path(settings.data.data_dir))
         rotator = RotationService(store)
         
-        # We can implement 'rotate=True' if user confirms, but for query we just peek
-        # Actually user usually asks "Where do I inject?". If they confirm bolus, we rotate.
-        # But if they just ask, maybe we show current or next?
-        # Let's show NEXT (preview)
-        
-        site = rotator.get_next_site_preview("admin") # Default user
+        engine = get_engine()
+        user_id = "admin"
+        if engine:
+             async with AsyncSession(engine) as session:
+                  user_id = await _resolve_user_id(session)
+
+        site = rotator.get_next_site_preview(user_id) # Uses resolved user
         
         return InjectionSiteResult(
             id=site.id,
@@ -788,6 +789,38 @@ async def get_injection_site(tool_input: dict[str, Any]) -> InjectionSiteResult 
     except Exception as e:
         logger.error(f"Error getting injection site: {e}")
         return ToolError(type="runtime_error", message=str(e))
+
+
+async def get_last_injection_site(tool_input: dict[str, Any]) -> InjectionSiteResult | ToolError:
+    try:
+        # Load store
+        settings = get_settings()
+        store = DataStore(Path(settings.data.data_dir))
+        rotator = RotationService(store)
+        
+        engine = get_engine()
+        user_id = "admin"
+        if engine:
+             async with AsyncSession(engine) as session:
+                  user_id = await _resolve_user_id(session)
+
+        # We can detect plan from input if needed, but default to rapid for now
+        plan = tool_input.get("plan", "rapid")
+        site = rotator.get_last_site_preview(user_id, plan=plan)
+        
+        if not site:
+             return ToolError(type="not_found", message="No hay registros de inyecciones previas.")
+
+        return InjectionSiteResult(
+            id=site.id,
+            name=site.name,
+            emoji=site.emoji,
+            image=site.image_ref
+        )
+    except Exception as e:
+        logger.error(f"Error getting last injection site: {e}")
+        return ToolError(type="runtime_error", message=str(e))
+
 
 async def search_food(tool_input: dict[str, Any]) -> SearchFoodResult | ToolError:
     query = tool_input.get("query", "").lower()
@@ -1008,7 +1041,9 @@ async def add_treatment(tool_input: dict[str, Any]) -> AddTreatmentResult | Tool
              try:
                  if store:
                      rotator = RotationService(store)
-                     rotation_site = rotator.rotate_site(target_user, plan="rapid")
+                     check_str = (notes or "") + (payload.event_type or "")
+                     plan = "basal" if "basal" in check_str.lower() else "rapid"
+                     rotation_site = rotator.rotate_site(target_user, plan=plan)
              except Exception as e:
                  logger.warning(f"Rotation failed: {e}")
         except Exception as e: 
@@ -1286,6 +1321,17 @@ AI_TOOL_DECLARATIONS = [
         },
     },
     {
+        "name": "get_last_injection_site",
+        "description": "Consultar dónde se realizó la última inyección. Útil para recordar el sitio previo.",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "plan": {"type": "STRING", "enum": ["rapid", "basal"], "description": "Tipo de insulina"}
+            },
+        },
+    },
+
+    {
         "name": "start_restaurant_session",
         "description": "Inicia sesión modo restaurante. Define carbohidratos esperados totales.",
         "parameters": {
@@ -1423,6 +1469,9 @@ async def execute_tool(name: str, args: Dict[str, Any]) -> Any:
             return await search_food(args)
         if name == "get_injection_site":
             return await get_injection_site(args)
+        if name == "get_last_injection_site":
+            return await get_last_injection_site(args)
+
         if name == "start_restaurant_session":
             return await start_restaurant_session(
                 expected_carbs=float(args.get("expected_carbs")),

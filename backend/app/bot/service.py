@@ -49,82 +49,91 @@ from app.bot.user_settings_resolver import resolve_bot_user_settings
 from app.models.treatment import Treatment
 
 async def fetch_history_context(user_settings: UserSettings, hours: int = 6) -> str:
-    """Fetches simplified glucose history context using Nightscout."""
-    if not user_settings.nightscout.url:
-        return ""
+    """Fetches simplified glucose history context using Local DB as primary, Nightscout as fallback."""
+    now = datetime.now(timezone.utc)
+    start_time = now - timedelta(hours=hours)
+    
+    entries = []
+    source = "Bolus AI"
 
-    client = None
+    # 1. Try Local DB
     try:
-        client = NightscoutClient(
-            base_url=user_settings.nightscout.url,
-            token=user_settings.nightscout.token,
-            timeout_seconds=10
-        )
-        
-        # Calculate Time Range
-        now = datetime.now(timezone.utc)
-        start_time = now - timedelta(hours=hours)
-        
-        # Fetch Data (using existing get_sgv_range which accepts datetimes)
-        # Assuming ~12 entries/hour (5 min interval) => hours * 12 + buffer
-        count = int(hours * 12 * 1.5) 
-        entries = await client.get_sgv_range(start_dt=start_time, end_dt=now, count=count)
-        
-        if not entries:
-            return f"HISTORIA ({hours}h): No hay datos."
-
-        # Compute Stats
-        values = [e.sgv for e in entries if e.sgv is not None]
-        if not values: 
-            return f"HISTORIA ({hours}h): Datos vacíos."
-
-        avg = sum(values) / len(values)
-        min_v = min(values)
-        max_v = max(values)
-        
-        # Time in Range (70-180)
-        in_range = sum(1 for v in values if 70 <= v <= 180)
-        tir_pct = (in_range / len(values)) * 100
-        
-        # Mini-Graph (Every ~30 mins)
-        # We need to sort by date. Nightscout returns DESC usually? Let's sort by dateString/date.
-        # entries have 'date' (epoch).
-        sorted_entries = sorted(entries, key=lambda x: x.date)
-        
-        # Sample roughly every 30 mins
-        # If we have 12 entries/hour, 30 mins = 6 entries.
-        step = max(1, len(sorted_entries) // (hours * 2)) 
-        
-        graph_points = []
-        for i in range(0, len(sorted_entries), step):
-            e = sorted_entries[i]
-            # Simple ascii representation? No, just numbers is cleaner for LLM
-            # Maybe local time?
-            # AI is good with raw lists.
-            graph_points.append(str(e.sgv))
-            
-        # Limit graph points to ~20 to save tokens
-        if len(graph_points) > 20:
-             # Resample
-             step2 = len(graph_points) // 20 + 1
-             graph_points = graph_points[::step2]
-             
-        graph_str = " -> ".join(graph_points)
-        
-        summary = (
-            f"HISTORIA ({hours}h):\n"
-            f"- Promedio: {int(avg)} mg/dL\n"
-            f"- Rango (70-180): {int(tir_pct)}%\n"
-            f"- Min: {min_v} / Max: {max_v}\n"
-            f"- Tendencia (cada ~30m): {graph_str}"
-        )
-        return summary
-        
+        engine = get_engine()
+        if engine:
+            async with AsyncSession(engine) as session:
+                from sqlalchemy import text
+                # We need sgv and date. date in internal DB is usually ISO string or epoch.
+                # In entries table it's typically date_string (ISO) or date (epoch ms common in NS sync)
+                stmt = text("""
+                    SELECT sgv, date 
+                    FROM entries 
+                    WHERE date >= :start_ms 
+                    ORDER BY date ASC
+                """)
+                # NS epoch is ms
+                start_ms = int(start_time.timestamp() * 1000)
+                res = await session.execute(stmt, {"start_ms": start_ms})
+                for row in res.fetchall():
+                    # mock a NS-like object for compatibility with logic below
+                    from dataclasses import dataclass
+                    @dataclass
+                    class MockEntry:
+                        sgv: float
+                        date: int
+                    entries.append(MockEntry(sgv=float(row[0]), date=int(row[1])))
     except Exception as e:
-        return f"HISTORIA: Error leyendo datos ({e})"
-    finally:
-        if client:
-            await client.aclose()
+        logger.warning(f"Local history fetch failed: {e}")
+
+    # 2. Fallback to Nightscout if DB empty or failed
+    if not entries and user_settings.nightscout.url:
+        source = "Nightscout"
+        client = None
+        try:
+            client = NightscoutClient(
+                base_url=user_settings.nightscout.url,
+                token=user_settings.nightscout.token,
+                timeout_seconds=10
+            )
+            count = int(hours * 12 * 1.5) 
+            entries = await client.get_sgv_range(start_dt=start_time, end_dt=now, count=count)
+        except Exception as e:
+            logger.warning(f"NS history fallback failed: {e}")
+        finally:
+            if client: await client.aclose()
+
+    if not entries:
+        return f"HISTORIAL ({hours}h): No hay datos disponibles."
+
+    # Compute Stats
+    values = [e.sgv for e in entries if e.sgv is not None]
+    if not values: 
+        return f"HISTORIAL ({hours}h): Datos vacíos."
+
+    avg = sum(values) / len(values)
+    min_v = min(values)
+    max_v = max(values)
+    in_range = sum(1 for v in values if 70 <= v <= 180)
+    tir_pct = (in_range / len(values)) * 100
+    
+    # Sample Trend (Every ~30 mins)
+    sorted_entries = sorted(entries, key=lambda x: x.date)
+    step = max(1, len(sorted_entries) // (hours * 2)) 
+    graph_points = [str(int(sorted_entries[i].sgv)) for i in range(0, len(sorted_entries), step)]
+    
+    if len(graph_points) > 20:
+         step2 = len(graph_points) // 20 + 1
+         graph_points = graph_points[::step2]
+         
+    graph_str = " -> ".join(graph_points)
+    
+    return (
+        f"RESUMEN HISTORIAL ({hours}h - Fuente: {source}):\n"
+        f"- Promedio: {int(avg)} mg/dL\n"
+        f"- TIR (70-180): {int(tir_pct)}%\n"
+        f"- Rango: {int(min_v)} - {int(max_v)}\n"
+        f"- Evolución: {graph_str}"
+    )
+
 
 
 logger = logging.getLogger(__name__)
@@ -2411,8 +2420,10 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
              add_res = await tools.add_treatment({
                  "insulin": units,
                  "carbs": 0,
-                 "notes": "Basal (Bot Reminder)"
+                 "notes": "Basal (Bot Reminder)",
+                 "event_type": "Basal"
              })
+
              
              if isinstance(add_res, tools.ToolError):
                  raise Exception(add_res.message)
