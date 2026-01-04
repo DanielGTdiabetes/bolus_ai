@@ -1136,3 +1136,95 @@ async def check_isf_suggestions(username: str = "admin", chat_id: Optional[int] 
              await _send(None, chat_id, f"⚠️ Error analizando ISF: {e}", log_context="isf_check_error")
     finally:
         await client.aclose()
+
+
+async def check_app_notifications(username: str = "admin", chat_id: Optional[int] = None, trigger: str = "auto") -> None:
+    """
+    Periodic job to check the centralized NotificationService for any 'unread' items 
+    (Pending Suggestions, Evaluations Ready, Basal Reviews, etc.) and notify the user.
+    """
+    # 0. Resolve User
+    if username == "admin":
+        from app.core import config
+        username = config.get_bot_default_username()
+
+    # 1. Config Check
+    try:
+        user_settings = await context_builder.get_bot_user_settings_safe()
+        if not user_settings.bot.enabled: return
+        # Check global proactive switch if exists, or specific 'notifications' switch?
+        # For now, if bot is enabled, we assume this helpful feature is enabled.
+    except Exception: return
+
+    chat_id = chat_id or await _get_chat_id()
+    if not chat_id: return
+
+    # 2. Check Cooldown (Don't nag too often for the SAME state)
+    # We use a longer chill time (e.g. 2 hours) to avoid spamming "You have unread items".
+    # Unless trigger is manual.
+    if trigger == "auto" and not cooldowns.is_ready("app_notif_check", 120 * 60): 
+        return
+
+    # 3. Query Notification Service
+    from app.core.db import get_engine, AsyncSession
+    from app.services.notification_service import get_notification_summary_service
+
+    engine = get_engine()
+    if not engine: return
+    
+    summary = {}
+    try:
+        async with AsyncSession(engine) as session:
+            # We must use "admin" or correct user_id. 
+            # Context builder resolved settings for 'username', let's use that.
+            summary = await get_notification_summary_service(username, session)
+    except Exception as e:
+        logger.error(f"App Notification Check failed: {e}")
+        return
+
+    # 4. Process Unread
+    if not summary.get("has_unread"):
+        if trigger == "manual":
+            await _send(None, chat_id, "✅ No tienes notificaciones pendientes.")
+        return
+
+    # Filter only unread items
+    unread_items = [i for i in summary.get("items", []) if i.get("unread")]
+    
+    if not unread_items:
+        return
+
+    # 5. Build Message
+    # We want a concise summary.
+    # Title
+    lines = ["🔔 **Avisos pendientes**"]
+    
+    for item in unread_items:
+        # e.g. "Create 3 suggestions" -> "• Sugerencias pendientes (3)"
+        title = item.get("title", "Aviso")
+        count = item.get("count", 1)
+        msg_body = item.get("message", "")
+        
+        icon = "🔹"
+        if item.get("priority") == "high": icon = "🔸"
+        if item.get("priority") == "critical": icon = "🔴"
+        
+        # Format: "🔸 Impacto disponible (2)"
+        # Or detailed? Let's use Message provided by service roughly.
+        lines.append(f"{icon} **{title}**")
+        if count > 1:
+            lines[-1] += f" ({count})"
+        lines.append(f"_{msg_body}_") 
+        lines.append("") # spacer
+
+    lines.append("[Abrir App](#)") # Link not really functional in TG but implies action
+
+    text_msg = "\n".join(lines)
+
+    # 6. Send
+    await _send(None, chat_id, text_msg, log_context="proactive_app_notifications")
+
+    # 7. Update Cooldown
+    # Only if auto.
+    if trigger == "auto":
+        cooldowns.touch("app_notif_check")

@@ -391,11 +391,16 @@ def _build_jobs() -> list[JobDef]:
             run_now_fn=bot_proactive.combo_followup,
         ),
         JobDef(
-            id="trend_alert",
-            description="Alerta de tendencias de subida/bajada rápida sin comida reciente.",
             next_run_fn=lambda: _scheduler_next_run("trend_alert"),
             last_run_state_fn=_job_state_lookup("trend_alert"),
             run_now_fn=lambda: bot_proactive.trend_alert(trigger="manual"),
+        ),
+        JobDef(
+            id="app_notifications",
+            description="Chequeo periódico de notificaciones App (Sugerencias, Impacto, etc).",
+            next_run_fn=lambda: _scheduler_next_run("app_notifications"),
+            last_run_state_fn=_job_state_lookup("app_notifications"),
+            run_now_fn=lambda: bot_proactive.check_app_notifications(trigger="manual"),
         ),
     ]
 

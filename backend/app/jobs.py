@@ -181,12 +181,19 @@ def setup_periodic_tasks():
 
 
 
+        async def _run_app_notifications():
+             await jobs_state.run_job("app_notifications", proactive.check_app_notifications)
+
         schedule_task(_run_basal, CronTrigger(minute='*/45'), "basal_reminder")
         jobs_state.refresh_next_run("basal")
 
         schedule_task(_run_premeal, CronTrigger(minute='*/30'), "premeal_nudge")
         jobs_state.refresh_next_run("premeal")
         schedule_task(_run_combo, CronTrigger(minute='*/30'), "combo_followup")
+        
+        # Schedule Notification Check (Every 1 hour)
+        schedule_task(_run_app_notifications, CronTrigger(minute='0'), "app_notifications")
+        jobs_state.refresh_next_run("app_notifications")
 
         async def _run_isf_check():
             try:
