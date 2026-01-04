@@ -141,6 +141,12 @@ class SearchFoodResult(BaseModel):
     items: List[FavoriteRead] = []
     error: Optional[str] = None
 
+class InjectionSiteResult(BaseModel):
+    id: Optional[str] = None
+    name: str
+    emoji: str
+    image: Optional[str] = None
+
 
     quality: str = "ok"
 
@@ -774,6 +780,7 @@ async def get_injection_site(tool_input: dict[str, Any]) -> InjectionSiteResult 
         site = rotator.get_next_site_preview("admin") # Default user
         
         return InjectionSiteResult(
+            id=site.id,
             name=site.name,
             emoji=site.emoji,
             image=site.image_ref

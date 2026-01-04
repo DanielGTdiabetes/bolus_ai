@@ -316,17 +316,27 @@ async def _exec_tool(update: Update, context: ContextTypes.DEFAULT_TYPE, name: s
         elif name == "get_injection_site":
              text = f"📍 **Zona Recomendada:** {res.name} {res.emoji}"
              # Send Image if available
+             # Send Image if available
              if res.image:
                  try:
-                     # Hardcoded path logic, should be improved but works for now
-                     # Assuming images in frontend/public or similar?
-                     # RotationService says "body_abdomen.png"
-                     # We need absolute path.
-                     # Let's assume d:\bolus_ai\bolus_ai\frontend\public for now based on user context
-                     base_path = Path(r"d:\bolus_ai\bolus_ai\frontend\public")
-                     img_path = base_path / res.image
-                     if img_path.exists():
-                          await context.bot.send_photo(chat_id=update.effective_chat.id, photo=open(img_path, "rb"))
+                     from app.bot.image_renderer import generate_injection_image
+                     base_dir = Path(__file__).parent.parent / "static" / "assets"
+                     
+                     # res is InjectionSiteResult
+                     site_id = getattr(res, "id", None)
+                     if site_id:
+                         img_bytes = generate_injection_image(site_id, base_dir)
+                         if img_bytes:
+                              await context.bot.send_photo(chat_id=update.effective_chat.id, photo=img_bytes)
+                         else:
+                              # Fallback
+                              img_path = base_dir / res.image
+                              if img_path.exists():
+                                   await context.bot.send_photo(chat_id=update.effective_chat.id, photo=open(img_path, "rb"))
+                     else:
+                          img_path = base_dir / res.image
+                          if img_path.exists():
+                               await context.bot.send_photo(chat_id=update.effective_chat.id, photo=open(img_path, "rb"))
                  except Exception as img_err:
                      logger.error(f"Failed to send injection image: {img_err}")
 
