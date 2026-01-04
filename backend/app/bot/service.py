@@ -335,19 +335,24 @@ async def _exec_tool(update: Update, context: ContextTypes.DEFAULT_TYPE, name: s
                      site_id = getattr(res, "id", None)
                      if site_id:
                          img_bytes = generate_injection_image(site_id, base_dir)
+                         print(f"DEBUG: Generated image bytes for {site_id}: {img_bytes}")
                          if img_bytes:
+                              # Ensure name is set for Telegram API
+                              if not hasattr(img_bytes, 'name'): img_bytes.name = "injection.png"
                               await context.bot.send_photo(chat_id=update.effective_chat.id, photo=img_bytes)
                          else:
-                              # Fallback
+                              # Fallback to static
                               img_path = base_dir / res.image
                               if img_path.exists():
                                    await context.bot.send_photo(chat_id=update.effective_chat.id, photo=open(img_path, "rb"))
+                              else:
+                                   logger.error(f"Image not found: {img_path}")
                      else:
                           img_path = base_dir / res.image
                           if img_path.exists():
                                await context.bot.send_photo(chat_id=update.effective_chat.id, photo=open(img_path, "rb"))
                  except Exception as img_err:
-                     logger.error(f"Failed to send injection image: {img_err}")
+                     logger.error(f"Failed to send injection image ({res.image}): {img_err}", exc_info=True)
 
         await reply_text(update, context, text)
         health.record_action(f"tool:{name}", True)
@@ -783,17 +788,21 @@ async def _process_text_input(update: Update, context: ContextTypes.DEFAULT_TYPE
                 img_bytes = generate_injection_image(bot_reply.site_id, base_dir)
             
             if img_bytes:
+                 if not hasattr(img_bytes, 'name'): img_bytes.name = "injection.png"
                  await context.bot.send_photo(chat_id=update.effective_chat.id, photo=img_bytes)
             elif bot_reply.image_path:
                  # Fallback to static image
                  img_path = base_dir / bot_reply.image_path
                  if not img_path.exists():
+                      # Try absolute relative to project if needed, but base_dir should cover it
                       img_path = Path("app/static/assets") / bot_reply.image_path
                  
                  if img_path.exists():
                      await context.bot.send_photo(chat_id=update.effective_chat.id, photo=open(img_path, "rb"))
+                 else:
+                     logger.warning(f"Bot image path not found: {img_path}")
         except Exception as e:
-            logger.error(f"Failed to send bot image: {e}")
+            logger.error(f"Failed to send bot image: {e}", exc_info=True)
 
 
     # 5. Observability
