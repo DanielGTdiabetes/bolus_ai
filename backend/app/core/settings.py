@@ -63,20 +63,6 @@ class DatabaseConfig(BaseModel):
             return v.replace("postgresql://", "postgresql+asyncpg://")
         return v
 
-
-class Settings(BaseModel):
-    nightscout: NightscoutConfig
-    server: ServerConfig
-    security: SecurityConfig
-    data: DataConfig
-    vision: VisionConfig = Field(default_factory=VisionConfig)
-    database: DatabaseConfig = Field(default_factory=DatabaseConfig)
-    proactive: "ProactiveGlobalConfig" = Field(default_factory=lambda: ProactiveGlobalConfig())
-    dexcom: DexcomConfig = Field(default_factory=DexcomConfig)
-
-    model_config = ConfigDict(arbitrary_types_allowed=True)
-
-
 class ComboFollowupConfig(BaseModel):
     enabled: bool = False
     delay_minutes: int = 120
@@ -107,6 +93,21 @@ class DexcomConfig(BaseModel):
     username: Optional[str] = None
     password: Optional[str] = None
     region: Optional[str] = "ous"
+
+
+class Settings(BaseModel):
+    nightscout: NightscoutConfig
+    server: ServerConfig
+    security: SecurityConfig
+    data: DataConfig
+    vision: VisionConfig = Field(default_factory=VisionConfig)
+    database: DatabaseConfig = Field(default_factory=DatabaseConfig)
+    proactive: "ProactiveGlobalConfig" = Field(default_factory=lambda: ProactiveGlobalConfig())
+    dexcom: DexcomConfig = Field(default_factory=DexcomConfig)
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+
 
 DEFAULT_CONFIG_PATH = Path(os.environ.get("CONFIG_PATH", "config/config.json"))
 

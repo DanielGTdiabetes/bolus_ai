@@ -1,11 +1,14 @@
 import logging
 import asyncio
-from typing import Optional
+from typing import Optional, Dict
 from pydexcom import Dexcom
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
+
+# Cache instances to avoid repeated logins (Dexcom is sensitive to this)
+_CLIENT_CACHE: Dict[str, Dexcom] = {}
 
 @dataclass
 class GlucoseReading:
@@ -18,23 +21,27 @@ class DexcomClient:
     def __init__(self, username: str, password: str, region: str = "ous"):
         self.username = username
         self.password = password
-        self.region = region.lower() # pydexcom expects lowercase 'us' or 'ous'
-        self._dexcom = None
+        self.region = region.lower()
+        self.cache_key = f"{username}_{region}"
 
     async def _get_client(self):
         """
-        Pydexcom is synchronous. We initialize it on first use.
-        Ideally we should run this in a thread executor to avoid blocking the loop 
-        blocking calls are usually fast but network IO should be async.
+        Retrieves a cached Dexcom client or creates a new one (login).
         """
-        if not self._dexcom:
-            # Run blocking init in executor
-            # Use kwargs for clarity and safety with pydexcom versions
+        global _CLIENT_CACHE
+        
+        if self.cache_key not in _CLIENT_CACHE:
             def _init_dexcom():
+                logger.info(f"Dexcom: Performing fresh login for {self.username}")
                 return Dexcom(self.username, self.password, region=self.region)
+            
+            try:
+                _CLIENT_CACHE[self.cache_key] = await asyncio.to_thread(_init_dexcom)
+            except Exception as e:
+                logger.error(f"Dexcom Login Failed for {self.username}: {e}")
+                raise e
                 
-            self._dexcom = await asyncio.to_thread(_init_dexcom)
-        return self._dexcom
+        return _CLIENT_CACHE[self.cache_key]
 
     async def get_latest_sgv(self) -> Optional[GlucoseReading]:
         try:
@@ -46,18 +53,20 @@ class DexcomClient:
             if not bg:
                 return None
             
-            # Convert pydexcom object to our internal simple structure
-            # pydexcom Trend Description is text (e.g. "Flat"), we might want arrow?
-            # bg.trend_arrow gives the arrow symbol directly (e.g. '→')
+            # Pydexcom typical bg.datetime is aware or we need to ensure it
+            bg_dt = bg.datetime
+            if bg_dt and bg_dt.tzinfo is None:
+                bg_dt = bg_dt.replace(tzinfo=timezone.utc)
             
             return GlucoseReading(
                 sgv=bg.value,
-                trend=bg.trend_arrow or "", # "→", "↗", etc.
-                date=bg.datetime,
-                delta=None # pydexcom doesn't give delta explicitly in 'get_current', calculation needed if history
+                trend=bg.trend_arrow or "",
+                date=bg_dt or datetime.now(timezone.utc),
+                delta=None
             )
         except Exception as e:
             logger.error(f"Dexcom Share Fetch Error: {e}")
-            # Reset client to force re-auth on next try if it was a session issue
-            self._dexcom = None 
+            # If fetch fails, maybe session expired? Clear cache to force re-login next time
+            if self.cache_key in _CLIENT_CACHE:
+                del _CLIENT_CACHE[self.cache_key]
             return None

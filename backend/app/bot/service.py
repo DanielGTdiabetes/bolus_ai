@@ -1699,12 +1699,8 @@ async def on_new_meal_received(carbs: float, fat: float, protein: float, fiber: 
     # calculate staleness
     is_stale_reading = False
     if bg_datetime:
-        # Assuming bg_datetime is consistent TZ (usually UTC or naive from pydexcom?)
-        # pydexcom returns naive datetime. We assume it's roughly current server time relative.
-        # Safest is usually total_seconds check against now.
-        # But if pydexcom gives naive time in user's timezone? 
-        # Actually pydexcom docs say 'datetime' object. Let's assume it matches system time flow.
-        diff = (datetime.now() - bg_datetime).total_seconds()
+        # bg_datetime is already aware UTC thanks to dexcom_client fix
+        diff = (datetime.now(timezone.utc) - bg_datetime).total_seconds()
         if diff > 1200: # 20 minutes
              is_stale_reading = True
              logger.warning(f"Dexcom reading is stale! Age: {diff/60:.1f} mins")
