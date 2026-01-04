@@ -918,6 +918,7 @@ async def add_treatment(tool_input: dict[str, Any]) -> AddTreatmentResult | Tool
 
     # Rotation Logic
     site_info = None
+    rotation_site = None
     if result.ok:
         # Learning Hook (Memory)
         if engine:
@@ -1006,6 +1007,15 @@ async def add_treatment(tool_input: dict[str, Any]) -> AddTreatmentResult | Tool
         except Exception as e: 
              logger.warning(f"Post-treatment logic failed: {e}")
 
+        injection_site_dict = None
+        if rotation_site:
+            injection_site_dict = {
+                "id": rotation_site.id,
+                "name": rotation_site.name,
+                "emoji": rotation_site.emoji,
+                "image": rotation_site.image_ref
+            }
+
     health.record_action("add_treatment", ok=result.ok, error=error_text)
     return AddTreatmentResult(
         ok=result.ok,
@@ -1016,7 +1026,7 @@ async def add_treatment(tool_input: dict[str, Any]) -> AddTreatmentResult | Tool
         ns_error=error_text,
         saved_db=result.saved_db,
         saved_local=result.saved_local,
-        injection_site=result.injection_site
+        injection_site=injection_site_dict
     )
 
 

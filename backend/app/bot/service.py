@@ -1842,13 +1842,46 @@ async def _handle_snapshot_callback(query, data: str) -> None:
         if carbs > 0: success_msg += f" / {carbs} g"
         if fiber > 0: success_msg += f" (Fibra: {fiber} g)"
         
-        try:
-            settings = get_settings()
-            store = DataStore(Path(settings.data.data_dir))
-            im = InjectionManager(store)
-            new_next = im.rotate_site("bolus")
-            success_msg += f"\n\n📍 Rotado. Siguiente: {new_next}"
-        except Exception: pass
+        if getattr(result, "injection_site", None):
+             site = result.injection_site
+             success_msg += f"\n\n📍 Rotado. Siguiente: {site.get('name')} {site.get('emoji')}"
+             
+             # Send Image
+             # Send Image with Overlay
+             if site.get("image"):
+                 try:
+                     from app.bot.image_renderer import generate_injection_image
+                     base_dir = Path(__file__).parent.parent / "static" / "assets"
+                     
+                     # site dict needs 'id'. If missing, we might fail to map coords.
+                     # But let's try to map by Image name or just pass site ID if available.
+                     # We need to ensure tools.py passes the ID.
+                     site_id = site.get("id") 
+                     if site_id:
+                         img_bytes = generate_injection_image(site_id, base_dir)
+                         if img_bytes:
+                             await context.bot.send_photo(chat_id=query.effective_chat.id, photo=img_bytes)
+                         else:
+                             # Fallback to static if generation fails
+                             img_path = base_dir / site["image"]
+                             if img_path.exists():
+                                  await context.bot.send_photo(chat_id=query.effective_chat.id, photo=open(img_path, "rb"))
+                     else:
+                         # Fallback if no ID
+                         img_path = base_dir / site["image"]
+                         if img_path.exists():
+                              await context.bot.send_photo(chat_id=query.effective_chat.id, photo=open(img_path, "rb"))
+
+                 except Exception as e:
+                     logger.warning(f"Failed to send injection image: {e}")
+        else:
+             try:
+                 settings = get_settings()
+                 store = DataStore(Path(settings.data.data_dir))
+                 im = InjectionManager(store)
+                 new_next = im.rotate_site("bolus")
+                 success_msg += f"\n\n📍 Rotado. Siguiente: {new_next}"
+             except Exception: pass
 
         # New Buttons
         kb_post = []
