@@ -42,9 +42,14 @@ def generate_injection_image(site_id: str, assets_dir: Path) -> io.BytesIO:
     found = False
 
     # Abdomen Logic (Dynamic mapping to match Frontend)
+    # The Frontend likely crops the head (top ~17%) so that the navel (originally at ~65%)  
+    # lands at ~58% to match the coordinate system.
+    crop_top_pct = 0
+    
     if "abd_" in zone_id:
         img_file = "body_abdomen.png"
         found = True
+        crop_top_pct = 17 # Crop Head
         
         # Y Calc (Rows)
         if "_top" in zone_id: cy_pct = 42
@@ -83,6 +88,13 @@ def generate_injection_image(site_id: str, assets_dir: Path) -> io.BytesIO:
         with Image.open(img_path) as im:
             im = im.convert("RGBA")
             w, h = im.size
+            
+            # Apply targeted crop if needed (e.g. Abdomen Head Removal)
+            if crop_top_pct > 0:
+                top_px = int((crop_top_pct / 100.0) * h)
+                # Crop: left, top, right, bottom
+                im = im.crop((0, top_px, w, h))
+                w, h = im.size
             
             # Mimic Frontend 'object-fit: cover' in a square container
             # The frontend displays the image as a square (300x300), centered.
