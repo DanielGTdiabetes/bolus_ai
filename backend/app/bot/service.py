@@ -794,8 +794,8 @@ async def _process_text_input(update: Update, context: ContextTypes.DEFAULT_TYPE
                  # Fallback to static image
                  img_path = base_dir / bot_reply.image_path
                  if not img_path.exists():
-                      # Try absolute relative to project if needed, but base_dir should cover it
-                      img_path = Path("app/static/assets") / bot_reply.image_path
+                      # Try correct absolute path based on CWD
+                      img_path = Path.cwd() / "app" / "static" / "assets" / bot_reply.image_path
                  
                  if img_path.exists():
                      await context.bot.send_photo(chat_id=update.effective_chat.id, photo=open(img_path, "rb"))
