@@ -25,7 +25,9 @@ def generate_injection_image(site_id: str, assets_dir: Path) -> io.BytesIO:
     Loads generic body image and overlays a target on the specific site.
     Returns bytes ready for Telegram.
     """
-    info = COORDS.get(site_id)
+    # Handle IDs with point suffix (e.g. abd_l_top:1)
+    base_id = site_id.split(":")[0] if ":" in site_id else site_id
+    info = COORDS.get(base_id)
     if not info:
         return None
 

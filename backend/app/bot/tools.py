@@ -499,6 +499,7 @@ async def calculate_bolus(carbs: float, fat: float = 0.0, protein: float = 0.0, 
         target_user = "admin"
         preview = rotator.get_next_site_preview(target_user, plan="rapid")
         preview_site = {
+             "id": preview.id,
              "name": preview.name,
              "emoji": preview.emoji,
              "image": preview.image_ref

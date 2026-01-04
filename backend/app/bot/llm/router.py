@@ -25,6 +25,8 @@ class BotReply:
     buttons: Optional[List[List[InlineKeyboardButton]]] = None
     pending_action: Optional[Dict[str, Any]] = None
     image_path: Optional[str] = None
+    site_id: Optional[str] = None
+
 
 def _is_admin(user_id: int) -> bool:
     allowed = config.get_allowed_telegram_user_id()
@@ -204,6 +206,8 @@ async def handle_text(username: str, chat_id: int, user_text: str, context_data:
     last_bolus_result = None
     last_bolus_args = {}
     last_image_path = None
+    last_site_id = None
+
 
     try:
         # Round 0: Send User Text
@@ -236,8 +240,10 @@ async def handle_text(username: str, chat_id: int, user_text: str, context_data:
                 # Preview Injection Site Image if recommended
                 if hasattr(tool_res, "recommended_site") and tool_res.recommended_site:
                     rs = tool_res.recommended_site
-                    if isinstance(rs, dict) and rs.get("image"):
+                    if isinstance(rs, dict):
                          last_image_path = rs.get("image")
+                         last_site_id = rs.get("id")
+
             
             # Capture Image from Injection Site
             if tool_name in ["add_treatment", "get_injection_site", "get_last_injection_site"] and not isinstance(tool_res, ToolError):
@@ -326,7 +332,8 @@ async def handle_text(username: str, chat_id: int, user_text: str, context_data:
     memory.add(chat_id, "user", user_text)
     memory.add(chat_id, "assistant", reply_text)
     
-    return BotReply(reply_text, final_buttons, image_path=last_image_path)
+    return BotReply(reply_text, final_buttons, image_path=last_image_path, site_id=last_site_id)
+
 
 async def handle_event(username: str, chat_id: int, event_type: str, payload: Dict[str, Any]) -> Optional[BotReply]:
     """

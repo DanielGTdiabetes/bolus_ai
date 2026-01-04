@@ -772,30 +772,29 @@ async def _process_text_input(update: Update, context: ContextTypes.DEFAULT_TYPE
         await reply_text(update, context, bot_reply.text)
 
     # 5. Send Image if present (Injection Site)
-    if bot_reply.image_path:
+    if bot_reply.image_path or bot_reply.site_id:
         try:
-            # Improved Resolution Logic
-            # Images are now copied to backend/app/static/assets during build/dev
-            # This ensures portability (Docker/Linux/Windows)
-            
-            # Try finding the file relative to THIS file (service.py is in app/bot)
-            # So -> ../static/assets/...
             base_dir = Path(__file__).parent.parent / "static" / "assets"
-            img_path = base_dir / bot_reply.image_path
-
-            if not img_path.exists():
-                 # Fallback: Just try straight relative path assuming cwd is /app
-                 img_path = Path("app/static/assets") / bot_reply.image_path
+            img_bytes = None
             
-            if img_path.exists():
-                await context.bot.send_photo(
-                    chat_id=update.effective_chat.id, 
-                    photo=open(img_path, "rb")
-                )
-            else:
-                logger.warning(f"Image not found at {img_path} (cwd: {os.getcwd()})")
+            # Try to render image with target circle if we have site_id
+            if bot_reply.site_id:
+                from app.bot.image_renderer import generate_injection_image
+                img_bytes = generate_injection_image(bot_reply.site_id, base_dir)
+            
+            if img_bytes:
+                 await context.bot.send_photo(chat_id=update.effective_chat.id, photo=img_bytes)
+            elif bot_reply.image_path:
+                 # Fallback to static image
+                 img_path = base_dir / bot_reply.image_path
+                 if not img_path.exists():
+                      img_path = Path("app/static/assets") / bot_reply.image_path
+                 
+                 if img_path.exists():
+                     await context.bot.send_photo(chat_id=update.effective_chat.id, photo=open(img_path, "rb"))
         except Exception as e:
             logger.error(f"Failed to send bot image: {e}")
+
 
     # 5. Observability
     logger.info(f"AI Req: ctx={int(ctx_ms)}ms llm={int(llm_ms)}ms")
