@@ -337,6 +337,22 @@ def _build_tools() -> list[ToolDef]:
             fn=bot_tools.configure_basal_reminder,
             permission=Permission.user_write,
         ),
+        ToolDef(
+            name="check_supplies_stock",
+            description="Consultar stock de suministros (agujas, sensores, reservorios) y avisar si faltan.",
+            input_schema={"type": "object", "properties": {}},
+            output_schema={"type": "object", "properties": {"items": {"type": "array"}, "low_stock_warnings": {"type": "array"}}},
+            fn=bot_tools.check_supplies_stock,
+            permission=Permission.public_read,
+        ),
+        ToolDef(
+            name="update_supply_quantity",
+            description="Actualizar cantidad de un suministro (aguja, sensor, reservorio).",
+            input_schema={"type": "object", "properties": {"name": {"type": "string"}, "quantity": {"type": "integer"}}},
+            output_schema={"type": "object"},
+            fn=bot_tools.update_supply_quantity,
+            permission=Permission.user_write,
+        ),
     ]
 
 
@@ -413,7 +429,15 @@ def _build_jobs() -> list[JobDef]:
             last_run_state_fn=_job_state_lookup("app_notifications"),
             run_now_fn=lambda: bot_proactive.check_app_notifications(trigger="manual"),
         ),
+        JobDef(
+            id="supplies_check",
+            description="Chequeo diario de stock de suministros (agujas, sensores).",
+            next_run_fn=lambda: _scheduler_next_run("supplies_check"),
+            last_run_state_fn=_job_state_lookup("supplies_check"),
+            run_now_fn=bot_proactive.check_supplies_status,
+        ),
     ]
+
 
 
 def build_registry() -> Registry:

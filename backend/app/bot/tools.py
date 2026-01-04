@@ -35,6 +35,8 @@ from app.services.autosens_service import AutosensService
 from app.services.autosens_service import AutosensService
 from app.bot.user_settings_resolver import resolve_bot_user_settings
 from app.services.restaurant_db import RestaurantDBService
+from app.models.user_data import FavoriteFood, SupplyItem
+from app.api.user_data import SupplyRead, SupplyUpdate
 
 logger = logging.getLogger(__name__)
 
@@ -172,6 +174,12 @@ class ConfigureBasalReminderResult(BaseModel):
     time_local: str
     expected_units: float
     error: Optional[str] = None
+
+
+class SupplyCheckResult(BaseModel):
+    items: List[Dict[str, Any]]
+    low_stock_warnings: List[str] = []
+    quality: str = "ok"
 
 
 
@@ -1374,6 +1382,77 @@ AI_TOOL_DECLARATIONS = [
         }
     }
 ]
+
+
+async def check_supplies_stock(tool_input: dict[str, Any]) -> SupplyCheckResult | ToolError:
+    try:
+        engine = get_engine()
+        if not engine:
+             return ToolError(type="db_error", message="Base de datos no disponible")
+             
+        items = []
+        warnings = []
+        
+        async with AsyncSession(engine) as session:
+             user_id = await _resolve_user_id(session)
+             from sqlalchemy import select
+             stmt = select(SupplyItem).where(SupplyItem.user_id == user_id)
+             result = await session.execute(stmt)
+             db_items = result.scalars().all()
+             
+             for item in db_items:
+                 items.append({"name": item.item_key, "quantity": item.quantity})
+                 # Check thresholds
+                 # Default logic: if needles < 10, warn. if sensors < 2, warn.
+                 if "aguja" in item.item_key.lower() or "needle" in item.item_key.lower():
+                     if item.quantity < 10:
+                         warnings.append(f"Quedan pocas agujas ({item.quantity})")
+                 if "sensor" in item.item_key.lower():
+                     if item.quantity < 3:
+                         warnings.append(f"Quedan pocos sensores ({item.quantity})")
+                 if "reservori" in item.item_key.lower() or "reservoir" in item.item_key.lower():
+                     if item.quantity < 3:
+                         warnings.append(f"Quedan pocos reservorios ({item.quantity})")
+                         
+        return SupplyCheckResult(items=items, low_stock_warnings=warnings)
+
+    except Exception as e:
+        logger.exception("Error checking supplies")
+        return ToolError(type="runtime_error", message=str(e))
+
+
+async def update_supply_quantity(tool_input: dict[str, Any]) -> SupplyCheckResult | ToolError:
+    try:
+        key = tool_input.get("item_key") or tool_input.get("name")
+        qty = tool_input.get("quantity")
+        if not key or qty is None:
+            return ToolError(type="validation_error", message="Falta nombre o cantidad")
+            
+        engine = get_engine()
+        if not engine:
+             return ToolError(type="db_error", message="DB no accesible")
+             
+        async with AsyncSession(engine) as session:
+             user_id = await _resolve_user_id(session)
+             from sqlalchemy.dialects.postgresql import insert as pg_insert
+             
+             stmt = pg_insert(SupplyItem).values(
+                user_id=user_id,
+                item_key=key,
+                quantity=int(qty)
+             ).on_conflict_do_update(
+                index_elements=["user_id", "item_key"], 
+                set_=dict(quantity=int(qty))
+             )
+             await session.execute(stmt)
+             await session.commit()
+             
+        # Re-check to return status
+        return await check_supplies_stock({}) 
+        
+    except Exception as e:
+        logger.exception("Error updating supply")
+        return ToolError(type="runtime_error", message=str(e))
 
 
 async def start_restaurant_session(expected_carbs: float, expected_fat: float = 0.0, expected_protein: float = 0.0, notes: str = "") -> RestaurantSessionResult:

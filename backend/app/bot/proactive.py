@@ -1277,3 +1277,65 @@ async def check_app_notifications(username: str = "admin", chat_id: Optional[int
     # Only if auto.
     if trigger == "auto":
         cooldowns.touch("app_notif_check")
+
+
+async def check_supplies_status(username: str = "admin", chat_id: Optional[int] = None) -> None:
+    """
+    Proactively checks for low stock of supplies and notifies the user.
+    """
+    # 0. Cooldown (Don't spam daily check)
+    if not cooldowns.is_ready("supplies_check", 3600 * 24 * 0.9): # Once every ~21h
+        return
+
+    # 1. Resolve Chat ID
+    if chat_id is None:
+        chat_id = await _get_chat_id()
+    if not chat_id:
+        return
+
+    # 2. Check Stock using Tool Logic
+    try:
+        from app.core.db import get_engine, AsyncSession
+        from app.models.user_data import SupplyItem
+        from sqlalchemy import select
+        
+        engine = get_engine()
+        if not engine: return
+        
+        warnings = []
+        
+        async with AsyncSession(engine) as session:
+             # simplistic resolution
+             stmt = select(SupplyItem).where(SupplyItem.quantity >= 0) # get all
+             result = await session.execute(stmt)
+             items = result.scalars().all()
+             
+             for item in items:
+                 # Check simple thresholds
+                 msg = None
+                 # Normalize key
+                 key = (item.item_key or "").lower()
+                 qty = item.quantity
+                 
+                 if "aguja" in key or "needle" in key:
+                     if qty < 10: msg = f"⚠️ Quedan pocas agujas ({item.item_key}): {qty}"
+                 elif "sensor" in key:
+                     if qty < 3: msg = f"⚠️ Quedan pocos sensores ({item.item_key}): {qty}"
+                 elif "reservori" in key or "reservoir" in key:
+                     if qty < 3: msg = f"⚠️ Quedan pocos reservorios ({item.item_key}): {qty}"
+                 
+                 if msg:
+                     warnings.append(msg)
+                     
+        if warnings:
+            text = "📦 **Aviso de Suministros**\n\n" + "\n".join(warnings)
+            await _send(
+                None, 
+                chat_id, 
+                text, 
+                log_context="proactive_supplies"
+            )
+            cooldowns.touch("supplies_check")
+            
+    except Exception as e:
+        logger.error(f"Supplies check failed: {e}")
