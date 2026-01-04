@@ -116,6 +116,7 @@ class AddTreatmentRequest(BaseModel):
     fiber: Optional[float] = None
     notes: Optional[str] = None
     replace_id: Optional[str] = None
+    event_type: Optional[str] = None
 
 
 class AddTreatmentResult(BaseModel):
@@ -779,7 +780,8 @@ async def add_treatment(tool_input: dict[str, Any]) -> AddTreatmentResult | Tool
                     fiber=float(payload.fiber or 0),
                     notes=notes,
                     entered_by="TelegramBot",
-                    event_type="Correction Bolus" if carbs == 0 else "Meal Bolus",
+                    entered_by="TelegramBot",
+                    event_type=payload.event_type or ("Correction Bolus" if carbs == 0 else "Meal Bolus"),
                     created_at=datetime.now(timezone.utc),
                     store=store,
                     session=session,
@@ -795,7 +797,8 @@ async def add_treatment(tool_input: dict[str, Any]) -> AddTreatmentResult | Tool
                 fiber=float(payload.fiber or 0),
                 notes=notes,
                 entered_by="TelegramBot",
-                event_type="Correction Bolus" if carbs == 0 else "Meal Bolus",
+                entered_by="TelegramBot",
+                event_type=payload.event_type or ("Correction Bolus" if carbs == 0 else "Meal Bolus"),
                 created_at=datetime.now(timezone.utc),
                 store=store,
                 session=None,
