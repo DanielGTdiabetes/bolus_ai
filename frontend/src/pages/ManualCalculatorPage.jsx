@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { ArrowLeft, Calculator, AlertTriangle, RefreshCw } from 'lucide-react';
-import Card from '../components/ui/Card';
-import Button from '../components/ui/Button';
+import { Card, Button } from '../components/ui/Atoms';
 
 // Utility for safe parsing
 const safeFloat = (val) => {
@@ -17,7 +16,7 @@ const ManualCalculatorPage = () => {
     const [isf, setIsf] = useState('50'); // Default guess
     const [icr, setIcr] = useState('10'); // Default guess
     const [iob, setIob] = useState('0');
-    
+
     const [result, setResult] = useState(null);
 
     // Calculate on change
@@ -74,8 +73,8 @@ const ManualCalculatorPage = () => {
                     {/* Glucose */}
                     <div className="space-y-1">
                         <label className="text-xs font-bold text-gray-500 uppercase">Glucosa (mg/dL)</label>
-                        <input 
-                            type="number" 
+                        <input
+                            type="number"
                             className="w-full text-2xl font-bold p-2 border rounded border-gray-300 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none"
                             placeholder="ej. 150"
                             value={glucose}
@@ -86,8 +85,8 @@ const ManualCalculatorPage = () => {
                     {/* Carbs */}
                     <div className="space-y-1">
                         <label className="text-xs font-bold text-gray-500 uppercase">Carbohidratos (g)</label>
-                        <input 
-                            type="number" 
+                        <input
+                            type="number"
                             className="w-full text-2xl font-bold p-2 border rounded border-gray-300 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none"
                             placeholder="ej. 45"
                             value={carbs}
@@ -100,8 +99,8 @@ const ManualCalculatorPage = () => {
                 <div className="pt-2 border-t border-gray-100 grid grid-cols-3 gap-3">
                     <div className="space-y-1">
                         <label className="text-[10px] font-bold text-gray-400 uppercase">Objetivo</label>
-                        <input 
-                            type="number" 
+                        <input
+                            type="number"
                             className="w-full text-lg font-medium p-1 border rounded bg-gray-50"
                             value={target}
                             onChange={(e) => setTarget(e.target.value)}
@@ -109,8 +108,8 @@ const ManualCalculatorPage = () => {
                     </div>
                     <div className="space-y-1">
                         <label className="text-[10px] font-bold text-gray-400 uppercase">ISF (Sensib.)</label>
-                        <input 
-                            type="number" 
+                        <input
+                            type="number"
                             className="w-full text-lg font-medium p-1 border rounded bg-gray-50"
                             value={isf}
                             onChange={(e) => setIsf(e.target.value)}
@@ -118,8 +117,8 @@ const ManualCalculatorPage = () => {
                     </div>
                     <div className="space-y-1">
                         <label className="text-[10px] font-bold text-gray-400 uppercase">ICR (Ratio)</label>
-                        <input 
-                            type="number" 
+                        <input
+                            type="number"
                             className="w-full text-lg font-medium p-1 border rounded bg-gray-50"
                             value={icr}
                             onChange={(e) => setIcr(e.target.value)}
@@ -128,15 +127,15 @@ const ManualCalculatorPage = () => {
                 </div>
 
                 <div className="space-y-1">
-                     <label className="text-[10px] font-bold text-gray-400 uppercase">IOB (Insulina Activa Restante)</label>
-                     <input 
-                         type="number" 
-                         className="w-full text-lg font-medium p-1 border rounded bg-gray-50"
-                         placeholder="0.0"
-                         value={iob}
-                         onChange={(e) => setIob(e.target.value)}
-                     />
-                     <span className="text-[10px] text-gray-400">Si no sabes, deja 0 (más conservador si glucosa alta, arriesgado si acabas de ponerte insulina).</span>
+                    <label className="text-[10px] font-bold text-gray-400 uppercase">IOB (Insulina Activa Restante)</label>
+                    <input
+                        type="number"
+                        className="w-full text-lg font-medium p-1 border rounded bg-gray-50"
+                        placeholder="0.0"
+                        value={iob}
+                        onChange={(e) => setIob(e.target.value)}
+                    />
+                    <span className="text-[10px] text-gray-400">Si no sabes, deja 0 (más conservador si glucosa alta, arriesgado si acabas de ponerte insulina).</span>
                 </div>
             </Card>
 
@@ -146,7 +145,7 @@ const ManualCalculatorPage = () => {
                     <div>
                         <h2 className="text-gray-400 text-sm font-medium">Bolo Total Sugerido</h2>
                         {result && result.raw_net < 0 && (
-                             <span className="text-xs text-yellow-500 block mt-1">IOB cubre corrección y comida</span>
+                            <span className="text-xs text-yellow-500 block mt-1">IOB cubre corrección y comida</span>
                         )}
                     </div>
                     <div className="text-5xl font-bold tracking-tighter text-blue-400">
@@ -172,8 +171,8 @@ const ManualCalculatorPage = () => {
                 )}
             </Card>
 
-            <Button 
-                variant="outline" 
+            <Button
+                variant="outline"
                 className="w-full py-6 text-lg"
                 onClick={() => {
                     setGlucose('');
