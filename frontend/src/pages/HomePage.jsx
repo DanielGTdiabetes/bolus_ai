@@ -93,6 +93,11 @@ function GlucoseHero({ onRefresh }) {
         }
     }, [prediction]);
 
+    const isStale = data ? (data.is_stale || data.age_minutes > 12) : false;
+    const timeBg = isStale ? '#fee2e2' : '#f1f5f9';
+    const timeColor = isStale ? '#b91c1c' : '#64748b';
+    const timeLabel = isStale ? `⚠️ HACE ${displayTime}` : `Hace ${displayTime}`;
+
     return (
         <section className="card glucose-hero" style={{
             marginBottom: '1rem', padding: '1.5rem', borderRadius: '16px',
@@ -115,15 +120,15 @@ function GlucoseHero({ onRefresh }) {
             )}
 
             <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: '0.5rem' }}>
-                <span style={{ fontSize: '3.5rem', fontWeight: 800, color: arrowColor, lineHeight: 1, textDecoration: data?.is_compression ? 'underline 3px dotted #fca5a5' : 'none' }}>{displayVal}</span>
+                <span style={{ fontSize: '3.5rem', fontWeight: 800, color: arrowColor, lineHeight: 1, textDecoration: data?.is_compression ? 'underline 3px dotted #fca5a5' : 'none', opacity: isStale ? 0.6 : 1 }}>{displayVal}</span>
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
                     <span style={{ fontSize: '1.5rem', color: arrowColor, fontWeight: 800 }}>{displayArrow}</span>
                     <span style={{ fontSize: '0.8rem', color: '#94a3b8', fontWeight: 600 }}>mg/dL</span>
                 </div>
             </div>
             <div style={{ textAlign: 'center', marginTop: '0.5rem' }}>
-                <span style={{ background: '#f1f5f9', color: '#64748b', fontSize: '0.75rem', padding: '4px 8px', borderRadius: '12px', fontWeight: 600 }}>
-                    Hace {displayTime}
+                <span style={{ background: timeBg, color: timeColor, fontSize: '0.75rem', padding: '4px 8px', borderRadius: '12px', fontWeight: 600 }}>
+                    {timeLabel}
                 </span>
             </div>
 
@@ -182,18 +187,32 @@ function MetricsGrid({ onRefresh }) {
 
     useEffect(() => { load(); }, [onRefresh]);
 
+    const iobWarn = iob.status !== 'ok';
+
     return (
         <div className="metrics-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.75rem', marginBottom: '1.5rem' }}>
-            <MetricTile icon="💧" label="IOB" value={iob.val !== null ? iob.val.toFixed(2) : '--'} unit="U" highlight={iob.val > 0} />
+            <MetricTile
+                icon={iobWarn ? "⚠️" : "💧"}
+                label={iobWarn ? "IOB (?)" : "IOB"}
+                value={iob.val !== null ? iob.val.toFixed(2) : '--'}
+                unit="U"
+                highlight={iob.val > 0}
+                warn={iobWarn}
+            />
             <MetricTile icon="🍪" label="COB" value={iob.cob !== null ? Math.round(iob.cob) : '--'} unit="g" highlight={iob.cob > 0} />
             <MetricTile icon="💉" label="Último" value={lastBolus !== null ? lastBolus : '--'} unit="U" />
         </div>
     );
 }
 
-function MetricTile({ icon, label, value, unit, highlight }) {
+function MetricTile({ icon, label, value, unit, highlight, warn }) {
     return (
-        <div style={{ background: highlight ? '#eff6ff' : '#fff', borderRadius: '12px', padding: '1rem 0.5rem', textAlign: 'center', boxShadow: '0 1px 3px rgba(0,0,0,0.05)', border: highlight ? '1px solid #bfdbfe' : '1px solid #f1f5f9' }}>
+        <div style={{
+            background: warn ? '#fff7ed' : (highlight ? '#eff6ff' : '#fff'),
+            borderRadius: '12px', padding: '1rem 0.5rem', textAlign: 'center',
+            boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+            border: warn ? '1px solid #fdba74' : (highlight ? '1px solid #bfdbfe' : '1px solid #f1f5f9')
+        }}>
             <div style={{ fontSize: '0.8rem', fontWeight: 600, color: '#64748b', marginBottom: '0.25rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}>
                 <span>{icon}</span> {label}
             </div>

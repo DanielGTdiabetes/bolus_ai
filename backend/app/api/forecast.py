@@ -91,7 +91,8 @@ async def get_current_forecast(
     # 2. Fetch Current BG & History (NS)
     ns_config = await get_ns_config(session, user.username)
     # Default fallback or explicit override
-    start_bg = start_bg_param if start_bg_param is not None else 120.0
+    start_bg = start_bg_param
+
     
     recent_bg_series = []
     

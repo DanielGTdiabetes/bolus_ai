@@ -13,7 +13,8 @@ export function MainGlucoseChart({ isLow, predictionData }) {
                 const config = getLocalNsConfig();
                 // Fetch simple glucose history (24h or so, but let's limit to recent reasonable window for chart)
                 // Assuming getGlucoseEntries handles basic fetch.
-                const entries = await getGlucoseEntries(config);
+                // Fetch simple glucose history (24h to ensure full coverage for 6h chart)
+                const entries = await getGlucoseEntries(288);
 
                 if (mounted) {
                     if (entries && entries.length > 0) {

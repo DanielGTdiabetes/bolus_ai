@@ -400,6 +400,9 @@ async def calculate_bolus_stateless(
 
         if iob_warning:
             response.warnings.append(iob_warning)
+
+        if resolved_bg is None:
+            response.warnings.append("⚠️ NO SE DETECTÓ GLUCOSA. El cálculo NO incluye corrección.")
         
         if breakdown:
              response.explain.append(f"   (IOB basado en {len(breakdown)} tratamientos):")

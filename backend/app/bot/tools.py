@@ -544,9 +544,31 @@ async def simulate_whatif(carbs: float, horizon_minutes: int = 180) -> WhatIfRes
         return ToolError(type="missing_bg", message="No hay BG para simular (modo degradado).")
 
     # Simple simulation: carbs now, no insulin yet
+    
+    sim_carbs = [ForecastEventCarbs(time_offset_min=0, grams=carbs, absorption_minutes=180)]
+    
+    # FIX: Inject existing COB as a "Ghost Meal" starting now (simplified)
+    # We don't know the exact schedule of past meals here easily without complex query.
+    # But we know total COB from status.cob_g.
+    # We model it as a meal consumed "some time ago" that has this much remaining?
+    # Or simpler: A meal at t=0 with grams=cob_g.
+    # WARNING: Adding it as new carbs at t=0 spins up a NEW absorption curve, which might delay the peak.
+    # Better approach: If we knew "original meal time", we could add it with negative offset.
+    # Without that, adding it as "remaining linear absorption" is safer.
+    # Let's add it as a meal at t=0 but with shorter absorption (e.g. 90 min) to reflect it's already partly digested?
+    # Let's use status.cob_g directly if > 5g
+    if status.cob_g and status.cob_g > 5:
+        # We assume the user has active carbs.
+        # We add them as another event at t=0
+        sim_carbs.insert(0, ForecastEventCarbs(
+            time_offset_min=0, 
+            grams=status.cob_g, 
+            absorption_minutes=120 # Assume faster absorption for remaining tail
+        ))
+        
     events = ForecastEvents(
         boluses=[],
-        carbs=[ForecastEventCarbs(time_offset_min=0, grams=carbs, absorption_minutes=180)],
+        carbs=sim_carbs,
         basal_injections=[],
     )
     params = SimulationParams(
@@ -564,6 +586,7 @@ async def simulate_whatif(carbs: float, horizon_minutes: int = 180) -> WhatIfRes
         params=params,
         events=events,
         momentum=MomentumConfig(enabled=True, lookback_points=3),
+        initial_cob=status.cob_g, # Explicit field for engine might be better if supported, but events is safer for now.
         recent_bg_series=[{"minutes_ago": 0, "value": status.bg_mgdl}],
     )
     forecast = ForecastEngine.calculate_forecast(req)

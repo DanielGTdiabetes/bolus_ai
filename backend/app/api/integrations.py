@@ -183,6 +183,27 @@ async def ingest_nutrition(
                          
                      except ValueError:
                          pass
+            
+             else:
+                 # FALLBACK: Try Direct Flat Keys (Simple JSON / n8n / Shortcuts)
+                 
+                 def _get_float(keys):
+                     for k in keys:
+                         val = payload.get(k)
+                         if val is not None:
+                             try: return float(val)
+                             except: pass
+                     return 0.0
+                 
+                 c = _get_float(["carbs", "dietary_carbohydrates", "total_carbs", "Carbohydrates", "carbohydrates_total_g"])
+                 f = _get_float(["fat", "dietary_fat", "total_fat", "Fat", "fat_total_g"])
+                 p = _get_float(["protein", "dietary_protein", "total_protein", "Protein", "protein_total_g"])
+                 fib = _get_float(["fiber", "dietary_fiber", "total_fiber", "Fiber", "fiber_total_g", "fibra", "fiber_alt"])
+                 
+                 if c > 0 or f > 0 or p > 0 or fib > 0:
+                     ts_key = payload.get("date") or payload.get("timestamp") or payload.get("created_at") or datetime.now(timezone.utc).isoformat()
+                     parsed_meals[ts_key] = {"c":c, "f":f, "p":p, "fib":fib, "ts": ts_key}
+                     logger.info(f"Parsed Direct Payload: C={c} F={f} P={p} Fib={fib}")
 
         if not parsed_meals:
              return {"success": False, "message": "No parseable metrics found in payload"}
