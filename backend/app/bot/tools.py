@@ -1380,6 +1380,26 @@ AI_TOOL_DECLARATIONS = [
             },
             "required": ["session_id"]
         }
+    },
+    {
+        "name": "check_supplies_stock",
+        "description": "Consultar inventario de suministros (agujas, sensores, reservorios).",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {},
+        },
+    },
+    {
+        "name": "update_supply_quantity",
+        "description": "Actualizar cantidad de un suministro específico.",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "item_key": {"type": "STRING", "description": "Clave del item (ej. supplies_needles, supplies_sensors). Si no sabe la clave, puede intentar 'agujas' o 'sensores' y el sistema intentará mapear."},
+                "quantity": {"type": "INTEGER", "description": "Nueva cantidad total real."}
+            },
+            "required": ["item_key", "quantity"]
+        },
     }
 ]
 
@@ -1441,17 +1461,16 @@ async def update_supply_quantity(tool_input: dict[str, Any]) -> SupplyCheckResul
              
         async with AsyncSession(engine) as session:
              user_id = await _resolve_user_id(session)
-             from sqlalchemy.dialects.postgresql import insert as pg_insert
+             from sqlalchemy import select
+             stmt = select(SupplyItem).where(SupplyItem.user_id == user_id, SupplyItem.item_key == key)
+             existing_item = (await session.execute(stmt)).scalar_one_or_none()
              
-             stmt = pg_insert(SupplyItem).values(
-                user_id=user_id,
-                item_key=key,
-                quantity=int(qty)
-             ).on_conflict_do_update(
-                index_elements=["user_id", "item_key"], 
-                set_=dict(quantity=int(qty))
-             )
-             await session.execute(stmt)
+             if existing_item:
+                 existing_item.quantity = int(qty)
+             else:
+                 new_item = SupplyItem(user_id=user_id, item_key=key, quantity=int(qty))
+                 session.add(new_item)
+             
              await session.commit()
              
         # Re-check to return status
@@ -1579,6 +1598,18 @@ async def execute_tool(name: str, args: Dict[str, Any]) -> Any:
                 session_id=args.get("session_id"),
                 outcome_score=int(args.get("outcome_score")) if args.get("outcome_score") else None
             )
+        if name == "check_supplies_stock":
+             return await check_supplies_stock(args)
+        if name == "update_supply_quantity":
+             # Auto-map common names
+             key = args.get("item_key", "").lower()
+             if "aguja" in key or "needle" in key: key = "supplies_needles"
+             elif "sensor" in key: key = "supplies_sensors"
+             elif "reser" in key: key = "supplies_reservoirs"
+             
+             # Fallback if no mapping needed or unknown
+             args["item_key"] = key
+             return await update_supply_quantity(args)
     except ValidationError as exc:
         return ToolError(type="validation_error", message=str(exc))
     except Exception as exc:  # pragma: no cover
