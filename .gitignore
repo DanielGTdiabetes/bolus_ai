@@ -23,6 +23,9 @@ backend/**/*.sqlite3
 backend/**/*.db
 backend/**/*.bin
 backend/**/*.png
+!backend/app/static/assets/body_abdomen.png
+!backend/app/static/assets/body_full.png
+!backend/app/static/assets/body_legs.png
 backend/**/*.jpg
 backend/var/
 backend/.runtime/
