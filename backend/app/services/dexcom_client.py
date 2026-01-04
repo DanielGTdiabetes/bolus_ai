@@ -33,7 +33,7 @@ class DexcomClient:
         if self.cache_key not in _CLIENT_CACHE:
             def _init_dexcom():
                 logger.info(f"Dexcom: Performing fresh login for {self.username}")
-                return Dexcom(self.username, self.password, region=self.region)
+                return Dexcom(username=self.username, password=self.password, region=self.region)
             
             try:
                 _CLIENT_CACHE[self.cache_key] = await asyncio.to_thread(_init_dexcom)
