@@ -292,8 +292,57 @@ function DexcomPanel() {
                             <option value="us">Estados Unidos</option>
                         </select>
                     </div>
+
+                    <div style={{ display: 'flex', gap: '8px', marginTop: '1rem' }}>
+                        <Button
+                            variant="secondary"
+                            onClick={async () => {
+                                setStatus({ msg: 'Probando conexión...', type: 'neutral' });
+                                try {
+                                    const token = localStorage.getItem('token');
+                                    const res = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/dexcom/test`, {
+                                        method: 'POST',
+                                        headers: {
+                                            'Content-Type': 'application/json',
+                                            'Authorization': `Bearer ${token}`
+                                        },
+                                        body: JSON.stringify({
+                                            username: config.username,
+                                            password: config.password,
+                                            region: config.region
+                                        })
+                                    });
+                                    const data = await res.json();
+                                    if (data.success) {
+                                        setStatus({ msg: `✅ ${data.message}`, type: 'success' });
+                                    } else {
+                                        setStatus({ msg: `❌ ${data.message}`, type: 'error' });
+                                    }
+                                } catch (e) {
+                                    setStatus({ msg: `❌ Error de red: ${e.message}`, type: 'error' });
+                                }
+                            }}
+                        >
+                            📡 Probar Conexión
+                        </Button>
+                    </div>
                 </div>
             )}
+
+            <div className="card-section" style={{ marginTop: '1.5rem', padding: '1rem', background: '#fff1f2', borderRadius: '8px', border: '1px solid #fda4af' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '0.8rem', fontWeight: 600, color: '#9f1239', cursor: 'pointer' }}>
+                    <input
+                        type="checkbox"
+                        checked={!config.enabled}
+                        onChange={e => handleChange('enabled', !e.target.checked)}
+                        style={{ width: '1.2rem', height: '1.2rem' }}
+                    />
+                    Bypass de Emergencia (Usar solo Nightscout)
+                </label>
+                <div style={{ fontSize: '0.8rem', color: '#881337', marginTop: '4px', marginLeft: '2rem' }}>
+                    Si Dexcom Share falla, activa esto para forzar el uso de Nightscout como fuente de datos.
+                </div>
+            </div>
 
             <Button onClick={handleSave} style={{ marginTop: '1rem' }}>Guardar Dexcom</Button>
 
