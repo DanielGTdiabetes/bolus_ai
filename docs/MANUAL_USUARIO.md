@@ -24,10 +24,14 @@ Usa la cámara para identificar alimentos y estimar carbohidratos.
 ### 3. 💉 Bolo (Calculadora Inteligente)
 El cerebro de la app. Calcula la dosis necesaria basándose en:
 - **Smart Input**: Escribe qué vas a comer (ej: "Pizza") y el sistema buscará en Mis Platos para rellenar los carbohidratos automáticamente.
-- **Simulación Predictiva**: Antes de confirmar, verás una **gráfica de futuro a 6 horas** que desglosa:
-    - 🟣 **Curva Final**: Tu glucosa estimada.
-    - 🟠 **Impacto Carbohidratos**: Cuánto subiría si no te pusieras insulina.
-    - 🔵 **Impacto Insulina**: Cuánto bajaría solo por el efecto de la insulina y basal.
+- **Simulación Predictiva (Auto-Absorción) 🤖**: Ya no tienes que elegir "Rápida/Lenta". El sistema analiza tus macros (grasas, proteínas, fibra) y decide automáticamente el perfil de absorción.
+    - ⚡ **Rápida**: Para azúcar directo o modo "Postre".
+    - 🥗 **Media**: Perfil estándar equilibrado.
+    - 🍕 **Lenta**: Para comidas con mucha grasa (>15g) o fibra.
+    - 🛡️ **Regla de Oro V2**: El pronóstico es inteligente. Solo amortigua las alertas de "baja rápida" si hay comida digiriéndose, pero prioriza la seguridad si la glucosa baja de 80 mg/dL.
+- **Gráfica Visual**: Antes de confirmar, verás una gráfica que desglosa:
+    - 🟣 **Curva Final**: Tu glucosa estimada con indicadores de **Confianza (Alta/Media/Baja)**.
+    - 🐢 **Icono Slow**: Indica que el sistema detecta absorción extendida.
 - **Insulina Activa (IOB)**: Para evitar acumulación.
 - **Gestión Inteligente de Stock**: Si registras solo carbohidratos (sin insulina, ej: corrección de hipo), el sistema **NO** descontará agujas ni rotará el sitio de inyección.
 - **Rotación de Sitios**: Te muestra un avatar visual (Abdomen) y te sugiere dónde pincharte hoy para evitar repetir el mismo sitio (lipodistrofia).
@@ -52,6 +56,7 @@ Herramientas para optimizar tu dosis basal:
 - **📚 Mis Platos**: Gestiona tu librería personal unificada (ahora incluye campo de **Fibra** para mejorar la precisión de las predicciones).
 - **👤 Perfil**: Configura tus dosis máximas, ratios y tipo de insulina.
 - **⚙️ Ajustes**: Configuración técnica.
+    - **Dexcom Share Mirror 📡**: Puedes conectar tu cuenta de Dexcom directamente si no tienes Nightscout o como copia de seguridad. Soporta servidores US y Global.
 
 ---
 
@@ -137,12 +142,12 @@ Bolus AI aprende de tus datos históricos para sugerir cambios en tus Ratios (IC
 
 ---
 
-## 11. 🍷 Protocolo: Situaciones Complejas (Alcohol y Grasas)
+## 🍷 Protocolo: Situaciones Complejas (Alcohol y Grasas)
 
 Cómo actuar ante una cena copiosa (pizza, asado) acompañada de alcohol:
 
 1.  **Inicio (La Cena)**:
-    - Introduce todos los datos: Carbohidratos, Grasas y Proteínas.
+    - Introduce todos los datos. El sistema activará el **Modo Auto (Lento)** y verás el icono 🐢.
     - **Marca la casilla "Alcohol"**: Esto alerta al sistema de que tu hígado estará ocupado y el riesgo de hipoglucemia tardía es real.
     - **Acepta el Bolo Doble (Warsaw)**: El sistema dividirá la insulina para cubrir la grasa que se absorberá horas después.
 

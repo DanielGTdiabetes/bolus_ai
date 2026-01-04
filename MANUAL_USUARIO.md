@@ -36,13 +36,14 @@ El centro de control diseñado para darte información crítica en 1 segundo.
 
 #### La Gráfica de Predicción (El "Futuro")
 Toca el número de glucosa o la pequeña curva debajo para ver el gráfico detallado.
-*   **Línea Punteada:** Predicción a 30-60 minutos. La app calcula tu velocidad actual + insulina activa.
-*   **Sombra (Cono de Incertidumbre):** El margen de error. Sombra ancha = predicción menos segura.
-*   **Avisos:** Si la línea futura toca la zona roja (<70), aparecerá un aviso de **"Riesgo Inminente"** para que comas antes de tener la hipoglucemia.
+*   **Línea Punteada:** Representa tu glucosa prevista. El motor de simulación combina tu insulina activa, la comida pendiente de absorber y tu inercia actual.
+*   **Zona de Confianza:** El sistema muestra un indicador de **"Confianza: Alta/Media/Baja"** basado en la calidad de los datos (macros conocidos vs desconocidos).
+*   **Metadatos de Absorción:** Junto al gráfico verás qué curva se ha aplicado (⚡ Rápida, 🥗 Media, 🍕 Lenta) y por qué (ej: "Grasas + Proteínas altas").
+*   **Regla de Oro (Anti-Pánico) 🛡️:** El sistema incluye una protección inteligente. Si detecta una bajada rápida pero tienes una comida vinculada, suaviza la alerta para evitar que comas azúcar de más innecesariamente. Sin embargo, esta protección se desactiva instantáneamente si el riesgo de hipoglucemia es real (<80 mg/dL).
 *   **Datos Clave (Debajo de la gráfica):**
-    *   **Mínimo Estimado:** El valor más bajo calculado por el sistema.
-    *   **Tiempo al Mínimo:** Cuántos minutos faltan para llegar a ese punto más bajo. (Vital para saber si tienes prisa por comer o si puedes esperar).
-    *   **Glucosa Final:** Dónde acabarás dentro de 6 horas si no haces nada.
+    *   **Mínimo Estimado:** El valor más bajo previsto.
+    *   **Pico de Glucosa:** Cuándo y a qué valor llegará tu glucosa tras comer.
+    *   **Glucosa Final:** Dónde acabarás dentro de 4-6 horas.
 
 ### B. Métricas Clave
 Debajo de la glucosa verás 3 tarjetas:
@@ -79,6 +80,13 @@ La app es capaz de leer los carbohidratos que registres en aplicaciones externas
 3.  **Regla de Colisión (Anti-Duplicados):**
     *   Si llegan dos datos casi a la vez (ej. el registro original de 45g y la corrección de 60g en menos de 5 minutos), el sistema inteligente **NO los suma** (no verás 105g).
     *   Automáticamente se queda con el valor **mayor** (60g) para los gráficos y cálculos de COB, asumiendo que es la corrección más reciente.
+
+### D. Absorción Inteligente (🤖 Modo Auto)
+Ya no necesitas elegir manualmente si la comida es "Rápida" o "Lenta". El sistema lo decide por ti analizando:
+*   **Macros:** Si detecta >15g de grasa/proteína o >5g de fibra, activa el modo **Lento** (Curva de 4-5 horas).
+*   **Microbolos / Postre:** Si activas el modo "Postre", el sistema fuerza el modo **Rápido** (Impacto en 2h).
+*   **Falta de información:** Si no hay datos, usa el modo **Medio** (3h) con confianza baja.
+*   **Ajuste Manual:** Si crees que el sistema se equivoca, pulsa el botón **"Ajustar"** en la calculadora para forzar un perfil específico solo para ese bolo.
 
 ### D. Funciones Avanzadas (Los Modos)
 #### 🍕 1. Modo Grasa/Proteína (Pizza, Burger, Asados)
@@ -227,6 +235,13 @@ Aquí están tus números sagrados.
 Para conectar con tu sensor Dexcom/Libre en la nube.
 *   **URL:** Tu dirección de Nightscout (ej. `https://mi-ns.herokuapp.com`).
 *   **Token:** Tu clave de acceso (API Secret).
+
+### C. Dexcom Share (Cloud Mirror) 📡
+Si no tienes Nightscout o quieres una conexión directa de respaldo:
+*   **Habilitar Dexcom Share:** Activa el interruptor en Ajustes.
+*   **Credenciales:** Introduce tu usuario y contraseña de Dexcom.
+*   **Servidor:** Selecciona "US" si estás en Estados Unidos o "Global" para el resto del mundo.
+*   **Uso:** La app leerá tu glucosa directamente de los servidores de Dexcom en tiempo real. Es ideal como redundancia si tu Nightscout falla.
 
 ### C. Modo Enfermo (Sick Mode) 🤒
 (Suele estar en el Perfil o Cabecera).

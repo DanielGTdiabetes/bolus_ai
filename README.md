@@ -12,18 +12,15 @@ Para una explicación completa de cómo funciona la aplicación, consulta nuestr
 
 ## ✨ Características Principales
 
-- **🤖 Autosens (Nuevo)**: Detección automática de resistencia/sensibilidad en tiempo real (ajusta tus ratios si tienes un mal día).
-- **🕸️ Shadow Labs (Experimental)**: Pruebas de algoritmos de absorción en segundo plano sin riesgo (Auto-ISF, curvas personalizadas).
+- **🤖 Autosens**: Detección automática de resistencia/sensibilidad en tiempo real.
+- **📡 Dexcom Share Mirror**: Conexión directa con la nube de Dexcom para glucosa en tiempo real (sin necesidad de Nightscout).
+- **🔮 Pronóstico Metabólico con Confianza**: Predicción avanzada que muestra el impacto de grasas/fibras con indicadores de confianza (Alta/Media/Baja).
 - **🧠 Motor de Aprendizaje**: Sugerencias clínicas basadas en tus patrones (ej. "Baja tu ratio del desayuno").
-- **📸 Análisis de Comida por IA**: Estima carbohidratos, grasas, proteínas **y fibra** a partir de una foto.
-- **🥦 Gestión de Fibra**: Tracker completo de fibra con impacto en predicción de glucosa y (opcionalmente) en el cálculo de dosis.
+- **📸 Análisis de Comida por IA**: Estima carbohidratos, grasas, proteínas y fibra a partir de una foto.
+- **🛡️ Regla de Oro V2**: Sistema anti-pánico inteligente que evita falsas alarmas de hipo si hay comida pendiente.
 - **📍 Mapa Corporal**: Rotación de sitios de inyección con memoria visual.
-- **⏰ Calculadora de Olvido**: Seguridad para recálculo de basal tardía.
-- **🍴 Modo Restaurante**: Seguimiento inteligente de comidas complejas.
-- **⚖️ Báscula Bluetooth**: Conexión directa con básculas inteligentes.
-- **⏱️ Bolo Dual/Extendido/Micro**: Estrategias avanzadas para grasas, proteínas y correcciones post-pandriales ("Dessert Mode").
+- **🍴 Modo Restaurante**: Seguimiento inteligente de comidas complejas ("micro-bolos").
 - **🔄 Integración Nightscout**: Lectura en tiempo real + Subida de Tratamientos.
-- **⏱️ Historial Interactivo**: Edita tratamientos pasados (incluyendo macros), guárdalos como favoritos y visualiza métricas diarias.
 - **📊 Gestión de Basal**: Análisis de "Amanecer" y eficacia nocturna.
 
 ---
