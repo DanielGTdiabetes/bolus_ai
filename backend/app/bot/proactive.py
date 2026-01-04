@@ -10,6 +10,7 @@ from app.core import config
 from app.core.settings import get_settings
 from app.services.store import DataStore
 from app.services.nightscout_client import NightscoutClient, get_nightscout_client
+from app.services.treatment_retrieval import get_recent_treatments_db
 from app.services.iob import compute_iob_from_sources
 from app.models.bolus_v2 import BolusRequestV2, BolusResponseV2, GlucoseUsed
 from app.services.bolus_engine import calculate_bolus_v2
@@ -93,15 +94,11 @@ async def basal_reminder(username: str = "admin", chat_id: Optional[int] = None,
     now_local = datetime.now(tz)
     today_str = now_local.strftime("%Y-%m-%d")
 
-    # 3.5 Fetch Treatments for Today (Smart Detection)
+    # 3.5 Fetch Treatments from DB (Preferred over NS)
     recent_treatments = []
     try:
-        start_of_day_utc = now_local.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
-        client = get_nightscout_client(user_settings)
-        if client:
-             # Fetch generous window (last 24h) to cover edge cases or just today
-             recent_treatments = await client.get_recent_treatments(hours=24)
-             await client.aclose()
+        # We fetch 24h to be safe
+        recent_treatments = await get_recent_treatments_db(hours=24)
     except Exception as e:
         logger.warning(f"Failed to fetch treatments for basal check: {e}")
 
@@ -487,24 +484,13 @@ async def combo_followup(username: str = "admin", chat_id: Optional[int] = None)
              await _route({"reason_hint": "silenced_quiet_hours(combo_followup)"})
              return
 
-    # 4. Fetch Treatments
-    client = get_nightscout_client(user_settings)
-    
-    if not client:
-         await _route({"reason_hint": "missing_ns_config"})
-         return
+    # 4. Fetch Treatments (Local DB First)
     treatments = []
-    fetch_error = None
     try:
-        treatments = await client.get_recent_treatments(hours=conf.window_hours)
+        treatments = await get_recent_treatments_db(hours=conf.window_hours)
     except Exception as e:
-        logger.error(f"Combo check NS error: {e}")
-        fetch_error = str(e)
-    finally:
-        await client.aclose()
-        
-    if fetch_error:
-        await _route({"reason_hint": f"ns_error: {fetch_error}"})
+        logger.error(f"Combo check DB error: {e}")
+        # Could fallback to NS here if critical, but DB is primary now
         return
 
     # 5. Find Candidate (Strict Combo Gating)
@@ -699,19 +685,13 @@ async def post_meal_feedback(username: str = "admin", chat_id: Optional[int] = N
     if not final_chat_id: return
 
     # 1. Fetch Treatments (Last 4h)
+    # 1. Fetch Treatments (Last 4h from DB)
     global_settings = get_settings()
     store = DataStore(Path(global_settings.data.data_dir))
     
-    # We need NS or DB treatments. Let's use NightscoutClient as primary source for recent history
-    # We need NS or DB treatments. Let's use NightscoutClient as primary source for recent history
-    client = get_nightscout_client(user_settings)
-    if not client: return
-    treatments = []
-    try:
-        treatments = await client.get_recent_treatments(hours=4)
-        treatments.sort(key=lambda x: x.created_at, reverse=True)
-    except: pass
-    finally: await client.aclose()
+    treatments = await get_recent_treatments_db(hours=4)
+    if not treatments: return
+    treatments.sort(key=lambda x: x.created_at, reverse=True)
 
     # 2. Find Candidates (Meals > 3h ago but < 3.5h ago)
     # We want to catch them "once" around the 3h mark.
