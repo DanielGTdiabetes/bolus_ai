@@ -684,6 +684,16 @@ export async function putSettings(settings, version) {
   return data;
 }
 
+export async function testDexcom(config) {
+  const response = await apiFetch("/api/dexcom/test", {
+    method: "POST",
+    body: JSON.stringify(config)
+  });
+  const data = await toJson(response);
+  if (!response.ok) throw new Error(data.detail || "Error probando Dexcom");
+  return data;
+}
+
 export async function importSettings(settings) {
   const response = await apiFetch("/api/settings/import", {
     method: "POST",
@@ -792,7 +802,7 @@ export async function deleteFavorite(id) {
 // Legacy Alias for backward compatibility
 export async function addFavorite(name, carbs) {
   if (typeof name === 'object' && name !== null) {
-      return saveFavorite(name);
+    return saveFavorite(name);
   }
   return saveFavorite({ name, carbs });
 }

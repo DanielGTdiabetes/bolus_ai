@@ -10,7 +10,7 @@ import {
 import {
     getNightscoutSecretStatus, saveNightscoutSecret, testNightscout,
     fetchHealth, exportUserData, importUserData, fetchAutosens,
-    getSettings, updateSettings, getShadowLogs
+    getSettings, updateSettings, getShadowLogs, testDexcom
 } from '../lib/api';
 import { IsfAnalyzer } from '../components/settings/IsfAnalyzer';
 
@@ -188,6 +188,7 @@ function DexcomPanel() {
     });
     const [loading, setLoading] = useState(true);
     const [status, setStatus] = useState(null);
+    const [version, setVersion] = useState(0);
 
     // Fetch existing settings
     useEffect(() => {
@@ -200,6 +201,7 @@ function DexcomPanel() {
                     region: res.settings.dexcom.region || 'ous'
                 });
             }
+            if (res.version) setVersion(res.version);
             setLoading(false);
         }).catch(e => {
             console.warn(e);
@@ -215,32 +217,29 @@ function DexcomPanel() {
         setStatus({ msg: 'Guardando...', type: 'neutral' });
 
         try {
-            // We need to fetch current settings first to merge or just perform patch
-            // Ideally we call updateSettings with just the delta if supported, 
-            // but standard pattern here seems to be get full object.
             const current = await getSettings();
             const newSettings = current.settings || {};
             newSettings.dexcom = {
                 enabled: config.enabled,
                 username: config.username,
                 region: config.region
-                // Password handled carefully
             };
             if (config.password) {
                 newSettings.dexcom.password = config.password;
-            } else {
-                // If password empty, we don't send it unless we want to clear it?
-                // But typically UI leaves blank means "unchanged". 
-                // Backend needs to handle "if key missing, keep old". 
-                // If we send empty string, backend should verify.
             }
 
-            // Perform Save
-            await updateSettings(newSettings);
+            // Perform Save with VERSION
+            const res = await updateSettings({ ...newSettings, version: current.version });
+            if (res.version) setVersion(res.version);
+
             setStatus({ msg: '✅ Configuración Dexcom Guardada.', type: 'success' });
 
         } catch (e) {
-            setStatus({ msg: `❌ Error: ${e.message}`, type: 'error' });
+            if (e.isConflict) {
+                setStatus({ msg: `❌ Error de versión (Conflicto). Recargue la página e intente de nuevo.`, type: 'error' });
+            } else {
+                setStatus({ msg: `❌ Error: ${e.message}`, type: 'error' });
+            }
         }
     };
 
@@ -299,27 +298,18 @@ function DexcomPanel() {
                             onClick={async () => {
                                 setStatus({ msg: 'Probando conexión...', type: 'neutral' });
                                 try {
-                                    const token = localStorage.getItem('token');
-                                    const res = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/dexcom/test`, {
-                                        method: 'POST',
-                                        headers: {
-                                            'Content-Type': 'application/json',
-                                            'Authorization': `Bearer ${token}`
-                                        },
-                                        body: JSON.stringify({
-                                            username: config.username,
-                                            password: config.password,
-                                            region: config.region
-                                        })
+                                    const data = await testDexcom({
+                                        username: config.username,
+                                        password: config.password,
+                                        region: config.region
                                     });
-                                    const data = await res.json();
                                     if (data.success) {
                                         setStatus({ msg: `✅ ${data.message}`, type: 'success' });
                                     } else {
                                         setStatus({ msg: `❌ ${data.message}`, type: 'error' });
                                     }
                                 } catch (e) {
-                                    setStatus({ msg: `❌ Error de red: ${e.message}`, type: 'error' });
+                                    setStatus({ msg: `❌ Error: ${e.message}`, type: 'error' });
                                 }
                             }}
                         >
