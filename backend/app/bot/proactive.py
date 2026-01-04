@@ -93,6 +93,18 @@ async def basal_reminder(username: str = "admin", chat_id: Optional[int] = None,
     now_local = datetime.now(tz)
     today_str = now_local.strftime("%Y-%m-%d")
 
+    # 3.5 Fetch Treatments for Today (Smart Detection)
+    recent_treatments = []
+    try:
+        start_of_day_utc = now_local.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
+        client = get_nightscout_client(user_settings)
+        if client:
+             # Fetch generous window (last 24h) to cover edge cases or just today
+             recent_treatments = await client.get_treatments(date_from=start_of_day_utc)
+             await client.aclose()
+    except Exception as e:
+        logger.warning(f"Failed to fetch treatments for basal check: {e}")
+
     # 4. Iterate Schedules
     for item in schedules:
         # Key: basal_daily_status:{date}:{item.id}
@@ -110,6 +122,63 @@ async def basal_reminder(username: str = "admin", chat_id: Optional[int] = None,
                       if e.get("type") == "basal_daily_status" 
                       and e.get("date") == today_str 
                       and not e.get("schedule_id")), None)
+        
+        # 4b. Smart Detection Logic (If not already handled)
+        if not entry or entry.get("status") not in ("done", "dismissed", "done_detected", "snoozed"):
+             # Look for matching treatment in recent history
+             # Heuristic: Treatment with 'basal' in note OR insulin > 0 with 'basal' eventType?
+             # Note: Nightscout often uses 'Correction Bolus' / 'Meal Bolus'. Basal is usually just a note or specific type 'Basal'/'Temp Basal'.
+             # We look for keyword in notes.
+             
+             target_h, target_m = map(int, item.time.split(":"))
+             target_minutes = target_h * 60 + target_m
+             
+             for t in recent_treatments:
+                 notes = (t.notes or "").lower()
+                 e_type = (t.eventType or "").lower()
+                 
+                 # Keywords: 'basal', or the specific name of the schedule item (e.g. 'lantus', 'tresiba')
+                 keywords = ["basal", "larga", "lenta"]
+                 if item.name and item.name.lower() not in ["basal", "default"]:
+                     keywords.append(item.name.lower())
+                     
+                 is_basal_candidate = any(k in notes for k in keywords) or "basal" in e_type
+                 
+                 if is_basal_candidate:
+                     # Check Time Proximity IF multiple schedules exist
+                     # If only 1 schedule, any basal today counts? 
+                     # Let's be safe: match within +/- 5 hours of target time?
+                     # Or if 'schedules' has len > 1, be strict.
+                     
+                     match = True
+                     if len(schedules) > 1:
+                         # Strict time check
+                         t_local = t.created_at.astimezone(tz)
+                         t_minutes = t_local.hour * 60 + t_local.minute
+                         diff = abs(t_minutes - target_minutes)
+                         if diff > 180: # 3 hours
+                             match = False
+                             
+                     if match:
+                         # FOUND! It was already done.
+                         logger.info(f"Basal '{item.name}' detected externally (id={t.id}). Suppressing reminder.")
+                         if not entry:
+                             events.append({
+                                "type": "basal_daily_status",
+                                "date": today_str,
+                                "schedule_id": item.id,
+                                "status": "done_detected",
+                                "detected_from": t.id,
+                                "updated_at": datetime.now(timezone.utc).isoformat()
+                             })
+                             store.save_events(events)
+                             entry = events[-1] # Update reference
+                         else:
+                             # Update existing 'asked' or 'pending'
+                             evt_idx = events.index(entry)
+                             events[evt_idx]["status"] = "done_detected"
+                             store.save_events(events)
+                         break
 
         if entry:
             st = entry.get("status")
