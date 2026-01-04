@@ -100,7 +100,7 @@ async def basal_reminder(username: str = "admin", chat_id: Optional[int] = None,
         client = get_nightscout_client(user_settings)
         if client:
              # Fetch generous window (last 24h) to cover edge cases or just today
-             recent_treatments = await client.get_treatments(date_from=start_of_day_utc)
+             recent_treatments = await client.get_recent_treatments(hours=24)
              await client.aclose()
     except Exception as e:
         logger.warning(f"Failed to fetch treatments for basal check: {e}")
