@@ -320,6 +320,14 @@ def _build_tools() -> list[ToolDef]:
             fn=bolus_split.split_bolus if hasattr(bolus_split, "split_bolus") else None,
             permission=Permission.public_read,
         ),
+        ToolDef(
+            name="configure_basal_reminder",
+            description="Configura el recordatorio proactivo de basal.",
+            input_schema={"type": "object", "properties": {"enabled": {"type": "boolean"}, "time": {"type": "string", "description": "HH:MM"}, "units": {"type": "number"}}},
+            output_schema={"type": "object", "properties": {"ok": {"type": "boolean"}, "enabled": {"type": "boolean"}, "time_local": {"type": "string"}}},
+            fn=bot_tools.configure_basal_reminder,
+            permission=Permission.user_write,
+        ),
     ]
 
 

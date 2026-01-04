@@ -152,10 +152,20 @@ class RestaurantSessionResult(BaseModel):
     error: Optional[str] = None
 
 
+
 class OptimizationResult(BaseModel):
     suggestions: List[Dict[str, Any]]
     run_summary: Dict[str, Any]
     quality: str = "ok"
+
+
+class ConfigureBasalReminderResult(BaseModel):
+    ok: bool
+    enabled: bool
+    time_local: str
+    expected_units: float
+    error: Optional[str] = None
+
 
 
 def _build_ns_client(settings: UserSettings | None) -> Optional[NightscoutClient]:
@@ -917,11 +927,87 @@ async def add_treatment(tool_input: dict[str, Any]) -> AddTreatmentResult | Tool
         insulin=result.insulin,
         carbs=result.carbs,
         ns_uploaded=result.ns_uploaded,
-        ns_error=result.ns_error or error_text,
+        ns_error=error_text,
         saved_db=result.saved_db,
         saved_local=result.saved_local,
-        injection_site=site_info
+        injection_site=result.injection_site
     )
+
+
+async def configure_basal_reminder(tool_input: dict[str, Any]) -> ConfigureBasalReminderResult | ToolError:
+    try:
+        enabled_val = tool_input.get("enabled")
+        time_val = tool_input.get("time") # "HH:MM"
+        units_val = tool_input.get("units")
+
+        engine = get_engine()
+        if not engine:
+             return ToolError(type="db_error", message="Base de datos no disponible")
+
+        async with AsyncSession(engine) as session:
+             # 1. Resolve User
+             user_id = await _resolve_user_id(session)
+             
+             # 2. Fetch Settings
+             from app.services.settings_service import get_user_settings_service, update_user_settings_service, VersionConflictError
+             
+             current = await get_user_settings_service(user_id, session)
+             settings_dict = current.get("settings")
+             version = current.get("version", 0)
+             
+             if not settings_dict:
+                 # Should not happen for active user, but handle gracefully
+                 return ToolError(type="config_error", message="Usuario sin configuración base.")
+
+             # 3. Modify
+             # Navigate to bot.proactive.basal
+             # Ensure structure exists
+             if "bot" not in settings_dict: settings_dict["bot"] = {}
+             if "proactive" not in settings_dict["bot"]: settings_dict["bot"]["proactive"] = {}
+             if "basal" not in settings_dict["bot"]["proactive"]: settings_dict["bot"]["proactive"]["basal"] = {}
+             
+             basal_conf = settings_dict["bot"]["proactive"]["basal"]
+             
+             if enabled_val is not None:
+                 # Accept various truths
+                 if isinstance(enabled_val, str):
+                     basal_conf["enabled"] = enabled_val.lower() in ("true", "1", "yes", "on")
+                 else:
+                     basal_conf["enabled"] = bool(enabled_val)
+                     
+             if time_val:
+                 # Validate format HH:MM
+                 try:
+                     datetime.strptime(time_val, "%H:%M")
+                     basal_conf["time_local"] = time_val
+                 except ValueError:
+                     return ToolError(type="validation_error", message="Formato de hora inválido. Usa HH:MM (ej. 22:00)")
+             
+             if units_val is not None:
+                 try:
+                     basal_conf["expected_units"] = float(units_val)
+                 except ValueError:
+                     return ToolError(type="validation_error", message="Unidades deben ser número.")
+
+             # 4. Save
+             try:
+                 await update_user_settings_service(user_id, settings_dict, version, session)
+             except VersionConflictError:
+                 # Retry once? Or fail.
+                 # Let's fail for now, bot can retry if needed, but in tool flow simple is better.
+                 return ToolError(type="conflict_error", message="Conflicto de versión al guardar. Intenta de nuevo.")
+             
+             return ConfigureBasalReminderResult(
+                 ok=True,
+                 enabled=basal_conf.get("enabled", False),
+                 time_local=basal_conf.get("time_local", "?"),
+                 expected_units=basal_conf.get("expected_units", 0.0)
+             )
+
+    except Exception as e:
+        logger.exception("Error configuring basal reminder")
+        return ToolError(type="runtime_error", message=str(e))
+
 
 
 async def get_optimization_suggestions(days: int = 7) -> OptimizationResult | ToolError:
