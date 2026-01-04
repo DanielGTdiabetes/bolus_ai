@@ -385,4 +385,4 @@ def calculate_late_basal(hours_late: float, scheduled_u: float) -> float:
     reduction_factor = 0.05 * (hours_late - 2.0)
     reduction_factor = min(reduction_factor, 0.5) # Max 50% cut
     
-    return round(scheduled_u * (1.0 - reduction_factor), 1)
+    return float(round(scheduled_u * (1.0 - reduction_factor)))

@@ -253,29 +253,37 @@ async def get_status_context(username: str = "admin", user_settings: Optional[Us
         if ns_client:
             await ns_client.aclose()
 
-    # Calculate Daily Totals (Since Midnight UTC)
+    # Calculate Daily Totals (Since Midnight Local/User Time? Or UTC?)
+    # User expects "Today's totals". Usually Midnight Local.
+    # We infer local midnight from system time or settings TZ?
+    # Let's stick to UTC midnight for consistency unless TZ provided.
+    
     daily_stats = {
         "insulin": 0.0, "carbs": 0.0, "fat": 0.0, "protein": 0.0, "fiber": 0.0
     }
+    
+    # 1. DB Source (Primary)
     try:
         engine = get_engine()
         if engine:
              async with AsyncSession(engine) as session:
-                  # Use the username passed to function (typically admin) or resolve
-                  # Ideally we resolve to actual user_id
-                  from sqlalchemy import select, func
-                  from app.models.treatment import Treatment
-                  
-                  # We iterate to find the active user ID if "admin" is passed but mapped differently
-                  # Re-use _resolve_user logic inside the session
                   target_user = username
                   if username == "admin":
                        target_user = await _resolve_user_id(session)
-
-                  # FIX: Remove timezone info to match naive DB column (TIMESTAMP WITHOUT TIME ZONE)
-                  # In AsyncPG, passing an aware datetime to a naive column causes "can't subtract offset-naive" error.
-                  start_of_day = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0, tzinfo=None)
                   
+                  # Naive Midnight? Or Smart?
+                  # We use UTC midnight for simple "last 24h" window alignment? 
+                  # No, "Daily Totals" means "Since 00:00".
+                  # Let's assume server local time is user time for now (MVP).
+                  from datetime import time
+                  now_n = datetime.now()
+                  midnight = now_n.replace(hour=0, minute=0, second=0, microsecond=0)
+                  # Convert to UTC if created_at is UTC
+                  start_of_day = midnight.astimezone(timezone.utc).replace(tzinfo=None) # Cast to naive for asyncpg
+                  
+                  from sqlalchemy import select, func
+                  from app.models.treatment import Treatment
+
                   stmt = (
                       select(
                           func.sum(Treatment.insulin),
@@ -294,8 +302,9 @@ async def get_status_context(username: str = "admin", user_settings: Optional[Us
                       daily_stats["fat"] = row[2] or 0.0
                       daily_stats["protein"] = row[3] or 0.0
                       daily_stats["fiber"] = row[4] or 0.0
+                      
     except Exception as e:
-        logger.warning(f"Failed to fetch daily stats: {e}")
+        logger.warning(f"Failed to fetch daily stats from DB: {e}")
 
     return BolusContext(
         bg_mgdl=bg_val,
@@ -305,8 +314,8 @@ async def get_status_context(username: str = "admin", user_settings: Optional[Us
         cob_g=cob_g,
         timestamp=timestamp_str,
         quality=quality,
-        source="nightscout" if ns_client else "local",
-        config_hash=user_settings.config_hash, # Snapshot of config used to fetch this data
+        source="nightscout_live" if ns_client else "db_fallback", # clarify source
+        config_hash=user_settings.config_hash, 
         daily_insulin_u=round(daily_stats["insulin"], 2),
         daily_carbs_g=round(daily_stats["carbs"], 1),
         daily_fat_g=round(daily_stats["fat"], 1),
