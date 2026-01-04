@@ -29,9 +29,11 @@ class DexcomClient:
         """
         if not self._dexcom:
             # Run blocking init in executor
-            self._dexcom = await asyncio.to_thread(
-                Dexcom, self.username, self.password, False, self.region
-            )
+            # Use kwargs for clarity and safety with pydexcom versions
+            def _init_dexcom():
+                return Dexcom(self.username, self.password, region=self.region)
+                
+            self._dexcom = await asyncio.to_thread(_init_dexcom)
         return self._dexcom
 
     async def get_latest_sgv(self) -> Optional[GlucoseReading]:
