@@ -25,7 +25,11 @@ async def test_dexcom_connection(payload: TestDexcomRequest, user_id: str = Depe
     Test connectivity to Dexcom Share with provided credentials.
     """
     try:
-        client = DexcomClient(payload.username, payload.password, payload.region)
+        client = DexcomClient(
+            username=payload.username, 
+            password=payload.password, 
+            region=payload.region
+        )
         reading = await client.get_latest_sgv()
         
         if reading:

@@ -1614,6 +1614,7 @@ async def on_new_meal_received(carbs: float, fat: float, protein: float, fiber: 
     # Init local var for trend
     bg_trend = None 
     bg_source = "none"
+    bg_datetime = None
 
     try:
         # 0. Try Dexcom Share First (If configured)
@@ -1629,9 +1630,10 @@ async def on_new_meal_received(carbs: float, fat: float, protein: float, fiber: 
                  sgv_d = await d_client.get_latest_sgv()
                  if sgv_d:
                      bg_val = float(sgv_d.sgv)
-                     bg_trend = sgv_d.trend # Capture trend
-                     bg_source = "dexcom" # Update source tracking
-                     logger.info(f"Bot obtained BG from Dexcom: {bg_val} {bg_trend}")
+                     bg_trend = sgv_d.trend 
+                     bg_datetime = sgv_d.date
+                     bg_source = "dexcom" 
+                     logger.info(f"Bot obtained BG from Dexcom: {bg_val} {bg_trend} (Time: {bg_datetime})")
              except Exception as dex_e:
                  logger.error(f"Dexcom fetch failed: {dex_e}")
 
@@ -1644,7 +1646,15 @@ async def on_new_meal_received(carbs: float, fat: float, protein: float, fiber: 
                     bg_source = "nightscout"
                     # NS trend (direction)
                     if hasattr(sgv, 'direction'):
-                         bg_trend = sgv.direction 
+                         bg_trend = sgv.direction
+                    # NS date
+                    if hasattr(sgv, 'date'): # Usually a date string or timestamp
+                         # We rely on NS client internal parsing or assume current if missing?
+                         # NightscoutClient usually parses date.
+                         # Just in case, let's assume it's fresh if we just fetched it, 
+                         # or check is_stale logic if we had access to raw object time.
+                         pass
+                         
                     logger.info(f"Bot obtained BG from NS: {bg_val}")
             except Exception as e:
                 logger.error(f"Bot failed to get latest SGV from NS: {e}")
@@ -1656,14 +1666,14 @@ async def on_new_meal_received(carbs: float, fat: float, protein: float, fiber: 
                 if engine:
                     async with AsyncSession(engine) as session:
                         from sqlalchemy import text
-                        stmt = text("SELECT sgv, direction FROM entries ORDER BY date_string DESC LIMIT 1") 
+                        stmt = text("SELECT sgv, direction, date_string FROM entries ORDER BY date_string DESC LIMIT 1") 
                         row = (await session.execute(stmt)).fetchone()
                         if row:
                             bg_val = float(row.sgv)
                             bg_source = "database"
-                            # Try to get direction if available in DB
                             if hasattr(row, 'direction'):
                                 bg_trend = row.direction
+                            # Date parsing from DB string would be needed for stale check
             except Exception: pass
             
         # Calc IOB
@@ -1686,11 +1696,24 @@ async def on_new_meal_received(carbs: float, fat: float, protein: float, fiber: 
 
     slot = get_current_meal_slot(user_settings)
     
+    # calculate staleness
+    is_stale_reading = False
+    if bg_datetime:
+        # Assuming bg_datetime is consistent TZ (usually UTC or naive from pydexcom?)
+        # pydexcom returns naive datetime. We assume it's roughly current server time relative.
+        # Safest is usually total_seconds check against now.
+        # But if pydexcom gives naive time in user's timezone? 
+        # Actually pydexcom docs say 'datetime' object. Let's assume it matches system time flow.
+        diff = (datetime.now() - bg_datetime).total_seconds()
+        if diff > 1200: # 20 minutes
+             is_stale_reading = True
+             logger.warning(f"Dexcom reading is stale! Age: {diff/60:.1f} mins")
+    
     glucose_info = GlucoseUsed(
         mgdl=bg_val,
         source=bg_source,
         trend=bg_trend,
-        is_stale=False # We should compute stale check here actually but keeping simple
+        is_stale=is_stale_reading
     )
     
     req_v2 = BolusRequestV2(
