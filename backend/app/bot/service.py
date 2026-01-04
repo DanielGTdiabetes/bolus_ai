@@ -755,20 +755,18 @@ async def _process_text_input(update: Update, context: ContextTypes.DEFAULT_TYPE
     # 5. Send Image if present (Injection Site)
     if bot_reply.image_path:
         try:
-            # Resolve path (assume relative to frontend/public if not absolute)
-            img_path = Path(bot_reply.image_path)
-            if not img_path.is_absolute():
-                # Dynamic resolution:
-                base_dir = Path("frontend/public").resolve()
-                if not base_dir.exists():
-                     # Try going up if we are in backend
-                     base_dir = Path("../frontend/public").resolve()
-                
-                if not base_dir.exists():
-                     # Fallback to hardcoded only if dynamic fails
-                     base_dir = Path(__file__).parent.parent.parent.parent / "frontend" / "public"
+            # Improved Resolution Logic
+            # Images are now copied to backend/app/static/assets during build/dev
+            # This ensures portability (Docker/Linux/Windows)
+            
+            # Try finding the file relative to THIS file (service.py is in app/bot)
+            # So -> ../static/assets/...
+            base_dir = Path(__file__).parent.parent / "static" / "assets"
+            img_path = base_dir / bot_reply.image_path
 
-                img_path = base_dir / bot_reply.image_path
+            if not img_path.exists():
+                 # Fallback: Just try straight relative path assuming cwd is /app
+                 img_path = Path("app/static/assets") / bot_reply.image_path
             
             if img_path.exists():
                 await context.bot.send_photo(
@@ -776,7 +774,7 @@ async def _process_text_input(update: Update, context: ContextTypes.DEFAULT_TYPE
                     photo=open(img_path, "rb")
                 )
             else:
-                logger.warning(f"Image not found: {img_path}")
+                logger.warning(f"Image not found at {img_path} (cwd: {os.getcwd()})")
         except Exception as e:
             logger.error(f"Failed to send bot image: {e}")
 

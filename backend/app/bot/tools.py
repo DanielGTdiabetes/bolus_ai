@@ -491,7 +491,7 @@ async def calculate_bolus(carbs: float, fat: float = 0.0, protein: float = 0.0, 
         # Ideally pass username from router but for now defaulting is safe for single user
         # We can try to peek at user_settings owner if available? No easiest is admin/default.
         target_user = "admin"
-        preview = rotator.get_next_site_preview(target_user)
+        preview = rotator.get_next_site_preview(target_user, plan="rapid")
         preview_site = {
              "name": preview.name,
              "emoji": preview.emoji,
@@ -994,14 +994,17 @@ async def add_treatment(tool_input: dict[str, Any]) -> AddTreatmentResult | Tool
                      target_user = await _resolve_user_id()
              except: pass
              
-             rotation_site = rotator.rotate_site(target_user)
-             site_info = {
-                 "name": rotation_site.name,
-                 "emoji": rotation_site.emoji,
-                 "image": rotation_site.image_ref
-             }
-        except Exception as e:
-            logger.warning(f"Rotation logic failed: {e}")
+             # Rotate Injection Site (if confirmed via Telegram and not just "logged")
+             # Usually adding treatment via bot means "I just did it" -> rotate
+             rotation_site = None
+             try:
+                 if store:
+                     rotator = RotationService(store)
+                     rotation_site = rotator.rotate_site(target_user, plan="rapid")
+             except Exception as e:
+                 logger.warning(f"Rotation failed: {e}")
+        except Exception as e: 
+             logger.warning(f"Post-treatment logic failed: {e}")
 
     health.record_action("add_treatment", ok=result.ok, error=error_text)
     return AddTreatmentResult(
