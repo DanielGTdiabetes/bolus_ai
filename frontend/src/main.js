@@ -101,6 +101,11 @@ registerView('#/restaurant', () => {
   import('./bridge.jsx').then(({ mountReactPage }) => mountReactPage('restaurant'));
 });
 
+// Emergency Manual Mode
+registerView('#/manual', () => {
+  import('./bridge.jsx').then(({ mountReactPage }) => mountReactPage('manual'));
+});
+
 // Initialize Router
 initRouter();
 

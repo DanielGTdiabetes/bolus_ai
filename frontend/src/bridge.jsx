@@ -28,6 +28,7 @@ import NotificationsPage from './pages/NotificationsPage';
 import ForecastPage from './pages/ForecastPage';
 import StatusPage from './pages/StatusPage';
 import LabsPage from './pages/LabsPage';
+import ManualCalculatorPage from './pages/ManualCalculatorPage';
 
 const PAGES = {
     'favorites': FavoritesPage,
@@ -52,6 +53,7 @@ const PAGES = {
     'forecast': ForecastPage,
     'status': StatusPage,
     'labs': LabsPage,
+    'manual': ManualCalculatorPage,
 };
 
 if (RESTAURANT_MODE_ENABLED) {
