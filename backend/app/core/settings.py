@@ -72,6 +72,7 @@ class Settings(BaseModel):
     vision: VisionConfig = Field(default_factory=VisionConfig)
     database: DatabaseConfig = Field(default_factory=DatabaseConfig)
     proactive: "ProactiveGlobalConfig" = Field(default_factory=lambda: ProactiveGlobalConfig())
+    dexcom: DexcomConfig = Field(default_factory=DexcomConfig)
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -101,6 +102,11 @@ class ProactiveGlobalConfig(BaseModel):
     premeal: PremealConfig = Field(default_factory=PremealConfig)
     basal: BasalConfig = Field(default_factory=BasalConfig)
 
+class DexcomConfig(BaseModel):
+    enabled: bool = False
+    username: Optional[str] = None
+    password: Optional[str] = None
+    region: Optional[str] = "ous"
 
 DEFAULT_CONFIG_PATH = Path(os.environ.get("CONFIG_PATH", "config/config.json"))
 
@@ -185,6 +191,21 @@ def _load_env() -> dict[str, Any]:
     if db_url:
         env_config.setdefault("database", {})["url"] = db_url
 
+    # Dexcom Env
+    dex_user = os.environ.get("DEXCOM_USERNAME")
+    if dex_user:
+        d = env_config.setdefault("dexcom", {})
+        d["username"] = dex_user
+        d["enabled"] = True
+    
+    dex_pass = os.environ.get("DEXCOM_PASSWORD")
+    if dex_pass:
+        env_config.setdefault("dexcom", {})["password"] = dex_pass
+        
+    dex_region = os.environ.get("DEXCOM_REGION")
+    if dex_region:
+        env_config.setdefault("dexcom", {})["region"] = dex_region
+
     return env_config
 
 
@@ -196,6 +217,7 @@ def merge_settings(env_config: dict[str, Any], file_config: dict[str, Any]) -> d
     merged["data"] = {**file_config.get("data", {}), **env_config.get("data", {})}
     merged["vision"] = {**file_config.get("vision", {}), **env_config.get("vision", {})}
     merged["database"] = {**file_config.get("database", {}), **env_config.get("database", {})}
+    merged["dexcom"] = {**file_config.get("dexcom", {}), **env_config.get("dexcom", {})}
     return merged
 
 

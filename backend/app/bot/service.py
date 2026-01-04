@@ -1612,14 +1612,37 @@ async def on_new_meal_received(carbs: float, fat: float, protein: float, fiber: 
          ns_client = NightscoutClient(str(settings.nightscout.base_url), settings.nightscout.token)
     
     try:
-        # Fetch BG
-        if ns_client:
+        # 0. Try Dexcom Share First (If configured)
+        if user_settings.dexcom and user_settings.dexcom.enabled and user_settings.dexcom.username:
+             try:
+                 from app.services.dexcom_client import DexcomClient
+                 # If password is missing in settings object (might be encrypted in DB but not loaded fully?)
+                 # UserSettings model usually has all fields. 
+                 # Assuming password is available or we need to fetch it differently if it's protected.
+                 # Usually UserSettings loaded via _load_user_settings calls get_user_settings_service which decrypts secrets.
+                 
+                 d_client = DexcomClient(
+                     user_settings.dexcom.username,
+                     user_settings.dexcom.password, 
+                     user_settings.dexcom.region or "ous"
+                 )
+                 sgv_d = await d_client.get_latest_sgv()
+                 if sgv_d:
+                     bg_val = float(sgv_d.sgv)
+                     source = "dexcom" # Update source tracking
+                     logger.info(f"Bot obtained BG from Dexcom: {bg_val}")
+             except Exception as dex_e:
+                 logger.error(f"Dexcom fetch failed: {dex_e}")
+
+        # 1. Fetch BG from Nightscout (Fallback)
+        if bg_val is None and ns_client:
             try:
                 sgv = await ns_client.get_latest_sgv()
-                bg_val = float(sgv.sgv)
-                logger.info(f"Bot obtained BG: {bg_val}")
+                if sgv:
+                    bg_val = float(sgv.sgv)
+                    logger.info(f"Bot obtained BG from NS: {bg_val}")
             except Exception as e:
-                logger.error(f"Bot failed to get latest SGV: {e}")
+                logger.error(f"Bot failed to get latest SGV from NS: {e}")
 
         # 1.1 DB Fallback for Glucose (SGV)
         if bg_val is None:

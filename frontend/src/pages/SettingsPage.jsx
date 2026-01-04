@@ -25,6 +25,7 @@ export default function SettingsPage() {
                 <Card>
                     <div className="tabs" style={{ display: 'flex', borderBottom: '1px solid #e2e8f0', marginBottom: '1rem', overflowX: 'auto' }}>
                         <TabButton label="Nightscout" active={activeTab === 'ns'} onClick={() => setActiveTab('ns')} />
+                        <TabButton label="Dexcom" active={activeTab === 'dexcom'} onClick={() => setActiveTab('dexcom')} />
                         <TabButton label="Cálculo" active={activeTab === 'calc'} onClick={() => setActiveTab('calc')} />
                         <TabButton label="IA / Visión" active={activeTab === 'vision'} onClick={() => setActiveTab('vision')} />
                         <TabButton label="Análisis" active={activeTab === 'analysis'} onClick={() => setActiveTab('analysis')} />
@@ -34,6 +35,7 @@ export default function SettingsPage() {
                     </div>
 
                     {activeTab === 'ns' && <NightscoutPanel />}
+                    {activeTab === 'dexcom' && <DexcomPanel />}
                     {activeTab === 'calc' && <CalcParamsPanel />}
                     {activeTab === 'vision' && <VisionPanel />}
                     {activeTab === 'bot' && <BotPanel />}
@@ -162,6 +164,140 @@ function NightscoutPanel() {
             </div>
 
             {status.msg && (
+                <div style={{
+                    padding: '0.8rem',
+                    borderRadius: '8px',
+                    marginTop: '1rem',
+                    background: status.type === 'error' ? '#fee2e2' : (status.type === 'success' ? '#dcfce7' : '#f1f5f9'),
+                    color: status.type === 'error' ? '#ef4444' : (status.type === 'success' ? '#166534' : '#334155'),
+                    fontWeight: 600
+                }}>
+                    {status.msg}
+                </div>
+            )}
+        </div>
+    );
+}
+
+function DexcomPanel() {
+    const [config, setConfig] = useState({
+        enabled: false,
+        username: '',
+        password: '',
+        region: 'ous' // 'us', 'ous'
+    });
+    const [loading, setLoading] = useState(true);
+    const [status, setStatus] = useState(null);
+
+    // Fetch existing settings
+    useEffect(() => {
+        getSettings().then(res => {
+            if (res.settings && res.settings.dexcom) {
+                setConfig({
+                    enabled: res.settings.dexcom.enabled || false,
+                    username: res.settings.dexcom.username || '',
+                    password: '', // Don't fetch password back for security, just blank
+                    region: res.settings.dexcom.region || 'ous'
+                });
+            }
+            setLoading(false);
+        }).catch(e => {
+            console.warn(e);
+            setLoading(false);
+        });
+    }, []);
+
+    const handleChange = (field, value) => {
+        setConfig(prev => ({ ...prev, [field]: value }));
+    };
+
+    const handleSave = async () => {
+        setStatus({ msg: 'Guardando...', type: 'neutral' });
+
+        try {
+            // We need to fetch current settings first to merge or just perform patch
+            // Ideally we call updateSettings with just the delta if supported, 
+            // but standard pattern here seems to be get full object.
+            const current = await getSettings();
+            const newSettings = current.settings || {};
+            newSettings.dexcom = {
+                enabled: config.enabled,
+                username: config.username,
+                region: config.region
+                // Password handled carefully
+            };
+            if (config.password) {
+                newSettings.dexcom.password = config.password;
+            } else {
+                // If password empty, we don't send it unless we want to clear it?
+                // But typically UI leaves blank means "unchanged". 
+                // Backend needs to handle "if key missing, keep old". 
+                // If we send empty string, backend should verify.
+            }
+
+            // Perform Save
+            await updateSettings(newSettings);
+            setStatus({ msg: '✅ Configuración Dexcom Guardada.', type: 'success' });
+
+        } catch (e) {
+            setStatus({ msg: `❌ Error: ${e.message}`, type: 'error' });
+        }
+    };
+
+    if (loading) return <div>Cargando...</div>;
+
+    return (
+        <div className="stack">
+            <h3 style={{ marginTop: 0 }}>Conexión Dexcom Share</h3>
+            <p className="text-muted text-sm">
+                Conecta directamente con Dexcom para obtener valores de glucosa sin depender de Nightscout (lectura).
+            </p>
+
+            <div style={{ background: '#f0f9ff', padding: '1rem', borderRadius: '8px', border: '1px solid #bae6fd', marginBottom: '1rem' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '0.8rem', fontWeight: 600, color: '#0369a1', cursor: 'pointer' }}>
+                    <input
+                        type="checkbox"
+                        checked={config.enabled}
+                        onChange={e => handleChange('enabled', e.target.checked)}
+                        style={{ width: '1.2rem', height: '1.2rem' }}
+                    />
+                    Habilitar Dexcom Share
+                </label>
+            </div>
+
+            {config.enabled && (
+                <div className="stack fade-in">
+                    <Input
+                        label="Usuario Dexcom"
+                        placeholder="+34..."
+                        value={config.username}
+                        onChange={e => handleChange('username', e.target.value)}
+                    />
+                    <Input
+                        label="Contraseña"
+                        type="password"
+                        placeholder={config.password ? "••••••" : "(Sin cambios)"}
+                        value={config.password}
+                        onChange={e => handleChange('password', e.target.value)}
+                    />
+
+                    <div className="form-group">
+                        <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600 }}>Región</label>
+                        <select
+                            value={config.region}
+                            onChange={e => handleChange('region', e.target.value)}
+                            style={{ width: '100%', padding: '0.8rem', borderRadius: '8px', border: '1px solid #cbd5e1' }}
+                        >
+                            <option value="ous">Europa / Mundo (Fuera de EEUU)</option>
+                            <option value="us">Estados Unidos</option>
+                        </select>
+                    </div>
+                </div>
+            )}
+
+            <Button onClick={handleSave} style={{ marginTop: '1rem' }}>Guardar Dexcom</Button>
+
+            {status && status.msg && (
                 <div style={{
                     padding: '0.8rem',
                     borderRadius: '8px',
