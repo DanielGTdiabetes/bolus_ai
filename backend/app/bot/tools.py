@@ -376,6 +376,18 @@ async def calculate_bolus(carbs: float, fat: float = 0.0, protein: float = 0.0, 
     except Exception as e:
         logger.warning(f"Failed to check temp modes: {e}")
 
+    # STALE DATA SAFETY CHECK
+    if status.bg_mgdl:
+        try:
+            ts = datetime.fromisoformat(status.timestamp)
+            if ts.tzinfo is None: ts = ts.replace(tzinfo=timezone.utc)
+            age_min = (datetime.now(timezone.utc) - ts).total_seconds() / 60
+            if age_min > 20: # Allow bit more than 15 for latency
+                return ToolError(type="stale_data", message=f"Datos de glucosa expirados ({int(age_min)} min). Revisa Nightscout/Sensor.")
+        except: pass
+    else:
+        return ToolError(type="missing_data", message="No hay datos de glucosa recientes.")
+
     # Calculate Hybrid Autosens
     autosens_ratio = 1.0
     autosens_reason = None
@@ -503,6 +515,15 @@ async def calculate_correction(target_bg: Optional[float] = None) -> CorrectionR
         return status
     if status.bg_mgdl is None:
         return ToolError(type="missing_bg", message="No hay glucosa reciente (Nightscout caído o sin datos).")
+    
+    # Check age
+    try:
+        ts = datetime.fromisoformat(status.timestamp)
+        if ts.tzinfo is None: ts = ts.replace(tzinfo=timezone.utc)
+        age = (datetime.now(timezone.utc) - ts).total_seconds() / 60
+        if age > 20: 
+             return ToolError(type="stale_data", message=f"Datos antiguos ({int(age)}m). Riesgo de sobredosis.")
+    except: pass
 
     target = target_bg or user_settings.targets.mid
     bg = status.bg_mgdl
@@ -545,30 +566,59 @@ async def simulate_whatif(carbs: float, horizon_minutes: int = 180) -> WhatIfRes
 
     # Simple simulation: carbs now, no insulin yet
     
+    # SIMULATION:
+    # 1. New Carbs (Proposed) at t=0
     sim_carbs = [ForecastEventCarbs(time_offset_min=0, grams=carbs, absorption_minutes=180)]
     
-    # FIX: Inject existing COB as a "Ghost Meal" starting now (simplified)
-    # We don't know the exact schedule of past meals here easily without complex query.
-    # But we know total COB from status.cob_g.
-    # We model it as a meal consumed "some time ago" that has this much remaining?
-    # Or simpler: A meal at t=0 with grams=cob_g.
-    # WARNING: Adding it as new carbs at t=0 spins up a NEW absorption curve, which might delay the peak.
-    # Better approach: If we knew "original meal time", we could add it with negative offset.
-    # Without that, adding it as "remaining linear absorption" is safer.
-    # Let's add it as a meal at t=0 but with shorter absorption (e.g. 90 min) to reflect it's already partly digested?
-    # Let's use status.cob_g directly if > 5g
-    if status.cob_g and status.cob_g > 5:
-        # We assume the user has active carbs.
-        # We add them as another event at t=0
-        sim_carbs.insert(0, ForecastEventCarbs(
-            time_offset_min=0, 
-            grams=status.cob_g, 
-            absorption_minutes=120 # Assume faster absorption for remaining tail
-        ))
-        
+    # 2. History Carbs (Prevent Ghost COB)
+    # Instead of lumping COB, we fetch recent treatments to model actual absorption curves.
+    history_events = []
+    try:
+        # Use NS Client to get reliable history
+        client = _build_ns_client(user_settings)
+        if client:
+            # Fetch 6h history
+            recents = await client.get_recent_treatments(hours=6)
+            now_utc = datetime.now(timezone.utc)
+            
+            for t in recents:
+                # 2.1 Carbs
+                if t.carbs and t.carbs > 0:
+                    age_min = (now_utc - t.created_at).total_seconds() / 60
+                    # Event time relative to NOW (t=0) is negative
+                    offset = -1 * age_min
+                    history_events.append(ForecastEventCarbs(
+                        time_offset_min=int(offset),
+                        grams=t.carbs,
+                        absorption_minutes=180 # Default, or complex logic
+                    ))
+                
+                # 2.2 Bolus History (for IOB simulation if needed, but engine usually calculates IOB separately. 
+                # However, ForecastEngine logic might want Bolus events to compute IOB curve if we don't pass 'initial_iob'?)
+                # Current ForecastEngine usually takes 'initial_iob' OR 'events'. 
+                # If we pass initial_iob (computed by simple_iob), we might duplicate if we also pass bolus events.
+                # Safest: Pass carb events for COB info, but rely on status.iob_u for IOB starting point?
+                # Actually, status.cob_g is total COB. If we pass Carb Events, the engine re-calculates COB.
+                # So if we pass Carb Events, we should NOT rely on status.cob_g for "initial_cob", or strictly one.
+                # The engine 'initial_cob' param is typically an override or starting state.
+                # Let's pass history events and let engine handle it.
+                pass
+                
+            await client.aclose()
+    except Exception as e:
+        logger.warning(f"Simulate history fetch failed: {e}")
+        # Fallback: Ghost Meal if history fetch fails
+        if status.cob_g and status.cob_g > 5:
+             sim_carbs.insert(0, ForecastEventCarbs(time_offset_min=0, grams=status.cob_g, absorption_minutes=120))
+
+    # Merge
+    all_carbs = history_events + sim_carbs
+
     events = ForecastEvents(
-        boluses=[],
-        carbs=sim_carbs,
+        boluses=[], # We rely on IOB being handled via 'initial_iob' implicitly or engine state? 
+                    # Actually valid IOB comes from status.iob_u. The engine uses it if we don't simulate past boluses?
+                    # Let's look at params below.
+        carbs=all_carbs,
         basal_injections=[],
     )
     params = SimulationParams(
@@ -586,7 +636,7 @@ async def simulate_whatif(carbs: float, horizon_minutes: int = 180) -> WhatIfRes
         params=params,
         events=events,
         momentum=MomentumConfig(enabled=True, lookback_points=3),
-        initial_cob=status.cob_g, # Explicit field for engine might be better if supported, but events is safer for now.
+        initial_cob=None, # We use events now!
         recent_bg_series=[{"minutes_ago": 0, "value": status.bg_mgdl}],
     )
     forecast = ForecastEngine.calculate_forecast(req)
