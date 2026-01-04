@@ -1193,6 +1193,7 @@ function ResultView({ result, slot, usedParams, onBack, onSave, saving, currentC
             const isf = params.isf_mgdl_per_u ?? params.isfMgdlPerU ?? params.isf;
             const icr = params.cr_g_per_u ?? params.crGPerU ?? params.icr;
             const dia = params.dia_hours ?? params.diaHours;
+            const peak = params.insulin_peak_minutes ?? params.insulinPeakMinutes ?? (params.insulin_model === 'fiasp' ? 55 : 75);
             const insulinModel = params.insulin_model || 'linear';
             const targetMgdl = params.target_mgdl ?? params.target;
 
@@ -1219,12 +1220,29 @@ function ResultView({ result, slot, usedParams, onBack, onSave, saving, currentC
             const nowU = isNaN(doseNow) ? 0 : doseNow;
             if (nowU > 0) boluses.push({ time_offset_min: 0, units: nowU });
 
+            // Extended (Square wave)
+            const extU = isNaN(doseLater) ? 0 : doseLater;
+            if (extU > 0) {
+                // We send it as a bolus with duration. 
+                // Backend ForecastEngine handles this by splitting it into 5-min chunks.
+                boluses.push({
+                    time_offset_min: 0,
+                    units: extU,
+                    duration_minutes: result.duration_min || 120
+                });
+            }
+
             // This is the most critical check.
 
-            const cVal = isNaN(carbsVal) ? 0 : carbsVal;
+            const carbsVal = parseFloat(currentCarbs) || 0;
             const events = {
                 boluses: boluses,
-                carbs: cVal > 0 ? [{ time_offset_min: 0, grams: cVal, carb_profile: carbProfile }] : []
+                carbs: carbsVal > 0 ? [{
+                    time_offset_min: 0,
+                    grams: carbsVal,
+                    carb_profile: carbProfile,
+                    is_dessert: dessertMode
+                }] : []
             };
 
             const payload = {
@@ -1234,6 +1252,7 @@ function ResultView({ result, slot, usedParams, onBack, onSave, saving, currentC
                     isf: isf,
                     icr: icr,
                     dia_minutes: dia * 60,
+                    insulin_peak_minutes: peak,
                     carb_absorption_minutes: 150, // TUNED: Faster absorption (2.5h) to match Fiasp/Novo better and avoid fake dips
                     insulin_model: insulinModel
                 },
@@ -1375,7 +1394,7 @@ function ResultView({ result, slot, usedParams, onBack, onSave, saving, currentC
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1rem' }}>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                                 <span style={{ fontSize: '0.85rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>
-                                    Pronóstico Metabólico
+                                    Pronóstico Metabólico {predictionData.slow_absorption_active ? '🐢' : ''}
                                 </span>
                                 {!simulating && predictionData?.absorption_profile_used && (
                                     <div style={{ fontSize: '0.75rem', color: '#94a3b8', display: 'flex', gap: '6px', alignItems: 'center' }}>

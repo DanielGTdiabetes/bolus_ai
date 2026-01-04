@@ -30,6 +30,7 @@ class ForecastEventCarbs(BaseModel):
     absorption_minutes: Optional[int] = None # Override global absorption if set
     icr: Optional[float] = None # Specific ICR for this meal (g/U)
     carb_profile: Optional[str] = None # 'fast', 'med', 'slow' or None (auto)
+    is_dessert: bool = False # Flag for dessert mode (forces fast absorption)
 
 class ForecastBasalInjection(BaseModel):
     time_offset_min: int = Field(0, description="Minutes from now (transaction time)")

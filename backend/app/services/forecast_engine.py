@@ -172,9 +172,8 @@ class ForecastEngine:
             
             # Carbs
             step_carb_impact_rate = 0.0
-            total_carb_rise_at_t = 0.0
             
-            # Metadata for absorption tracking (summary of the first carb event or merged)
+            # Metadata for absorption tracking
             # Usually there's only one main carb event in these simulations.
             chosen_profile = "none"
             chosen_confidence = "low"
@@ -328,7 +327,9 @@ class ForecastEngine:
             warnings=warnings,
             absorption_profile_used=chosen_profile,
             absorption_confidence=chosen_confidence,
-            absorption_reasons=chosen_reasons
+            absorption_reasons=chosen_reasons,
+            slow_absorption_active=(chosen_profile == "slow"),
+            slow_absorption_reason=" ".join(chosen_reasons) if chosen_profile == "slow" else None
         )
     
     @staticmethod
@@ -430,6 +431,12 @@ class ForecastEngine:
             profile = "med" # Stays medium but adds confidence
             confidence = "medium"
             reasons.append(f"Fibra ({c.fiber_g}g)")
+
+        # Rule E: Dessert Mode (Fast sugar)
+        if getattr(c, 'is_dessert', False):
+            profile = "fast"
+            confidence = "high"
+            reasons.insert(0, "Modo Microbolos (Azúcares rápidos)")
 
         # Rule D: Liquid sugars (Placeholder - typically would come from a 'tags' field or food name)
         # For now, if carbs > 0 and everything else is 0, we treat it as faster than normal if it's small, 
