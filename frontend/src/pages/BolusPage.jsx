@@ -26,6 +26,7 @@ export default function BolusPage() {
     // State
     const [glucose, setGlucose] = useState('');
     const [carbs, setCarbs] = useState('');
+    const [carbProfile, setCarbProfile] = useState('med'); // 'fast', 'med', 'slow'
     const [foodName, setFoodName] = useState('');
     const [suggestedStrategy, setSuggestedStrategy] = useState(null); // Strategy from favorites
     const [date, setDate] = useState(() => {
@@ -284,7 +285,8 @@ export default function BolusPage() {
                         // So we should simulate "Carbs Only" to show the spike risk.
                         carbs: currentCarbs > 0 ? [{
                             time_offset_min: 0,
-                            grams: currentCarbs
+                            grams: currentCarbs,
+                            carb_profile: carbProfile
                         }] : []
                     }
                 };
@@ -825,6 +827,34 @@ export default function BolusPage() {
                                 />
                                 <span style={{ position: 'absolute', right: '1rem', top: '1rem', color: 'var(--text-muted)' }}>g</span>
                             </div>
+
+                            {/* Carb Profile Selector */}
+                            {!correctionOnly && parseFloat(carbs) > 0 && (
+                                <div className="fade-in" style={{ display: 'flex', gap: '8px', marginTop: '10px' }}>
+                                    {[
+                                        { id: 'fast', label: '⚡ Rápida', color: '#ef4444' },
+                                        { id: 'med', label: '🥗 Media', color: '#10b981' },
+                                        { id: 'slow', label: '🍕 Lenta', color: '#f59e0b' }
+                                    ].map(p => (
+                                        <button
+                                            key={p.id}
+                                            onClick={() => setCarbProfile(p.id)}
+                                            style={{
+                                                flex: 1, padding: '6px', borderRadius: '8px', fontSize: '0.8rem',
+                                                border: '1px solid',
+                                                borderColor: carbProfile === p.id ? p.color : '#e2e8f0',
+                                                background: carbProfile === p.id ? p.color : '#fff',
+                                                color: carbProfile === p.id ? '#fff' : '#64748b',
+                                                fontWeight: carbProfile === p.id ? 700 : 400,
+                                                transition: 'all 0.2s'
+                                            }}
+                                        >
+                                            {p.label}
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
+
                             <div className="carb-presets" style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem', flexWrap: 'wrap', justifyContent: 'center' }}>
                                 {[0, 15, 30, 45, 60].map(v => (
                                     <button
@@ -1051,6 +1081,7 @@ export default function BolusPage() {
                         favorites={favorites} // Pass favorites for checking existence
                         onFavoriteAdded={(newFav) => setFavorites(prev => [...prev, newFav])} // Optimistic update or reload
                         alcoholEnabled={alcoholEnabled}
+                        carbProfile={carbProfile}
                         onApplyAutosens={(ratio, reason) => {
                             import('../modules/core/store').then(({ state }) => {
                                 state.autosens = { ratio, reason };
@@ -1066,7 +1097,7 @@ export default function BolusPage() {
     );
 }
 
-function ResultView({ result, slot, usedParams, onBack, onSave, saving, currentCarbs, foodName, favorites, onFavoriteAdded, alcoholEnabled, onApplyAutosens }) {
+function ResultView({ result, slot, usedParams, onBack, onSave, saving, currentCarbs, foodName, favorites, onFavoriteAdded, alcoholEnabled, onApplyAutosens, carbProfile }) {
     // Local state for edit before confirm
     const [finalDose, setFinalDose] = useState(result.upfront_u);
     const [injectionSite, setInjectionSite] = useState(null);
@@ -1168,7 +1199,7 @@ function ResultView({ result, slot, usedParams, onBack, onSave, saving, currentC
             const cVal = isNaN(carbsVal) ? 0 : carbsVal;
             const events = {
                 boluses: boluses,
-                carbs: cVal > 0 ? [{ time_offset_min: 0, grams: cVal }] : []
+                carbs: cVal > 0 ? [{ time_offset_min: 0, grams: cVal, carb_profile: carbProfile }] : []
             };
 
             const payload = {

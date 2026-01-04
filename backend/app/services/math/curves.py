@@ -304,6 +304,24 @@ class CarbCurves:
         
         return {
             'f': f,
+            't_min_r': 0, # Placeholder if needed
             't_max_r': t_max_r,
             't_max_l': t_max_l
         }
+
+    @staticmethod
+    def get_profile_params(profile_name: str) -> dict:
+        """
+        Preset profiles based on user requirements:
+        - Fast: Peak 20-30 min, Duration ~1.5h
+        - Med: Peak 45-60 min, Duration ~3h
+        - Slow: Peak 90-120 min, Duration ~4-5h
+        These use the biexponential model for smooth tails.
+        """
+        p = profile_name.lower()
+        if p == "fast":
+            return {'f': 0.9, 't_max_r': 25.0, 't_max_l': 60.0}
+        elif p == "slow":
+            return {'f': 0.3, 't_max_r': 40.0, 't_max_l': 120.0}
+        else: # "med" or default
+            return {'f': 0.7, 't_max_r': 45.0, 't_max_l': 90.0}

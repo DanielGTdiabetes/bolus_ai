@@ -174,12 +174,19 @@ class ForecastEngine:
             step_carb_impact_rate = 0.0
             for c in req.events.carbs:
                 t_since_meal = t_mid - c.time_offset_min
-                if c.fiber_g > 0 or c.fat_g > 0 or c.protein_g > 0:
+                
+                # Selection of Carb Model
+                if c.carb_profile:
+                    params = CarbCurves.get_profile_params(c.carb_profile)
+                    rate = CarbCurves.biexponential_absorption(t_since_meal, params)
+                elif c.fiber_g > 0 or c.fat_g > 0 or c.protein_g > 0:
                     params = CarbCurves.get_biexponential_params(c.grams, c.fiber_g, c.fat_g, c.protein_g)
                     rate = CarbCurves.biexponential_absorption(t_since_meal, params)
                 else:
-                    dur = c.absorption_minutes or req.params.carb_absorption_minutes
-                    rate = CarbCurves.variable_absorption(t_since_meal, dur, peak_min=dur/2)
+                    # Default: Medium profile
+                    params = CarbCurves.get_profile_params("med")
+                    rate = CarbCurves.biexponential_absorption(t_since_meal, params)
+                
                 this_icr = c.icr if c.icr and c.icr > 0 else req.params.icr
                 this_cs = (req.params.isf / this_icr) if this_icr > 0 else 0.0
                 step_carb_impact_rate += rate * c.grams * this_cs
@@ -215,8 +222,34 @@ class ForecastEngine:
                     # Integral of decaying slope
                     dev_val_at_t = deviation_slope * dt_eff - (deviation_slope * (dt_eff**2) / (2 * momentum_duration))
 
+            # --- 3. The "Golden Rule" / Anti-Panic Damping ---
+            # If we have a matched bolus+carb event, we ensure that the prediction 
+            # doesn't generate "sawtooth" hypos just because of model lag.
+            
+            insulin_net = accum_insulin_impact
+            carb_net = accum_carb_impact
+            
+            # If the model says we are dropping hard (insulin > carbs) but it's a recent meal 
+            # where insulin was calculated FOR those carbs, we apply a damping factor to the insulin drop 
+            # in the FIRST 60 minutes to prevent "Flash Hypos" if the user body is actually slower to absorb insulin.
+            if t < 60 and abs(insulin_net) > carb_net:
+                # Is there a matched meal? (One bolus and one carb within 10 mins of each other)
+                is_matched = False
+                for b in req.events.boluses:
+                    for c in req.events.carbs:
+                        if abs(b.time_offset_min - c.time_offset_min) <= 10:
+                            is_matched = True
+                            break
+                    if is_matched: break
+                
+                if is_matched:
+                    # Soften the drop in the first hour to avoid panic
+                    # We blend the drop: 50% impact at t=10, 100% impact at t=60
+                    damp_factor = 0.5 + (0.5 * min(t/60.0, 1.0))
+                    insulin_net *= damp_factor
+
             # Combine
-            net_bg = current_bg + dev_val_at_t + accum_insulin_impact + accum_carb_impact + accum_basal_impact
+            net_bg = current_bg + dev_val_at_t + insulin_net + carb_net + accum_basal_impact
             
             # Sanity Limits
             net_bg = max(20, min(600, net_bg))
@@ -224,7 +257,7 @@ class ForecastEngine:
             series.append(ForecastPoint(t_min=t, bg=round(net_bg, 1)))
             components.append(ComponentImpact(
                 t_min=t,
-                insulin_impact=round(accum_insulin_impact, 1),
+                insulin_impact=round(insulin_net, 1),
                 carb_impact=round(accum_carb_impact, 1),
                 basal_impact=round(accum_basal_impact, 1),
                 momentum_impact=round(dev_val_at_t, 1) # This is now "Deviation Impact"
