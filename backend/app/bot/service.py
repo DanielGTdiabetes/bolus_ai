@@ -1040,6 +1040,10 @@ async def _handle_add_treatment_tool(update: Update, context: ContextTypes.DEFAU
     injection_mgr = InjectionManager(store)
     next_site = injection_mgr.get_next_site("bolus")
     
+    # Enrich message with recommendation
+    msg_text += f"\n\n📍 Sugerencia: {next_site['name']} {next_site['emoji']}"
+
+    
     # Callback: "accept|{request_id}"
     keyboard = [
         [
@@ -1058,6 +1062,17 @@ async def _handle_add_treatment_tool(update: Update, context: ContextTypes.DEFAU
     
     logger.info(f"Bot creating inline keyboard for request_{request_id}")
     await reply_text(update, context, msg_text, reply_markup=reply_markup, parse_mode="Markdown")
+
+    # Send Image
+    try:
+        from app.bot.image_renderer import generate_injection_image
+        base_dir = Path(__file__).parent.parent / "static" / "assets"
+        img_bytes = generate_injection_image(next_site["id"], base_dir)
+        if img_bytes:
+             await context.bot.send_photo(chat_id=update.effective_chat.id, photo=img_bytes)
+    except Exception as e:
+        logger.warning(f"Failed to send recommendation image: {e}")
+
 
 
 
@@ -1949,7 +1964,7 @@ async def _handle_snapshot_callback(query, data: str) -> None:
                  store = DataStore(Path(settings.data.data_dir))
                  im = InjectionManager(store)
                  new_next = im.rotate_site("bolus")
-                 success_msg += f"\n\n📍 Rotado. Siguiente: {new_next}"
+                 success_msg += f"\n\n📍 Rotado. Siguiente: {new_next['name']} {new_next['emoji']}"
              except Exception: pass
 
         # New Buttons
