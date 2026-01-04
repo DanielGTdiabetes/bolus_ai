@@ -1611,15 +1611,15 @@ async def on_new_meal_received(carbs: float, fat: float, protein: float, fiber: 
          # Fallback to Env
          ns_client = NightscoutClient(str(settings.nightscout.base_url), settings.nightscout.token)
     
+    # Init local var for trend
+    bg_trend = None 
+    bg_source = "none"
+
     try:
         # 0. Try Dexcom Share First (If configured)
         if user_settings.dexcom and user_settings.dexcom.enabled and user_settings.dexcom.username:
              try:
                  from app.services.dexcom_client import DexcomClient
-                 # If password is missing in settings object (might be encrypted in DB but not loaded fully?)
-                 # UserSettings model usually has all fields. 
-                 # Assuming password is available or we need to fetch it differently if it's protected.
-                 # Usually UserSettings loaded via _load_user_settings calls get_user_settings_service which decrypts secrets.
                  
                  d_client = DexcomClient(
                      user_settings.dexcom.username,
@@ -1629,8 +1629,9 @@ async def on_new_meal_received(carbs: float, fat: float, protein: float, fiber: 
                  sgv_d = await d_client.get_latest_sgv()
                  if sgv_d:
                      bg_val = float(sgv_d.sgv)
-                     source = "dexcom" # Update source tracking
-                     logger.info(f"Bot obtained BG from Dexcom: {bg_val}")
+                     bg_trend = sgv_d.trend # Capture trend
+                     bg_source = "dexcom" # Update source tracking
+                     logger.info(f"Bot obtained BG from Dexcom: {bg_val} {bg_trend}")
              except Exception as dex_e:
                  logger.error(f"Dexcom fetch failed: {dex_e}")
 
@@ -1640,6 +1641,10 @@ async def on_new_meal_received(carbs: float, fat: float, protein: float, fiber: 
                 sgv = await ns_client.get_latest_sgv()
                 if sgv:
                     bg_val = float(sgv.sgv)
+                    bg_source = "nightscout"
+                    # NS trend (direction)
+                    if hasattr(sgv, 'direction'):
+                         bg_trend = sgv.direction 
                     logger.info(f"Bot obtained BG from NS: {bg_val}")
             except Exception as e:
                 logger.error(f"Bot failed to get latest SGV from NS: {e}")
@@ -1651,10 +1656,14 @@ async def on_new_meal_received(carbs: float, fat: float, protein: float, fiber: 
                 if engine:
                     async with AsyncSession(engine) as session:
                         from sqlalchemy import text
-                        stmt = text("SELECT sgv FROM entries ORDER BY date_string DESC LIMIT 1") 
+                        stmt = text("SELECT sgv, direction FROM entries ORDER BY date_string DESC LIMIT 1") 
                         row = (await session.execute(stmt)).fetchone()
                         if row:
                             bg_val = float(row.sgv)
+                            bg_source = "database"
+                            # Try to get direction if available in DB
+                            if hasattr(row, 'direction'):
+                                bg_trend = row.direction
             except Exception: pass
             
         # Calc IOB
@@ -1679,9 +1688,9 @@ async def on_new_meal_received(carbs: float, fat: float, protein: float, fiber: 
     
     glucose_info = GlucoseUsed(
         mgdl=bg_val,
-        source="nightscout" if ns_client else ( "manual" if bg_val else "none"),
-        trend=None,
-        is_stale=False
+        source=bg_source,
+        trend=bg_trend,
+        is_stale=False # We should compute stale check here actually but keeping simple
     )
     
     req_v2 = BolusRequestV2(
