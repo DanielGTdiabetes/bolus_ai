@@ -82,19 +82,39 @@ def generate_injection_image(site_id: str, assets_dir: Path) -> io.BytesIO:
     try:
         with Image.open(img_path) as im:
             im = im.convert("RGBA")
+            w, h = im.size
+            
+            # Mimic Frontend 'object-fit: cover' in a square container
+            # The frontend displays the image as a square (300x300), centered.
+            # If the source image is landscape, the sides are cropped.
+            # If portrait, top/bottom cropped.
+            # We must crop to a square CENTER to match the coordinate percentages (which are relative to the square view).
+            
+            if w != h:
+                new_size = min(w, h)
+                left = (w - new_size) / 2
+                top = (h - new_size) / 2
+                right = (w + new_size) / 2
+                bottom = (h + new_size) / 2
+                
+                im = im.crop((left, top, right, bottom))
+                w, h = im.size
+                
             draw = ImageDraw.Draw(im)
             
-            w, h = im.size
             cx = (cx_pct / 100.0) * w
             cy = (cy_pct / 100.0) * h
             
             # Style: Green target circle (Matching Frontend style roughly)
-            r = 15 # radius
+            msg_scale = w / 300.0 # Scale radius if image is huge
+            r = 15 * msg_scale
+            w_line = max(1, int(2 * msg_scale))
+            
             # Outer fading ring (simulated)
-            draw.ellipse((cx - r, cy - r, cx + r, cy + r), fill=(37, 99, 235, 100), outline=(30, 64, 175), width=2)
+            draw.ellipse((cx - r, cy - r, cx + r, cy + r), fill=(37, 99, 235, 100), outline=(30, 64, 175), width=w_line)
             
             # Inner dot
-            r_inner = 5
+            r_inner = 5 * msg_scale
             draw.ellipse((cx - r_inner, cy - r_inner, cx + r_inner, cy + r_inner), fill=(255, 255, 255, 255))
             
             # Output
@@ -104,5 +124,6 @@ def generate_injection_image(site_id: str, assets_dir: Path) -> io.BytesIO:
             bio.name = "injection_site.png"
             return bio
     except Exception as e:
-        print(f"Image generation failed: {e}")
+        import logging
+        logging.getLogger(__name__).error(f"Image generation failed: {e}")
         return None

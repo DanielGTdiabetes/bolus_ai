@@ -1954,28 +1954,31 @@ async def _handle_snapshot_callback(query, data: str) -> None:
                  try:
                      from app.bot.image_renderer import generate_injection_image
                      base_dir = Path(__file__).parent.parent / "static" / "assets"
-                     
-                     # site dict needs 'id'. If missing, we might fail to map coords.
-                     # But let's try to map by Image name or just pass site ID if available.
-                     # We need to ensure tools.py passes the ID.
+                     logger.info(f"Resolving image for site={site.get('id')} image={site.get('image')} in {base_dir}")
+
                      site_id = site.get("id") 
+                     img_bytes = None
+                     
                      if site_id:
-                         img_bytes = generate_injection_image(site_id, base_dir)
-                         if img_bytes:
-                             await context.bot.send_photo(chat_id=query.effective_chat.id, photo=img_bytes)
-                         else:
-                             # Fallback to static if generation fails
-                             img_path = base_dir / site["image"]
-                             if img_path.exists():
-                                  await context.bot.send_photo(chat_id=query.effective_chat.id, photo=open(img_path, "rb"))
+                         try:
+                             img_bytes = generate_injection_image(site_id, base_dir)
+                         except Exception as gen_e:
+                             logger.error(f"Image generation error: {gen_e}")
+
+                     if img_bytes:
+                         logger.info("Sending generated injection image")
+                         await context.bot.send_photo(chat_id=query.effective_chat.id, photo=img_bytes)
                      else:
-                         # Fallback if no ID
+                         # Fallback to static
                          img_path = base_dir / site["image"]
+                         logger.info(f"Fallback to static image: {img_path}")
                          if img_path.exists():
                               await context.bot.send_photo(chat_id=query.effective_chat.id, photo=open(img_path, "rb"))
+                         else:
+                              logger.error(f"Static image not found: {img_path}")
 
                  except Exception as e:
-                     logger.warning(f"Failed to send injection image: {e}")
+                     logger.error(f"Failed to send injection image: {e}", exc_info=True)
         else:
              try:
                  settings = get_settings()
