@@ -55,9 +55,22 @@ def init_db():
                 q.pop("channel_binding")
                 
             u = u._replace(query=q)
-            _async_engine = create_async_engine(u, connect_args=connect_args, echo=False, pool_pre_ping=True)
+            _async_engine = create_async_engine(
+                u, 
+                connect_args=connect_args, 
+                echo=False, 
+                pool_pre_ping=True,
+                pool_size=20,
+                max_overflow=20
+            )
         else:
-            _async_engine = create_async_engine(url, echo=False, pool_pre_ping=True)
+            _async_engine = create_async_engine(
+                url, 
+                echo=False, 
+                pool_pre_ping=True,
+                pool_size=20,
+                max_overflow=20
+            )
 
         _async_session_factory = async_sessionmaker(_async_engine, expire_on_commit=False)
     else:

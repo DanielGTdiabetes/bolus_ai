@@ -93,32 +93,50 @@ async def startup_event() -> None:
     from app.core.db import init_db, create_tables, get_engine
     from app.services.auth_repo import init_auth_db
     init_db()
-    # Ensure tables are created (includes new Treatment model)
-    await create_tables()
-    await init_auth_db()
     
-    # Hotfix: Ensure schema for Basal Checkin
-    from app.core.migration import ensure_basal_schema, ensure_treatment_columns
-    await ensure_basal_schema(get_engine())
-    await ensure_treatment_columns(get_engine())
+    # --- Background Initialization ---
+    # Move heavy/network-bound tasks to background to allow Uvicorn to bind port immediately.
+    # This fixes Render "No open ports detected" timeouts when DB is slow.
+    import asyncio
+    asyncio.create_task(_background_startup())
 
-    from app.core.datastore import UserStore
-
+async def _background_startup():
+    logger.info("🚀 Starting background initialization...")
     try:
-        UserStore(data_dir / "users.json").ensure_seed_admin()
-        logger.info("Admin user check completed")
-    except Exception as e:
-        logger.warning(f"Could not init user store: {e}")
-
-    # Setup Background Jobs
-    try:
-        from app.jobs import setup_periodic_tasks
-        setup_periodic_tasks()
-    except Exception as e:
-        logger.error(f"Failed to setup background jobs: {e}")
+        from app.core.db import create_tables, get_engine
+        from app.services.auth_repo import init_auth_db
         
-    # Initialize Telegram Bot (Sidecar)
-    await bot_service.initialize()
+        # Ensure tables are created (includes new Treatment model)
+        await create_tables()
+        await init_auth_db()
+        
+        # Hotfix: Ensure schema for Basal Checkin
+        from app.core.migration import ensure_basal_schema, ensure_treatment_columns
+        await ensure_basal_schema(get_engine())
+        await ensure_treatment_columns(get_engine())
+
+        from app.core.datastore import UserStore
+        data_dir = Path(settings.data.data_dir)
+
+        try:
+            UserStore(data_dir / "users.json").ensure_seed_admin()
+            logger.info("Admin user check completed")
+        except Exception as e:
+            logger.warning(f"Could not init user store: {e}")
+
+        # Setup Background Jobs
+        try:
+            from app.jobs import setup_periodic_tasks
+            setup_periodic_tasks()
+        except Exception as e:
+            logger.error(f"Failed to setup background jobs: {e}")
+            
+        # Initialize Telegram Bot (Sidecar)
+        await bot_service.initialize()
+        
+        logger.info("✅ Background initialization complete.")
+    except Exception as e:
+        logger.error(f"❌ Background initialization FAILED: {e}", exc_info=True)
 
 @app.on_event("shutdown")
 async def shutdown_event() -> None:
