@@ -391,13 +391,16 @@ async def calculate_bolus(carbs: float, fat: float = 0.0, protein: float = 0.0, 
         logger.warning(f"Failed to check temp modes: {e}")
 
     # STALE DATA SAFETY CHECK
+    is_stale_data = False
     if status.bg_mgdl:
         try:
             ts = datetime.fromisoformat(status.timestamp)
             if ts.tzinfo is None: ts = ts.replace(tzinfo=timezone.utc)
             age_min = (datetime.now(timezone.utc) - ts).total_seconds() / 60
             if age_min > 20: # Allow bit more than 15 for latency
-                return ToolError(type="stale_data", message=f"Datos de glucosa expirados ({int(age_min)} min). Revisa Nightscout/Sensor.")
+                # Don't fail, just mark stale (Parity with App)
+                logger.warning(f"Using stale glucose data ({int(age_min)} min old)")
+                is_stale_data = True
         except: pass
     else:
         return ToolError(type="missing_data", message="No hay datos de glucosa recientes.")
@@ -468,7 +471,7 @@ async def calculate_bolus(carbs: float, fat: float = 0.0, protein: float = 0.0, 
         mgdl=status.bg_mgdl,
         source=valid_source,
         trend=status.direction,
-        is_stale=False # Assume fresh if fetched via get_status_context
+        is_stale=is_stale_data
     )
 
     # Security: Log Config Hash from Context

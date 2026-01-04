@@ -928,7 +928,7 @@ async def _handle_add_treatment_tool(update: Update, context: ContextTypes.DEFAU
         meal_slot=slot,
         fat_g=0, # Bot doesn't support macros yet in this tool
         protein_g=0,
-        current_bg=bg_val,
+        bg_mgdl=bg_val,
         # If user asked for specific insulin, we still calculate standard
         # but we might override later? No, tool says 'calculate'.
         # If user provided 'insulin' arg, usually it means 'log this'.
@@ -1759,7 +1759,7 @@ async def on_new_meal_received(carbs: float, fat: float, protein: float, fiber: 
         protein_g=protein,
         fiber_g=fiber,
         meal_slot=slot,
-        current_bg=bg_val,
+        bg_mgdl=bg_val,
         target_mgdl=user_settings.targets.mid
     )
     
@@ -2240,7 +2240,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                     fat_g=snapshot.get("fat", 0.0),
                     protein_g=snapshot.get("protein", 0.0),
                     meal_slot=slot,
-                    current_bg=old_rec.glucose.mgdl,
+                    bg_mgdl=old_rec.glucose.mgdl,
                     target_mgdl=user_settings.targets.mid
                 )
                 
