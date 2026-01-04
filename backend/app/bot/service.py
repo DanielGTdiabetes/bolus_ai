@@ -791,16 +791,25 @@ async def _process_text_input(update: Update, context: ContextTypes.DEFAULT_TYPE
                  if not hasattr(img_bytes, 'name'): img_bytes.name = "injection.png"
                  await context.bot.send_photo(chat_id=update.effective_chat.id, photo=img_bytes)
             elif bot_reply.image_path:
-                 # Fallback to static image
-                 img_path = base_dir / bot_reply.image_path
-                 if not img_path.exists():
-                      # Try correct absolute path based on CWD
-                      img_path = Path.cwd() / "app" / "static" / "assets" / bot_reply.image_path
+                 # Helper to find file
+                 filename = Path(bot_reply.image_path).name # Ensure we only get filename if path was weird
+                 possible_paths = [
+                      base_dir / bot_reply.image_path, # Default
+                      Path(__file__).parent.parent / "static" / "assets" / filename, # Absolute relative to code
+                      Path.cwd() / "app" / "static" / "assets" / filename, # CWD backend root
+                      Path.cwd() / "static" / "assets" / filename, # CWD app root?
+                 ]
                  
-                 if img_path.exists():
-                     await context.bot.send_photo(chat_id=update.effective_chat.id, photo=open(img_path, "rb"))
+                 found_path = None
+                 for p in possible_paths:
+                      if p.exists():
+                          found_path = p
+                          break
+                 
+                 if found_path:
+                     await context.bot.send_photo(chat_id=update.effective_chat.id, photo=open(found_path, "rb"))
                  else:
-                     logger.warning(f"Bot image path not found: {img_path}")
+                     logger.warning(f"Bot image path not found. Checked: {[str(p) for p in possible_paths]}")
         except Exception as e:
             logger.error(f"Failed to send bot image: {e}", exc_info=True)
 
