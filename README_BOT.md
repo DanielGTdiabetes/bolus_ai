@@ -63,6 +63,8 @@ Respuesta de ejemplo:
 - `get_nightscout_stats` (24h/7d)
 - `set_temp_mode` (sport/sick/normal)
 - `add_treatment` (registro manual, siempre con confirmación)
+- `check_supplies_stock` (consultar inventario agujas/sensores)
+- `update_supply_quantity` (actualizar stock manualmente)
 
 ## Troubleshooting
 - **No responde** (checklist):
@@ -77,6 +79,11 @@ Respuesta de ejemplo:
   - Si falta `GEMINI_API_KEY` o `ENABLE_TELEGRAM_VOICE=true`, el bot avisa: “El reconocimiento de voz no está configurado, envíame el texto.”
   - Si el audio es demasiado largo/pesado, responde con el límite configurado.
   - Para transcripciones dudosas, preguntará “¿Es correcto?” con botones para confirmar, repetir o cancelar.
+
+## Funciones Proactivas (Jobs)
+- **Morning Summary:** Resumen matutino de glucosa.
+- **Basal Reminder:** Recordatorio diario de insulina lenta.
+- **Supplies Check:** (Nuevo) Verificación diaria de stock de agujas y sensores. Avisa si (Agujas < 10, Sensores < 3, Reservorios < 3).
 
 ## TODO
 - Mapear el `chat_id` de Telegram a un `username/user_id` real para recordatorios (p.ej., basal) y eliminar el fallback hardcodeado a `admin`.

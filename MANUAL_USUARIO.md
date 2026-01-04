@@ -208,6 +208,16 @@ Evita quedarte sin material.
 En **Menú -> Insumos**:
 *   **Control de Stock:** Apunta cuántas cajas de agujas, sensores y reservorios tienes.
 *   **Alertas:** Configura avisos (ej. "Avísame cuando queden 5 agujas").
+*   **Bot Proactivo:** El asistente de Telegram ahora vigila tu stock y te enviará un mensaje automático si detecta que te queda poco material (ej. < 10 agujas o < 3 sensores).
+
+---
+
+## 7b. 🚨 MODO EMERGENCIA (Calculadora Manual)
+Pensado para el "Apocalipsis Digital". Si te quedas sin internet, se caen los servidores o Nightscout deja de funcionar.
+*   **Acceso:** Menú Principal -> **Modo Emergencia** (icono rojo).
+*   **Funcionamiento Offline:** Esta herramienta vive en tu teléfono. Funciona incluso en "Modo Avión" o en medio del desierto.
+*   **Calculadora Pura:** Tú introduces todos los datos (Glucosa, Carbs, IOB manual) y la app hace las matemáticas por ti (teniendo en cuenta tu Sensibilidad y Ratio).
+*   **Seguridad:** Al no haber conexión, la app **NO puede verificar** los datos con la nube. Tú eres el responsable de asegurar que lo que escribes es correcto.
 
 ---
 
