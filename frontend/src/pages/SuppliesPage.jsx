@@ -55,16 +55,49 @@ function StockItem({ title, storageKey, currentStock, onUpdate, boxSize = 100, w
 
             <div style={{ marginTop: '1.5rem', borderTop: '1px solid #f1f5f9', paddingTop: '1rem' }}>
                 {editMode ? (
-                    <div style={{ display: 'flex', gap: '0.5rem' }}>
+                    <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'stretch' }}>
                         <input
                             type="number"
                             value={manualVal}
                             placeholder={currentStock}
                             onChange={e => setManualVal(e.target.value)}
-                            style={{ flex: 1, padding: '0.8rem', borderRadius: '8px', border: '1px solid #cbd5e1' }}
+                            style={{
+                                flex: 1,
+                                padding: '0.8rem',
+                                fontSize: '1.2rem',
+                                fontWeight: 'bold',
+                                textAlign: 'center',
+                                borderRadius: '8px',
+                                border: '1px solid #cbd5e1',
+                                minWidth: '0' /* Fix flex text overflow */
+                            }}
                         />
-                        <Button onClick={saveManual}>OK</Button>
-                        <Button variant="ghost" onClick={() => setEditMode(false)}>Cancelar</Button>
+                        <Button
+                            onClick={saveManual}
+                            style={{
+                                width: 'auto',
+                                padding: '0 1.5rem',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center'
+                            }}
+                        >
+                            OK
+                        </Button>
+                        <Button
+                            variant="ghost"
+                            onClick={() => setEditMode(false)}
+                            style={{
+                                width: 'auto',
+                                padding: '0 1rem',
+                                border: '1px solid #cbd5e1',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center'
+                            }}
+                        >
+                            Cancelar
+                        </Button>
                     </div>
                 ) : (
                     <button
