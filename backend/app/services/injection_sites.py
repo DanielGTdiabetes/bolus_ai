@@ -72,10 +72,14 @@ class InjectionManager:
 
 
     def set_current_site(self, kind: str, site_id: str):
-        """Manual set from Frontend."""
+        """Manual set from Frontend. Ensures Format zone_id:point."""
         state = self._load_state()
         key = "basal" if kind.lower() == "basal" else "bolus"
         
+        # Validation: If site_id comes without point (e.g. "abd_l_top"), append :1
+        if ":" not in site_id:
+             site_id = f"{site_id}:1"
+             
         if key not in state: state[key] = {}
         state[key]["last_used_id"] = site_id
         self._save_state(state)
