@@ -110,7 +110,8 @@ class TechneRoundingConfig(BaseModel):
 
 
 class CalculatorConfig(BaseModel):
-    subtract_fiber: bool = Field(default=False, description="Subtract 50% of fiber if > 5g")
+    subtract_fiber: bool = Field(default=False, description="Subtract X% of fiber if > 5g")
+    fiber_factor: float = Field(default=0.5, ge=0.0, le=1.0, description="Factor to subtract (0.0 to 1.0)")
 
 
 

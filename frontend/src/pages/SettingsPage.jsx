@@ -369,7 +369,7 @@ function CalcParamsPanel() {
         techne: { enabled: false, max_step_change: 0.5, safety_iob_threshold: 1.5 },
         warsaw: { enabled: true, trigger_threshold_kcal: 300, safety_factor: 0.1, safety_factor_dual: 0.2 },
         autosens: { enabled: true, min_ratio: 0.7, max_ratio: 1.2 },
-        calculator: { subtract_fiber: false }
+        calculator: { subtract_fiber: false, fiber_factor: 0.5 }
     };
 
     const [params, setParams] = useState(defaults);
@@ -443,6 +443,10 @@ function CalcParamsPanel() {
             clean.schedule.dinner_start_hour = parseInt(clean.schedule.dinner_start_hour);
         }
         clean.max_bolus_u = p(clean.max_bolus_u);
+
+        if (clean.calculator) {
+            clean.calculator.fiber_factor = p(clean.calculator.fiber_factor);
+        }
 
         saveCalcParams(clean);
         setStatus('Parámetros guardados correctamente.');
@@ -734,11 +738,41 @@ function CalcParamsPanel() {
                     />
                     Restar Fibra (Net Carbs)
                 </label>
-                <div style={{ margin: '0.5rem 0 0 2rem', fontSize: '0.8rem', color: '#701a75' }}>
-                    Si se activa: <strong>Carbos - (Fibra * 0.5)</strong> cuando Fibra {'>'} 5g.
-                    <br />
-                    <i>Ejemplo: 30g Carbos - 8g Fibra = 26g para el cálculo.</i>
-                </div>
+
+                {params.calculator?.subtract_fiber && (
+                    <div className="stack" style={{ gap: '0.8rem', marginTop: '0.5rem' }}>
+                        <div style={{ margin: '0.5rem 0 0.5rem 0', fontSize: '0.8rem', color: '#701a75' }}>
+                            Si activado: <strong>Carbos - (Fibra * Factor)</strong> cuando Fibra {'>'} 5g.
+                        </div>
+
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                            <Input
+                                label="Factor de Resta (0.5 = 50%)"
+                                type="text"
+                                inputMode="decimal"
+                                placeholder="0.5"
+                                value={params.calculator.fiber_factor}
+                                onChange={e => {
+                                    // Allow typing freely (text), normalize on Save later
+                                    // Just ensure dot format for state consistency
+                                    const val = e.target.value.replace(',', '.');
+                                    setParams(prev => ({ ...prev, calculator: { ...prev.calculator, fiber_factor: val } }));
+                                }}
+                                onFocus={(e) => e.target.select()}
+                            />
+                        </div>
+                        <div style={{ fontSize: '0.75rem', color: '#a21caf' }}>
+                            💡 <strong>Ejemplo:</strong> 30g Carbos, 10g Fibra. <br />
+                            Con factor 0.5: Resta 5g. <br />
+                            Con factor 1.0 (Net): Resta 10g.
+                        </div>
+                    </div>
+                )}
+                {!params.calculator?.subtract_fiber && (
+                    <div style={{ margin: '0.5rem 0 0 2rem', fontSize: '0.8rem', color: '#701a75' }}>
+                        Activa para descontar fibra de los carbohidratos totales.
+                    </div>
+                )}
             </div>
 
             <div style={{ marginTop: '1rem', padding: '1rem', background: '#f0fdf4', borderRadius: '8px', border: '1px solid #bbf7d0' }}>

@@ -142,9 +142,9 @@ def _calculate_core(inp: CalculationInput) -> CalculationResult:
     # Fiber Deduction (Net Carbs)
     eff_carbs = inp.carbs_g
     if inp.use_fiber_deduction and inp.fiber_g > 5.0 and inp.carbs_g > 0:
-         deduction = inp.fiber_g * 0.5
-         eff_carbs = max(0.0, inp.carbs_g - deduction)
-         explain.append(f"🥗 Fibra ({inp.fiber_g}g > 5g): Descontados {deduction:.1f}g. Carbos Netos: {eff_carbs:.1f}g")
+          deduction = inp.fiber_g * inp.fiber_factor
+          eff_carbs = max(0.0, inp.carbs_g - deduction)
+          explain.append(f"🥗 Fibra ({inp.fiber_g}g > 5g): Descontados {deduction:.1f}g ({int(inp.fiber_factor*100)}%). Carbos Netos: {eff_carbs:.1f}g")
 
     if eff_carbs > 0:
         meal_u = eff_carbs / cr
@@ -328,6 +328,7 @@ def calculate_bolus_v2(
         max_correction_u=settings.max_correction_u,
         round_step=settings.round_step_u,
         use_fiber_deduction=settings.calculator.subtract_fiber,
+        fiber_factor=settings.calculator.fiber_factor,
         warsaw_enabled=settings.warsaw.enabled,
         warsaw_factor_simple=request.warsaw_safety_factor or settings.warsaw.safety_factor,
         warsaw_factor_dual=request.warsaw_safety_factor_dual or settings.warsaw.safety_factor_dual,
