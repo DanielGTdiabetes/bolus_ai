@@ -1196,7 +1196,28 @@ async def add_treatment(tool_input: dict[str, Any]) -> AddTreatmentResult | Tool
                      rotator = RotationService(store)
                      check_str = (notes or "") + (payload.event_type or "")
                      plan = "basal" if "basal" in check_str.lower() else "rapid"
-                     rotation_site = rotator.rotate_site(target_user, plan=plan)
+                     
+                     manual_site_id = tool_input.get("injection_site_id")
+                     if manual_site_id:
+                         # Manual override logic
+                         from app.services.injection_sites import InjectionManager
+                         im = InjectionManager(store)
+                         im.set_current_site("basal" if plan == "basal" else "bolus", manual_site_id)
+                         
+                         # Get details for return
+                         raw_site = im._get_site_from_id("basal" if plan == "basal" else "bolus", manual_site_id)
+                         # Convert to object compatible with rotation_site
+                         from app.services.rotation_service import InjectionSite
+                         rotation_site = InjectionSite(
+                             id=raw_site["id"],
+                             name=raw_site["name"],
+                             emoji=raw_site["emoji"], 
+                             image_ref=raw_site["image"]
+                         )
+                     else:
+                         # Automatic Rotation
+                         rotation_site = rotator.rotate_site(target_user, plan=plan)
+
              except Exception as e:
                  logger.warning(f"Rotation failed: {e}")
         except Exception as e: 
@@ -1425,6 +1446,7 @@ AI_TOOL_DECLARATIONS = [
                 "fat": {"type": "NUMBER", "description": "Grasas (g)"},
                 "protein": {"type": "NUMBER", "description": "Proteínas (g)"},
                 "fiber": {"type": "NUMBER", "description": "Fibra (g)"},
+                "injection_site_id": {"type": "STRING", "description": "ID del sitio de inyección utilizado (opcional). Si se especifica, fuerza este sitio y actualiza la rotación."}
             },
         },
     },
