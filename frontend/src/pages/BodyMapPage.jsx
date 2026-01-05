@@ -25,7 +25,7 @@ export default function BodyMapPage() {
         try {
             const token = localStorage.getItem('bolusai_token'); // Correct key name
             if (token) {
-                const res = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/injection/rotate`, {
+                const res = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/injection/rotate?t=${Date.now()}`, {
                     method: 'POST',
                     headers: {
                         "Authorization": `Bearer ${token}`,
@@ -40,8 +40,18 @@ export default function BodyMapPage() {
                 if (res.ok) {
                     const text = await res.text();
                     if (!text) {
-                        console.error("[BodyMap] ⚠️ Ghost response detected! (Empty 200 OK). Service Worker might be intercepting.");
-                        alert("Error de conexión (SW Ghost). Recarga la página.");
+                        console.error("[BodyMap] ⚠️ Ghost response detected! KILLING SERVICE WORKER.");
+                        alert("Reparando conexión... La página se recargará.");
+
+                        // FORCE KILL SERVICE WORKER
+                        if ('serviceWorker' in navigator) {
+                            const registrations = await navigator.serviceWorker.getRegistrations();
+                            for (let registration of registrations) {
+                                await registration.unregister();
+                            }
+                        }
+                        // Force reload from server ignoring cache
+                        window.location.reload(true);
                     } else {
                         console.log(`[BodyMap] Synced ${type} site successfully. Server said:`, text);
                     }
