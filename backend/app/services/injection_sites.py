@@ -6,18 +6,18 @@ from app.services.store import DataStore
 # Added: emoji, image for Bot support
 ZONES = {
     "bolus": [
-        {"id": "abd_l_top", "label": "Abd. Izq - Arriba", "count": 3, "emoji": "👈🟣", "image": "body_abdomen.png"},
-        {"id": "abd_l_mid", "label": "Abd. Izq - Medio", "count": 3, "emoji": "👈🟣", "image": "body_abdomen.png"},
-        {"id": "abd_l_bot", "label": "Abd. Izq - Bajo", "count": 3, "emoji": "👈🟣", "image": "body_abdomen.png"},
-        {"id": "abd_r_top", "label": "Abd. Der - Arriba", "count": 3, "emoji": "🟣👉", "image": "body_abdomen.png"},
-        {"id": "abd_r_mid", "label": "Abd. Der - Medio", "count": 3, "emoji": "🟣👉", "image": "body_abdomen.png"},
-        {"id": "abd_r_bot", "label": "Abd. Der - Bajo", "count": 3, "emoji": "🟣👉", "image": "body_abdomen.png"},
+        {"id": "abd_l_top", "label": "Abdomen Izquierdo (Arriba)", "count": 3, "emoji": "👈🟣", "image": "body_abdomen.png"},
+        {"id": "abd_l_mid", "label": "Abdomen Izquierdo (Medio)", "count": 3, "emoji": "👈🟣", "image": "body_abdomen.png"},
+        {"id": "abd_l_bot", "label": "Abdomen Izquierdo (Bajo)", "count": 3, "emoji": "👈🟣", "image": "body_abdomen.png"},
+        {"id": "abd_r_top", "label": "Abdomen Derecho (Arriba)", "count": 3, "emoji": "🟣👉", "image": "body_abdomen.png"},
+        {"id": "abd_r_mid", "label": "Abdomen Derecho (Medio)", "count": 3, "emoji": "🟣👉", "image": "body_abdomen.png"},
+        {"id": "abd_r_bot", "label": "Abdomen Derecho (Bajo)", "count": 3, "emoji": "🟣👉", "image": "body_abdomen.png"},
     ],
     "basal": [
-        {"id": "leg_left", "label": "Muslo Izq", "count": 1, "emoji": "👈🦵", "image": "body_legs.png"},
-        {"id": "leg_right", "label": "Muslo Der", "count": 1, "emoji": "🦵👉", "image": "body_legs.png"},
-        {"id": "glute_left", "label": "Glúteo Izq", "count": 1, "emoji": "👈🍑", "image": "body_legs.png"},
-        {"id": "glute_right", "label": "Glúteo Der", "count": 1, "emoji": "🍑👉", "image": "body_legs.png"}
+        {"id": "leg_left", "label": "Muslo Izquierdo", "count": 1, "emoji": "👈🦵", "image": "body_legs.png"},
+        {"id": "leg_right", "label": "Muslo Derecho", "count": 1, "emoji": "🦵👉", "image": "body_legs.png"},
+        {"id": "glute_left", "label": "Glúteo Izquierdo", "count": 1, "emoji": "👈🍑", "image": "body_legs.png"},
+        {"id": "glute_right", "label": "Glúteo Derecho", "count": 1, "emoji": "🍑👉", "image": "body_legs.png"}
     ]
 }
 
