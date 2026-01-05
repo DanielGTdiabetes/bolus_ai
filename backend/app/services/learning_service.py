@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional, List
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_
+from sqlalchemy.orm import joinedload
 
 from app.models.learning import MealEntry, MealOutcome
 from app.services.nightscout_client import NightscoutClient, NightscoutSGV
@@ -97,8 +98,10 @@ class LearningService:
         # Optimization: Use Postgres Array intersection if we change schema to Arrays vs JSONB.
         
         # Fetch last 100 entries with outcomes, filtering out tiny snacks (<10g)
+        from sqlalchemy.orm import joinedload
         stmt = (
             select(MealEntry)
+            .options(joinedload(MealEntry.outcome))
             .where(
                 MealEntry.outcome != None,
                 MealEntry.carbs_g >= 10 
@@ -162,7 +165,11 @@ class LearningService:
         
         for entry_id in pending_ids:
             # Re-fetch the entry fresh from DB to attach to session for this iteration
-            entry = await self.session.get(MealEntry, entry_id)
+            # Re-fetch with explicit join to avoid greenlet/lazy load issues during commit back-population
+            # entry = await self.session.get(MealEntry, entry_id) 
+            stmt_fetch = select(MealEntry).options(joinedload(MealEntry.outcome)).where(MealEntry.id == entry_id)
+            res_fetch = await self.session.execute(stmt_fetch)
+            entry = res_fetch.scalar_one_or_none()
             if not entry:
                 continue
 
