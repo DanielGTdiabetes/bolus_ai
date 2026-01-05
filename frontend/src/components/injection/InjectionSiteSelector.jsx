@@ -28,47 +28,55 @@ export function InjectionSiteSelector({ type, onSelect, selected, autoSelect = f
     const [recommended, setRecommended] = useState(null);
 
     // --- API SYNC ---
+    // --- API SYNC ---
     const fetchState = async () => {
-         try {
-             // We need auth token. Assuming standard bearer token in localStorage from auth context?
-             // Or we rely on a global fetch wrapper. Since this is a specialized component, let's try reading token.
-             const token = localStorage.getItem('token'); 
-             if (!token) throw new Error("No auth token");
-             
-             const res = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/injection/state`, {
-                 headers: { "Authorization": `Bearer ${token}` }
-             });
-             if (res.ok) {
-                 const data = await res.json();
-                 // data = { bolus: "id", basal: "id" }
-                 return type === 'rapid' ? data.bolus : data.basal;
-             }
-         } catch(e) {
-             console.warn("API Sync failed, falling back to local", e);
-         }
-         // Fallback
-         const history = JSON.parse(localStorage.getItem('injection_history_v2') || '{}');
-         return history[type];
+        try {
+            const token = localStorage.getItem('token');
+            if (!token) throw new Error("No auth token");
+
+            const res = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/injection/state`, {
+                headers: { "Authorization": `Bearer ${token}` }
+            });
+            if (res.ok) {
+                const data = await res.json();
+                if (type === 'rapid') return { last: data.bolus, next: data.next_bolus };
+                return { last: data.basal, next: data.next_basal };
+            }
+        } catch (e) {
+            console.warn("API Sync failed, falling back to local", e);
+        }
+        // Fallback
+        const history = JSON.parse(localStorage.getItem('injection_history_v2') || '{}');
+        return { last: history[type], next: null };
     };
 
     // --- LOGIC: History & Recommendation ---
     useEffect(() => {
         const load = async () => {
-            const lastStr = await fetchState();
-            
+            const stateObj = await fetchState();
+            const lastStr = stateObj?.last;
+            const nextStr = stateObj?.next;
+
             if (lastStr) {
                 setLastUsed(lastStr);
-                const [lZone, lPointStr] = lastStr.split(':');
-                const lPoint = parseInt(lPointStr);
 
-                const zoneDef = ZONES[type].find(z => z.id === lZone);
-
-                if (zoneDef && lPoint < zoneDef.count) {
-                    setRecommended(`${lZone}:${lPoint + 1}`);
+                if (nextStr) {
+                    // Backend provided the Next value (Source of Truth)
+                    setRecommended(nextStr);
                 } else {
-                    const zIdx = ZONES[type].findIndex(z => z.id === lZone);
-                    const nextZ = ZONES[type][(zIdx + 1) % ZONES[type].length];
-                    setRecommended(`${nextZ.id}:1`);
+                    // Fallback Local Logic
+                    const [lZone, lPointStr] = lastStr.split(':');
+                    const lPoint = parseInt(lPointStr);
+
+                    const zoneDef = ZONES[type].find(z => z.id === lZone);
+
+                    if (zoneDef && lPoint < zoneDef.count) {
+                        setRecommended(`${lZone}:${lPoint + 1}`);
+                    } else {
+                        const zIdx = ZONES[type].findIndex(z => z.id === lZone);
+                        const nextZ = ZONES[type][(zIdx + 1) % ZONES[type].length];
+                        setRecommended(`${nextZ.id}:1`);
+                    }
                 }
             } else {
                 setRecommended(`${ZONES[type][0].id}:1`);
@@ -85,24 +93,24 @@ export function InjectionSiteSelector({ type, onSelect, selected, autoSelect = f
 
     const handlePointClick = async (fullId) => {
         if (onSelect) onSelect(fullId);
-        
+
         // Notify Backend async
         try {
-             const token = localStorage.getItem('token');
-             if(token) {
-                 await fetch(`${import.meta.env.VITE_API_URL || ''}/api/injection/rotate`, {
-                     method: 'POST',
-                     headers: { 
-                         "Authorization": `Bearer ${token}`,
-                         "Content-Type": "application/json"
-                     },
-                     body: JSON.stringify({ 
-                         type: type === 'rapid' ? 'bolus' : 'basal',
-                         target: fullId 
-                     })
-                 });
-             }
-        } catch(e) { console.error("Failed to sync rotation", e); }
+            const token = localStorage.getItem('token');
+            if (token) {
+                await fetch(`${import.meta.env.VITE_API_URL || ''}/api/injection/rotate`, {
+                    method: 'POST',
+                    headers: {
+                        "Authorization": `Bearer ${token}`,
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify({
+                        type: type === 'rapid' ? 'bolus' : 'basal',
+                        target: fullId
+                    })
+                });
+            }
+        } catch (e) { console.error("Failed to sync rotation", e); }
     };
 
     const VisualComponent = type === 'rapid' ? AbdomenImageVisual : LegsImageVisual;

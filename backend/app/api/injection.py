@@ -15,8 +15,10 @@ def get_store() -> DataStore:
     return DataStore(Path(s.data.data_dir))
 
 class InjectionStateResponse(BaseModel):
-    bolus: str # "zone:point" e.g. "abd_l_top:1"
+    bolus: str # "zone:point" e.g. "abd_l_top:1" (LAST USED)
     basal: str 
+    next_bolus: Optional[str] = None # Calculated NEXT
+    next_basal: Optional[str] = None
 
 class RotateRequest(BaseModel):
     type: str # "bolus" (rapid) or "basal"
@@ -26,25 +28,27 @@ class RotateRequest(BaseModel):
 def get_injection_state(store: DataStore = Depends(get_store), _: str = Depends(auth_required)):
     """Fetch current global injection state (the truth)."""
     mgr = InjectionManager(store)
-    # We must map the simple index-based backend logic to the frontend "id" logic if they differ.
-    # Frontend uses: "abd_l_top:1"
-    # Backend currently just returns: "Abdomen Derecha (Superior)" string.
-    # WE NEED TO UNIFY THIS.
-    # Let's fix backend to use frontend IDs logic or vice versa.
-    # For now, let's assume we return raw IDs and Frontend consumes them.
-    # But wait, backend service implemented simple strings.
-    # We need to Upgrade the backend service to match frontend IDs.
-    
-    # Actually, let's just expose what the backend has, but the user wants synchronization.
-    # Synchronization means Frontend reads from Backend.
-    
-    # Let's pivot: Backend needs to store the "zone:point" ID, not just a label.
     
     state = mgr._load_state()
     bolus_id = state.get("bolus", {}).get("last_used_id", "abd_l_top:1")
     basal_id = state.get("basal", {}).get("last_used_id", "leg_right:1")
     
-    return InjectionStateResponse(bolus=bolus_id, basal=basal_id)
+    # Calculate Next explicitly to ensure frontend sync with Bot
+    try:
+        n_bolus = mgr.get_next_site("bolus")
+        n_basal = mgr.get_next_site("basal")
+        next_bolus_id = n_bolus["id"]
+        next_basal_id = n_basal["id"]
+    except:
+        next_bolus_id = None
+        next_basal_id = None
+    
+    return InjectionStateResponse(
+        bolus=bolus_id, 
+        basal=basal_id,
+        next_bolus=next_bolus_id,
+        next_basal=next_basal_id
+    )
 
 @router.post("/rotate")
 def rotate_injection_site(payload: RotateRequest, store: DataStore = Depends(get_store), _: str = Depends(auth_required)):
