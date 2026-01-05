@@ -297,9 +297,13 @@ class LearningService:
             evaluated_at=datetime.utcnow()
         )
         
+        # Capture ID before commit to avoid "greenlet_spawn" error on expired object access
+        eid = entry.id
+        
         self.session.add(outcome)
         await self.session.commit()
-        logger.info(f"Memory: Scored Entry {entry.id} -> Score {score}/10")
+        # Use captured ID, do not access entry.id here
+        logger.info(f"Memory: Scored Entry {eid} -> Score {score}/10")
 
     async def compute_learning_hint(
         self,
