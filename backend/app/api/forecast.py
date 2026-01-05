@@ -289,6 +289,26 @@ async def get_current_forecast(
                          else:
                              # Previous was better or equal. Ignore current.
                              is_dup = True 
+
+                # Check 3: Bolus Covering Carb Entry (Deduplication)
+                # If we have a Carb-only entry followed by a Bolus entry with ~same carbs, 
+                # assume the bolus "covers" the carb entry and they are duplicates (user flow: Log -> Bolus).
+                # last_row = Carb Only, row = Bolus (Carbs+Insulin)
+                if not is_dup and l_ins == 0 and r_ins > 0 and r_carbs > 0:
+                    if dt_diff < 900: # 15 minutes window
+                         if abs(r_carbs - l_carbs) <= 10: # Allow 10g variances (e.g. estimation diffs)
+                             # The Bolus entry (row) is the "Master" one. Remove the Carb-only entry.
+                             unique_rows.pop()
+                             unique_rows.append(row)
+                             last_row = row
+                             is_dup = True
+                
+                # Check 3b: Reverse Order (Bolus then Carb Entry, e.g. async sync)
+                # Ignore the redundant Carb entry.
+                if not is_dup and l_ins > 0 and l_carbs > 0 and r_ins == 0:
+                    if dt_diff < 900:
+                        if abs(r_carbs - l_carbs) <= 10:
+                            is_dup = True 
             
             if not is_dup:
                 unique_rows.append(row)
@@ -785,6 +805,38 @@ async def simulate_forecast(
                          elif abs(dt_diff - 3600) < 120 or abs(dt_diff - 7200) < 120:
                              if row.insulin == last_row.insulin and row.carbs == last_row.carbs:
                                  is_dup = True
+                     
+                     # Enhanced Deduplication Logic
+                     r_ins = getattr(row, 'insulin', 0) or 0
+                     l_ins = getattr(last_row, 'insulin', 0) or 0
+                     r_carbs = getattr(row, 'carbs', 0) or 0
+                     l_carbs = getattr(last_row, 'carbs', 0) or 0
+                     
+                     # 1. Carb Update Collision (Insulin=0 for both)
+                     if not is_dup and r_ins == 0 and l_ins == 0:
+                         if dt_diff < 300:
+                             if r_carbs > l_carbs:
+                                 unique_rows.pop()
+                                 unique_rows.append(row)
+                                 last_row = row
+                                 is_dup = True
+                             else:
+                                 is_dup = True
+
+                     # 2. Bolus Covering Carb Entry (Insulin > 0 covering Ins=0)
+                     if not is_dup and l_ins == 0 and r_ins > 0 and r_carbs > 0:
+                        if dt_diff < 900:
+                             if abs(r_carbs - l_carbs) <= 10:
+                                 unique_rows.pop()
+                                 unique_rows.append(row)
+                                 last_row = row
+                                 is_dup = True
+                     
+                     # 3. Reverse (Bolus then Carb)
+                     if not is_dup and l_ins > 0 and l_carbs > 0 and r_ins == 0:
+                        if dt_diff < 900:
+                            if abs(r_carbs - l_carbs) <= 10:
+                                is_dup = True
                      
                      if not is_dup:
                          unique_rows.append(row)
