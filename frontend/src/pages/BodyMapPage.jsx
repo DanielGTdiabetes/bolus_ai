@@ -67,20 +67,9 @@ export default function BodyMapPage() {
                     }
                 }
 
-                // 3. If everything failed -> Kill SW
+                // 3. Log failure but don't annoy user with alerts/reloads
                 if (!success) {
-                    console.error("[BodyMap] ⚠️ Ghost response detected AND Fallback failed! KILLING SERVICE WORKER.");
-                    alert("Reparando conexión... La página se recargará.");
-
-                    // FORCE KILL SERVICE WORKER
-                    if ('serviceWorker' in navigator) {
-                        const registrations = await navigator.serviceWorker.getRegistrations();
-                        for (let registration of registrations) {
-                            await registration.unregister();
-                        }
-                    }
-                    // Force reload from server ignoring cache
-                    window.location.reload(true);
+                    console.error("[BodyMap] ⚠️ Sync completely failed even after fallback. Check network/backend.");
                 }
             } else {
                 console.warn("[BodyMap] No auth token found, cannot sync with backend");
