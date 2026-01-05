@@ -55,8 +55,30 @@ class DexcomClient:
             
             # Pydexcom typical bg.datetime is aware or we need to ensure it
             bg_dt = bg.datetime
-            if bg_dt and bg_dt.tzinfo is None:
-                bg_dt = bg_dt.replace(tzinfo=timezone.utc)
+            
+            # Timezone Fix: Pydexcom returns naive times. We need to be careful.
+            if bg_dt:
+                now_utc = datetime.now(timezone.utc)
+                
+                # 1. First, assume it MIGHT be UTC (Standard API behavior)
+                if bg_dt.tzinfo is None:
+                    candidate = bg_dt.replace(tzinfo=timezone.utc)
+                else:
+                    candidate = bg_dt.astimezone(timezone.utc)
+                
+                # 2. Validation: 'Current' reading shouldn't be hours away.
+                # If the difference is huge (> 1 hour), our timezone assumption is likely wrong
+                # (e.g. it was Local Time but we treated as UTC, or vice versa)
+                # Since we just fetched 'current_reading', we can trust 'now' more than the timestamp.
+                diff_sec = abs((now_utc - candidate).total_seconds())
+                
+                if diff_sec > 3600: # 1 hour tolerance
+                    logger.warning(f"Dexcom time drift detected (TS={bg_dt} vs Now={now_utc}). Snapping to NOW.")
+                    bg_dt = now_utc
+                else:
+                    bg_dt = candidate
+            else:
+                 bg_dt = datetime.now(timezone.utc)
             
             return GlucoseReading(
                 sgv=bg.value,

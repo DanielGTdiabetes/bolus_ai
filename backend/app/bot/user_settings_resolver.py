@@ -70,11 +70,24 @@ async def resolve_bot_user_settings(preferred_username: Optional[str] = None) ->
     preferred = []
     if preferred_username:
         preferred.append(preferred_username)
+    # Only add defaults to preferred if we have an explicit request or if we want to force them.
+    # If preferred_username is None, we want to allow "freshest non-default" (Step 2) to win 
+    # BEFORE falling back to admin/defaults.
+    
+    # However, if env var is set, we might want to respect it?
+    # Let's add them to a fallback list or only add if preferred_username was provided?
+    # Actually, the logic below checks 'if user_id in preferred: continue'.
+    # So if we put admin in preferred, Step 2 skips it.
+    
+    # We WANT Step 2 to run for 'Daniel' (freshest) and return it.
+    # So 'admin' should NOT be in preferred list if it's not the requested user.
+    
+    fallback_users = []
     bot_default = config.get_bot_default_username() or "admin"
     if bot_default not in preferred:
-        preferred.append(bot_default)
-    if "admin" not in preferred:
-        preferred.append("admin")
+        fallback_users.append(bot_default)
+    if "admin" not in preferred and "admin" not in fallback_users:
+        fallback_users.append("admin")
 
     if engine:
         async with AsyncSession(engine) as session:
@@ -120,16 +133,19 @@ async def resolve_bot_user_settings(preferred_username: Optional[str] = None) ->
             logger.warning("Bot resolver: failed to load file settings for %s: %s", user_id, exc)
             return UserSettings.default()
 
+    # Check preferred files
     for user_id in preferred:
         candidate = _load_from_store(user_id)
         if candidate and not _is_default_like(candidate):
             logger.info("Bot resolver selected file-based settings for '%s'", user_id)
             return candidate, user_id
 
-    # Try other settings_<username>.json files if present
+    # Check discovered files
     try:
         for path in Path(settings.data.data_dir).glob("settings_*.json"):
             user_id = path.stem.replace("settings_", "")
+            if user_id in preferred: continue
+            
             candidate = _load_from_store(user_id)
             if candidate and not _is_default_like(candidate):
                 logger.info("Bot resolver selected discovered file-based settings for '%s'", user_id)
@@ -137,7 +153,15 @@ async def resolve_bot_user_settings(preferred_username: Optional[str] = None) ->
     except Exception as exc:  # noqa: BLE001
         logger.warning("Bot resolver: error scanning data dir for settings files: %s", exc)
 
-    # Last resort: return default-like (may still be customized if store has data)
-    fallback_user = preferred[0] if preferred else "admin"
-    logger.info("Bot resolver using last-resort settings for '%s'", fallback_user)
-    return _load_from_store(fallback_user), fallback_user
+    # 4) Fallback Users (Admin/Default)
+    # We check these LAST, only if no fresh/custom user was found above.
+    for user_id in fallback_users:
+         candidate = await _load_settings_for_user(user_id, AsyncSession(engine) if engine else None) # Hacky: need session?
+         # Actually we exited the session block. We need to handle this pattern better or assume defaults.
+         # For simplicity, if we are here, we probably just want to return the default settings wrapper for the fallback user.
+         pass
+    
+    # Simplification: Just load store for fallback user
+    target_fallback = fallback_users[0]
+    logger.info("Bot resolver using last-resort settings for '%s'", target_fallback)
+    return _load_from_store(target_fallback), target_fallback

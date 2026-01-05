@@ -13,6 +13,7 @@ from app.core.settings import get_settings
 from app.core.db import get_engine, AsyncSession
 from app.services.store import DataStore
 from app.services.nightscout_client import NightscoutClient, NightscoutError
+from app.services.dexcom_client import DexcomClient
 from app.services.iob import compute_iob_from_sources, compute_cob_from_sources
 from app.models.bolus_v2 import BolusRequestV2, BolusResponseV2, GlucoseUsed as GlucoseUsedV2
 from app.services.forecast_engine import ForecastEngine
@@ -53,6 +54,7 @@ class BolusContext(BaseModel):
     iob_u: Optional[float] = None
     cob_g: Optional[float] = None
     timestamp: Optional[str] = None
+    age_minutes: Optional[float] = None # Explicit age from source to avoid re-calc errors
     config_hash: Optional[str] = None # Security: Configuration Snapshot Hash
     quality: str = "unknown"
     source: str = "unknown"
@@ -209,11 +211,16 @@ async def _resolve_user_id(session: Optional[AsyncSession] = None) -> str:
             if res and res.get("settings"):
                 return "admin"
                 
-            # 2. Fallback: Any user who has settings configured
-            stmt = text("SELECT user_id FROM user_settings LIMIT 1")
-            row = (await session.execute(stmt)).fetchone()
-            if row:
-                return row[0]
+                return "admin"
+                
+            # 2. Fallback: Use the resolver logic to find the freshest user
+            from app.bot.user_settings_resolver import resolve_bot_user_settings
+            try:
+                # We want the user ID that the bot would naturally pick
+                _, resolved_id = await resolve_bot_user_settings(None)
+                return resolved_id
+            except:
+                pass
                 
         # If no session or no users found, default to admin
         return "admin"
@@ -222,7 +229,7 @@ async def _resolve_user_id(session: Optional[AsyncSession] = None) -> str:
         return "admin"
 
 
-async def _load_user_settings(username: str = "admin") -> UserSettings:
+async def _load_user_settings(username: Optional[str] = None) -> UserSettings:
     """Load user settings using the shared resolver to avoid default/admin drift."""
     resolved_settings, resolved_user = await resolve_bot_user_settings(username)
     logger.info("Tools module using settings for user_id='%s'", resolved_user)
@@ -243,17 +250,77 @@ async def get_status_context(username: str = "admin", user_settings: Optional[Us
     direction = None
     delta = None
 
+    ns_sgv = None
+    ns_age_min = 9999
+    
+    # 1. Try Nightscout
     if ns_client:
         try:
-            sgv = await ns_client.get_latest_sgv()
-            bg_val = float(sgv.sgv)
-            direction = sgv.direction or None
-            delta = sgv.delta
-            ts = datetime.fromtimestamp(sgv.date / 1000, timezone.utc)
+            # Add timestamp to params to bust cache? NightscoutClient handles params.
+            # We can't easily add params here without modifying Client.
+            # But let's log extensively first.
+            ns_sgv = await ns_client.get_latest_sgv()
+            
+            ts_epoch_ms = float(ns_sgv.date)
+            # Ensure we are checking UTC
+            naive_ts = datetime.fromtimestamp(ts_epoch_ms / 1000.0)
+            ts = datetime.fromtimestamp(ts_epoch_ms / 1000.0, timezone.utc)
+            
+            # Recalculate NOW to be extremely precise
+            now_utc = datetime.now(timezone.utc)
+            # Use pre-calculated age or relative
+            age_min = (now_utc - ts).total_seconds() / 60
+            
+            # Debug log removed as issue is resolved
+
+
+            # Use it if reasonably fresh or if we have no other options yet
+            bg_val = float(ns_sgv.sgv)
+            direction = ns_sgv.direction or None
+            delta = ns_sgv.delta
             timestamp_str = ts.isoformat()
             quality = "live"
+            ns_age_min = age_min
+            
         except Exception as exc:
             logger.warning("NS sgv fetch failed: %s", exc)
+
+    # 2. Dexcom Fallback (If NS failed OR is stale > 10 min)
+    # We prioritize Nightscout (as per config), but if it's old/broken, we try Dexcom
+    use_dexcom = False
+    if bg_val is None: # NS Failed
+        use_dexcom = True
+    elif ns_age_min > 10: # NS Stale
+        use_dexcom = True
+        
+    if use_dexcom and user_settings.dexcom and user_settings.dexcom.enabled:
+        if user_settings.dexcom.username and user_settings.dexcom.password:
+            try:
+                logger.info("Values missing or stale (age=%.1f), attempting Dexcom Share fallback...", ns_age_min)
+                dex = DexcomClient(
+                    username=user_settings.dexcom.username,
+                    password=user_settings.dexcom.password,
+                    region=user_settings.dexcom.region
+                )
+                dx_reading = await dex.get_latest_sgv()
+                if dx_reading:
+                    # check if dexcom is actually newer than NS (if NS existed)
+                    dx_age = (now - dx_reading.date).total_seconds() / 60
+                    
+                    if dx_age < ns_age_min:
+                         bg_val = float(dx_reading.sgv)
+                         direction = dx_reading.trend
+                         delta = None # Dexcom client might not give delta easily
+                         timestamp_str = dx_reading.date.isoformat()
+                         quality = "live"
+                         # We abuse 'source' to indicate origin? BotContext source defaults to 'unknown'
+                         # We can encode it in quality or just assume live.
+                         logger.info("Using Dexcom Share data (age=%.1f)", dx_age)
+                         # Set source explicit
+                         # Note: BolusContext source field definition logic below relies on ns_client existence?
+                         # We will fix source assignment.
+            except Exception as e:
+                logger.warning(f"Dexcom fallback failed: {e}")
 
     store = DataStore(Path(get_settings().data.data_dir))
     cob_g = None
@@ -321,6 +388,38 @@ async def get_status_context(username: str = "admin", user_settings: Optional[Us
     except Exception as e:
         logger.warning(f"Failed to fetch daily stats from DB: {e}")
 
+    # Determine final source label
+    # valid_source logic:
+    # - If we got fresh Dexcom data -> 'dexcom'
+    # - If we rely on Nightscout (even if stale) -> 'nightscout'
+    # - Else -> 'db_fallback' or 'unknown'
+    
+
+    # Re-eval source based on what we have
+    # If we have a value and ns_client is unset -> db_fallback isn't quite right if we just have nothing.
+    
+    src = "unknown"
+    if ns_sgv and not (use_dexcom and float(ns_sgv.sgv) != bg_val):
+         src = "nightscout"
+    
+    # If we used Dexcom, bg_val would match dexcom reading. 
+    # But strictly, if we successfully fetched Dexcom, we should label it.
+    # Let's assume if use_dexcom is True and we have data, we likely tried. 
+    # But if fallback failed, we still have stale NS data.
+    # We should label based on the active data.
+    
+    # Let's use a heuristic:
+    if use_dexcom and bg_val:
+         # Check if value matches NS?
+         if ns_sgv and abs(float(ns_sgv.sgv) - bg_val) < 0.1:
+              src = "nightscout" # fallback failed, invalid, or identical
+         else:
+              src = "dexcom"
+    elif ns_sgv:
+         src = "nightscout"
+    else:
+         src = "db_fallback"
+
     return BolusContext(
         bg_mgdl=bg_val,
         direction=direction,
@@ -328,8 +427,9 @@ async def get_status_context(username: str = "admin", user_settings: Optional[Us
         iob_u=iob_u,
         cob_g=cob_g,
         timestamp=timestamp_str,
+        age_minutes=ns_age_min if (ns_sgv or use_dexcom) else None,
         quality=quality,
-        source="nightscout_live" if ns_client else "db_fallback", # clarify source
+        source=src,
         config_hash=user_settings.config_hash, 
         daily_insulin_u=round(daily_stats["insulin"], 2),
         daily_carbs_g=round(daily_stats["carbs"], 1),
@@ -392,16 +492,21 @@ async def calculate_bolus(carbs: float, fat: float = 0.0, protein: float = 0.0, 
 
     # STALE DATA SAFETY CHECK
     is_stale_data = False
-    if status.bg_mgdl:
-        try:
+    
+    # Use explicit age if available (more reliable), otherwise fallback to recalc
+    current_age = status.age_minutes
+    if current_age is None and status.bg_mgdl:
+         try:
             ts = datetime.fromisoformat(status.timestamp)
             if ts.tzinfo is None: ts = ts.replace(tzinfo=timezone.utc)
-            age_min = (datetime.now(timezone.utc) - ts).total_seconds() / 60
-            if age_min > 20: # Allow bit more than 15 for latency
-                # Don't fail, just mark stale (Parity with App)
-                logger.warning(f"Using stale glucose data ({int(age_min)} min old)")
-                is_stale_data = True
-        except: pass
+            current_age = (datetime.now(timezone.utc) - ts).total_seconds() / 60
+         except: pass
+
+    if status.bg_mgdl:
+        if current_age is not None and current_age > 20:
+             # Don't fail, just mark stale (Parity with App)
+             logger.warning(f"Using stale glucose data ({int(current_age)} min old)")
+             is_stale_data = True
     else:
         return ToolError(type="missing_data", message="No hay datos de glucosa recientes.")
 

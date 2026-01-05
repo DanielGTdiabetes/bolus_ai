@@ -1638,97 +1638,30 @@ async def on_new_meal_received(carbs: float, fat: float, protein: float, fiber: 
     
     bg_val = None
     iob_u = 0.0
-    ns_client = None
+    # 1. Gather Context via Centralized Tool
+    # This ensures we use the same stale-check and fallback logic as the rest of the bot.
+    ctx_res = await tools.get_status_context(user_settings=user_settings)
     
-    # Init NS Client & Fetch BG
-    if user_settings.nightscout.url:
-        # Check enabled flag but proceed if URL exists
-        ns_client = NightscoutClient(
-            base_url=user_settings.nightscout.url, 
-            token=user_settings.nightscout.token,
-            timeout_seconds=10 
-        )
-    elif settings.nightscout.base_url:
-         # Fallback to Env
-         ns_client = NightscoutClient(str(settings.nightscout.base_url), settings.nightscout.token)
-    
-    # Init local var for trend
-    bg_trend = None 
+    bg_val = None
+    bg_trend = None
     bg_source = "none"
-    bg_datetime = None
+    bg_age = 0.0
+    iob_u = 0.0 # Will be populated if configured or calc engine does it?
+                # Actually get_status_context returns IOB too!
+    
+    if not isinstance(ctx_res, tools.ToolError):
+        bg_val = ctx_res.bg_mgdl
+        bg_trend = ctx_res.direction
+        # If tools.py returns explicit source, use it.
+        if ctx_res.source: bg_source = ctx_res.source.lower()
+        if ctx_res.age_minutes: bg_age = ctx_res.age_minutes
+        if ctx_res.iob_u: iob_u = ctx_res.iob_u
+        
+    # Fallback/Dexcom logic removed here as it is handled inside get_status_context
 
-    try:
-        # 0. Try Dexcom Share First (If configured)
-        if user_settings.dexcom and user_settings.dexcom.enabled and user_settings.dexcom.username:
-             try:
-                 from app.services.dexcom_client import DexcomClient
-                 
-                 d_client = DexcomClient(
-                     user_settings.dexcom.username,
-                     user_settings.dexcom.password, 
-                     user_settings.dexcom.region or "ous"
-                 )
-                 sgv_d = await d_client.get_latest_sgv()
-                 if sgv_d:
-                     bg_val = float(sgv_d.sgv)
-                     bg_trend = sgv_d.trend 
-                     bg_datetime = sgv_d.date
-                     bg_source = "dexcom" 
-                     logger.info(f"Bot obtained BG from Dexcom: {bg_val} {bg_trend} (Time: {bg_datetime})")
-             except Exception as dex_e:
-                 logger.error(f"Dexcom fetch failed: {dex_e}")
 
-        # 1. Fetch BG from Nightscout (Fallback)
-        if bg_val is None and ns_client:
-            try:
-                sgv = await ns_client.get_latest_sgv()
-                if sgv:
-                    bg_val = float(sgv.sgv)
-                    bg_source = "nightscout"
-                    # NS trend (direction)
-                    if hasattr(sgv, 'direction'):
-                         bg_trend = sgv.direction
-                    # NS date
-                    if hasattr(sgv, 'date'): # Usually a date string or timestamp
-                         # We rely on NS client internal parsing or assume current if missing?
-                         # NightscoutClient usually parses date.
-                         # Just in case, let's assume it's fresh if we just fetched it, 
-                         # or check is_stale logic if we had access to raw object time.
-                         pass
-                         
-                    logger.info(f"Bot obtained BG from NS: {bg_val}")
-            except Exception as e:
-                logger.error(f"Bot failed to get latest SGV from NS: {e}")
-
-        # 1.1 DB Fallback for Glucose (SGV)
-        if bg_val is None:
-            try:
-                engine = get_engine()
-                if engine:
-                    async with AsyncSession(engine) as session:
-                        from sqlalchemy import text
-                        stmt = text("SELECT sgv, direction, date_string FROM entries ORDER BY date_string DESC LIMIT 1") 
-                        row = (await session.execute(stmt)).fetchone()
-                        if row:
-                            bg_val = float(row.sgv)
-                            bg_source = "database"
-                            if hasattr(row, 'direction'):
-                                bg_trend = row.direction
-                            # Date parsing from DB string would be needed for stale check
-            except Exception: pass
-            
-        # Calc IOB
-        try:
-            iob_u, _, _, _ = await compute_iob_from_sources(now_utc, user_settings, ns_client, store)
-        except Exception as e:
-            logger.error(f"Bot failed to calc IOB: {e}")
-
-    except Exception as e:
-        logger.error(f"Unexpected error in meal context calc: {e}")
-        iob_u = 0.0
-    finally:
-        if ns_client:
-            await ns_client.aclose()
+    # Legacy fetching block removed (replaced by get_status_context)
+    pass
 
     
     # 2. Calculate Bolus V2 (Snapshot Safe)
@@ -1739,12 +1672,9 @@ async def on_new_meal_received(carbs: float, fat: float, protein: float, fiber: 
     
     # calculate staleness
     is_stale_reading = False
-    if bg_datetime:
-        # bg_datetime is already aware UTC thanks to dexcom_client fix
-        diff = (datetime.now(timezone.utc) - bg_datetime).total_seconds()
-        if diff > 1200: # 20 minutes
-             is_stale_reading = True
-             logger.warning(f"Dexcom reading is stale! Age: {diff/60:.1f} mins")
+    if bg_val and bg_age > 20:
+         is_stale_reading = True
+         logger.warning(f"Glucose reading is stale! Age: {bg_age:.1f} mins")
     
     glucose_info = GlucoseUsed(
         mgdl=bg_val,
