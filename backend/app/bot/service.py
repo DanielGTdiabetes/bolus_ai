@@ -1994,7 +1994,11 @@ async def _handle_snapshot_callback(query, data: str) -> None:
                              logger.error(f"Image generation error: {gen_e}")
 
                      if img_bytes:
-                         logger.info("Sending generated injection image")
+                         logger.info(f"Sending generated injection image for {site_id}")
+                         # Force unique filename to prevent caching, using readable name
+                         safe_label = site['name'][:20].replace(" ", "_").replace(".", "").encode('ascii', 'ignore').decode('ascii')
+                         img_bytes.name = f"inj_{safe_label}_{uuid.uuid4().hex[:6]}.png"
+                         
                          await context.bot.send_photo(chat_id=query.effective_chat.id, photo=img_bytes)
                      else:
                          # Fallback to static
