@@ -116,13 +116,19 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   router();
 
-  // Register Service Worker for PWA
+  // EMERGENCY FIX: UNREGISTER ALL SERVICE WORKERS
+  // The current SW is causing ghost responses on mobile. We kill it here permanently for now.
   if ('serviceWorker' in navigator) {
-    try {
-      const reg = await navigator.serviceWorker.register('./sw.js');
-      console.log('SW Registered:', reg.scope);
-    } catch (err) {
-      console.log('SW Registration failed:', err);
-    }
+    navigator.serviceWorker.getRegistrations().then(function (registrations) {
+      for (let registration of registrations) {
+        console.log("⚠️ Killing SW:", registration);
+        registration.unregister();
+      }
+      if (registrations.length > 0) {
+        console.log("♻️ Service Workers cleaned. Reloading...");
+        // Optional: window.location.reload() could be aggressive here, 
+        // but BodyMapPage handles the reload if API fails.
+      }
+    });
   }
 });
