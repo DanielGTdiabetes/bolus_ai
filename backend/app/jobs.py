@@ -119,7 +119,7 @@ async def _run_learning_evaluation_task():
                 client = NightscoutClient(ns_cfg.url, token, timeout_seconds=10)
                 
                 try:
-                    await ls.evaluate_pending_outcomes(client)
+                    await ls.evaluate_pending_outcomes(client, user_id=username)
                 finally:
                     await client.aclose()
                     

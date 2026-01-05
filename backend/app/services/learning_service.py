@@ -131,7 +131,7 @@ class LearningService:
         matches.sort(key=lambda x: x[0], reverse=True)
         return [m[1] for m in matches[:limit]]
 
-    async def evaluate_pending_outcomes(self, ns_client: NightscoutClient):
+    async def evaluate_pending_outcomes(self, ns_client: NightscoutClient, user_id: str = None):
         """
         Checks entries older than 4h that have no outcome.
         Computes score based on NS data.
@@ -142,21 +142,30 @@ class LearningService:
         cutoff = now - timedelta(hours=4)
         old_limit = now - timedelta(hours=24)
         
-        stmt = select(MealEntry).outerjoin(MealOutcome).where(
+        # Select IDs first to avoid "greenlet_spawn" / expired object issues after commits in loop
+        stmt = select(MealEntry.id).outerjoin(MealOutcome).where(
             MealOutcome.id == None,
             MealEntry.created_at < cutoff,
             MealEntry.created_at > old_limit
         )
         
-        result = await self.session.execute(stmt)
-        pending = result.scalars().all()
+        if user_id:
+            stmt = stmt.where(MealEntry.user_id == user_id)
         
-        if not pending:
+        result = await self.session.execute(stmt)
+        pending_ids = result.scalars().all()
+        
+        if not pending_ids:
             return
             
-        logger.info(f"Memory: Evaluating {len(pending)} pending meal outcomes...")
+        logger.info(f"Memory: Evaluating {len(pending_ids)} pending meal outcomes for user {user_id or 'ALL'}...")
         
-        for entry in pending:
+        for entry_id in pending_ids:
+            # Re-fetch the entry fresh from DB to attach to session for this iteration
+            entry = await self.session.get(MealEntry, entry_id)
+            if not entry:
+                continue
+
             try:
                 await self._compute_outcome(entry, ns_client)
             except Exception as e:
