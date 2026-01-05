@@ -1646,8 +1646,29 @@ async def on_new_meal_received(carbs: float, fat: float, protein: float, fiber: 
 
     # Use shared context tool for IOB and other context (but override glucose with explicit priority logic)
     ctx_res = await tools.get_status_context(user_settings=user_settings)
-    if not isinstance(ctx_res, tools.ToolError) and ctx_res.iob_u:
-        iob_u = ctx_res.iob_u
+    if not isinstance(ctx_res, tools.ToolError):
+        # Use the context result directly if available, as it has the best logic
+        if ctx_res.iob_u is not None:
+             iob_u = ctx_res.iob_u
+        
+        # Prefer the glucose from get_status_context as it is validated and robust
+        if ctx_res.bg_mgdl is not None:
+             bg_val = ctx_res.bg_mgdl
+             bg_trend = ctx_res.direction
+             bg_source = ctx_res.source
+             
+             # Calculate age from the timestamp provided by context
+             if ctx_res.timestamp:
+                 try:
+                     ts = datetime.fromisoformat(ctx_res.timestamp)
+                     if ts.tzinfo is None:
+                         ts = ts.replace(tzinfo=timezone.utc)
+                     bg_datetime = ts
+                 except Exception:
+                     bg_datetime = datetime.now(timezone.utc)
+    
+    # Only fallback to custom fetching if get_status_context failed to provide glucose
+    fetched = bg_val is not None
 
     prefer_nightscout = user_settings.nightscout.enabled and user_settings.nightscout.url
     dexcom_ready = user_settings.dexcom and user_settings.dexcom.enabled and user_settings.dexcom.username
@@ -1724,16 +1745,16 @@ async def on_new_meal_received(carbs: float, fat: float, protein: float, fiber: 
             logger.warning(f"Local DB glucose fallback failed: {exc}")
             return False
 
-    fetched = False
-    if prefer_nightscout:
-        fetched = await _fetch_from_nightscout()
-        if not fetched and dexcom_ready:
-            fetched = await _fetch_from_dexcom()
-    elif dexcom_ready:
-        fetched = await _fetch_from_dexcom()
-        if not fetched and prefer_nightscout:
+    if not fetched:
+        if prefer_nightscout:
             fetched = await _fetch_from_nightscout()
-
+            if not fetched and dexcom_ready:
+                fetched = await _fetch_from_dexcom()
+        elif dexcom_ready:
+            fetched = await _fetch_from_dexcom()
+            if not fetched and prefer_nightscout:
+                fetched = await _fetch_from_nightscout()
+    
     if not fetched:
         await _fetch_from_local_db()
 
