@@ -149,22 +149,19 @@ class AutosensService:
             # (Assuming simplified flat or basic schedule from Forecast logic)
             # Resolve ISF/ICR/Basal for t_prev
             # We map the hour to the closest Meal Slot configuration
-            hour_local = (t_prev.hour + 1) % 24 # +1 approximate local time adjustment assumption
-            
-            # Align buckets with IsfAnalysisService
-            # 00-06: Night (Dinner)
-            # 06-12: Morn (Breakfast)
-            # 12-18: Afternoon (Lunch)
-            # 18-24: Night (Dinner)
+            from app.utils.timezone import to_local
+            local_dt = to_local(t_prev)
+            h = local_dt.hour
+            sch = settings.schedule
             
             # Default to Dinner for overnight/late safety
             current_isf = settings.cf.dinner
             current_icr = settings.cr.dinner
             
-            if 6 <= hour_local < 12:
+            if sch.breakfast_start_hour <= h < sch.lunch_start_hour:
                 current_isf = settings.cf.breakfast
                 current_icr = settings.cr.breakfast
-            elif 12 <= hour_local < 18:
+            elif sch.lunch_start_hour <= h < sch.dinner_start_hour:
                 current_isf = settings.cf.lunch
                 current_icr = settings.cr.lunch
             # Else (18-24 and 00-06) remains Dinner

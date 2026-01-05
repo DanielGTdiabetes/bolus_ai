@@ -267,7 +267,7 @@ def get_current_meal_slot(settings: UserSettings) -> str:
     from app.utils.timezone import to_local
     
     # Use user local time (default Europe/Madrid)
-    now_local = to_local(datetime.now())
+    now_local = to_local(datetime.now(timezone.utc))
     h = now_local.hour
     sch = settings.schedule
     
