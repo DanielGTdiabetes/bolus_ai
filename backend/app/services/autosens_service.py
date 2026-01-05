@@ -178,8 +178,14 @@ class AutosensService:
                 
                 # Insulin Activity
                 if tr['insulin'] > 0:
-                    act = InsulinCurves.get_activity(age_min, current_dia, settings.iob.peak_minutes, current_model)
-                    insulin_rate += act * tr['insulin']
+                    # SAFETY: Exclude Basal treated as Fast Insulin
+                    notes_lower = (tr.get('notes') or "").lower()
+                    if any(x in notes_lower for x in ["basal", "tresiba", "lantus", "toujeo", "levemir"]):
+                         # Skip fast activity calculation for basal
+                         pass
+                    else:
+                        act = InsulinCurves.get_activity(age_min, current_dia, settings.iob.peak_minutes, current_model)
+                        insulin_rate += act * tr['insulin']
                     
                 # Carb Activity
                 if tr['carbs'] > 0:
