@@ -34,7 +34,7 @@ export function InjectionSiteSelector({ type, onSelect, selected, autoSelect = f
             const token = localStorage.getItem('token');
             if (!token) throw new Error("No auth token");
 
-            const res = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/injection/state`, {
+            const res = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/injection/state?t=${Date.now()}`, {
                 headers: { "Authorization": `Bearer ${token}` }
             });
             if (res.ok) {
