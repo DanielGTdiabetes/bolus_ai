@@ -40,6 +40,7 @@ BACKEND_ROOT = Path(__file__).resolve().parent.parent.parent
 
 class DataConfig(BaseModel):
     data_dir: Path = Field(default_factory=lambda: BACKEND_ROOT / "data")
+    static_dir: Path = Field(default_factory=lambda: BACKEND_ROOT / "app" / "static")
 
     @field_validator("data_dir", mode="before")
     def _expand_path(cls, v: str | Path) -> Path:
