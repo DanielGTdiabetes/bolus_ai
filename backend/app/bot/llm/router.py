@@ -254,9 +254,13 @@ async def handle_text(username: str, chat_id: int, user_text: str, context_data:
                      if isinstance(site, dict):
                           last_image_path = site.get("image")
                           last_site_id = site.get("id")
+                          logger.info(f"[Router] Captured site from injection_site dict: id={last_site_id}, image={last_image_path}")
                 elif hasattr(tool_res, "image") and tool_res.image:
                      last_image_path = tool_res.image
                      last_site_id = getattr(tool_res, "id", None)
+                     logger.info(f"[Router] Captured site from InjectionSiteResult: id={last_site_id}, image={last_image_path}")
+                else:
+                     logger.warning(f"[Router] Tool {tool_name} returned result but no image/injection_site found. Result type: {type(tool_res)}, attrs: {dir(tool_res)}")
 
 
             

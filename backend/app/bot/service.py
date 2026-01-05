@@ -780,6 +780,7 @@ async def _process_text_input(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     # 5. Send Image if present (Injection Site)
     if bot_reply.image_path or bot_reply.site_id:
+        logger.info(f"[Service] Preparing to send image: site_id='{bot_reply.site_id}', image_path='{bot_reply.image_path}'")
         try:
             base_dir = Path(__file__).parent.parent / "static" / "assets"
             img_bytes = None
@@ -787,6 +788,7 @@ async def _process_text_input(update: Update, context: ContextTypes.DEFAULT_TYPE
             # Try to render image with target circle if we have site_id
             if bot_reply.site_id:
                 from app.bot.image_renderer import generate_injection_image
+                logger.info(f"[Service] Calling generate_injection_image with site_id='{bot_reply.site_id}'")
                 img_bytes = generate_injection_image(bot_reply.site_id, base_dir)
             
             if img_bytes:

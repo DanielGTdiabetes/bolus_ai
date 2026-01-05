@@ -25,6 +25,11 @@ def generate_injection_image(site_id: str, assets_dir: Path) -> io.BytesIO:
     Loads generic body image and overlays a target on the specific site.
     Returns bytes ready for Telegram.
     """
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    logger.info(f"[ImageRenderer] Generating image for site_id='{site_id}'")
+    
     # Parse ID: "abd_r_top:1" -> zone="abd_r_top", point=1
     if ":" in site_id:
         zone_id, point_str = site_id.split(":")
@@ -35,6 +40,8 @@ def generate_injection_image(site_id: str, assets_dir: Path) -> io.BytesIO:
     else:
         zone_id = site_id
         point = 1
+    
+    logger.info(f"[ImageRenderer] Parsed: zone_id='{zone_id}', point={point}")
 
     # Determine Base Image and Coords
     img_file = "body_full.png" # Safe fallback
@@ -66,6 +73,8 @@ def generate_injection_image(site_id: str, assets_dir: Path) -> io.BytesIO:
             cx_pct = 50 - dist
         else: # "_r_"
             cx_pct = 50 + dist
+        
+        logger.info(f"[ImageRenderer] Abdomen: row={'top' if '_top' in zone_id else 'mid' if '_mid' in zone_id else 'bot'}, side={'left' if '_l_' in zone_id else 'right'}, point={point}, offset_idx={idx}, dist={dist}")
             
     # Basal/Legs Logic (Static Map or Simple)
     elif zone_id in COORDS:
@@ -75,7 +84,10 @@ def generate_injection_image(site_id: str, assets_dir: Path) -> io.BytesIO:
         cy_pct = info["y"]
         found = True
 
+    logger.info(f"[ImageRenderer] Final coords: cx_pct={cx_pct}, cy_pct={cy_pct}, img_file='{img_file}'")
+
     if not found:
+        logger.warning(f"[ImageRenderer] Zone '{zone_id}' not found!")
         return None
 
     img_path = assets_dir / img_file
