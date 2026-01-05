@@ -122,6 +122,9 @@ def generate_injection_image(site_id: str, assets_dir: Path) -> io.BytesIO:
             
             # Output
             bio = io.BytesIO()
+            im.save(bio, format="PNG")
+            bio.seek(0)
+            
             # Randomize filename to prevent Telegram Client caching
             import uuid
             nonce = uuid.uuid4().hex[:6]
