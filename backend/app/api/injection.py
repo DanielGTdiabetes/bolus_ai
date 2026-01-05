@@ -71,3 +71,14 @@ def rotate_injection_site(payload: RotateRequest, store: DataStore = Depends(get
     
     logger.info(f"[API /rotate] Done. Returning ok.")
     return {"status": "ok"}
+
+@router.get("/rotate-legacy")
+def rotate_legacy(type: str, target: str, store: DataStore = Depends(get_store), _: str = Depends(auth_required)):
+    """Fallback GET endpoint for mobile clients where POST is blocked/ghosted."""
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.info(f"[API /rotate-legacy] GET Request: type={type}, target={target}")
+    
+    mgr = InjectionManager(store)
+    mgr.set_current_site(type, target)
+    return {"status": "ok", "method": "GET"}

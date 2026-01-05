@@ -25,6 +25,7 @@ export default function BodyMapPage() {
         try {
             const token = localStorage.getItem('bolusai_token'); // Correct key name
             if (token) {
+                // 1. Try standart POST
                 const res = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/injection/rotate?t=${Date.now()}`, {
                     method: 'POST',
                     headers: {
@@ -37,26 +38,49 @@ export default function BodyMapPage() {
                     })
                 });
 
+                let success = false;
                 if (res.ok) {
                     const text = await res.text();
-                    if (!text) {
-                        console.error("[BodyMap] ⚠️ Ghost response detected! KILLING SERVICE WORKER.");
-                        alert("Reparando conexión... La página se recargará.");
-
-                        // FORCE KILL SERVICE WORKER
-                        if ('serviceWorker' in navigator) {
-                            const registrations = await navigator.serviceWorker.getRegistrations();
-                            for (let registration of registrations) {
-                                await registration.unregister();
-                            }
-                        }
-                        // Force reload from server ignoring cache
-                        window.location.reload(true);
-                    } else {
+                    if (text) {
                         console.log(`[BodyMap] Synced ${type} site successfully. Server said:`, text);
+                        success = true;
                     }
-                } else {
-                    console.error("[BodyMap] Server error:", res.status);
+                }
+
+                // 2. If POST failed (Ghost response), try GET Fallback
+                if (!success) {
+                    console.warn("[BodyMap] POST failed (Ghost detected). Trying GET fallback...");
+                    try {
+                        const targetType = type === 'rapid' ? 'bolus' : 'basal';
+                        const resGet = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/injection/rotate-legacy?type=${targetType}&target=${encodeURIComponent(fullId)}&t=${Date.now()}`, {
+                            method: 'GET',
+                            headers: { "Authorization": `Bearer ${token}` }
+                        });
+                        if (resGet.ok) {
+                            console.log("[BodyMap] GET Fallback success!");
+                            success = true;
+                        } else {
+                            console.error("[BodyMap] GET Fallback failed with status:", resGet.status);
+                        }
+                    } catch (errFallback) {
+                        console.error("Fallback failed", errFallback);
+                    }
+                }
+
+                // 3. If everything failed -> Kill SW
+                if (!success) {
+                    console.error("[BodyMap] ⚠️ Ghost response detected AND Fallback failed! KILLING SERVICE WORKER.");
+                    alert("Reparando conexión... La página se recargará.");
+
+                    // FORCE KILL SERVICE WORKER
+                    if ('serviceWorker' in navigator) {
+                        const registrations = await navigator.serviceWorker.getRegistrations();
+                        for (let registration of registrations) {
+                            await registration.unregister();
+                        }
+                    }
+                    // Force reload from server ignoring cache
+                    window.location.reload(true);
                 }
             } else {
                 console.warn("[BodyMap] No auth token found, cannot sync with backend");
