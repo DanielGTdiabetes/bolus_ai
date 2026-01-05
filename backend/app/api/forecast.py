@@ -188,13 +188,14 @@ async def get_current_forecast(
                 # We do dedupe below, so just append.
                 # Create a simple object or dict accessor wrapper
                 class PseudoTreatment:
-                    def __init__(self, id, created_at, insulin, carbs, notes, duration):
+                    def __init__(self, id, created_at, insulin, carbs, notes, duration, event_type=None):
                         self.id = id
                         self.created_at = created_at
                         self.insulin = insulin
                         self.carbs = carbs
                         self.notes = notes
                         self.duration = duration
+                        self.event_type = event_type
                 
                 # Check formatting
                 if isinstance(_created_at, str):
@@ -207,7 +208,7 @@ async def get_current_forecast(
                 if isinstance(_created_at, datetime) and _created_at.tzinfo is None:
                     _created_at = _created_at.replace(tzinfo=timezone.utc)
                 
-                ns_rows.append(PseudoTreatment(_id, _created_at, _insulin, _carbs, _notes, _duration))
+                ns_rows.append(PseudoTreatment(_id, _created_at, _insulin, _carbs, _notes, _duration, getattr(t, 'eventType', None)))
                 
         except Exception as e:
             print(f"Forecast NS Treatment fetch failed: {e}")
@@ -274,6 +275,8 @@ async def get_current_forecast(
 
     boluses = []
     carbs = []
+    # Initialize basal_injections early to collect both from Treatments (candidates) and BasalEntry
+    basal_injections = []
     
     now_utc = datetime.now(timezone.utc)
     
@@ -328,12 +331,52 @@ async def get_current_forecast(
         evt_icr, _, base_absorption = get_slot_params(user_hour, user_settings)
         
         if row.insulin and row.insulin > 0:
-            dur = getattr(row, "duration", 0.0) or 0.0
-            boluses.append(ForecastEventBolus(
-                time_offset_min=int(offset), 
-                units=row.insulin,
-                duration_minutes=dur
-            ))
+            # SAFETY FILTER: Exclude Basal treated as Bolus
+            # If notes or event_type indicate basal, skip bolus addition.
+            is_basal_kw = False
+            notes_lower = (row.notes or "").lower()
+            evt_lower = (getattr(row, 'event_type', "") or "").lower()
+            
+            if "basal" in notes_lower or "tresiba" in notes_lower or "lantus" in notes_lower or "toujeo" in notes_lower or "levemir" in notes_lower:
+                is_basal_kw = True
+            if "basal" in evt_lower or "temp" in evt_lower:
+                is_basal_kw = True
+
+            if is_basal_kw:
+                # Promote to Basal Injection Logic
+                # If this treatment is actually a Basal, we add it to basal_injections
+                # Assumption: If duration is 0, default to 24h (1440 min) for common basals
+                # Try to guess type from notes
+                b_type = "glargine"
+                b_dur = 1440
+                if "toujeo" in notes_lower: b_type = "toujeo"
+                elif "levemir" in notes_lower: 
+                    b_type = "levemir"
+                    b_dur = 720 # 12h default?
+                elif "tresiba" in notes_lower: 
+                    b_type = "tresiba"
+                    b_dur = 2500 # >24h
+                
+                # Check for explicit duration in row
+                row_dur = getattr(row, "duration", 0.0) or 0.0
+                if row_dur > 60:
+                     b_dur = row_dur
+
+                # Add candidate (we will dedupe later against official BasalEntry items)
+                basal_injections.append(ForecastBasalInjection(
+                    time_offset_min=int(offset),
+                    units=row.insulin,
+                    duration_minutes=b_dur,
+                    type=b_type
+                ))
+
+            else:
+                dur = getattr(row, "duration", 0.0) or 0.0
+                boluses.append(ForecastEventBolus(
+                    time_offset_min=int(offset), 
+                    units=row.insulin,
+                    duration_minutes=dur
+                ))
 
             if dur <= 0 and row.notes:
                 match = split_note_regex.search(row.notes or "")
@@ -391,8 +434,8 @@ async def get_current_forecast(
 
 
 
-    # 3.3. Fetch Basal History (Last 48h)
-    basal_injections = []
+    # 3.3. Fetch Basal History (Last 48h) from BasalEntry (Official Source)
+    # These are preferred over generic Treatments.
     try:
         basal_cutoff = datetime.now(timezone.utc) - timedelta(hours=48)
         stmt_basal = (
@@ -416,12 +459,28 @@ async def get_current_forecast(
             dur = (row.effective_hours or 24) * 60
             b_type = row.basal_type if row.basal_type else "glargine"
             
-            basal_injections.append(ForecastBasalInjection(
-                time_offset_min=int(b_offset),
-                units=row.dose_u,
-                duration_minutes=dur,
-                type=b_type
-            ))
+            # Deduplication: Check if we already have a similar injection from Treatments
+            # (Time approx match + Units match)
+            is_covered = False
+            for existing in basal_injections:
+                if abs(existing.units - row.dose_u) < 0.1:
+                    if abs(existing.time_offset_min - int(b_offset)) < 120: # 2h wide window for manual confusion
+                         # Existing (from Treatment) is basically this one.
+                         # Update existing with better metadata? Or replace?
+                         # Usually BasalEntry is better. Replace/Update existing properties.
+                         existing.duration_minutes = dur
+                         existing.type = b_type
+                         # Sync time?
+                         is_covered = True
+                         break
+            
+            if not is_covered:
+                basal_injections.append(ForecastBasalInjection(
+                    time_offset_min=int(b_offset),
+                    units=row.dose_u,
+                    duration_minutes=dur,
+                    type=b_type
+                ))
             
     except Exception as e:
         print(f"Forecast Basal Fetch Error: {e}")
@@ -501,7 +560,8 @@ async def get_current_forecast(
         
     # Check specificity
     for c in carbs:
-         if c.absorption_minutes and c.absorption_minutes >= 300:
+         # Only flag if currently active
+         if c.absorption_minutes and c.absorption_minutes >= 300 and (c.time_offset_min + c.absorption_minutes > 0):
              is_slow_absorption = True
              time_ago_h = abs(c.time_offset_min) / 60.0 if c.time_offset_min < 0 else 0
              
