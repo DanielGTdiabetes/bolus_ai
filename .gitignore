@@ -13,6 +13,7 @@ frontend/node_modules/
 backend/data/
 config/config.json
 !config/config.example.json
+!backend/data/injection_state.json
 
 # Logs & Temporary Files
 *.log

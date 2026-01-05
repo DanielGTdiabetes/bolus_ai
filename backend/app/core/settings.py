@@ -34,12 +34,25 @@ class SecurityConfig(BaseModel):
     cors_origins: list[str] = Field(default_factory=list)
 
 
+
+# Calculate absolute path to backend root (3 levels up from app/core/settings.py)
+BACKEND_ROOT = Path(__file__).resolve().parent.parent.parent
+
 class DataConfig(BaseModel):
-    data_dir: Path = Field(default=Path("backend/data"))
+    data_dir: Path = Field(default_factory=lambda: BACKEND_ROOT / "data")
 
     @field_validator("data_dir", mode="before")
     def _expand_path(cls, v: str | Path) -> Path:
-        return Path(v).expanduser()
+        if v is None:
+            return BACKEND_ROOT / "data"
+        p = Path(v).expanduser()
+        if not p.is_absolute():
+            # If relative, try to anchor to backend root if it looks like "data"
+            # But the default "backend/data" string from previous config might be an issue if we are ALREADY in backend.
+            # Let's trust the absolute logic above for default.
+            # If user provides a relative path, assume relative to CWD, which is standard.
+            pass
+        return p
 
 
 class VisionConfig(BaseModel):

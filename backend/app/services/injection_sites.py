@@ -90,6 +90,8 @@ class InjectionManager:
             zone_id, point_str = current_id.split(":")
             point = int(point_str)
             
+            zone_id = zone_id.strip()
+            
             zone_list = ZONES[kind]
             # Find current zone index
             idx = -1
