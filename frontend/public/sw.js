@@ -1,5 +1,5 @@
 // sw.js - Service Worker for caching app shell
-const CACHE_NAME = 'bolus-ai-v2';
+const CACHE_NAME = 'bolus-ai-v3';
 const ASSETS = [
     './',
     './index.html',
@@ -9,10 +9,26 @@ const ASSETS = [
 ];
 
 self.addEventListener('install', (e) => {
+    // Skip waiting forces the new SW to activate immediately
+    self.skipWaiting();
     e.waitUntil(
         caches.open(CACHE_NAME).then((cache) => {
             return cache.addAll(ASSETS);
         })
+    );
+});
+
+// Take control of all clients immediately
+self.addEventListener('activate', (e) => {
+    e.waitUntil(
+        Promise.all([
+            // Clear old caches
+            caches.keys().then(names =>
+                Promise.all(names.filter(n => n !== CACHE_NAME).map(n => caches.delete(n)))
+            ),
+            // Take control of all clients
+            self.clients.claim()
+        ])
     );
 });
 

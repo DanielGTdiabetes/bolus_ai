@@ -25,7 +25,7 @@ export default function BodyMapPage() {
         try {
             const token = localStorage.getItem('bolusai_token'); // Correct key name
             if (token) {
-                await fetch(`${import.meta.env.VITE_API_URL || ''}/api/injection/rotate`, {
+                const res = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/injection/rotate`, {
                     method: 'POST',
                     headers: {
                         "Authorization": `Bearer ${token}`,
@@ -36,7 +36,18 @@ export default function BodyMapPage() {
                         target: fullId
                     })
                 });
-                console.log(`[BodyMap] Synced ${type} site to backend: ${fullId}`);
+
+                if (res.ok) {
+                    const text = await res.text();
+                    if (!text) {
+                        console.error("[BodyMap] ⚠️ Ghost response detected! (Empty 200 OK). Service Worker might be intercepting.");
+                        alert("Error de conexión (SW Ghost). Recarga la página.");
+                    } else {
+                        console.log(`[BodyMap] Synced ${type} site successfully. Server said:`, text);
+                    }
+                } else {
+                    console.error("[BodyMap] Server error:", res.status);
+                }
             } else {
                 console.warn("[BodyMap] No auth token found, cannot sync with backend");
             }
