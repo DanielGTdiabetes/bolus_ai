@@ -13,6 +13,7 @@ from app.services.nightscout_secrets_service import get_ns_config
 from app.services.nightscout_client import NightscoutClient
 from app.services.autosens_service import AutosensService
 from app.models.basal import BasalEntry
+from app.services.dexcom_client import DexcomClient
 
 router = APIRouter()
 
@@ -147,6 +148,28 @@ async def get_current_forecast(
         except Exception as e:
             print(f"NS Fetch failed: {e}")
             pass
+
+    # 2.2 Dexcom Fallback (if Start BG still missing)
+    if start_bg is None and user_settings and user_settings.dexcom and user_settings.dexcom.username:
+        try:
+             # Use cached/shared client if possible, or new one
+             dex = DexcomClient(
+                 username=user_settings.dexcom.username,
+                 password=user_settings.dexcom.password,
+                 region=user_settings.dexcom.region or "ous"
+             )
+             reading = await dex.get_latest_sgv()
+             if reading:
+                 start_bg = float(reading.sgv)
+                 # We cannot build momentum history from single point, but we have start_bg.
+                 # Momentum will implicitly be 0.
+        except Exception as e:
+             print(f"Dexcom Fetch failed: {e}")
+    
+    # 2.3 Final Fallback: Manual or Previous Checkin?
+    # TODO: Could read from basal_checkin if < 10 mins old? 
+    # For now, if None, engine might error or use 120 default.
+
 
     # 3. Fetch Treatments (Last 6 hours)
     from app.models.treatment import Treatment
