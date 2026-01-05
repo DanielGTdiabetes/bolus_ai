@@ -323,8 +323,9 @@ async def _exec_tool(update: Update, context: ContextTypes.DEFAULT_TYPE, name: s
              text = f"💉 **Corrección**\n{res.units} U\n" + "\n".join(res.explanation)
         elif name == "get_nightscout_stats":
              text = f"📊 **Stats ({args.get('range_hours')}h)**\nAvg: {res.avg_bg} | TIR: {res.tir_pct}%"
-        elif name == "get_injection_site":
-             text = f"📍 **Zona Recomendada:** {res.name} {res.emoji}"
+        elif name in ["get_injection_site", "get_last_injection_site"]:
+             label = "Zona Recomendada" if name == "get_injection_site" else "Última Zona Usada"
+             text = f"📍 **{label}:** {res.name} {res.emoji}"
              # Send Image if available
              # Send Image if available
              if res.image:

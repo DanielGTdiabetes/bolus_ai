@@ -120,6 +120,22 @@ def generate_injection_image(site_id: str, assets_dir: Path) -> io.BytesIO:
             r_inner = 5 * msg_scale
             draw.ellipse((cx - r_inner, cy - r_inner, cx + r_inner, cy + r_inner), fill=(255, 255, 255, 255))
             
+            # Draw Point Number (Sync verification)
+            try:
+                # Simple text drawing (default font)
+                text = str(point)
+                # Estimate text size (very rough without font metrics)
+                # Just draw it in black in the center
+                draw.text((cx-3, cy-5), text, fill=(0,0,0,255))
+                
+                # Draw Orientation Labels (IZQ / DER)
+                # Left side (5% W)
+                draw.text((w*0.05, h*0.05), "IZQ", fill=(100,100,100,128))
+                # Right side (90% W)
+                draw.text((w*0.90, h*0.05), "DER", fill=(100,100,100,128))
+            except Exception:
+                pass # Font issues fallback
+            
             # Output
             bio = io.BytesIO()
             im.save(bio, format="PNG")

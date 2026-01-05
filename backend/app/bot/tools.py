@@ -1489,7 +1489,7 @@ AI_TOOL_DECLARATIONS = [
     },
     {
         "name": "get_injection_site",
-        "description": "Consultar siguiente punto de inyección recomendado (rotación). Devuelve imagen si es posible.",
+        "description": "Consultar cuál es el SIGUIENTE punto de inyección recomendado (Toca inyectar aquí). NO avanza la rotación, solo sugiere. Devuelve imagen.",
         "parameters": {
             "type": "OBJECT",
             "properties": {},
@@ -1497,7 +1497,7 @@ AI_TOOL_DECLARATIONS = [
     },
     {
         "name": "get_last_injection_site",
-        "description": "Consultar dónde se realizó la última inyección. Útil para recordar el sitio previo.",
+        "description": "Consultar cuál fue el ÚLTIMO punto donde se inyectó (Pasado). Útil para recordar.",
         "parameters": {
             "type": "OBJECT",
             "properties": {

@@ -32,6 +32,14 @@ class InjectionManager:
             "bolus": { "last_used_id": "abd_l_top:1" },
             "basal": { "last_used_id": "glute_right:1" }
         }
+        # LOGGING PROOF: Log the exact path being read
+        import logging
+        try:
+            full_path = self.store._path(self.filename)
+            logging.getLogger(__name__).info(f"InjectionManager loading state from: {full_path}")
+        except:
+            pass
+            
         return self.store.read_json(self.filename, default_state)
 
     def _save_state(self, state: Dict[str, Any]):
