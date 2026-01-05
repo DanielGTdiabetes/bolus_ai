@@ -441,14 +441,16 @@ async def get_status_context(username: str = "admin", user_settings: Optional[Us
 
 async def calculate_bolus(carbs: float, fat: float = 0.0, protein: float = 0.0, fiber: float = 0.0, meal_type: Optional[str] = None, split: Optional[float] = None, extend_minutes: Optional[int] = None, alcohol: bool = False, target: Optional[float] = None) -> BolusResult | ToolError:
     try:
-        user_settings = await _load_user_settings()
+        # Resolve settings AND user_id explicitly to ensure consistency
+        # Previously: user_settings = await _load_user_settings() which lost the user_id
+        user_settings, user_id = await resolve_bot_user_settings()
     except Exception as exc:
         return ToolError(type="config_error", message=f"Config no disponible: {exc}")
 
     # PHASE 2: Snapshot Context
-    # We fetch status using the *just loaded* settings.
+    # We fetch status using the *just loaded* settings and explicit user_id.
     # The context will contain bg, iob, and the config_hash of these settings.
-    status = await get_status_context(user_settings=user_settings)
+    status = await get_status_context(username=user_id, user_settings=user_settings)
     if isinstance(status, ToolError):
         return status
 
@@ -517,8 +519,9 @@ async def calculate_bolus(carbs: float, fat: float = 0.0, protein: float = 0.0, 
         engine = get_engine()
         if engine:
              async with AsyncSession(engine) as session:
-                  from app.bot.service import _resolve_user_id
-                  u_id = await _resolve_user_id(session)
+                  # Removed internal import of _resolve_user_id that caused mismatch
+                  # u_id = await _resolve_user_id(session)
+                  u_id = user_id # Use the consistently resolved ID
                   
                   # 1. Macro (TDD)
                   from app.services.dynamic_isf_service import DynamicISFService
