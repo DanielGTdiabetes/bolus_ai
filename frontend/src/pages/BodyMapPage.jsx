@@ -23,7 +23,7 @@ export default function BodyMapPage() {
     // Helper to sync with backend (fixes bot sync issue)
     const syncWithBackend = async (type, fullId) => {
         try {
-            const token = localStorage.getItem('token');
+            const token = localStorage.getItem('bolusai_token'); // Correct key name
             if (token) {
                 await fetch(`${import.meta.env.VITE_API_URL || ''}/api/injection/rotate`, {
                     method: 'POST',
@@ -37,6 +37,8 @@ export default function BodyMapPage() {
                     })
                 });
                 console.log(`[BodyMap] Synced ${type} site to backend: ${fullId}`);
+            } else {
+                console.warn("[BodyMap] No auth token found, cannot sync with backend");
             }
         } catch (e) {
             console.error("[BodyMap] Failed to sync with backend:", e);
