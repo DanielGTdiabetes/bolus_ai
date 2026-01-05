@@ -110,24 +110,16 @@ export function InjectionSiteSelector({ type, onSelect, selected, autoSelect = f
     const handlePointClick = async (fullId) => {
         if (onSelect) onSelect(fullId);
 
+        // REMOVED: Immediate rotation on click causes sync issues if bolus is cancelled.
+        // Rotation is now handled by the parent component (BolusPage) upon saving.
+        /*
         try {
             const token = getToken();
             if (token) {
-                await fetch(`${getApiBase()}/api/injection/rotate`, {
-                    method: 'POST',
-                    headers: {
-                        "Authorization": `Bearer ${token}`,
-                        "Content-Type": "application/json"
-                    },
-                    body: JSON.stringify({
-                        type: type === 'rapid' ? 'bolus' : 'basal',
-                        target: fullId
-                    })
-                });
+                await fetch(`${getApiBase()}/api/injection/rotate`, { ... });
             }
-        } catch (e) {
-            console.error("Failed to sync rotation", e);
-        }
+        } catch (e) { console.error("Failed to sync rotation", e); }
+        */
     };
 
     const VisualComponent = type === 'rapid' ? AbdomenImageVisual : LegsImageVisual;

@@ -438,6 +438,7 @@ class BolusAcceptRequest(BaseModel):
     enteredBy: str = "BolusAI"
     nightscout: Optional[dict] = None  # {url, token}
     meal_meta: Optional[dict] = None # {items: [], fat: 0, protein: 0, strategy: {}}
+    injection_site: Optional[str] = None # Explicit site ID for rotation sync
 
 
 @router.post("/treatments", summary="Save a treatment (bolus) to NS/Local/DB")
@@ -600,6 +601,19 @@ async def save_treatment(
         # Since we are in an async function, we can create a Task
         import asyncio
         asyncio.create_task(check_autosens_advisor(user.username))
+
+    # --- ROTATION SYNC ---
+    if payload.injection_site and payload.insulin > 0:
+        try:
+             # Update global rotation state
+             from app.services.injection_sites import InjectionManager
+             mgr = InjectionManager(store)
+             # Infer type from site ID or use 'bolus' (rapid) by default since this is bolus endpoint
+             kind = "basal" if "leg" in payload.injection_site or "glute" in payload.injection_site else "bolus"
+             mgr.set_current_site(kind, payload.injection_site)
+             logger.info(f"Updated rotation state to {payload.injection_site} (kind={kind})")
+        except Exception as e:
+            logger.error(f"Failed to sync rotation state: {e}")
 
     return {
         "success": result.ok,

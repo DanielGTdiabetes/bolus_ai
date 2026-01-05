@@ -475,7 +475,8 @@ export default function BolusPage() {
                 notes: `BolusAI: ${(result.kind === 'dual' || result.kind === 'extended') ? 'Dual' : 'Normal'}. Gr: ${carbs}${isUsingOrphan ? ' (Sincronizado)' : ''}. BG: ${glucose}. ${foodName ? 'Comida: ' + foodName + '.' : ''} ${alcoholEnabled ? 'Alcohol Detected.' : ''} ${plateItems.length > 0 ? 'Items: ' + plateItems.map(i => i.name).join(', ') : ''}${fiberNote}`,
                 nightscout: {
                     url: nsConfig.url || null,
-                }
+                },
+                injection_site: siteId || null
             };
 
             // Add Meal Meta for Learning (CRITICAL for Labs/Shadow Mode)
