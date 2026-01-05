@@ -44,7 +44,9 @@ export async function router() {
     }
 
     // Route Matching
-    const handler = viewRegistry[route];
+    // Strip query params for matching (e.g. #/suggestions?tab=accepted -> #/suggestions)
+    const baseRoute = route.split('?')[0];
+    const handler = viewRegistry[baseRoute];
     if (handler) {
         await handler();
     } else {

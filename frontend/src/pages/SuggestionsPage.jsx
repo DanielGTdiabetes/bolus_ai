@@ -9,7 +9,11 @@ import {
 } from '../lib/api';
 
 export default function SuggestionsPage() {
-    const [tab, setTab] = useState('pending'); // pending | accepted
+    const [tab, setTab] = useState(() => {
+        // Simple hash param check
+        if (window.location.hash.includes('tab=accepted')) return 'accepted';
+        return 'pending';
+    });
 
     return (
         <>

@@ -121,7 +121,7 @@ async def get_notification_summary_service(user_id: str, db: AsyncSession):
              "count": count_eval,
              "title": "Impacto disponible",
              "message": f"Hay {count_eval} evaluación{'es' if count_eval>1 else ''} de impacto list{'as' if count_eval>1 else 'a'}.",
-             "route": "#/suggestions",
+             "route": "#/suggestions?tab=accepted",
              "unread": True,  # Always unread if appearing here per logic
              "priority": "high"
         })
