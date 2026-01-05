@@ -524,7 +524,7 @@ async def get_current_forecast(
         # Check for Alcohol Mode first
         # Treat alcohol separate from meal carbs
         
-        has_warsaw_trigger = any(c for c in carbs if getattr(c, 'is_dual', False) or (c.absorption_minutes and c.absorption_minutes >= 300))
+        has_warsaw_trigger = any(c for c in carbs if (getattr(c, 'is_dual', False) or (c.absorption_minutes and c.absorption_minutes >= 300)) and (c.time_offset_min + c.absorption_minutes > 0))
         
         for c in carbs:
             # Skip if alcohol (priority)
