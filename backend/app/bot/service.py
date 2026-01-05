@@ -2499,7 +2499,42 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
              await _update_basal_event("done")
              health.record_action("action_basal_register_done", True, f"units={units}")
              
-             await query.edit_message_text(f"{query.message.text}\n\n✅ **Registrado:** {units} U de basal.")
+             success_txt = f"{query.message.text}\n\n✅ Registrada: **{units} U**"
+             
+             if getattr(add_res, "injection_site", None):
+                 site = add_res.injection_site
+                 success_txt += f"\n📍 Rotado: {site['name']} {site['emoji']}"
+                 
+                 # Send Image Logic (Basal)
+                 if site.get("image"):
+                     try:
+                         from app.bot.image_renderer import generate_injection_image
+                         base_dir = Path(__file__).parent.parent / "static" / "assets"
+                         site_id = site.get("id")
+                         img_bytes = None
+                         
+                         if site_id:
+                             try:
+                                 img_bytes = generate_injection_image(site_id, base_dir)
+                             except Exception as gen_e:
+                                 logger.error(f"Image generation error (Basal): {gen_e}")
+
+                         if img_bytes:
+                             logger.info(f"Sending generated injection image for Basal {site_id}")
+                             # Force unique filename to prevent caching
+                             safe_label = site['name'][:20].replace(" ", "_").replace(".", "").encode('ascii', 'ignore').decode('ascii')
+                             img_bytes.name = f"inj_basal_{safe_label}_{uuid.uuid4().hex[:6]}.png"
+                             
+                             await context.bot.send_photo(chat_id=query.effective_chat.id, photo=img_bytes)
+                         else:
+                             # Fallback Static
+                             img_path = base_dir / site["image"]
+                             if img_path.exists():
+                                 await context.bot.send_photo(chat_id=query.effective_chat.id, photo=open(img_path, "rb"))
+                     except Exception as e:
+                         logger.error(f"Failed to send basal injection image: {e}")
+
+             await query.edit_message_text(success_txt, parse_mode="Markdown")
              
          except Exception as e:
              health.record_action("action_basal_register_done", False, str(e))
