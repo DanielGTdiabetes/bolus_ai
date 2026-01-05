@@ -60,16 +60,16 @@ class DexcomClient:
             if bg_dt:
                 now_utc = datetime.now(timezone.utc)
                 
-                # 1. First, assume it MIGHT be UTC (Standard API behavior)
                 if bg_dt.tzinfo is None:
-                    candidate = bg_dt.replace(tzinfo=timezone.utc)
+                    try:
+                        local_tz = datetime.now().astimezone().tzinfo or timezone.utc
+                        candidate = bg_dt.replace(tzinfo=local_tz).astimezone(timezone.utc)
+                    except Exception as exc:
+                        logger.warning(f"Dexcom naive timestamp; defaulting to UTC: {exc}")
+                        candidate = bg_dt.replace(tzinfo=timezone.utc)
                 else:
                     candidate = bg_dt.astimezone(timezone.utc)
                 
-                # 2. Validation: 'Current' reading shouldn't be hours away.
-                # If the difference is huge (> 1 hour), our timezone assumption is likely wrong
-                # (e.g. it was Local Time but we treated as UTC, or vice versa)
-                # Since we just fetched 'current_reading', we can trust 'now' more than the timestamp.
                 diff_sec = abs((now_utc - candidate).total_seconds())
                 
                 if diff_sec > 3600: # 1 hour tolerance

@@ -103,11 +103,11 @@ class NightscoutConfig(BaseModel):
     units: Literal["mg/dl", "mmol/l"] = "mg/dl"
 
 
-class DexcomConfig(BaseModel):
+class DexcomSettings(BaseModel):
     enabled: bool = False
-    username: str = ""
-    password: str = ""
-    region: str = "ous"  # "ous" (International) or "us"
+    username: Optional[str] = None
+    password: Optional[str] = None
+    region: Optional[str] = "ous"
 
 
 
@@ -252,7 +252,7 @@ class UserSettings(BaseModel):
     absorption: MealDuration = Field(default_factory=MealDuration)
     autosens: AutosensConfig = Field(default_factory=AutosensConfig)
     bot: BotConfig = Field(default_factory=BotConfig)
-    dexcom: DexcomConfig = Field(default_factory=DexcomConfig)
+    dexcom: DexcomSettings = Field(default_factory=DexcomSettings)
     
     # Internal field to track update time from DB, not part of user input JSON usually
     updated_at: Optional[datetime] = None

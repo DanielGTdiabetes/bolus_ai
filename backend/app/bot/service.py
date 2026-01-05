@@ -26,6 +26,7 @@ from datetime import datetime, timezone, timedelta
 from app.core.settings import get_settings
 from app.services.store import DataStore
 from app.services.nightscout_client import NightscoutClient
+from app.services.dexcom_client import DexcomClient
 from app.services.iob import compute_iob_from_sources, compute_cob_from_sources
 from app.services.bolus_engine import calculate_bolus_v2
 from app.services.basal_repo import get_latest_basal_dose
@@ -1637,31 +1638,107 @@ async def on_new_meal_received(carbs: float, fat: float, protein: float, fiber: 
     user_settings = await get_bot_user_settings() # NEW (DB)
     
     bg_val = None
-    iob_u = 0.0
-    # 1. Gather Context via Centralized Tool
-    # This ensures we use the same stale-check and fallback logic as the rest of the bot.
-    ctx_res = await tools.get_status_context(user_settings=user_settings)
-    
-    bg_val = None
     bg_trend = None
     bg_source = "none"
     bg_age = 0.0
-    iob_u = 0.0 # Will be populated if configured or calc engine does it?
-                # Actually get_status_context returns IOB too!
-    
-    if not isinstance(ctx_res, tools.ToolError):
-        bg_val = ctx_res.bg_mgdl
-        bg_trend = ctx_res.direction
-        # If tools.py returns explicit source, use it.
-        if ctx_res.source: bg_source = ctx_res.source.lower()
-        if ctx_res.age_minutes: bg_age = ctx_res.age_minutes
-        if ctx_res.iob_u: iob_u = ctx_res.iob_u
-        
-    # Fallback/Dexcom logic removed here as it is handled inside get_status_context
+    bg_datetime: Optional[datetime] = None
+    iob_u = 0.0
 
+    # Use shared context tool for IOB and other context (but override glucose with explicit priority logic)
+    ctx_res = await tools.get_status_context(user_settings=user_settings)
+    if not isinstance(ctx_res, tools.ToolError) and ctx_res.iob_u:
+        iob_u = ctx_res.iob_u
 
-    # Legacy fetching block removed (replaced by get_status_context)
-    pass
+    prefer_nightscout = user_settings.nightscout.enabled and user_settings.nightscout.url
+    dexcom_ready = user_settings.dexcom and user_settings.dexcom.enabled and user_settings.dexcom.username
+    ns_url = user_settings.nightscout.url or settings.nightscout.base_url
+
+    async def _fetch_from_nightscout() -> bool:
+        nonlocal bg_val, bg_trend, bg_datetime, bg_source
+        if not ns_url:
+            return False
+        token = user_settings.nightscout.token or settings.nightscout.token
+        client = NightscoutClient(base_url=ns_url, token=token, timeout_seconds=5)
+        try:
+            sgv = await client.get_latest_sgv()
+            if not sgv:
+                return False
+            bg_val = float(sgv.sgv)
+            bg_trend = sgv.direction
+            bg_source = "nightscout"
+            try:
+                bg_datetime = datetime.fromtimestamp(int(sgv.date) / 1000, tz=timezone.utc)
+            except Exception as exc:
+                logger.warning(f"Nightscout datetime parse failed, defaulting to now: {exc}")
+                bg_datetime = datetime.now(timezone.utc)
+            return True
+        except Exception as exc:
+            logger.warning(f"Nightscout fetch failed: {exc}")
+            return False
+        finally:
+            await client.aclose()
+
+    async def _fetch_from_dexcom() -> bool:
+        nonlocal bg_val, bg_trend, bg_datetime, bg_source
+        if not (dexcom_ready and user_settings.dexcom.password):
+            return False
+        try:
+            dex_client = DexcomClient(
+                username=user_settings.dexcom.username,
+                password=user_settings.dexcom.password,
+                region=user_settings.dexcom.region or "ous",
+            )
+            bg = await dex_client.get_latest_sgv()
+            if not bg:
+                return False
+            bg_val = float(bg.sgv)
+            bg_trend = bg.trend
+            bg_datetime = bg.date
+            bg_source = "dexcom"
+            return True
+        except Exception as exc:
+            logger.warning(f"Dexcom fetch failed: {exc}")
+            return False
+
+    async def _fetch_from_local_db() -> bool:
+        nonlocal bg_val, bg_trend, bg_datetime, bg_source
+        try:
+            engine = get_engine()
+            if not engine:
+                return False
+            async with AsyncSession(engine) as session:
+                from sqlalchemy import text
+                stmt = text("SELECT sgv, date FROM entries ORDER BY date DESC LIMIT 1")
+                row = (await session.execute(stmt)).fetchone()
+                if not row:
+                    return False
+                bg_val = float(row.sgv)
+                try:
+                    bg_datetime = datetime.fromtimestamp(int(row.date) / 1000, tz=timezone.utc)
+                except Exception as exc:
+                    logger.warning(f"Local DB datetime parse failed, defaulting to now: {exc}")
+                    bg_datetime = datetime.now(timezone.utc)
+                bg_source = "local_db"
+                return True
+        except Exception as exc:
+            logger.warning(f"Local DB glucose fallback failed: {exc}")
+            return False
+
+    fetched = False
+    if prefer_nightscout:
+        fetched = await _fetch_from_nightscout()
+        if not fetched and dexcom_ready:
+            fetched = await _fetch_from_dexcom()
+    elif dexcom_ready:
+        fetched = await _fetch_from_dexcom()
+        if not fetched and prefer_nightscout:
+            fetched = await _fetch_from_nightscout()
+
+    if not fetched:
+        await _fetch_from_local_db()
+
+    if bg_datetime:
+        bg_age = max(0.0, (now_utc - bg_datetime).total_seconds() / 60.0)
 
     
     # 2. Calculate Bolus V2 (Snapshot Safe)
@@ -1672,7 +1749,7 @@ async def on_new_meal_received(carbs: float, fat: float, protein: float, fiber: 
     
     # calculate staleness
     is_stale_reading = False
-    if bg_val and bg_age > 20:
+    if bg_datetime and bg_age > 20:
          is_stale_reading = True
          logger.warning(f"Glucose reading is stale! Age: {bg_age:.1f} mins")
     
@@ -2488,8 +2565,5 @@ async def _handle_voice_callback(update: Update, context: ContextTypes.DEFAULT_T
         except Exception as e:
             logger.error(f"Voice confirm processing error: {e}")
             await reply_text(update, context, f"Error procesando voz: {e}")
-
-
-
 
 
