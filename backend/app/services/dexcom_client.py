@@ -56,7 +56,13 @@ class DexcomClient:
             # Pydexcom typical bg.datetime is aware or we need to ensure it
             bg_dt = bg.datetime
             if bg_dt and bg_dt.tzinfo is None:
-                bg_dt = bg_dt.replace(tzinfo=timezone.utc)
+                # Assume the reading is expressed in the local timezone of the host
+                # (Dexcom Share returns local time naive). Convert to UTC for staleness checks.
+                try:
+                    local_tz = datetime.now().astimezone().tzinfo
+                    bg_dt = bg_dt.replace(tzinfo=local_tz).astimezone(timezone.utc)
+                except Exception:
+                    bg_dt = bg_dt.replace(tzinfo=timezone.utc)
             
             return GlucoseReading(
                 sgv=bg.value,

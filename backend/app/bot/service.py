@@ -1640,17 +1640,17 @@ async def on_new_meal_received(carbs: float, fat: float, protein: float, fiber: 
     iob_u = 0.0
     ns_client = None
     
-    # Init NS Client & Fetch BG
-    if user_settings.nightscout.url:
-        # Check enabled flag but proceed if URL exists
+    # Init NS Client & Fetch BG respecting user priority
+    prefer_nightscout = bool(user_settings.nightscout.enabled and user_settings.nightscout.url)
+    dexcom_ready = bool(user_settings.dexcom and user_settings.dexcom.enabled and user_settings.dexcom.username)
+    ns_url = user_settings.nightscout.url or settings.nightscout.base_url
+
+    if ns_url:
         ns_client = NightscoutClient(
-            base_url=user_settings.nightscout.url, 
-            token=user_settings.nightscout.token,
-            timeout_seconds=10 
+            base_url=str(ns_url),
+            token=user_settings.nightscout.token or settings.nightscout.token,
+            timeout_seconds=10
         )
-    elif settings.nightscout.base_url:
-         # Fallback to Env
-         ns_client = NightscoutClient(str(settings.nightscout.base_url), settings.nightscout.token)
     
     # Init local var for trend
     bg_trend = None 
@@ -1658,47 +1658,55 @@ async def on_new_meal_received(carbs: float, fat: float, protein: float, fiber: 
     bg_datetime = None
 
     try:
-        # 0. Try Dexcom Share First (If configured)
-        if user_settings.dexcom and user_settings.dexcom.enabled and user_settings.dexcom.username:
-             try:
-                 from app.services.dexcom_client import DexcomClient
-                 
-                 d_client = DexcomClient(
-                     user_settings.dexcom.username,
-                     user_settings.dexcom.password, 
-                     user_settings.dexcom.region or "ous"
-                 )
-                 sgv_d = await d_client.get_latest_sgv()
-                 if sgv_d:
-                     bg_val = float(sgv_d.sgv)
-                     bg_trend = sgv_d.trend 
-                     bg_datetime = sgv_d.date
-                     bg_source = "dexcom" 
-                     logger.info(f"Bot obtained BG from Dexcom: {bg_val} {bg_trend} (Time: {bg_datetime})")
-             except Exception as dex_e:
-                 logger.error(f"Dexcom fetch failed: {dex_e}")
-
-        # 1. Fetch BG from Nightscout (Fallback)
-        if bg_val is None and ns_client:
+        async def _fetch_from_nightscout():
+            nonlocal bg_val, bg_trend, bg_datetime, bg_source
+            if not ns_client:
+                return
             try:
                 sgv = await ns_client.get_latest_sgv()
                 if sgv:
                     bg_val = float(sgv.sgv)
                     bg_source = "nightscout"
-                    # NS trend (direction)
-                    if hasattr(sgv, 'direction'):
-                         bg_trend = sgv.direction
-                    # NS date
-                    if hasattr(sgv, 'date'): # Usually a date string or timestamp
-                         # We rely on NS client internal parsing or assume current if missing?
-                         # NightscoutClient usually parses date.
-                         # Just in case, let's assume it's fresh if we just fetched it, 
-                         # or check is_stale logic if we had access to raw object time.
-                         pass
-                         
+                    if hasattr(sgv, "direction"):
+                        bg_trend = sgv.direction
+                    try:
+                        bg_datetime = datetime.fromtimestamp(sgv.date / 1000, timezone.utc)
+                    except Exception:
+                        bg_datetime = None
                     logger.info(f"Bot obtained BG from NS: {bg_val}")
             except Exception as e:
                 logger.error(f"Bot failed to get latest SGV from NS: {e}")
+
+        async def _fetch_from_dexcom():
+            nonlocal bg_val, bg_trend, bg_datetime, bg_source
+            if not dexcom_ready:
+                return
+            try:
+                from app.services.dexcom_client import DexcomClient
+                d_client = DexcomClient(
+                    user_settings.dexcom.username,
+                    user_settings.dexcom.password, 
+                    user_settings.dexcom.region or "ous"
+                )
+                sgv_d = await d_client.get_latest_sgv()
+                if sgv_d:
+                    bg_val = float(sgv_d.sgv)
+                    bg_trend = sgv_d.trend 
+                    bg_datetime = sgv_d.date
+                    bg_source = "dexcom" 
+                    logger.info(f"Bot obtained BG from Dexcom: {bg_val} {bg_trend} (Time: {bg_datetime})")
+            except Exception as dex_e:
+                logger.error(f"Dexcom fetch failed: {dex_e}")
+
+        # Apply priority: Nightscout bypass enabled -> NS first, else Dexcom first
+        if prefer_nightscout:
+            await _fetch_from_nightscout()
+            if bg_val is None:
+                await _fetch_from_dexcom()
+        else:
+            await _fetch_from_dexcom()
+            if bg_val is None:
+                await _fetch_from_nightscout()
 
         # 1.1 DB Fallback for Glucose (SGV)
         if bg_val is None:
@@ -2558,7 +2566,6 @@ async def _handle_voice_callback(update: Update, context: ContextTypes.DEFAULT_T
         except Exception as e:
             logger.error(f"Voice confirm processing error: {e}")
             await reply_text(update, context, f"Error procesando voz: {e}")
-
 
 
 
