@@ -328,33 +328,12 @@ async def _exec_tool(update: Update, context: ContextTypes.DEFAULT_TYPE, name: s
              text = f"📍 **{label}:** {res.name} {res.emoji}"
              # Send Image if available
              # Send Image if available
-             if res.image:
-                 try:
-                     from app.bot.image_renderer import generate_injection_image
-                     base_dir = Path(__file__).parent.parent / "static" / "assets"
-                     
-                     # res is InjectionSiteResult
-                     site_id = getattr(res, "id", None)
-                     if site_id:
-                         img_bytes = generate_injection_image(site_id, base_dir)
-                         print(f"DEBUG: Generated image bytes for {site_id}: {img_bytes}")
-                         if img_bytes:
-                              # Ensure name is set for Telegram API
-                              if not hasattr(img_bytes, 'name'): img_bytes.name = "injection.png"
-                              await context.bot.send_photo(chat_id=update.effective_chat.id, photo=img_bytes)
-                         else:
-                              # Fallback to static
-                              img_path = base_dir / res.image
-                              if img_path.exists():
-                                   await context.bot.send_photo(chat_id=update.effective_chat.id, photo=open(img_path, "rb"))
-                              else:
-                                   logger.error(f"Image not found: {img_path}")
-                     else:
-                          img_path = base_dir / res.image
-                          if img_path.exists():
-                               await context.bot.send_photo(chat_id=update.effective_chat.id, photo=open(img_path, "rb"))
-                 except Exception as img_err:
-                     logger.error(f"Failed to send injection image ({res.image}): {img_err}", exc_info=True)
+             # Send Image if available - DISABLED BY USER REQUEST
+             # if res.image:
+             #     try:
+             #         pass # Image logic removed to simplify interaction and avoid sync confusion
+             #     except Exception as img_err:
+             #         logger.error(f"Failed to send injection image ({res.image}): {img_err}", exc_info=True)
 
         await reply_text(update, context, text)
         health.record_action(f"tool:{name}", True)
@@ -778,44 +757,10 @@ async def _process_text_input(update: Update, context: ContextTypes.DEFAULT_TYPE
     else:
         await reply_text(update, context, bot_reply.text)
 
-    # 5. Send Image if present (Injection Site)
-    if bot_reply.image_path or bot_reply.site_id:
-        logger.info(f"[Service] Preparing to send image: site_id='{bot_reply.site_id}', image_path='{bot_reply.image_path}'")
-        try:
-            base_dir = Path(__file__).parent.parent / "static" / "assets"
-            img_bytes = None
-            
-            # Try to render image with target circle if we have site_id
-            if bot_reply.site_id:
-                from app.bot.image_renderer import generate_injection_image
-                logger.info(f"[Service] Calling generate_injection_image with site_id='{bot_reply.site_id}'")
-                img_bytes = generate_injection_image(bot_reply.site_id, base_dir)
-            
-            if img_bytes:
-                 if not hasattr(img_bytes, 'name'): img_bytes.name = "injection.png"
-                 await context.bot.send_photo(chat_id=update.effective_chat.id, photo=img_bytes)
-            elif bot_reply.image_path:
-                 # Helper to find file
-                 filename = Path(bot_reply.image_path).name # Ensure we only get filename if path was weird
-                 possible_paths = [
-                      base_dir / bot_reply.image_path, # Default
-                      Path(__file__).parent.parent / "static" / "assets" / filename, # Absolute relative to code
-                      Path.cwd() / "app" / "static" / "assets" / filename, # CWD backend root
-                      Path.cwd() / "static" / "assets" / filename, # CWD app root?
-                 ]
-                 
-                 found_path = None
-                 for p in possible_paths:
-                      if p.exists():
-                          found_path = p
-                          break
-                 
-                 if found_path:
-                     await context.bot.send_photo(chat_id=update.effective_chat.id, photo=open(found_path, "rb"))
-                 else:
-                     logger.warning(f"Bot image path not found. Checked: {[str(p) for p in possible_paths]}")
-        except Exception as e:
-            logger.error(f"Failed to send bot image: {e}", exc_info=True)
+    # 5. Send Image if present (Injection Site) - DISABLED BY USER REQUEST
+    # if bot_reply.image_path or bot_reply.site_id:
+    #    pass # Logic disabled
+    # Image logic removed per user request
 
 
     # 5. Observability
