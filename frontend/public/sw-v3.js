@@ -1,5 +1,5 @@
 // sw-v3.js - Service Worker for caching app shell (New Version to bust cache)
-const CACHE_NAME = 'bolus-ai-v3-fresh';
+const CACHE_NAME = 'bolus-ai-v6-fixed-paths-auto';
 const ASSETS = [
     './',
     './index.html',

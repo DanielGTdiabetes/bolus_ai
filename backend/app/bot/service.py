@@ -19,6 +19,7 @@ from app.bot.state import health, BotMode
 from app.bot import proactive
 from app.bot import context_builder
 from app.bot.llm import router
+from app.bot.image_renderer import generate_injection_image
 
 # Sidecar dependencies
 from pathlib import Path
@@ -327,13 +328,21 @@ async def _exec_tool(update: Update, context: ContextTypes.DEFAULT_TYPE, name: s
              label = "Zona Recomendada" if name == "get_injection_site" else "Última Zona Usada"
              text = f"📍 **{label}:** {res.name} {res.emoji}"
              # Send Image if available
-             # Send Image if available
-             # Send Image if available - DISABLED BY USER REQUEST
-             # if res.image:
-             #     try:
-             #         pass # Image logic removed to simplify interaction and avoid sync confusion
-             #     except Exception as img_err:
-             #         logger.error(f"Failed to send injection image ({res.image}): {img_err}", exc_info=True)
+             if res.image:
+                 try:
+                     # Use site_id if available to generate dynamic image
+                     target_id = getattr(res, "id", None)
+                     if target_id:
+                         assets = Path(get_settings().data.static_dir or "app/static") / "assets"
+                         # Fix path if needed (Docker/Local discrepancy)
+                         if not assets.exists():
+                             assets = Path(os.getcwd()) / "app" / "static" / "assets"
+                         
+                         img_bytes = generate_injection_image(target_id, assets)
+                         if img_bytes:
+                             await context.bot.send_photo(chat_id=update.effective_chat.id, photo=img_bytes)
+                 except Exception as img_err:
+                     logger.error(f"Failed to send injection image ({res.image}): {img_err}", exc_info=True)
 
         await reply_text(update, context, text)
         health.record_action(f"tool:{name}", True)
@@ -757,10 +766,18 @@ async def _process_text_input(update: Update, context: ContextTypes.DEFAULT_TYPE
     else:
         await reply_text(update, context, bot_reply.text)
 
-    # 5. Send Image if present (Injection Site) - DISABLED BY USER REQUEST
-    # if bot_reply.image_path or bot_reply.site_id:
-    #    pass # Logic disabled
-    # Image logic removed per user request
+    # 5. Send Image if present (Injection Site)
+    if bot_reply.site_id:
+        try:
+             assets = Path(get_settings().data.static_dir or "app/static") / "assets"
+             if not assets.exists():
+                 assets = Path(os.getcwd()) / "app" / "static" / "assets"
+             
+             img_bytes = generate_injection_image(bot_reply.site_id, assets)
+             if img_bytes:
+                 await context.bot.send_photo(chat_id=update.effective_chat.id, photo=img_bytes)
+        except Exception as e:
+             logger.error(f"Failed to send bot reply image: {e}")
 
 
     # 5. Observability

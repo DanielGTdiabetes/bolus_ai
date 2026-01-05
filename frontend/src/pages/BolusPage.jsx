@@ -1545,6 +1545,7 @@ function ResultView({ result, slot, usedParams, onBack, onSave, saving, currentC
                     type="rapid"
                     selected={injectionSite}
                     onSelect={setInjectionSite}
+                    autoSelect={true}
                 />
             </div>
 

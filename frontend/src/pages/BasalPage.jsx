@@ -315,6 +315,7 @@ function BasalEntrySection({ onRefresh }) {
                     type="basal"
                     selected={injectionSite}
                     onSelect={setInjectionSite}
+                    autoSelect={true}
                 />
             </div>
 
