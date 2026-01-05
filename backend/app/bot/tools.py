@@ -886,7 +886,8 @@ async def get_injection_site(tool_input: dict[str, Any]) -> InjectionSiteResult 
     try:
         # Load store
         settings = get_settings()
-        store = DataStore(Path(settings.data.data_dir))
+        data_path = Path(settings.data.data_dir)
+        store = DataStore(data_path)
         rotator = RotationService(store)
         
         engine = get_engine()
@@ -895,7 +896,11 @@ async def get_injection_site(tool_input: dict[str, Any]) -> InjectionSiteResult 
              async with AsyncSession(engine) as session:
                   user_id = await _resolve_user_id(session)
 
-        site = rotator.get_next_site_preview(user_id) # Uses resolved user
+        plan = tool_input.get("plan", "rapid")
+        site = rotator.get_next_site_preview(user_id, plan=plan)
+        
+        # Debug logging for sync issues
+        logger.info(f"[Bot] get_injection_site: data_dir={data_path}, plan={plan}, next_site={site.id}")
         
         return InjectionSiteResult(
             id=site.id,
@@ -948,7 +953,8 @@ async def get_last_injection_site(tool_input: dict[str, Any]) -> InjectionSiteRe
     try:
         # Load store
         settings = get_settings()
-        store = DataStore(Path(settings.data.data_dir))
+        data_path = Path(settings.data.data_dir)
+        store = DataStore(data_path)
         rotator = RotationService(store)
         
         engine = get_engine()
@@ -960,6 +966,9 @@ async def get_last_injection_site(tool_input: dict[str, Any]) -> InjectionSiteRe
         # We can detect plan from input if needed, but default to rapid for now
         plan = tool_input.get("plan", "rapid")
         site = rotator.get_last_site_preview(user_id, plan=plan)
+        
+        # Debug logging for sync issues
+        logger.info(f"[Bot] get_last_injection_site: data_dir={data_path}, plan={plan}, last_site={site.id if site else 'None'}")
         
         if not site:
              return ToolError(type="not_found", message="No hay registros de inyecciones previas.")

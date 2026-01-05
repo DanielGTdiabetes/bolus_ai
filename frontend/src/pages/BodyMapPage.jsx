@@ -20,17 +20,42 @@ export default function BodyMapPage() {
 
     const [refreshKey, setRefreshKey] = useState(0);
 
-    const handleRapidChange = (id) => {
+    // Helper to sync with backend (fixes bot sync issue)
+    const syncWithBackend = async (type, fullId) => {
+        try {
+            const token = localStorage.getItem('token');
+            if (token) {
+                await fetch(`${import.meta.env.VITE_API_URL || ''}/api/injection/rotate`, {
+                    method: 'POST',
+                    headers: {
+                        "Authorization": `Bearer ${token}`,
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify({
+                        type: type === 'rapid' ? 'bolus' : 'basal',
+                        target: fullId
+                    })
+                });
+                console.log(`[BodyMap] Synced ${type} site to backend: ${fullId}`);
+            }
+        } catch (e) {
+            console.error("[BodyMap] Failed to sync with backend:", e);
+        }
+    };
+
+    const handleRapidChange = async (id) => {
         if (window.confirm("¿Marcar este punto como el ÚLTIMO utilizado?")) {
             saveInjectionSite('rapid', id);
+            await syncWithBackend('rapid', id); // Sync with backend for bot
             setSelectedRapid(id);
             setRefreshKey(prev => prev + 1); // Force re-render of children to pick up localStorage change
         }
     };
 
-    const handleBasalChange = (id) => {
+    const handleBasalChange = async (id) => {
         if (window.confirm("¿Marcar este punto como el ÚLTIMO utilizado?")) {
             saveInjectionSite('basal', id);
+            await syncWithBackend('basal', id); // Sync with backend for bot
             setSelectedBasal(id);
             setRefreshKey(prev => prev + 1);
         }

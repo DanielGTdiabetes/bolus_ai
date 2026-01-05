@@ -87,10 +87,18 @@ class InjectionManager:
         # Validation: If site_id comes without point (e.g. "abd_l_top"), append :1
         if ":" not in site_id:
              site_id = f"{site_id}:1"
+        
+        old_id = state.get(key, {}).get("last_used_id", "unknown")
              
         if key not in state: state[key] = {}
         state[key]["last_used_id"] = site_id
         self._save_state(state)
+        
+        # Log for debugging sync issues
+        import logging
+        logging.getLogger(__name__).info(
+            f"[InjectionManager] set_current_site: {key} changed from '{old_id}' to '{site_id}'"
+        )
 
     # --- Helpers ---
 
