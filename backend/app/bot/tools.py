@@ -908,6 +908,42 @@ async def get_injection_site(tool_input: dict[str, Any]) -> InjectionSiteResult 
         return ToolError(type="runtime_error", message=str(e))
 
 
+async def set_injection_site(tool_input: dict[str, Any]) -> InjectionSiteResult | ToolError:
+    try:
+        site_id = tool_input.get("site_id")
+        plan = tool_input.get("plan", "rapid")
+        
+        if not site_id:
+             return ToolError(type="validation_error", message="Falta site_id")
+
+        settings = get_settings()
+        store = DataStore(Path(settings.data.data_dir))
+        
+        # Direct access for simplicity as tool:
+        from app.services.injection_sites import InjectionManager
+        im = InjectionManager(store)
+        
+        # Normalize plan name for manager (rapid -> bolus)
+        kind = "basal" if plan == "basal" else "bolus"
+        
+        # Set the current site as the "last used" so the rotation continues from here correctly
+        im.set_current_site(kind, site_id)
+        
+        # Return the site object to confirm
+        site_meta = im._get_site_from_id(kind, site_id)
+        
+        return InjectionSiteResult(
+            id=site_meta["id"],
+            name=site_meta["name"],
+            emoji=site_meta["emoji"],
+            image=site_meta["image"]
+        )
+
+    except Exception as e:
+        logger.error(f"Error setting injection site: {e}")
+        return ToolError(type="runtime_error", message=str(e))
+
+
 async def get_last_injection_site(tool_input: dict[str, Any]) -> InjectionSiteResult | ToolError:
     try:
         # Load store
@@ -1508,6 +1544,18 @@ AI_TOOL_DECLARATIONS = [
             },
             "required": ["item_key", "quantity"]
         },
+    },
+    {
+        "name": "set_injection_site",
+        "description": "Ajustar manualmente el sitio de inyección actual (sin marcarlo como usado). Útil para corregir desincronización.",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "site_id": {"type": "STRING", "description": "ID del sitio (ej. abd_l_top:1) o descripción aproximada."},
+                "plan": {"type": "STRING", "enum": ["rapid", "basal"], "default": "rapid"}
+            },
+            "required": ["site_id"]
+        },
     }
 ]
 
@@ -1685,6 +1733,8 @@ async def execute_tool(name: str, args: Dict[str, Any]) -> Any:
             return await get_injection_site(args)
         if name == "get_last_injection_site":
             return await get_last_injection_site(args)
+        if name == "set_injection_site":
+            return await set_injection_site(args)
 
         if name == "start_restaurant_session":
             return await start_restaurant_session(
