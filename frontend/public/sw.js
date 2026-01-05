@@ -1,5 +1,5 @@
 // sw.js - Service Worker for caching app shell
-const CACHE_NAME = 'bolus-ai-v1';
+const CACHE_NAME = 'bolus-ai-v2';
 const ASSETS = [
     './',
     './index.html',
@@ -19,6 +19,8 @@ self.addEventListener('install', (e) => {
 self.addEventListener('fetch', (e) => {
     // 1. API: Network Only (Never cache, always needs live data or fails)
     if (e.request.url.includes('/api/')) {
+        // Must explicitly respond with network fetch, otherwise request hangs
+        e.respondWith(fetch(e.request));
         return;
     }
 

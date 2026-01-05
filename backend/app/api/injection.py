@@ -53,13 +53,21 @@ def get_injection_state(store: DataStore = Depends(get_store), _: str = Depends(
 @router.post("/rotate")
 def rotate_injection_site(payload: RotateRequest, store: DataStore = Depends(get_store), _: str = Depends(auth_required)):
     """Frontend notifies backend of a rotation (manual selection or auto)."""
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    logger.info(f"[API /rotate] Received request: type={payload.type}, target={payload.target}")
+    
     mgr = InjectionManager(store)
     
     if payload.target:
         # Manual Force
+        logger.info(f"[API /rotate] Setting manual site: {payload.type} -> {payload.target}")
         mgr.set_current_site(payload.type, payload.target)
     else:
         # Auto Rotate
+        logger.info(f"[API /rotate] Auto rotating: {payload.type}")
         mgr.rotate_site(payload.type)
-        
+    
+    logger.info(f"[API /rotate] Done. Returning ok.")
     return {"status": "ok"}
