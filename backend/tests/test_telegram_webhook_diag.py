@@ -93,3 +93,18 @@ def test_webhook_refresh_ok(monkeypatch, tmp_path):
 
     assert bot_service._bot_app.bot.set_webhook_called is True
     assert bot_service._bot_app.bot.get_webhook_info_called is True
+
+
+def test_webhook_endpoint_available(monkeypatch, tmp_path):
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("JWT_SECRET", "test-secret-1234567890")
+    monkeypatch.setenv("ENABLE_TELEGRAM_BOT", "false")
+    settings_module.get_settings.cache_clear()
+
+    import app.main as main
+    importlib.reload(main)
+    client = TestClient(main.app)
+
+    resp = client.post("/api/webhook/telegram", json={"update_id": 1})
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "disabled"
