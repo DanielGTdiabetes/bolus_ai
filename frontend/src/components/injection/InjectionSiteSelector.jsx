@@ -101,18 +101,37 @@ export function InjectionSiteSelector({ type, onSelect, selected, autoSelect = f
         load();
     }, [type]);
 
+    // Derived state: Prop overrides internal state
+    const displayLastUsed = forcedLastUsed || lastUsed;
+
+    // Recalculate Recommended whenever Last Used changes (Local Prediction)
+    useEffect(() => {
+        if (displayLastUsed) {
+            const [lZone, lPointStr] = displayLastUsed.split(':');
+            const lPoint = parseInt(lPointStr);
+            const zoneList = ZONES[type];
+
+            // Find current zone
+            const zIdx = zoneList.findIndex(z => z.id === lZone);
+
+            if (zIdx !== -1) {
+                const zoneDef = zoneList[zIdx];
+                // Logic: If point < count, increment point. Else next zone.
+                if (lPoint < zoneDef.count) {
+                    setRecommended(`${lZone}:${lPoint + 1}`);
+                } else {
+                    const nextZ = zoneList[(zIdx + 1) % zoneList.length];
+                    setRecommended(`${nextZ.id}:1`);
+                }
+            }
+        }
+    }, [displayLastUsed, type]);
+
     useEffect(() => {
         if (autoSelect && recommended && !selected && onSelect) {
             onSelect(recommended);
         }
     }, [recommended, autoSelect, selected, onSelect]);
-
-    // Antigravity Patch: Allow external force of "Last Used" to bypass API delays/glitches
-    useEffect(() => {
-        if (forcedLastUsed) {
-            setLastUsed(forcedLastUsed);
-        }
-    }, [forcedLastUsed]);
 
     const handlePointClick = async (fullId) => {
         if (onSelect) onSelect(fullId);
@@ -145,7 +164,7 @@ export function InjectionSiteSelector({ type, onSelect, selected, autoSelect = f
             <VisualComponent
                 selected={selected}
                 recommended={recommended}
-                lastUsed={lastUsed}
+                lastUsed={displayLastUsed}
                 onPointClick={handlePointClick}
             />
 
