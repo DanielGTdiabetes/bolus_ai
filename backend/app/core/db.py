@@ -145,7 +145,6 @@ async def migrate_schema(conn):
                 updated_at TIMESTAMP,
                 CONSTRAINT uq_user_supply_item UNIQUE (user_id, item_key)
             )
-            )
         """))
 
         # 8. injection_states
