@@ -60,8 +60,16 @@ def health_check_direct():
     return {"status": "ok", "direct": True}
 
 app.include_router(api_router, prefix="/api")
-app.include_router(bot_webhook.router, prefix="/api/webhook")
 app.include_router(bot_webhook.diag_router, prefix="/api/bot/telegram")
+
+@app.middleware("http")
+async def catch_exceptions_middleware(request: Request, call_next):
+    try:
+        return await call_next(request)
+    except Exception as e:
+        logger = logging.getLogger("uvicorn.error")
+        logger.error(f"🔥 UNHANDLED EXCEPTION: {e}", exc_info=True)
+        return Response(content=f"Internal Server Error: {str(e)}", status_code=500)
 
 
 @app.on_event("startup")

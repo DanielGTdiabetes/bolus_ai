@@ -86,7 +86,9 @@ async def rotate_injection_site(payload: RotateRequest, _: str = Depends(auth_re
             raise HTTPException(status_code=500, detail=f"DB Write Failed. Got {saved_val}")
 
     logger.info(f"[API /rotate] Done. Persistence Verified.")
-    return JSONResponse(content={"status": "ok", "verified": saved_val})
+    resp = JSONResponse(content={"status": "ok", "verified": saved_val})
+    resp.headers["X-Debug-Persist"] = f"Verified-{saved_val}"
+    return resp
 
 @router.get("/rotate-legacy")
 async def rotate_legacy(type: str, target: str, _: str = Depends(auth_required)):
