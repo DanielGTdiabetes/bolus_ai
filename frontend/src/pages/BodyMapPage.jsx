@@ -46,7 +46,8 @@ export default function BodyMapPage() {
                         console.log(`[BodyMap] Synced ${type} site successfully (JSON).`, json);
                         success = true;
                     } catch (e) {
-                        console.log(`[BodyMap] Synced ${type} site successfully (Empty/Text).`);
+                        const text = await res.text();
+                        console.log(`[BodyMap] Synced ${type} site successfully (Empty/Text). Status: ${res.status}. Body: '${text}'`);
                         success = true;
                     }
                 } else {
