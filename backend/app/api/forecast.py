@@ -985,6 +985,9 @@ async def simulate_forecast(
 
         # Validate logic? (Pydantic does structure, Engine does math)
         response = ForecastEngine.calculate_forecast(payload)
+        if not payload.events.boluses and not payload.events.carbs:
+            response.quality = "low"
+            response.warnings.append("Sin eventos históricos; pronóstico incompleto por falta de IOB/COB.")
         return response
     except Exception as e:
         # Log error in real app

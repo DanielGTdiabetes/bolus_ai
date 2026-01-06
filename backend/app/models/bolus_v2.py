@@ -67,6 +67,8 @@ class BolusRequestV2(BaseModel):
     warsaw_safety_factor: Optional[float] = Field(default=None, ge=0.01, le=1.0)
     warsaw_safety_factor_dual: Optional[float] = Field(default=None, ge=0.01, le=1.0)
     warsaw_trigger_threshold_kcal: Optional[int] = Field(default=None, ge=0)
+    confirm_iob_unknown: bool = Field(default=False, description="Confirmar cálculo sin IOB disponible")
+    confirm_iob_stale: bool = Field(default=False, description="Confirmar cálculo con IOB obsoleto")
     
     # Strategy Flags
     ignore_iob: bool = Field(default=False, description="Modo Comida Grasa: Ignorar IOB para calcular corrección (Micro-bolos reactivos)")
@@ -103,7 +105,7 @@ class BolusSuggestions(BaseModel):
     isf_mgdl_per_u: Optional[float] = None
 
 
-from app.models.iob import IOBInfo
+from app.models.iob import IOBInfo, COBInfo
 
 class BolusResponseV2(BaseModel):
     ok: bool = True
@@ -129,6 +131,7 @@ class BolusResponseV2(BaseModel):
     warnings: list[str] = []
     
     iob: Optional[IOBInfo] = None # Correctly typed to avoid warnings
+    cob: Optional[COBInfo] = None
     
     clamped: bool = False
-
+    assumptions: list[str] = Field(default_factory=list)

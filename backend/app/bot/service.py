@@ -837,6 +837,7 @@ async def _handle_add_treatment_tool(update: Update, context: ContextTypes.DEFAU
     
     bg_val = None
     iob_u = 0.0
+    iob_info = None
     ns_client = None
     
     if user_settings.nightscout.url:
@@ -869,8 +870,10 @@ async def _handle_add_treatment_tool(update: Update, context: ContextTypes.DEFAU
         # Calc IOB
         now_utc = datetime.now(timezone.utc)
         try:
-            iob_u, _, _, _ = await compute_iob_from_sources(now_utc, user_settings, ns_client, store)
-        except Exception: pass
+            iob_u, _, iob_info, _ = await compute_iob_from_sources(now_utc, user_settings, ns_client, store)
+        except Exception:
+            iob_u = None
+            iob_info = None
         
     finally:
         if ns_client: await ns_client.aclose()
@@ -926,9 +929,11 @@ async def _handle_add_treatment_tool(update: Update, context: ContextTypes.DEFAU
     rec = calculate_bolus_v2(
         request=req_v2,
         settings=user_settings,
-        iob_u=iob_u,
+        iob_u=iob_u or 0.0,
         glucose_info=glucose_info
     )
+    if iob_info and iob_info.status in ["unavailable", "stale"]:
+        rec.warnings.append(f"IOB {iob_info.status}; se asumió 0 U para el cálculo del bot.")
 
     # Override if manual input was given (but keep breakdown for reference if possible, or just overwrite)
     if insulin_req is not None:

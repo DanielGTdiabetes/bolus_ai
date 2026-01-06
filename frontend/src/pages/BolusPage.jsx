@@ -8,7 +8,7 @@ import {
 import { formatTrend } from '../modules/core/utils';
 import {
     getCurrentGlucose, calculateBolusWithOptionalSplit,
-    saveTreatment, getLocalNsConfig, getIOBData,
+    saveTreatment, getLocalNsConfig, getIOBData, fetchTreatments,
     getSupplies, updateSupply,
     getFavorites, addFavorite, simulateForecast
 } from '../lib/api';
@@ -18,6 +18,7 @@ import { startRestaurantSession } from '../lib/restaurantApi';
 import { navigate } from '../modules/core/router';
 import { useStore } from '../hooks/useStore';
 import { InjectionSiteSelector, saveInjectionSite, getSiteLabel } from '../components/injection/InjectionSiteSelector';
+import { buildHistoryFromSnapshot, shouldDegradeSimulation } from './bolusSimulationUtils';
 
 // Removed local FAV_KEY and helper functions
 
@@ -66,6 +67,8 @@ export default function BolusPage() {
     const [loading, setLoading] = useState(false);
     const [calculating, setCalculating] = useState(false);
     const [saving, setSaving] = useState(false);
+    const [confirmRequest, setConfirmRequest] = useState(null);
+    const [pendingCalcContext, setPendingCalcContext] = useState(null);
 
     // Data States
     const [iob, setIob] = useState(null);
@@ -320,6 +323,46 @@ export default function BolusPage() {
         }
     };
 
+    const applyCalcOutcome = (res, meta = {}) => {
+        const { isSick = false, bgVal = null } = meta;
+        if (isSick) {
+            res.warnings = res.warnings || [];
+            res.warnings.push("⚠️ Modo Enfermedad: Dosis aumentada un 20%.");
+            if (bgVal > 250) {
+                res.warnings.push("🧪 ALERTA: Glucosa alta. Revisa CETONAS.");
+            }
+        }
+
+        setResult(res);
+        const used = res?.calc?.used_params || res?.used_params || res?.calc?.usedParams || res?.usedParams;
+        setCalcUsedParams(used || null);
+
+        if (used?.autosens_ratio && used.autosens_ratio !== 1.0) {
+            state.autosens = {
+                ratio: used.autosens_ratio,
+                reason: used.autosens_reason || 'Dynamic TDD'
+            };
+        }
+    };
+
+    const handleConfirmationProceed = async () => {
+        if (!pendingCalcContext || !confirmRequest) return;
+        setCalculating(true);
+        try {
+            const { payload, useSplit, splitSettings, meta } = pendingCalcContext;
+            const flaggedPayload = { ...payload, [confirmRequest.requiredFlag || "confirm_iob_unknown"]: true };
+            const res = await calculateBolusWithOptionalSplit(flaggedPayload, useSplit ? splitSettings : null);
+            applyCalcOutcome(res, meta || {});
+            setConfirmRequest(null);
+        } catch (err) {
+            alert("Error: " + (err?.message || "No se pudo confirmar sin IOB."));
+        } finally {
+            setCalculating(false);
+        }
+    };
+
+    const handleConfirmationCancel = () => setConfirmRequest(null);
+
     const handleCalculate = async (overrideParams = null) => {
         setCalculating(true);
         setResult(null);
@@ -416,30 +459,21 @@ export default function BolusPage() {
             }
 
             const useSplit = (dualEnabled && !correctionOnly && carbsVal > 0);
+            setPendingCalcContext({ payload, useSplit, splitSettings: useSplit ? splitSettings : null, meta: { isSick, bgVal } });
             const res = await calculateBolusWithOptionalSplit(payload, useSplit ? splitSettings : null);
 
-            // Inject Sick Mode Warnings
-            if (isSick) {
-                res.warnings = res.warnings || [];
-                res.warnings.push("⚠️ Modo Enfermedad: Dosis aumentada un 20%.");
-                if (bgVal > 250) {
-                    res.warnings.push("🧪 ALERTA: Glucosa alta. Revisa CETONAS.");
-                }
-            }
-
-            setResult(res);
-            const used = res?.calc?.used_params || res?.used_params || res?.calc?.usedParams || res?.usedParams;
-            setCalcUsedParams(used || null);
-
-            // Sync Autosens state for "Apply" button (Dynamic TDD update)
-            if (used?.autosens_ratio && used.autosens_ratio !== 1.0) {
-                state.autosens = {
-                    ratio: used.autosens_ratio,
-                    reason: used.autosens_reason || 'Dynamic TDD'
-                };
-            }
+            applyCalcOutcome(res, { isSick, bgVal });
         } catch (e) {
-            alert("Error: " + e.message);
+            const code = e?.error_code || e?.payload?.error_code;
+            if (code && String(code).includes("CONFIRM_REQUIRED")) {
+                setConfirmRequest({
+                    code,
+                    requiredFlag: e?.payload?.required_flag || (code.includes("STALE") ? "confirm_iob_stale" : "confirm_iob_unknown"),
+                    detail: e?.payload || {}
+                });
+            } else {
+                alert("Error: " + e.message);
+            }
         } finally {
             setCalculating(false);
         }
@@ -1089,6 +1123,32 @@ export default function BolusPage() {
                     </div>
                 )}
 
+                {confirmRequest && (
+                    <div style={{
+                        position: 'fixed',
+                        inset: 0,
+                        background: 'rgba(0,0,0,0.45)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        zIndex: 9999
+                    }}>
+                        <div style={{ background: '#fff', padding: '1.2rem', borderRadius: '12px', maxWidth: '520px', width: '90%', boxShadow: '0 10px 30px rgba(0,0,0,0.2)' }}>
+                            <h3 style={{ marginTop: 0, marginBottom: '0.5rem', color: '#b91c1c' }}>Se requiere confirmación</h3>
+                            <p style={{ fontSize: '0.95rem', color: '#1f2937' }}>
+                                IOB/COB no disponibles o desactualizados. Continuar asumirá IOB=0 y puede causar stacking o hipoglucemias.
+                            </p>
+                            <p style={{ fontSize: '0.85rem', color: '#4b5563' }}>
+                                Estado: {confirmRequest.code} · Flag: <code>{confirmRequest.requiredFlag}</code>
+                            </p>
+                            <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end', marginTop: '1rem' }}>
+                                <Button variant="secondary" onClick={handleConfirmationCancel}>Cancelar / Modo manual</Button>
+                                <Button onClick={handleConfirmationProceed} disabled={calculating}>Continuar (confirmar)</Button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
 
                 {/* RESULT SECTION */}
                 {result && (
@@ -1108,6 +1168,7 @@ export default function BolusPage() {
                         onFavoriteAdded={(newFav) => setFavorites(prev => [...prev, newFav])} // Optimistic update or reload
                         alcoholEnabled={alcoholEnabled}
                         carbProfile={carbProfile}
+                        nsConfig={nsConfig}
                         onApplyAutosens={(ratio, reason) => {
                             import('../modules/core/store').then(({ state }) => {
                                 state.autosens = { ratio, reason };
@@ -1123,7 +1184,7 @@ export default function BolusPage() {
     );
 }
 
-function ResultView({ result, slot, usedParams, onBack, onSave, saving, currentCarbs, foodName, favorites, onFavoriteAdded, alcoholEnabled, onApplyAutosens, carbProfile }) {
+function ResultView({ result, slot, usedParams, onBack, onSave, saving, currentCarbs, foodName, favorites, onFavoriteAdded, alcoholEnabled, onApplyAutosens, carbProfile, nsConfig }) {
     // Local state for edit before confirm
     const [finalDose, setFinalDose] = useState(result.upfront_u);
     const [injectionSite, setInjectionSite] = useState(null);
@@ -1236,14 +1297,37 @@ function ResultView({ result, slot, usedParams, onBack, onSave, saving, currentC
             // This is the most critical check.
 
             const carbsVal = parseFloat(currentCarbs) || 0;
-            const events = {
-                boluses: boluses,
-                carbs: carbsVal > 0 ? [{
+            const primaryCarbs = carbsVal > 0 ? [{
                     time_offset_min: 0,
                     grams: carbsVal,
                     carb_profile: carbProfile,
                     is_dessert: dessertMode
-                }] : []
+                }] : [];
+
+            let historyEvents = { boluses: [], carbs: [] };
+            try {
+                const [iobSnapshot, treatments] = await Promise.all([
+                    getIOBData(nsConfig),
+                    fetchTreatments({ count: 30 })
+                ]);
+                const iobStatus = iobSnapshot?.iob_info?.status;
+                const cobStatus = iobSnapshot?.cob_info?.status || iobSnapshot?.cob_status;
+                if (shouldDegradeSimulation(iobStatus, cobStatus)) {
+                    setPredictionData({
+                        quality: "low",
+                        warnings: ["Pronóstico incompleto: falta IOB/COB (requiere confirmación)"],
+                        series: []
+                    });
+                    return;
+                }
+                historyEvents = buildHistoryFromSnapshot(iobSnapshot, treatments, new Date());
+            } catch (ctxErr) {
+                console.warn("Context fetch for simulation failed", ctxErr);
+            }
+
+            const events = {
+                boluses: [...historyEvents.boluses, ...boluses],
+                carbs: [...historyEvents.carbs, ...primaryCarbs]
             };
 
             const payload = {

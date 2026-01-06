@@ -2,16 +2,17 @@ from __future__ import annotations
 
 import logging
 import math
+import os
 from dataclasses import dataclass
 from datetime import datetime, timezone, timedelta
-from typing import Literal, Sequence
+from typing import Literal, Sequence, Optional
 
 from sqlalchemy import text
 from app.core.db import get_engine, AsyncSession
 
 from app.models.settings import UserSettings
 from app.services.store import DataStore
-from app.services.math.curves import InsulinCurves
+from app.services.math.curves import InsulinCurves, CarbCurves
 
 logger = logging.getLogger(__name__)
 
@@ -94,7 +95,7 @@ def _boluses_from_treatments(treatments) -> list[dict[str, float]]:
     return boluses
 
 
-from app.models.iob import IOBInfo, IOBStatus
+from app.models.iob import IOBInfo, IOBStatus, SourceStatus, COBInfo, COBStatus
 
 async def compute_iob_from_sources(
     now: datetime,
@@ -102,7 +103,7 @@ async def compute_iob_from_sources(
     nightscout_client,
     data_store: DataStore,
     extra_boluses: list[dict[str, float]] | None = None,
-) -> tuple[float, list[dict[str, float]], IOBInfo, Optional[str]]:
+) -> tuple[Optional[float], list[dict[str, float]], IOBInfo, Optional[str]]:
     """
     Computes IOB with detailed status reporting.
     Returns: (internal_iob, breakdown, iob_info, warning_msg)
@@ -120,6 +121,18 @@ async def compute_iob_from_sources(
     iob_reason: Optional[str] = None
     iob_source: str = "unknown"
     warning_msg: Optional[str] = None
+    treatments_status = SourceStatus(source="nightscout", status="unknown")
+    cache_iob: Optional[float] = None
+    cache_ts: Optional[datetime] = None
+    
+    try:
+        cache_raw = data_store.read_json("iob_cache.json", {"iob_u": None, "fetched_at": None})
+        if cache_raw.get("iob_u") is not None and cache_raw.get("fetched_at"):
+            cache_iob = float(cache_raw["iob_u"])
+            cache_ts = datetime.fromisoformat(str(cache_raw["fetched_at"]))
+    except Exception:
+        cache_iob = None
+        cache_ts = None
     
     ns_error = None
 
@@ -132,6 +145,8 @@ async def compute_iob_from_sources(
             treatments = await nightscout_client.get_recent_treatments(hours=hours, limit=1000)
             ns_boluses = _boluses_from_treatments(treatments)
             iob_status = "ok"
+            treatments_status.status = "ok"
+            treatments_status.fetched_at = now
         except Exception as exc:
             ns_error = str(exc)
             if "Unauthorized" in ns_error:
@@ -144,6 +159,11 @@ async def compute_iob_from_sources(
             logger.warning("Nightscout treatments unavailable", extra={"error": ns_error})
             # Fallback to local only for source label if NS failed completely
             iob_source = "local_db_fallback"
+            treatments_status.status = "error"
+            treatments_status.reason = iob_reason or ns_error
+            treatments_status.fetched_at = now
+    else:
+        treatments_status.status = "unavailable"
             
     # 1.5 Fetch Local DB (Active Records)
     # Using SQL directly to avoid circular imports or complex deps
@@ -275,24 +295,45 @@ async def compute_iob_from_sources(
 
     if ns_error:
         if not boluses:
-            # Case A: No data at all + NS Error -> Unavailable
-            iob_status = "unavailable"
-            warning_msg = f"IOB no disponible: {iob_reason} (sin datos locales)."
+            # Case A: No data at all + NS Error -> Unavailable unless cache exists
+            if cache_iob is not None:
+                iob_status = "stale"
+                warning_msg = f"IOB desactualizado: {iob_reason} (usando último valor cacheado)."
+                treatments_status.status = "stale"
+            else:
+                iob_status = "unavailable"
+                warning_msg = f"IOB no disponible: {iob_reason} (sin datos locales)."
         elif not has_recent_local:
-            # Case B: Old data only + NS Error -> Unavailable (Risk of missing recent NS treatments)
-            iob_status = "unavailable"
-            warning_msg = f"IOB DESCONOCIDO: {iob_reason}. Sin datos recientes (<{settings.iob.dia_hours}h) en local."
+            # Case B: Old data only + NS Error -> Unavailable/Stale
+            if cache_iob is not None:
+                iob_status = "stale"
+                warning_msg = f"IOB desactualizado: {iob_reason}. Sin datos recientes (<{settings.iob.dia_hours}h) en local."
+                treatments_status.status = "stale"
+            else:
+                iob_status = "unavailable"
+                warning_msg = f"IOB DESCONOCIDO: {iob_reason}. Sin datos recientes (<{settings.iob.dia_hours}h) en local."
         else:
             # Case C: Recent local data exists + NS Error -> Partial
             iob_status = "partial"
             warning_msg = f"IOB parcial ({iob_reason}). Usando datos locales recientes."
+            treatments_status.status = "error"
             
     elif not boluses:
-        # Success fetching, but nothing found. Value is 0.
-        iob_status = "ok"
+        if cache_iob is not None:
+            iob_status = "stale"
+            treatments_status.status = "stale"
+            warning_msg = warning_msg or "IOB desactualizado: sin tratamientos recientes."
+        elif treatments_status.status in ["unavailable", "error", "unknown"]:
+            iob_status = "unavailable"
+            warning_msg = warning_msg or "IOB no disponible: sin fuente de tratamientos."
+        else:
+            # Success fetching, but nothing found. Value is 0.
+            iob_status = "ok"
+            treatments_status.status = "ok" if treatments_status.status == "unknown" else treatments_status.status
     else:
         # Success and data found (or local only mode implies ok)
         iob_status = "ok"
+        treatments_status.status = "ok"
         if iob_source == "unknown": iob_source = "local_only"
     
     # 3. Compute
@@ -365,27 +406,46 @@ async def compute_iob_from_sources(
     final_iob = max(total, 0.0)
     
     # 4. Construct Info
-    # If status is unavailable, we might still have computed 0.0, but we flag it as not trusted.
-    # The caller (calculate_bolus) should decide whether to use 0.0 or prompt user.
-    # Proposal says: "Unavailable -> iob_u_internal=0.0, iob_info.iob_u=None"
-    
-    public_iob = final_iob
-    if iob_status == "unavailable":
+    public_iob: Optional[float] = final_iob
+    last_known = cache_iob
+    last_ts = cache_ts
+    if iob_status in ["unavailable", "stale"]:
         public_iob = None
-        final_iob = 0.0 # Safety for internal calculation (do not subtract anything)
-        
+        final_iob = None
+        if last_known is not None:
+            # Keep cached last known for transparency
+            if last_ts is None:
+                last_ts = now
+            treatments_status.status = "stale"
+    else:
+        last_known = public_iob
+        last_ts = now
+    
     info = IOBInfo(
         iob_u=public_iob,
         status=iob_status,
         reason=iob_reason,
         source=iob_source,
-        fetched_at=now
+        fetched_at=now,
+        last_known_iob=last_known,
+        last_updated_at=last_ts,
+        treatments_source_status=treatments_status,
+        assumptions=[]
     )
+    
+    try:
+        data_store.write_json("iob_cache.json", {
+            "iob_u": last_known,
+            "fetched_at": last_ts.isoformat() if last_ts else None,
+            "status": iob_status
+        })
+    except Exception:
+        pass
     
     return final_iob, breakdown, info, warning_msg
 
 
-def compute_cob(now: datetime, carb_entries: Sequence[dict[str, float]], duration_hours: float = 4.0) -> float:
+def compute_cob_linear(now: datetime, carb_entries: Sequence[dict[str, float]], duration_hours: float = 4.0) -> float:
     total = 0.0
     duration_min = duration_hours * 60
     for entry in carb_entries:
@@ -395,7 +455,8 @@ def compute_cob(now: datetime, carb_entries: Sequence[dict[str, float]], duratio
             continue
         ts = _parse_timestamp(str(ts_raw))
         elapsed = (now - ts).total_seconds() / 60
-        if elapsed < 0: elapsed = 0
+        if elapsed < 0:
+            elapsed = 0
         
         if elapsed >= duration_min:
             fraction = 0.0
@@ -405,23 +466,83 @@ def compute_cob(now: datetime, carb_entries: Sequence[dict[str, float]], duratio
         total += grams * fraction
     return max(total, 0.0)
 
+
+def _carbcurves_remaining(now: datetime, entry: dict) -> float:
+    ts_raw = entry.get("ts")
+    grams = float(entry.get("carbs", 0) or 0)
+    if not ts_raw or grams <= 0:
+        return 0.0
+    ts = _parse_timestamp(str(ts_raw))
+    elapsed = max(0.0, (now - ts).total_seconds() / 60.0)
+
+    fiber = float(entry.get("fiber") or entry.get("fiber_g") or 0.0)
+    fat = float(entry.get("fat") or 0.0)
+    protein = float(entry.get("protein") or 0.0)
+
+    params = CarbCurves.get_biexponential_params(grams, fiber, fat, protein)
+    duration_cap = max(120.0, min(360.0, (params.get("t_max_l", 120.0) * 3.0)))
+    step = 5.0
+
+    absorbed_area = 0.0
+    total_area = 0.0
+    t = 0.0
+    while t < duration_cap:
+        next_t = min(duration_cap, t + step)
+        rate = CarbCurves.biexponential_absorption(t, params)
+        dt = next_t - t
+        total_area += rate * dt
+        if elapsed > t:
+            effective_dt = min(dt, max(0.0, elapsed - t))
+            absorbed_area += rate * effective_dt
+        t = next_t
+
+    if total_area <= 0:
+        return grams
+
+    absorbed_fraction = min(1.0, absorbed_area / total_area)
+    remaining_fraction = max(0.0, 1.0 - absorbed_fraction)
+    return grams * remaining_fraction
+
 def _carbs_from_treatments(treatments) -> list[dict[str, float]]:
     entries: list[dict[str, float]] = []
     for treatment in treatments:
         carbs = getattr(treatment, "carbs", None)
         ts = getattr(treatment, "created_at", None)
+        fat = getattr(treatment, "fat", None)
+        protein = getattr(treatment, "protein", None)
+        fiber = getattr(treatment, "fiber", None)
         if carbs is None or ts is None:
             continue
-        entries.append({"ts": ts.isoformat(), "carbs": float(carbs)})
+        entry: dict[str, float] = {"ts": ts.isoformat(), "carbs": float(carbs)}
+        if fat is not None:
+            entry["fat"] = float(fat)
+        if protein is not None:
+            entry["protein"] = float(protein)
+        if fiber is not None:
+            entry["fiber"] = float(fiber)
+        entries.append(entry)
     return entries
+
+
+def compute_cob(now: datetime, carb_entries: Sequence[dict[str, float]], duration_hours: float = 4.0, model: str = "linear") -> float:
+    if model == "carbcurves":
+        total = 0.0
+        for entry in carb_entries:
+            total += _carbcurves_remaining(now, entry)
+        return max(total, 0.0)
+    return compute_cob_linear(now, carb_entries, duration_hours=duration_hours)
 
 async def compute_cob_from_sources(
     now: datetime,
     nightscout_client,
     data_store: DataStore,
     extra_entries: list[dict[str, float]] | None = None,
-) -> float:
+) -> tuple[Optional[float], dict, SourceStatus]:
     entries = []
+    assumptions: list[str] = []
+    cob_model = os.getenv("COB_MODEL", "linear").lower()
+    source_status = SourceStatus(source="nightscout", status="unknown")
+    ns_error = None
     
     # 1. Fetch Local fallback (always load for merging)
     local_events = []
@@ -430,8 +551,8 @@ async def compute_cob_from_sources(
         for e in raw_events:
              if e.get("carbs"):
                  local_events.append({"ts": e["ts"], "carbs": float(e["carbs"])})
-    except:
-        pass
+    except Exception as exc:
+        logger.error(f"Failed to load local events for COB: {exc}")
 
     entries.extend(local_events)
 
@@ -442,29 +563,32 @@ async def compute_cob_from_sources(
             # 6 hours lookback for carbs
             treatments = await nightscout_client.get_recent_treatments(hours=6, limit=1000)
             ns_entries = _carbs_from_treatments(treatments)
+            source_status.status = "ok"
+            source_status.fetched_at = now
         except Exception as exc:
+             ns_error = str(exc)
+             source_status.status = "error"
+             source_status.reason = ns_error
+             source_status.fetched_at = now
              logger.warning("Nightscout treatments (for COB) unavailable", extra={"error": str(exc)})
+    else:
+        source_status.status = "unavailable"
     
     # 3. Merge DB (Extra + Query Treatments)
     if extra_entries:
-        # DB format usually {"ts": iso, "carbs": val} or similar
-        # Ensure format matches
         for e in extra_entries:
             entries.append(e)
 
-    # 3b. Query Local DB Treatments (Active Records)
-    # This ensures that even if NS is down, we see the bolus/carbs just entered in the app.
     db_entries = []
     try:
         engine = get_engine()
         if engine:
              async with AsyncSession(engine) as session:
-                 # Look back 6 hours (typical COB duration cap)
                  cutoff = now - timedelta(hours=6)
                  cutoff_naive = cutoff.replace(tzinfo=None)
                  
                  query = text("""
-                     SELECT created_at, carbs 
+                     SELECT created_at, carbs, fat, protein, fiber 
                      FROM treatments 
                      WHERE created_at > :cutoff 
                      AND carbs > 0
@@ -478,7 +602,10 @@ async def compute_cob_from_sources(
                          ts_iso = r.created_at.replace(tzinfo=timezone.utc).isoformat() if r.created_at.tzinfo is None else r.created_at.isoformat()
                          db_entries.append({
                              "ts": ts_iso,
-                             "carbs": float(r.carbs)
+                             "carbs": float(r.carbs),
+                             "fat": float(getattr(r, "fat", 0) or 0),
+                             "protein": float(getattr(r, "protein", 0) or 0),
+                             "fiber": float(getattr(r, "fiber", 0) or 0)
                          })
     except Exception as e:
          logger.warning(f"Failed to fetch DB treatments for COB: {e}")
@@ -486,14 +613,11 @@ async def compute_cob_from_sources(
     if db_entries:
         entries.extend(db_entries)
 
-    # 4. Merge NS
     if ns_entries:
         for e in ns_entries:
             entries.append(e)
             
     # 5. Deduplicate
-    # Reuse simple dedupe logic or implement inline
-    # Keys: ts, carbs. Tolerance: 15 min, 1h. Values: exactish.
     unique_entries = []
     
     def _safe_parse(ts_val):
@@ -502,11 +626,9 @@ async def compute_cob_from_sources(
             dt = datetime.fromisoformat(val_str)
             if dt.tzinfo is None: dt = dt.replace(tzinfo=timezone.utc)
             return dt
-        except:
+        except Exception:
             return None
 
-    # Sort
-    # entries need valid ts
     valid_entries = []
     for e in entries:
         if _safe_parse(e.get("ts")):
@@ -519,13 +641,6 @@ async def compute_cob_from_sources(
         is_dup = False
         e_ts = _safe_parse(e["ts"])
         e_val = float(e.get("carbs", 0))
-        # Check if insulin is present? This function uses "extra_entries" (carbs only) + NS (treatments).
-        # We should check if 'insulin' key exists and is > 0?
-        # compute_cob_from_sources aggregates CARBS. 
-        # But if the entry has insulin, usually it's a bolus.
-        # "Carb Collision" logic applies primarily to SNACKS (0 insulin).
-        # We can simulate this by assuming valid_entries are carb records.
-        # But wait, NS treatments return everything.
         e_ins = float(e.get("insulin", 0) or 0)
 
         if last_e:
@@ -535,17 +650,13 @@ async def compute_cob_from_sources(
             
             dt = abs((e_ts - l_ts).total_seconds())
             
-            # 1. Exact Match
             if abs(e_val - l_val) < 1.0 and abs(e_ins - l_ins) < 0.1:
                 if dt < 900: is_dup = True
                 elif abs(dt - 3600) < 300: is_dup = True
                 elif abs(dt - 7200) < 300: is_dup = True
                 
-            # 2. Carb Collision (Update Logic)
-            # If both have NO insulin and are strictly Carb updates
             if not is_dup and e_ins == 0 and l_ins == 0:
-                 if dt < 300: # 5 min window
-                     # Keep MAX
+                 if dt < 300:
                      if e_val > l_val:
                          unique_entries.pop()
                          unique_entries.append(e)
@@ -558,4 +669,31 @@ async def compute_cob_from_sources(
             unique_entries.append(e)
             last_e = e
 
-    return compute_cob(now, unique_entries, duration_hours=4.0)
+    cob_status: COBStatus = "unavailable"
+    if unique_entries:
+        cob_status = "ok" if source_status.status in ["ok", "unavailable"] else "partial"
+    elif ns_error:
+        cob_status = "unavailable"
+    else:
+        cob_status = "ok"
+
+    missing_macros = any(
+        (e.get("fat") is None and e.get("protein") is None and e.get("fiber") is None) for e in unique_entries
+    )
+    effective_model = cob_model
+    if cob_model == "carbcurves" and missing_macros:
+        effective_model = "linear"
+        assumptions.append("COB_DEFAULT_DURATION_USED")
+
+    cob_total = compute_cob(now, unique_entries, duration_hours=4.0, model=effective_model) if unique_entries else None
+    cob_info = COBInfo(
+        cob_g=cob_total if cob_status in ["ok", "partial"] else None,
+        status=cob_status,  # type: ignore[arg-type]
+        model=effective_model,
+        assumptions=assumptions,
+        source=source_status.source,
+        reason=ns_error,
+        fetched_at=now
+    )
+
+    return cob_total, cob_info, source_status

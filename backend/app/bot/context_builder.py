@@ -83,11 +83,15 @@ async def build_context(username: str, chat_id: int) -> Dict[str, Any]:
                 store = DataStore(Path(settings.data.data_dir))
                 now_utc = datetime.now(timezone.utc)
                 
-                iob_u, _, _, _ = await compute_iob_from_sources(now_utc, user_settings, ns_client, store)
-                cob_g = await compute_cob_from_sources(now_utc, ns_client, store)
+                iob_u, _, iob_info, _ = await compute_iob_from_sources(now_utc, user_settings, ns_client, store)
+                cob_g, cob_info, _ = await compute_cob_from_sources(now_utc, ns_client, store)
                 
-                ctx["iob"] = round(iob_u, 2)
-                ctx["cob"] = round(cob_g, 1)
+                ctx["iob"] = round(iob_u or 0.0, 2) if iob_u is not None else None
+                ctx["cob"] = round(cob_g or 0.0, 1) if cob_g is not None else None
+                if iob_info.status in ["unavailable", "stale"]:
+                    ctx["errors"].append(f"IOB_STATUS:{iob_info.status}")
+                if cob_info.status in ["unavailable", "stale"]:
+                    ctx["errors"].append(f"COB_STATUS:{cob_info.status}")
             except Exception as e:
                 ctx["errors"].append(f"IOB_COB_ERROR: {e}")
                 # Don't degrade quality just for IOB if BG is ok, but AI needs to know

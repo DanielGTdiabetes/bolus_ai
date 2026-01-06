@@ -4,6 +4,7 @@ from typing import Optional, List, Dict, Any
 import logging
 import uuid
 from datetime import datetime, timezone, timedelta
+import os
 from sqlalchemy import select, and_
 
 from app.core.security import get_current_user, CurrentUser
@@ -19,6 +20,60 @@ logger = logging.getLogger(__name__)
 def _data_store(settings: Settings = Depends(get_settings)) -> DataStore:
     from pathlib import Path
     return DataStore(Path(settings.data.data_dir))
+
+
+def _extract_value(payload: Dict[str, Any], keys: List[str]) -> Optional[float]:
+    for key in keys:
+        current = payload
+        parts = key.split(".")
+        try:
+            for part in parts:
+                if isinstance(current, dict) and part in current:
+                    current = current[part]
+                else:
+                    current = None
+                    break
+            if current is None:
+                continue
+            if isinstance(current, (int, float, str)):
+                return float(current)
+        except Exception:
+            continue
+    return None
+
+
+def normalize_nutrition_payload(payload: Dict[str, Any]) -> Dict[str, Optional[float]]:
+    carbs = _extract_value(payload, [
+        "carbs", "dietary_carbohydrates", "total_carbs", "Carbohydrates",
+        "carbohydrates_total_g", "nutrition.carbs", "nutrients.carbs"
+    ])
+    fat = _extract_value(payload, [
+        "fat", "dietary_fat", "total_fat", "fat_total_g",
+        "nutrition.fat", "nutrients.fat"
+    ])
+    protein = _extract_value(payload, [
+        "protein", "dietary_protein", "total_protein", "protein_total_g",
+        "nutrition.protein", "nutrients.protein"
+    ])
+    fiber = _extract_value(payload, [
+        "fiber", "fiber_total_g", "fiber_alt", "dietary_fiber", "total_fiber",
+        "fibra", "t_fiber", "nutrients.fiber", "nutrition.fiber"
+    ])
+    timestamp = payload.get("date") or payload.get("timestamp") or payload.get("created_at")
+    return {
+        "carbs": carbs,
+        "fat": fat,
+        "protein": protein,
+        "fiber": fiber,
+        "timestamp": timestamp
+    }
+
+
+def should_update_fiber(existing_fiber: Optional[float], new_fiber: Optional[float], tolerance: float = 0.1) -> bool:
+    if new_fiber is None:
+        return False
+    base = existing_fiber or 0.0
+    return abs(base - new_fiber) >= tolerance
 
 # Modelo flexible para Health Auto Export o n8n
 class NutritionPayload(BaseModel):
@@ -65,20 +120,21 @@ async def ingest_nutrition(
     try:
         # Auth Logic: JWT User OR Shared Secret (API Key)
         username: Optional[str] = user.username if user else None
+        allow_unauth = os.getenv("ALLOW_UNAUTH_NUTRITION_INGEST", "false").lower() == "true"
 
         if not user:
-            # Check for API Key / Shared Secret
             secret = config.get_admin_shared_secret()
             provided = api_key or auth_header
 
             if secret:
-                # Enforce Secret if configured
                 if provided != secret:
                     logger.warning("Unauthorized nutrition attempt. Invalid Key.")
                     raise HTTPException(status_code=401, detail="Invalid API Key")
+            elif not allow_unauth:
+                logger.warning("Rejecting nutrition ingest without Auth (flag disabled)")
+                raise HTTPException(status_code=401, detail="Authentication required for nutrition ingest")
             else:
-                # No secret configured: Allow with warning (Personal Mode)
-                logger.warning("Allowing nutrition ingest without Auth (ADMIN_SHARED_SECRET not set)")
+                logger.warning("Allowing nutrition ingest without Auth due to ALLOW_UNAUTH_NUTRITION_INGEST")
 
         if not username:
             # Align webhook user with bot/default user resolution so the app sees the meal
@@ -186,22 +242,14 @@ async def ingest_nutrition(
             
              else:
                  # FALLBACK: Try Direct Flat Keys (Simple JSON / n8n / Shortcuts)
-                 
-                 def _get_float(keys):
-                     for k in keys:
-                         val = payload.get(k)
-                         if val is not None:
-                             try: return float(val)
-                             except: pass
-                     return 0.0
-                 
-                 c = _get_float(["carbs", "dietary_carbohydrates", "total_carbs", "Carbohydrates", "carbohydrates_total_g"])
-                 f = _get_float(["fat", "dietary_fat", "total_fat", "Fat", "fat_total_g"])
-                 p = _get_float(["protein", "dietary_protein", "total_protein", "Protein", "protein_total_g"])
-                 fib = _get_float(["fiber", "dietary_fiber", "total_fiber", "Fiber", "fiber_total_g", "fibra", "fiber_alt"])
+                 norm = normalize_nutrition_payload(payload)
+                 c = float(norm.get("carbs") or 0.0)
+                 f = float(norm.get("fat") or 0.0)
+                 p = float(norm.get("protein") or 0.0)
+                 fib = float(norm.get("fiber") or 0.0)
                  
                  if c > 0 or f > 0 or p > 0 or fib > 0:
-                     ts_key = payload.get("date") or payload.get("timestamp") or payload.get("created_at") or datetime.now(timezone.utc).isoformat()
+                     ts_key = norm.get("timestamp") or payload.get("timestamp") or payload.get("created_at") or datetime.now(timezone.utc).isoformat()
                      parsed_meals[ts_key] = {"c":c, "f":f, "p":p, "fib":fib, "ts": ts_key}
                      logger.info(f"Parsed Direct Payload: C={c} F={f} P={p} Fib={fib}")
 
@@ -223,9 +271,10 @@ async def ingest_nutrition(
             total_carbs = meal["c"]
             total_fat = meal["f"]
             total_protein = meal["p"]
+            total_fiber = meal.get("fib", 0)
             
             # Skip empty meals
-            if total_carbs < 1 and total_fat < 1 and total_protein < 1:
+            if total_carbs < 1 and total_fat < 1 and total_protein < 1 and total_fiber < 1:
                 continue
                 
             # Parse Date
@@ -385,6 +434,12 @@ async def ingest_nutrition(
                     diff_fat = abs(c.fat - t_fat)
                     diff_prot = abs(c.protein - t_protein)
                     if diff_fat < 0.1 and diff_prot < 0.1:
+                        if should_update_fiber(c.fiber, t_fiber):
+                            c.fiber = t_fiber
+                            session.add(c)
+                            await session.commit()
+                            saved_ids.append(c.id)
+                            logger.info("Updated fiber on existing nutrition entry %s", c.id)
                         is_duplicate = True
                         break
                 
