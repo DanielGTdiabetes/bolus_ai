@@ -16,5 +16,7 @@ curl -X POST 'https://bolus-ai-1.onrender.com/api/injection/manual' \
 curl -X GET 'https://bolus-ai-1.onrender.com/api/injection/state' \
   -H 'Authorization: Bearer <token>'
 
-# The GET response must reflect the saved point_id in states.rapid.last_point_id (and at the top-level "rapid" field).
+# The GET response must reflect the saved point_id in states.bolus.last_point_id (and at the top-level "bolus" field).
+
+# Nota: "insulin_type": "rapid" se mapea internamente al tipo "bolus" por compatibilidad legacy.
 ```
