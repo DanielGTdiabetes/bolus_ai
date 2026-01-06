@@ -81,6 +81,9 @@ class InjectionManager:
 
     def set_current_site(self, kind: str, site_id: str):
         """Manual set from Frontend. Ensures Format zone_id:point."""
+        import logging
+        logger = logging.getLogger(__name__)
+        
         state = self._load_state()
         key = "basal" if kind.lower() == "basal" else "bolus"
         
@@ -89,16 +92,21 @@ class InjectionManager:
              site_id = f"{site_id}:1"
         
         old_id = state.get(key, {}).get("last_used_id", "unknown")
-             
+        
         if key not in state: state[key] = {}
         state[key]["last_used_id"] = site_id
+        
+        # SAVE
         self._save_state(state)
         
-        # Log for debugging sync issues
-        import logging
-        logging.getLogger(__name__).info(
-            f"[InjectionManager] set_current_site: {key} changed from '{old_id}' to '{site_id}'"
-        )
+        # VERIFY IMMEDIATE READBACK
+        verification = self.store.read_json(self.filename, {})
+        saved_val = verification.get(key, {}).get("last_used_id")
+        
+        if saved_val != site_id:
+            logger.error(f"[InjectionManager] CRITICAL: Write failed! Expected {site_id}, got {saved_val}. Disk issue?")
+        else:
+            logger.info(f"[InjectionManager] VERIFIED WRITE: {key} updated {old_id} -> {site_id}")
 
     # --- Helpers ---
 
