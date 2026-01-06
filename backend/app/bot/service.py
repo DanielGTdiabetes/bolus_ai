@@ -2195,10 +2195,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
     # --- 1. ProActive / MFP Flow (Snapshot) ---
     if data.startswith("accept") or data.startswith("cancel|") or data.startswith("edit_dose|") or data.startswith("set_slot|"):
-        if data.startswith("cancel|"):
-             health.record_action("callback:cancel", True)
-             await query.edit_message_text(text=f"❌ Cancelado.")
-             return
+        # REMOVED: Early cancel interception that prevented DB cleanup.
+        # Flow continues to _handle_snapshot_callback below.
              
         if data.startswith("edit_dose|"):
             try:
