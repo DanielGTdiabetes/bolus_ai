@@ -3,6 +3,7 @@ import { Header } from '../components/layout/Header';
 import { BottomNav } from '../components/layout/BottomNav';
 import { InjectionSiteSelector, saveInjectionSite } from '../components/injection/InjectionSiteSelector';
 import { Card } from '../components/ui/Atoms';
+import { getApiBase } from '../lib/api';
 
 export default function BodyMapPage() {
     // We use isolated state because the InjectionSelector manages its own history read,
@@ -26,7 +27,7 @@ export default function BodyMapPage() {
         try {
             const token = localStorage.getItem('bolusai_token'); // Correct key name
             if (token) {
-                const res = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/injection/manual?t=${Date.now()}`, {
+                const res = await fetch(`${getApiBase()}/api/injection/manual?t=${Date.now()}`, {
                     method: 'POST',
                     headers: {
                         "Authorization": `Bearer ${token}`,

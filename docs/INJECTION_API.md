@@ -19,4 +19,12 @@ curl -X GET 'https://bolus-ai-1.onrender.com/api/injection/state' \
 # The GET response must reflect the saved point_id in states.bolus.last_point_id (and at the top-level "bolus" field).
 
 # Nota: "insulin_type": "rapid" se mapea internamente al tipo "bolus" por compatibilidad legacy.
+
+## Frontend base URL (Mapa Corporal)
+
+- Asegúrate de que el frontend use siempre el dominio del backend: define `VITE_API_BASE_URL=https://bolus-ai-1.onrender.com`.
+- En la pestaña Network del navegador, las llamadas del mapa corporal deben apuntar a:
+  - `https://bolus-ai-1.onrender.com/api/injection/state`
+  - `https://bolus-ai-1.onrender.com/api/injection/manual`
+- Si ves peticiones al dominio del frontend (`bolus-ai.onrender.com/api/...`), revisa la configuración de entorno antes de validar.
 ```
