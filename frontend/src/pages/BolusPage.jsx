@@ -1323,6 +1323,11 @@ function ResultView({ result, slot, usedParams, onBack, onSave, saving, currentC
                 historyEvents = buildHistoryFromSnapshot(iobSnapshot, treatments, new Date());
             } catch (ctxErr) {
                 console.warn("Context fetch for simulation failed", ctxErr);
+                setPredictionData({
+                    quality: "low",
+                    warnings: ["Pronóstico incompleto: no se pudieron cargar IOB/COB (requiere confirmación)"]
+                });
+                return;
             }
 
             const events = {
