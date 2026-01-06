@@ -452,7 +452,11 @@ function NutritionDraftPanel() {
     const checkDraft = async () => {
         try {
             const d = await getNutritionDraft();
-            setDraft(d || null);
+            if (d?.active && d?.draft) {
+                setDraft(d.draft);
+            } else {
+                setDraft(null);
+            }
         } catch {
             setDraft(null);
         }
@@ -490,6 +494,18 @@ function NutritionDraftPanel() {
 
     if (!draft) return null;
 
+    const parsedUpdatedAt = draft?.updated_at ? new Date(draft.updated_at) : null;
+    const formattedTime = parsedUpdatedAt && !isNaN(parsedUpdatedAt)
+        ? parsedUpdatedAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        : '-';
+
+    const macros = {
+        carbs: Number(draft?.carbs ?? 0),
+        fat: Number(draft?.fat ?? 0),
+        protein: Number(draft?.protein ?? 0),
+        fiber: Number(draft?.fiber ?? 0)
+    };
+
     return (
         <section className="card draft-panel" style={{ marginBottom: '1rem', background: '#ecfdf5', borderColor: '#6ee7b7', border: '1px solid #34d399', borderRadius: '12px', padding: '1rem' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
@@ -497,25 +513,25 @@ function NutritionDraftPanel() {
                     📝 Comida en Curso
                 </h3>
                 <div style={{ fontSize: '0.8rem', color: '#059669' }}>
-                    {new Date(draft.updated_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    {formattedTime}
                 </div>
             </div>
 
             <div style={{ display: 'flex', gap: '10px', marginBottom: '1rem' }}>
                 <div style={{ flex: 1, textAlign: 'center', background: '#fff', borderRadius: '8px', padding: '0.5rem' }}>
-                    <div style={{ fontSize: '1.2rem', fontWeight: 'bold', color: '#059669' }}>{Math.round(draft.carbs)}</div>
+                    <div style={{ fontSize: '1.2rem', fontWeight: 'bold', color: '#059669' }}>{Math.round(macros.carbs)}</div>
                     <div style={{ fontSize: '0.7rem', color: '#6b7280' }}>Carbs</div>
                 </div>
                 <div style={{ flex: 1, textAlign: 'center', background: '#fff', borderRadius: '8px', padding: '0.5rem' }}>
-                    <div style={{ fontSize: '1.2rem', fontWeight: 'bold', color: '#059669' }}>{Math.round(draft.fat)}</div>
+                    <div style={{ fontSize: '1.2rem', fontWeight: 'bold', color: '#059669' }}>{Math.round(macros.fat)}</div>
                     <div style={{ fontSize: '0.7rem', color: '#6b7280' }}>Grasa</div>
                 </div>
                 <div style={{ flex: 1, textAlign: 'center', background: '#fff', borderRadius: '8px', padding: '0.5rem' }}>
-                    <div style={{ fontSize: '1.2rem', fontWeight: 'bold', color: '#059669' }}>{Math.round(draft.protein)}</div>
+                    <div style={{ fontSize: '1.2rem', fontWeight: 'bold', color: '#059669' }}>{Math.round(macros.protein)}</div>
                     <div style={{ fontSize: '0.7rem', color: '#6b7280' }}>Prot</div>
                 </div>
                 <div style={{ flex: 1, textAlign: 'center', background: '#fff', borderRadius: '8px', padding: '0.5rem' }}>
-                    <div style={{ fontSize: '1.2rem', fontWeight: 'bold', color: '#059669' }}>{Math.round(draft.fiber || 0)}</div>
+                    <div style={{ fontSize: '1.2rem', fontWeight: 'bold', color: '#059669' }}>{Math.round(macros.fiber)}</div>
                     <div style={{ fontSize: '0.7rem', color: '#6b7280' }}>Fibra</div>
                 </div>
             </div>
