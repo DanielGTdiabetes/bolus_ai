@@ -474,23 +474,23 @@ async def calculate_bolus(carbs: float, fat: float = 0.0, protein: float = 0.0, 
 
     # Check for Active Temp Modes (Global Override)
     try:
-        store = DataStore(Path(get_settings().data.data_dir))
-        events = store.load_events()
-        now_utc = datetime.now(timezone.utc)
-        
-        for e in events:
-            if e.get("type") == "temp_mode" and e.get("mode") == "alcohol":
-                expires = e.get("expires_at")
-                if expires:
-                    try:
-                        exp_dt = datetime.fromisoformat(expires)
-                        if exp_dt.tzinfo is None: exp_dt = exp_dt.replace(tzinfo=timezone.utc)
-                        if exp_dt > now_utc:
-                            alcohol = True # Global override
-                            break
-                    except Exception: pass
+        engine = get_engine()
+        if engine:
+            from app.models.temp_mode import TempModeDB
+            from sqlalchemy import select
+            async with AsyncSession(engine) as session:
+                 # Find active mode
+                 now = datetime.now(timezone.utc)
+                 stmt = select(TempModeDB).where(
+                     TempModeDB.expires_at > now,
+                     TempModeDB.mode == "alcohol"
+                 )
+                 res = await session.execute(stmt)
+                 active = res.scalars().first()
+                 if active:
+                     alcohol = True
     except Exception as e:
-        logger.warning(f"Failed to check temp modes: {e}")
+        logger.warning(f"Failed to check temp modes from DB: {e}")
 
     # STALE DATA SAFETY CHECK
     is_stale_data = False
@@ -1006,19 +1006,21 @@ async def search_food(tool_input: dict[str, Any]) -> SearchFoodResult | ToolErro
 
 
 async def set_temp_mode(temp: TempMode) -> dict[str, Any]:
-    settings = get_settings()
-    store = DataStore(Path(settings.data.data_dir))
-    events = store.load_events()
     expires_at = datetime.utcnow() + timedelta(minutes=temp.expires_minutes)
-    events.append(
-        {
-            "type": "temp_mode",
-            "mode": temp.mode,
-            "note": temp.note,
-            "expires_at": expires_at.isoformat(),
-        }
-    )
-    store.save_events(events)
+    
+    engine = get_engine()
+    if engine:
+        from app.models.temp_mode import TempModeDB
+        async with AsyncSession(engine) as session:
+            new_mode = TempModeDB(
+                user_id="admin", # Default for now
+                mode=temp.mode,
+                expires_at=expires_at,
+                note=temp.note
+            )
+            session.add(new_mode)
+            await session.commit()
+            
     return {"mode": temp.mode, "expires_at": expires_at.isoformat()}
 
 

@@ -158,6 +158,20 @@ async def migrate_schema(conn):
                 PRIMARY KEY (user_id, plan)
             )
         """))
+
+        
+        # 9. temp_modes
+        await conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS temp_modes (
+                id VARCHAR PRIMARY KEY,
+                user_id VARCHAR NOT NULL,
+                mode VARCHAR NOT NULL,
+                started_at TIMESTAMP,
+                expires_at TIMESTAMP,
+                note TEXT
+            )
+        """))
+
         
         # Commit changes if using a connection that requires it (begin() usually handles this, but let's be safe)
         await conn.commit()
