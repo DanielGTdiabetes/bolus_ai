@@ -537,6 +537,27 @@ async def calculate_bolus(carbs: float, fat: float = 0.0, protein: float = 0.0, 
                        local_ratio = res.ratio
                   except: pass
                   
+                  # SMART FALLBACK: If we got neutral results (1.0) and we are not admin,
+                  # it's possible this is a 'shadow' user (Telegram alias) without data.
+                  # Try checking the default/admin user for data.
+                  if tdd_ratio == 1.0 and local_ratio == 1.0 and u_id != "admin":
+                       from app.core import config
+                       fallback_uid = config.get_bot_default_username()
+                       if fallback_uid and fallback_uid != u_id:
+                            logger.info(f"Autosens neutral for '{u_id}', attempting fallback to '{fallback_uid}' data...")
+                            tdd_ratio_fb = await DynamicISFService.calculate_dynamic_ratio(fallback_uid, session, user_settings)
+                            
+                            local_ratio_fb = 1.0
+                            try:
+                                 res_fb = await AutosensService.calculate_autosens(fallback_uid, session, user_settings)
+                                 local_ratio_fb = res_fb.ratio
+                            except: pass
+                            
+                            if tdd_ratio_fb != 1.0 or local_ratio_fb != 1.0:
+                                 logger.info(f"Fallback successful: Using '{fallback_uid}' autosens data.")
+                                 tdd_ratio = tdd_ratio_fb
+                                 local_ratio = local_ratio_fb
+
                   # 3. Combine
                   autosens_ratio = tdd_ratio * local_ratio
                   autosens_ratio = max(0.6, min(1.4, autosens_ratio))
