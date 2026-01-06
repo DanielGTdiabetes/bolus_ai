@@ -80,6 +80,17 @@ La app es capaz de leer los carbohidratos que registres en aplicaciones externas
 3.  **Regla de Colisión (Anti-Duplicados):**
     *   Si llegan dos datos casi a la vez (ej. el registro original de 45g y la corrección de 60g en menos de 5 minutos), el sistema inteligente **NO los suma** (no verás 105g).
     *   Automáticamente se queda con el valor **mayor** (60g) para los gráficos y cálculos de COB, asumiendo que es la corrección más reciente.
+4.  **Webhook Directo (MyFitnessPal / Bridge sin JWT):**
+    *   Configura la URL de destino como `https://TU_HOST/api/integrations/nutrition?key=TU_CLAVE` usando la clave almacenada en la variable de entorno `NUTRITION_INGEST_KEY`.
+    *   Ejemplo rápido:
+
+        ```bash
+        curl -X POST 'https://tu-host/api/integrations/nutrition?key=XXXX' \
+          -H 'Content-Type: application/json' \
+          -d '{"carbs":10,"fat":0,"protein":0,"fiber":0,"date":"2026-01-06T12:00:00Z"}'
+        ```
+
+    *   Sin la `key` o con una clave incorrecta, la API responde `401` en JSON (`{"success":0,"error":"Authentication required for nutrition ingest"}`) y nunca redirige a HTML.
 
 ### D. Absorción Inteligente (🤖 Modo Auto)
 Ya no necesitas elegir manualmente si la comida es "Rápida" o "Lenta". El sistema lo decide por ti analizando:
