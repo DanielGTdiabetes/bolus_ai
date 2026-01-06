@@ -1,5 +1,6 @@
 from typing import Dict, Any, Optional, List
 from pathlib import Path
+from sqlalchemy import text
 from sqlalchemy.future import select
 from app.core.db import get_engine, AsyncSession
 from app.models.injection import InjectionState
@@ -152,7 +153,7 @@ class AsyncInjectionManager:
 
             if plan_key == "rapid":
                 await session.execute(
-                    "DELETE FROM injection_states WHERE user_id=:user_id AND plan=:plan",
+                    text("DELETE FROM injection_states WHERE user_id=:user_id AND plan=:plan"),
                     {"user_id": self.user_id, "plan": "bolus"},
                 )
 
@@ -177,7 +178,7 @@ class AsyncInjectionManager:
             else:
                 # Fallback: manual merge
                 await session.execute(
-                    f"DELETE FROM injection_states WHERE user_id=:user_id AND plan=:plan",
+                    text("DELETE FROM injection_states WHERE user_id=:user_id AND plan=:plan"),
                     {"user_id": self.user_id, "plan": plan_key}
                 )
             

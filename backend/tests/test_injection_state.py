@@ -183,3 +183,44 @@ def test_bolus_alias_maps_to_rapid(client: TestClient):
 
     state = client.get("/api/injection/state", headers=headers).json()
     assert state["states"]["bolus"]["last_point_id"] == rapid_id
+
+
+@pytest.mark.asyncio
+async def test_set_current_site_executes_textual_sql(monkeypatch):
+    pytest.importorskip("aiosqlite")
+
+    from sqlalchemy.ext.asyncio import create_async_engine  # noqa: WPS433
+    from sqlalchemy.pool import StaticPool  # noqa: WPS433
+
+    import app.core.db as core_db
+    from app.services import async_injection_manager as mgr_module
+    from app.services.async_injection_manager import AsyncInjectionManager
+
+    engine = create_async_engine(
+        "sqlite+aiosqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+
+    try:
+        async with engine.begin() as conn:
+            await conn.run_sync(core_db.Base.metadata.create_all)
+
+        monkeypatch.setattr(mgr_module, "get_engine", lambda: engine)
+
+        manager = AsyncInjectionManager("admin")
+
+        await manager.set_current_site("rapid", "abd_l_mid:1", source="manual")
+        state = await manager.get_state()
+        assert state["rapid"]["last_used_id"] == "abd_l_mid:1"
+        assert state["rapid"]["source"] == "manual"
+
+        await manager.set_current_site("rapid", "abd_l_mid:2", source="manual")
+        state = await manager.get_state()
+        assert state["rapid"]["last_used_id"] == "abd_l_mid:2"
+
+        await manager.set_current_site("basal", "glute_left:1", source="manual")
+        state = await manager.get_state()
+        assert state["basal"]["last_used_id"] == "glute_left:1"
+    finally:
+        await engine.dispose()
