@@ -38,12 +38,7 @@ class RotateRequest(BaseModel):
     type: str # "bolus" (rapid) or "basal"
     target: Optional[str] = None # Optional manual override
 
-@router.get("/state", response_model=InjectionStateResponse)
-async def get_injection_state(_: str = Depends(auth_required)):
-    """Fetch current global injection state (from DB)."""
-    # Assume admin for single user app
-    mgr = AsyncInjectionManager("admin")
-    
+async def _build_state_payload(mgr: AsyncInjectionManager) -> Dict[str, Any]:
     state = await mgr.get_state()
     bolus_id = state.get("bolus", {}).get("last_used_id", "abd_l_top:1")
     basal_id = state.get("basal", {}).get("last_used_id", "glute_right:1")
@@ -75,14 +70,32 @@ async def get_injection_state(_: str = Depends(auth_required)):
         }
     }
 
-    return JSONResponse(content={
+    return {
         "bolus": bolus_id, 
         "basal": basal_id,
         "next_bolus": next_bolus_id,
         "next_basal": next_basal_id,
         "states": resp_states,
         "source": resp_states.get("bolus", {}).get("source")  # legacy: keep a simple source key if used elsewhere
-    })
+    }
+
+@router.get("/state", response_model=InjectionStateResponse)
+async def get_injection_state(_: str = Depends(auth_required)):
+    """Fetch current global injection state (from DB)."""
+    # Assume admin for single user app
+    mgr = AsyncInjectionManager("admin")
+    payload = await _build_state_payload(mgr)
+    return JSONResponse(content=payload)
+
+@router.get("/full", response_model=InjectionStateResponse)
+async def get_injection_state_full(_: str = Depends(auth_required)):
+    """
+    Return the full injection state using the same backend storage as /state.
+    This is an alias kept for callers expecting /full to mirror /state.
+    """
+    mgr = AsyncInjectionManager("admin")
+    payload = await _build_state_payload(mgr)
+    return JSONResponse(content=payload)
 
 @router.post("/manual")
 async def set_manual_injection(payload: ManualInjectionRequest, _: str = Depends(auth_required)):

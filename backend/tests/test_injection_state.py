@@ -99,3 +99,21 @@ def test_manual_and_rotate_persistence(client: TestClient):
     basal_state = client.get("/api/injection/state", headers=headers).json()
     assert basal_state["states"]["basal"]["last_point_id"] == "glute_left:1"
     assert basal_state["states"]["basal"]["source"] == "manual"
+
+
+def test_manual_persists_for_full_state(client: TestClient):
+    headers = _auth_headers(client)
+
+    manual_id = "abd_r_top:1"
+    resp_manual = client.post(
+        "/api/injection/manual",
+        headers=headers,
+        json={"insulin_type": "rapid", "point_id": manual_id},
+    )
+    assert resp_manual.status_code == 200
+
+    state_resp = client.get("/api/injection/state", headers=headers).json()
+    full_resp = client.get("/api/injection/full", headers=headers).json()
+
+    assert state_resp["states"]["bolus"]["last_point_id"] == manual_id
+    assert full_resp["states"]["bolus"]["last_point_id"] == manual_id
