@@ -48,9 +48,8 @@ async def get_injection_state(_: str = Depends(auth_required)):
     })
 
 @router.post("/rotate")
-async def rotate_injection_site(payload: RotateRequest):
+async def rotate_injection_site(payload: RotateRequest, _: str = Depends(auth_required)):
     """Frontend notifies backend of a rotation (manual selection or auto)."""
-    print(f"DEBUG: Entering rotate endpoint with {payload}")
     import logging
     logger = logging.getLogger(__name__)
     
@@ -60,36 +59,37 @@ async def rotate_injection_site(payload: RotateRequest):
     
     kind = "bolus" if payload.type == "rapid" else payload.type
     
-    if payload.target:
-        # Manual Force
-        logger.info(f"[API /rotate] Setting manual site: {kind} -> {payload.target}")
-        await mgr.set_current_site(kind, payload.target)
-    else:
-        # Auto Rotate
-        logger.info(f"[API /rotate] Auto rotating: {kind}")
-        await mgr.rotate_site(kind)
-    
-    # VERIFICATION (Read-After-Write)
-    # Reload state from DB to ensure commit worked
-    verify_state = await mgr.get_state()
-    saved_val = verify_state.get(kind, {}).get("last_used_id")
-    
-    logger.info(f"[API /rotate] VERIFY DB: Expected ~ {payload.target if payload.target else 'rotated'}, Got {saved_val}")
-    
-    # Note: If auto-rotate, we don't know exact target easily unless rotate returns it.
-    # But for manual target (the issue at hand), we can compare.
-    if payload.target and saved_val != payload.target:
-        # Check if maybe the format differs ("abd_l_top" vs "abd_l_top:1")
-        # mgr adds :1 if missing.
-        normalized_target = payload.target if ":" in payload.target else f"{payload.target}:1"
-        if saved_val != normalized_target:
-            logger.error(f"❌ CRITICAL PERSISTENCE FAILURE. DB has {saved_val}, wanted {normalized_target}")
-            raise HTTPException(status_code=500, detail=f"DB Write Failed. Got {saved_val}")
+    try:
+        if payload.target:
+            # Manual Force
+            logger.info(f"[API /rotate] Setting manual site: {kind} -> {payload.target}")
+            await mgr.set_current_site(kind, payload.target)
+        else:
+            # Auto Rotate
+            logger.info(f"[API /rotate] Auto rotating: {kind}")
+            await mgr.rotate_site(kind)
+            
+        # VERIFICATION (Read-After-Write)
+        verify_state = await mgr.get_state()
+        saved_val = verify_state.get(kind, {}).get("last_used_id")
+        
+        logger.info(f"[API /rotate] VERIFY DB: Expected ~ {payload.target if payload.target else 'rotated'}, Got {saved_val}")
+        
+        if payload.target:
+            normalized_target = payload.target if ":" in payload.target else f"{payload.target}:1"
+            if saved_val != normalized_target:
+                logger.error(f"❌ CRITICAL PERSISTENCE FAILURE. DB has {saved_val}, wanted {normalized_target}")
+                raise HTTPException(status_code=500, detail=f"DB Write Failed. Got {saved_val}")
 
-    logger.info(f"[API /rotate] Done. Persistence Verified.")
-    resp = JSONResponse(content={"status": "ok", "verified": saved_val})
-    resp.headers["X-Debug-Persist"] = f"Verified-{saved_val}"
-    return resp
+        logger.info(f"[API /rotate] Done. Persistence Verified.")
+        
+        resp = JSONResponse(content={"status": "ok", "verified": saved_val})
+        resp.headers["X-Persist-Status"] = "Verified"
+        return resp
+
+    except Exception as e:
+        logger.error(f"Error in rotate endpoint: {e}", exc_info=True)
+        return JSONResponse(content={"status": "error", "detail": str(e)}, status_code=500)
 
 @router.get("/rotate-legacy")
 async def rotate_legacy(type: str, target: str, _: str = Depends(auth_required)):

@@ -48,26 +48,28 @@ class AsyncInjectionManager:
             raise RuntimeError("Database engine not available for AsyncInjectionManager")
             
         async with AsyncSession(engine) as session:
-            # Upsert logic
-            stmt = select(InjectionState).where(
-                InjectionState.user_id == self.user_id,
-                InjectionState.plan == plan
-            )
-            existing = (await session.execute(stmt)).scalar_one_or_none()
+            # Robust Native Upsert
+            from sqlalchemy.dialects.postgresql import insert as pg_insert
             
-            if existing:
-                existing.last_used_id = site_id
-                existing.updated_at = datetime.utcnow()
-            else:
-                new_rec = InjectionState(
-                    user_id=self.user_id,
-                    plan=plan,
-                    last_used_id=site_id
+            stmt = pg_insert(InjectionState).values(
+                user_id=self.user_id,
+                plan=plan,
+                last_used_id=site_id,
+                updated_at=datetime.utcnow()
+            )
+            
+            # If exists, update
+            stmt = stmt.on_conflict_do_update(
+                index_elements=['user_id', 'plan'],
+                set_=dict(
+                    last_used_id=stmt.excluded.last_used_id, 
+                    updated_at=stmt.excluded.updated_at
                 )
-                session.add(new_rec)
-                
+            )
+            
+            await session.execute(stmt)
             await session.commit()
-            logger.info(f"DB PERSIST: {self.user_id} {plan} -> {site_id}")
+            logger.info(f"DB PERSIST (Native): {self.user_id} {plan} -> {site_id}")
 
     # --- Public Async Methods mirroring the old API ---
 
