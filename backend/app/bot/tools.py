@@ -1095,12 +1095,20 @@ async def add_treatment(tool_input: dict[str, Any]) -> AddTreatmentResult | Tool
              if engine:
                  async with AsyncSession(engine) as session:
                       from app.models.treatment import Treatment
-                      from sqlalchemy import delete
-                      stmt = delete(Treatment).where(Treatment.id == payload.replace_id)
-                      await session.execute(stmt)
-                      await session.commit()
-                      replaced_id = payload.replace_id
-             
+                      from sqlalchemy import select
+                      
+                      # Check existence first for debugging
+                      stmt_check = select(Treatment).where(Treatment.id == payload.replace_id)
+                      existing = (await session.execute(stmt_check)).scalar_one_or_none()
+                      
+                      if existing:
+                          await session.delete(existing)
+                          await session.commit()
+                          replaced_id = payload.replace_id
+                          logger.info(f"✅ Successfully deleted original treatment {payload.replace_id}")
+                      else:
+                          logger.warning(f"⚠️ Original treatment {payload.replace_id} not found for deletion.")
+
              # Delete from Local Store
              # Store uses '_id' or 'id'
              try:
@@ -1109,9 +1117,11 @@ async def add_treatment(tool_input: dict[str, Any]) -> AddTreatmentResult | Tool
                  events = [e for e in events if e.get("id") != payload.replace_id and e.get("_id") != payload.replace_id]
                  if len(events) < original_len:
                       store.save_events(events)
-                      replaced_id = payload.replace_id
-             except Exception: pass
-             
+                      if not replaced_id: replaced_id = payload.replace_id # Mark as replaced if local delete worked
+                      logger.info(f"✅ Deleted {payload.replace_id} from local store.")
+             except Exception as store_e:
+                 logger.warning(f"Failed local store delete: {store_e}")
+              
         except Exception as e:
             logger.error(f"Failed to delete replaced treatment {payload.replace_id}: {e}")
 
