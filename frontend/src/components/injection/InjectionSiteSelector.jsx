@@ -57,9 +57,9 @@ export function InjectionSiteSelector({ type, onSelect, selected, autoSelect = f
 
             if (res.ok) {
                 const data = await res.json();
-                const canonicalKey = type;
-                const legacyKey = type === 'rapid' ? 'bolus' : 'basal';
-                const stateEntry = data.states?.[canonicalKey] || data.states?.[legacyKey];
+                const primaryKey = type === 'rapid' ? 'bolus' : 'basal';
+                const aliasKey = type === 'rapid' ? 'rapid' : 'basal';
+                const stateEntry = data.states?.[primaryKey] || data.states?.[aliasKey];
 
                 if (stateEntry) {
                     return {
@@ -69,8 +69,8 @@ export function InjectionSiteSelector({ type, onSelect, selected, autoSelect = f
                     };
                 }
 
-                const last = data[canonicalKey] ?? (type === 'rapid' ? data.bolus : data.basal);
-                const next = data[`next_${canonicalKey}`] ?? (type === 'rapid' ? data.next_bolus : data.next_basal);
+                const last = data[primaryKey] ?? data[aliasKey];
+                const next = data[`next_${primaryKey}`] ?? data[`next_${aliasKey}`];
                 return { last, next };
             }
             throw new Error(`state status ${res.status}`);

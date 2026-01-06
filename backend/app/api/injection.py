@@ -17,8 +17,10 @@ class InjectionPointState(BaseModel):
 
 
 class InjectionStateResponse(BaseModel):
+    bolus: Optional[str] = None
     rapid: Optional[str] = None
     basal: Optional[str] = None
+    next_bolus: Optional[str] = None
     next_rapid: Optional[str] = None
     next_basal: Optional[str] = None
     states: Dict[str, InjectionPointState]
@@ -67,16 +69,16 @@ async def _build_state_payload(mgr: AsyncInjectionManager) -> Dict[str, Any]:
 
     logger = logging.getLogger(__name__)
     state = await mgr.get_state()
-    rapid_state = state.get("rapid") or {}
+    bolus_state = state.get("rapid") or state.get("bolus") or {}
     basal_state = state.get("basal") or {}
 
-    rapid_id = rapid_state.get("last_used_id")
+    bolus_id = bolus_state.get("last_used_id")
     basal_id = basal_state.get("last_used_id")
     warnings: List[str] = []
 
-    if not rapid_id:
-        warnings.append("rapid.last_used_id missing; returning null without default")
-        logger.warning("[API /state] rapid last_used_id missing; returning null")
+    if not bolus_id:
+        warnings.append("bolus.last_used_id missing; returning null without default")
+        logger.warning("[API /state] bolus last_used_id missing; returning null")
     if not basal_id:
         warnings.append("basal.last_used_id missing; returning null without default")
         logger.warning("[API /state] basal last_used_id missing; returning null")
@@ -91,31 +93,33 @@ async def _build_state_payload(mgr: AsyncInjectionManager) -> Dict[str, Any]:
         next_rapid_id = None
         next_basal_id = None
 
-    resp_states = {
-        "rapid": {
-            "insulin_type": "rapid",
-            "last_point_id": rapid_id,
-            "suggested_point_id": next_rapid_id,
-            "source": rapid_state.get("source"),
-            "updated_at": rapid_state.get("updated_at"),
-        },
-        "basal": {
-            "insulin_type": "basal",
-            "last_point_id": basal_id,
-            "suggested_point_id": next_basal_id,
-            "source": basal_state.get("source"),
-            "updated_at": basal_state.get("updated_at"),
-        },
+    bolus_payload = {
+        "insulin_type": "rapid",
+        "last_point_id": bolus_id,
+        "suggested_point_id": next_rapid_id,
+        "source": bolus_state.get("source"),
+        "updated_at": bolus_state.get("updated_at"),
+    }
+    basal_payload = {
+        "insulin_type": "basal",
+        "last_point_id": basal_id,
+        "suggested_point_id": next_basal_id,
+        "source": basal_state.get("source"),
+        "updated_at": basal_state.get("updated_at"),
     }
 
+    resp_states = {"bolus": bolus_payload, "basal": basal_payload, "rapid": bolus_payload}
+
     return {
-        "rapid": rapid_id,
+        "bolus": bolus_id,
+        "rapid": bolus_id,
         "basal": basal_id,
+        "next_bolus": next_rapid_id,
         "next_rapid": next_rapid_id,
         "next_basal": next_basal_id,
         "states": resp_states,
         "warnings": warnings or None,
-        "source": resp_states.get("rapid", {}).get("source"),  # legacy: keep a simple source key if used elsewhere
+        "source": resp_states.get("bolus", {}).get("source"),  # legacy: keep a simple source key if used elsewhere
     }
 
 

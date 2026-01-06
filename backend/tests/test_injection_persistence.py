@@ -28,8 +28,8 @@ def test_manual_injection_returns_json_and_persists_for_rapid(client: TestClient
     assert body["source"] == "manual"
 
     state = client.get("/api/injection/state", headers=headers).json()
-    assert state["states"]["rapid"]["last_point_id"] == point_id
-    assert state["rapid"] == point_id
+    assert state["states"]["bolus"]["last_point_id"] == point_id
+    assert state["bolus"] == point_id
 
 
 def test_manual_injection_returns_json_and_persists_for_basal(client: TestClient):
