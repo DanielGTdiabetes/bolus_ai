@@ -94,7 +94,24 @@ class ForecastEngine:
         # Insulin drops (negative), Carbs rise (positive)
         # ins_rate_0 is U/min. Mult by ISF -> mg/dL/min.
         isf = req.params.isf
-        model_slope_0 = carb_rate_0 - (ins_rate_0 * isf)
+        # Basal Slope at t=0 (Absolute Model)
+        basal_rate_0 = 0.0
+        if req.events.basal_injections:
+            for b in req.events.basal_injections:
+                t_since = 0 - b.time_offset_min
+                basal_rate_0 += BasalModels.get_activity(t_since, b.duration_minutes or 1440, b.type, b.units)
+        
+        reference_rate = 0.0
+        if req.params.basal_daily_units > 0:
+             reference_rate = req.params.basal_daily_units / 1440.0
+             
+        net_basal_activity = basal_rate_0 - reference_rate
+
+        # Net Model Slope (mg/dL per min)
+        # Insulin drops (negative), Carbs rise (positive)
+        # ins_rate_0 is U/min. Mult by ISF -> mg/dL/min.
+        isf = req.params.isf
+        model_slope_0 = carb_rate_0 - ((ins_rate_0 + net_basal_activity) * isf)
         
         # B. Calculate Deviation Slope (The "Unknown Force")
         # Deviation = Observed - Model
@@ -201,21 +218,26 @@ class ForecastEngine:
             step_carb_rise = step_carb_impact_rate * dt
             accum_carb_impact += step_carb_rise
             
-            # Basal Drift (Checking for injections)
-            accum_basal_val = 0.0
+            # Basal Impact (Absolute Model)
+            # We compare Active Basal vs "Required" Basal (Reference).
+            # If Active < Reference -> Net negative insulin -> BG Rises.
+            # If Active > Reference -> Net positive insulin -> BG Drops.
+            
+            reference_rate = 0.0
+            if req.params.basal_daily_units > 0:
+                 reference_rate = req.params.basal_daily_units / 1440.0
+            
+            rate_at_t = 0.0
             if req.events.basal_injections:
-                rate_at_0 = 0.0
-                for b in req.events.basal_injections:
-                    t_since = 0 - b.time_offset_min
-                    rate_at_0 += BasalModels.get_activity(t_since, b.duration_minutes or 1440, b.type, b.units)
-                
-                rate_at_t = 0.0
                 for b in req.events.basal_injections:
                     t_since = t_mid - b.time_offset_min
                     rate_at_t += BasalModels.get_activity(t_since, b.duration_minutes or 1440, b.type, b.units)
-                
-                basal_drift_rate = (rate_at_0 - rate_at_t) * isf
-                accum_basal_impact += basal_drift_rate * dt
+            
+            # Impact is inverted: More insulin = Drop (-), Less = Rise (+)
+            # net_insulin = (Active - Required)
+            # impact = -1 * net_insulin * ISF
+            step_basal_impact = -1 * (rate_at_t - reference_rate) * isf * dt
+            accum_basal_impact += step_basal_impact
 
             # --- 2. Deviation Impact (Hybrid Correction) ---
             # We integrate the DEVIATION slope, not the absolute slope.

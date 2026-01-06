@@ -22,35 +22,11 @@ class BasalModels:
         if type in ["glargine", "lantus", "basaglar"]:
             # Mostly flat, slight gentle peak around 4-6h, slight taper at end.
             # For simplicity in simulation, we can model as flat or a very soft trapezoid.
-            # User feedback says "MDI Basal models (flat or simple curves for Glargine)".
-            # Let's use a subtle trapezoid: 
-            # 0-1h: Ramp up
-            # 1h - (End-4h): Flat
-            # Last 4h: Ramp down
-            ramp_up_min = 60
-            ramp_down_min = 240
-            
-            # If duration is too short for this profile, fall back to flat
-            if duration_min < (ramp_up_min + ramp_down_min):
-                return total_units / duration_min
-                
-            plateau_duration = duration_min - ramp_up_min - ramp_down_min
-            
-            # Calculate height (h) such that Area = Total Units
-            # Area = (1/2 * ramp_up * h) + (plateau * h) + (1/2 * ramp_down * h)
-            # Area = h * (0.5*60 + plateau + 0.5*240)
-            # h = Units / (...)
-            
-            denom = (0.5 * ramp_up_min) + plateau_duration + (0.5 * ramp_down_min)
-            h = total_units / denom
-            
-            if t_min < ramp_up_min:
-                return h * (t_min / ramp_up_min)
-            elif t_min < (ramp_up_min + plateau_duration):
-                return h
-            else:
-                remaining = duration_min - t_min
-                return h * (remaining / ramp_down_min)
+            # Modified to "Flat" profile to prevent false Hypo predictions on injection.
+            # While physiologically it has a ramp-up, mathematically comparing "Rate Now (0)" vs "Rate Future (High)" 
+            # causes a massive predicted drop if the previous basal is not perfectly aligned or missing.
+            # A constant rate ensures Drift = 0 (Stability), which matches user expectation for Basal.
+            return total_units / duration_min
         
         if type in ["detemir", "levemir"]:
             # Distinct peak around 6-8h, shorter tail.
