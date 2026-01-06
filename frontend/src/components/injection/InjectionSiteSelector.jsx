@@ -57,16 +57,21 @@ export function InjectionSiteSelector({ type, onSelect, selected, autoSelect = f
 
             if (res.ok) {
                 const data = await res.json();
-                const key = type === 'rapid' ? 'bolus' : 'basal';
-                if (data.states && data.states[key]) {
+                const canonicalKey = type;
+                const legacyKey = type === 'rapid' ? 'bolus' : 'basal';
+                const stateEntry = data.states?.[canonicalKey] || data.states?.[legacyKey];
+
+                if (stateEntry) {
                     return {
-                        last: data.states[key].last_point_id,
-                        next: data.states[key].suggested_point_id,
-                        source: data.states[key].source
+                        last: stateEntry.last_point_id,
+                        next: stateEntry.suggested_point_id,
+                        source: stateEntry.source
                     };
                 }
-                if (type === 'rapid') return { last: data.bolus, next: data.next_bolus };
-                return { last: data.basal, next: data.next_basal };
+
+                const last = data[canonicalKey] ?? (type === 'rapid' ? data.bolus : data.basal);
+                const next = data[`next_${canonicalKey}`] ?? (type === 'rapid' ? data.next_bolus : data.next_basal);
+                return { last, next };
             }
             throw new Error(`state status ${res.status}`);
         } catch (e) {
