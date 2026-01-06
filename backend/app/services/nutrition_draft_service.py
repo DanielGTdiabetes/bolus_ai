@@ -92,9 +92,17 @@ class NutritionDraftService:
     @staticmethod
     async def close_draft_to_treatment(user_id: str, session: Any) -> Optional[Treatment]:
         from app.models.draft_db import NutritionDraftDB
-        from sqlalchemy import select
+        from sqlalchemy import update
         
-        stmt = select(NutritionDraftDB).where(NutritionDraftDB.user_id == user_id, NutritionDraftDB.status == "active")
+        # Atomic Update: "Claim" the draft by setting status to closed.
+        # Only the request that actually changes status from 'active' to 'closed' will get a result.
+        stmt = (
+            update(NutritionDraftDB)
+            .where(NutritionDraftDB.user_id == user_id, NutritionDraftDB.status == "active")
+            .values(status="closed")
+            .returning(NutritionDraftDB)
+        )
+        
         res = await session.execute(stmt)
         draft_db = res.scalars().first()
         
@@ -120,17 +128,8 @@ class NutritionDraftService:
             is_uploaded=False
         )
         
-        # Mark Closed
-        draft_db.status = "closed"
-        session.add(draft_db)
-        # We don't commit here because the caller might want to save Treatment in same transaction
-        # BUT existing flow expected commit. Let's leave commit to caller or safe.
-        # The prompt says "close_draft_to_treatment" returns Treatment. 
-        # API handles saving Treatment. We must handle Draft status update.
-        # Let's flush?
-        # Safe to commit draft update now, caller saves treatment? No, atomic is better.
-        # Let's just add to session and let caller commit.
-        session.add(draft_db)
+        # Treatment is created but not yet added/committed. 
+        # The DRAFT update IS in the session transaction pending commit.
         
         return t
 

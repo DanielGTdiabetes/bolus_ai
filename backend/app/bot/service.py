@@ -1597,6 +1597,9 @@ async def _mark_update_handler(update: Update, context: ContextTypes.DEFAULT_TYP
     """Passive handler to mark last update time without altering behaviour."""
     health.mark_update()
 
+
+DRAFT_MSG_CACHE: Dict[int, int] = {}
+
 async def on_draft_updated(username: str, draft: Any, action: str) -> None:
     """
     Notifies user about an active draft update.
@@ -1612,13 +1615,8 @@ async def on_draft_updated(username: str, draft: Any, action: str) -> None:
     chat_id = config.get_allowed_telegram_user_id()
     
     if not chat_id:
-        # Try to resolve via settings if not allowed_id set?
-        # But 'username' passed here is usually the DB user ID, which aligns with admin.
         return
 
-    # Rate Limit / Cooldown check could go here.
-    # We'll just send.
-    
     macros_txt = draft.total_macros()
     msg_txt = f"📝 **Comida en curso**\n\nActualizado: {macros_txt}\nEstado: **{action.upper()}**\n\nSigo esperando más datos..."
     
@@ -1630,14 +1628,41 @@ async def on_draft_updated(username: str, draft: Any, action: str) -> None:
         ]
     ]
     
+    markup = InlineKeyboardMarkup(kb)
+    sent_msg = None
+    
+    # Try Edit Existing
+    last_msg_id = DRAFT_MSG_CACHE.get(chat_id)
+    if last_msg_id:
+        try:
+            # Check for redundancy to avoid API spam if content identical?
+            # Telegram API handles identical content errors strictly ("Message is not modified"), 
+            # so we catch BadRequest.
+            await _bot_app.bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=last_msg_id,
+                text=msg_txt,
+                reply_markup=markup,
+                parse_mode="Markdown"
+            )
+            return # Edited successfully
+        except Exception as e:
+            # If error (message deleted, too old, or not modified), fall back to send new
+            logger.info(f"Draft edit failed ({e}), sending new.")
+            DRAFT_MSG_CACHE.pop(chat_id, None)
+
+    # Send New
     try:
-        await bot_send(
+        sent_msg = await bot_send(
             chat_id=chat_id,
             text=msg_txt,
             bot=_bot_app.bot,
-            reply_markup=InlineKeyboardMarkup(kb),
-            log_context="draft_update"
+            reply_markup=markup,
+            log_context="draft_update",
+            parse_mode="Markdown"
         )
+        if sent_msg:
+             DRAFT_MSG_CACHE[chat_id] = sent_msg.message_id
     except Exception as e:
         logger.error(f"Failed to send draft update: {e}")
 
@@ -2161,6 +2186,10 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             target_user = data.split("|")[1]
             from app.services.nutrition_draft_service import NutritionDraftService
             
+            # Clear Cache for this chat as interaction ends or restarts
+            chat_id = query.message.chat.id
+            DRAFT_MSG_CACHE.pop(chat_id, None)
+
             engine = get_engine()
             if engine:
                  async with AsyncSession(engine) as session:
@@ -2191,6 +2220,10 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             target_user = data.split("|")[1]
             from app.services.nutrition_draft_service import NutritionDraftService
             
+            # Clear Cache
+            chat_id = query.message.chat.id
+            DRAFT_MSG_CACHE.pop(chat_id, None)
+
             engine = get_engine()
             if engine:
                  async with AsyncSession(engine) as session:
