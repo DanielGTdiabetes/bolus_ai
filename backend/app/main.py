@@ -94,27 +94,30 @@ async def startup_event() -> None:
     from app.services.auth_repo import init_auth_db
     init_db()
     
-    # --- Background Initialization ---
-    # Move heavy/network-bound tasks to background to allow Uvicorn to bind port immediately.
-    # This fixes Render "No open ports detected" timeouts when DB is slow.
-    import asyncio
-    asyncio.create_task(_background_startup())
-
-async def _background_startup():
-    logger.info("🚀 Starting background initialization...")
+    # --- Critical Initialization (Sync) ---
+    # We await DB init to ensure tables exist before serving requests.
     try:
-        from app.core.db import create_tables, get_engine
-        from app.services.auth_repo import init_auth_db
-        
-        # Ensure tables are created (includes new Treatment model)
+        logger.info("⏳ Waiting for Database...")
         await create_tables()
         await init_auth_db()
         
-        # Hotfix: Ensure schema for Basal Checkin
+        # Schema fixes
         from app.core.migration import ensure_basal_schema, ensure_treatment_columns
         await ensure_basal_schema(get_engine())
         await ensure_treatment_columns(get_engine())
+        logger.info("✅ Database ready.")
+    except Exception as e:
+        logger.critical(f"❌ Critical DB Init Error: {e}")
+        raise e
 
+    # --- Background Jobs (Non-Critical) ---
+    import asyncio
+    asyncio.create_task(_background_startup_jobs())
+
+async def _background_startup_jobs():
+    logger.info("🚀 Starting background jobs...")
+    try:
+        # DB is already init
         from app.core.datastore import UserStore
         data_dir = Path(settings.data.data_dir)
 
