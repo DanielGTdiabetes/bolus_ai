@@ -18,14 +18,15 @@ export default function BodyMapPage() {
     const [selectedRapid, setSelectedRapid] = useState(null);
     const [selectedBasal, setSelectedBasal] = useState(null);
 
-    const [refreshKey, setRefreshKey] = useState(0);
 
+
+    // Helper to sync with backend (fixes bot sync issue)
     // Helper to sync with backend (fixes bot sync issue)
     const syncWithBackend = async (type, fullId) => {
         try {
             const token = localStorage.getItem('bolusai_token'); // Correct key name
             if (token) {
-                // 1. Try standart POST
+                // 1. Try standard POST
                 const res = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/injection/rotate?t=${Date.now()}`, {
                     method: 'POST',
                     headers: {
@@ -40,11 +41,16 @@ export default function BodyMapPage() {
 
                 let success = false;
                 if (res.ok) {
-                    const text = await res.text();
-                    if (text) {
-                        console.log(`[BodyMap] Synced ${type} site successfully. Server said:`, text);
+                    try {
+                        const json = await res.json();
+                        console.log(`[BodyMap] Synced ${type} site successfully (JSON).`, json);
+                        success = true;
+                    } catch (e) {
+                        console.log(`[BodyMap] Synced ${type} site successfully (Empty/Text).`);
                         success = true;
                     }
+                } else {
+                    console.warn(`[BodyMap] Sync POST failed with status: ${res.status}`);
                 }
 
                 // 2. If POST failed (Ghost response), try GET Fallback
@@ -67,9 +73,8 @@ export default function BodyMapPage() {
                     }
                 }
 
-                // 3. Log failure but don't annoy user with alerts/reloads
                 if (!success) {
-                    console.error("[BodyMap] ⚠️ Sync completely failed even after fallback. Check network/backend.");
+                    console.error("[BodyMap] ⚠️ Sync completely failed even after fallback.");
                 }
             } else {
                 console.warn("[BodyMap] No auth token found, cannot sync with backend");
@@ -81,19 +86,17 @@ export default function BodyMapPage() {
 
     const handleRapidChange = async (id) => {
         if (window.confirm("¿Marcar este punto como el ÚLTIMO utilizado?")) {
+            setSelectedRapid(id); // Optimistic UI update
             saveInjectionSite('rapid', id);
-            await syncWithBackend('rapid', id); // Sync with backend for bot
-            setSelectedRapid(id);
-            setRefreshKey(prev => prev + 1); // Force re-render of children to pick up localStorage change
+            await syncWithBackend('rapid', id); // Sync in background
         }
     };
 
     const handleBasalChange = async (id) => {
         if (window.confirm("¿Marcar este punto como el ÚLTIMO utilizado?")) {
+            setSelectedBasal(id); // Optimistic UI update
             saveInjectionSite('basal', id);
-            await syncWithBackend('basal', id); // Sync with backend for bot
-            setSelectedBasal(id);
-            setRefreshKey(prev => prev + 1);
+            await syncWithBackend('basal', id);
         }
     };
 
@@ -111,9 +114,9 @@ export default function BodyMapPage() {
 
                     <div style={{ marginTop: '2rem' }}>
                         <InjectionSiteSelector
-                            key={'rapid-' + refreshKey}
                             type="rapid"
                             selected={selectedRapid}
+                            forcedLastUsed={selectedRapid}
                             onSelect={handleRapidChange}
                             autoSelect={false}
                         />
@@ -121,9 +124,9 @@ export default function BodyMapPage() {
 
                     <div style={{ marginTop: '3rem', borderTop: '1px dashed #cbd5e1', paddingTop: '2rem' }}>
                         <InjectionSiteSelector
-                            key={'basal-' + refreshKey}
                             type="basal"
                             selected={selectedBasal}
+                            forcedLastUsed={selectedBasal}
                             onSelect={handleBasalChange}
                             autoSelect={false}
                         />

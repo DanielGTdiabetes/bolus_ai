@@ -42,7 +42,7 @@ function assetUrl(filename) {
     return `${base}${filename}`;
 }
 
-export function InjectionSiteSelector({ type, onSelect, selected, autoSelect = false }) {
+export function InjectionSiteSelector({ type, onSelect, selected, autoSelect = false, forcedLastUsed = null }) {
     const [lastUsed, setLastUsed] = useState(null);
     const [recommended, setRecommended] = useState(null);
 
@@ -106,6 +106,13 @@ export function InjectionSiteSelector({ type, onSelect, selected, autoSelect = f
             onSelect(recommended);
         }
     }, [recommended, autoSelect, selected, onSelect]);
+
+    // Antigravity Patch: Allow external force of "Last Used" to bypass API delays/glitches
+    useEffect(() => {
+        if (forcedLastUsed) {
+            setLastUsed(forcedLastUsed);
+        }
+    }, [forcedLastUsed]);
 
     const handlePointClick = async (fullId) => {
         if (onSelect) onSelect(fullId);
