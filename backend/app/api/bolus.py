@@ -605,13 +605,12 @@ async def save_treatment(
     # --- ROTATION SYNC ---
     if payload.injection_site and payload.insulin > 0:
         try:
-             # Update global rotation state
-             from app.services.injection_sites import InjectionManager
-             mgr = InjectionManager(store)
-             # Infer type from site ID or use 'bolus' (rapid) by default since this is bolus endpoint
+             # Update global rotation state (persist manual selection)
+             from app.services.async_injection_manager import AsyncInjectionManager
+             mgr = AsyncInjectionManager(user.username if user else "admin")
              kind = "basal" if "leg" in payload.injection_site or "glute" in payload.injection_site else "bolus"
-             mgr.set_current_site(kind, payload.injection_site)
-             logger.info(f"Updated rotation state to {payload.injection_site} (kind={kind})")
+             await mgr.set_current_site(kind, payload.injection_site, source="manual")
+             logger.info(f"Updated rotation state to {payload.injection_site} (kind={kind}, source=manual)")
         except Exception as e:
             logger.error(f"Failed to sync rotation state: {e}")
 

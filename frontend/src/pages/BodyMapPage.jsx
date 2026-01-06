@@ -26,19 +26,17 @@ export default function BodyMapPage() {
         try {
             const token = localStorage.getItem('bolusai_token'); // Correct key name
             if (token) {
-                // 1. Try standard POST
-                const res = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/injection/rotate?t=${Date.now()}`, {
+                const res = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/injection/manual?t=${Date.now()}`, {
                     method: 'POST',
                     headers: {
                         "Authorization": `Bearer ${token}`,
                         "Content-Type": "application/json"
                     },
                     body: JSON.stringify({
-                        type: type === 'rapid' ? 'bolus' : 'basal',
-                        target: fullId
+                        insulin_type: type,
+                        point_id: fullId
                     })
                 });
-
 
                 let textBody = "";
                 try {
@@ -54,27 +52,6 @@ export default function BodyMapPage() {
                 } else {
                     console.error(`[BodyMap] Sync POST failed with status: ${res.status}. Body: ${textBody}`);
                 }
-
-                // 2. If POST failed (Ghost response), try GET Fallback
-                if (!success) {
-                    console.warn("[BodyMap] POST failed (Ghost detected). Trying GET fallback...");
-                    try {
-                        const targetType = type === 'rapid' ? 'bolus' : 'basal';
-                        const resGet = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/injection/rotate-legacy?type=${targetType}&target=${encodeURIComponent(fullId)}&t=${Date.now()}`, {
-                            method: 'GET',
-                            headers: { "Authorization": `Bearer ${token}` }
-                        });
-                        if (resGet.ok) {
-                            console.log("[BodyMap] GET Fallback success!");
-                            success = true;
-                        } else {
-                            console.error("[BodyMap] GET Fallback failed with status:", resGet.status);
-                        }
-                    } catch (errFallback) {
-                        console.error("Fallback failed", errFallback);
-                    }
-                }
-
                 if (!success) {
                     console.error("[BodyMap] ⚠️ Sync completely failed even after fallback.");
                 }

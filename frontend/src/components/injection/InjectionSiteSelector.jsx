@@ -57,6 +57,14 @@ export function InjectionSiteSelector({ type, onSelect, selected, autoSelect = f
 
             if (res.ok) {
                 const data = await res.json();
+                const key = type === 'rapid' ? 'bolus' : 'basal';
+                if (data.states && data.states[key]) {
+                    return {
+                        last: data.states[key].last_point_id,
+                        next: data.states[key].suggested_point_id,
+                        source: data.states[key].source
+                    };
+                }
                 if (type === 'rapid') return { last: data.bolus, next: data.next_bolus };
                 return { last: data.basal, next: data.next_basal };
             }
