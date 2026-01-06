@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { getApiBase } from '../../lib/api';
 
 /**
  * ZONES DEFINITION CUSTOMIZED
@@ -28,12 +29,6 @@ function getToken() {
         if (v) return v;
     }
     return null;
-}
-
-function getApiBase() {
-    // tu lib/api.ts usa VITE_API_BASE_URL. Aquí lo respetamos.
-    const base = (import.meta.env.VITE_API_BASE_URL || window.location.origin);
-    return String(base).replace(/\/$/, '');
 }
 
 function assetUrl(filename) {

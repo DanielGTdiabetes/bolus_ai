@@ -1,13 +1,39 @@
-export function getApiBase() {
-  return (import.meta.env.VITE_API_BASE_URL || window.location.origin).replace(/\/$/, "");
+function normalizeBaseUrl(value?: string | null) {
+  return value ? String(value).replace(/\/$/, "") : null;
 }
 
-// ... (existing code top block)
+function guessRenderBackendBase(locationLike?: Location) {
+  if (!locationLike) return null;
+  const host = locationLike.hostname || "";
 
-// Append to file at the end to keep it simple, or insert if I can.
-// I'll rewrite the whole file since it's cleaner.
+  // Render has the frontend and backend on separate hosts.
+  // If we are on the public frontend host, force the backend host to avoid hitting the static server.
+  if (host === "bolus-ai.onrender.com") {
+    return "https://bolus-ai-1.onrender.com";
+  }
 
-const API_BASE = (import.meta.env.VITE_API_BASE_URL || window.location.origin).replace(/\/$/, "");
+  // Generic Render fallback: if we are on any other Render frontend but not the backend host, prefer the backend.
+  if (host.endsWith(".onrender.com") && !host.includes("bolus-ai-1")) {
+    return "https://bolus-ai-1.onrender.com";
+  }
+
+  return null;
+}
+
+export function getApiBase() {
+  const envBase =
+    normalizeBaseUrl(import.meta.env.VITE_API_BASE_URL) ||
+    normalizeBaseUrl(import.meta.env.VITE_API_URL);
+  if (envBase) return envBase;
+
+  const win = typeof window !== "undefined" ? window : undefined;
+  const renderBase = guessRenderBackendBase(win?.location);
+  if (renderBase) return renderBase;
+
+  return normalizeBaseUrl(win?.location?.origin) || "";
+}
+
+const API_BASE = getApiBase();
 const TOKEN_KEY = "bolusai_token";
 const USER_KEY = "bolusai_user";
 const NS_STORAGE_KEY = "bolusai_ns_config"; // Legacy (localStorage)

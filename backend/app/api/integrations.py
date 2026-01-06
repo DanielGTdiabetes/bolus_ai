@@ -106,6 +106,7 @@ async def ingest_nutrition(
     request: Request,
     payload: Dict[str, Any] = Body(...),
     authorization: Optional[str] = Header(None, alias="Authorization"),
+    ingest_key_header: Optional[str] = Header(None, alias="X-Ingest-Key"),
     session: AsyncSession = Depends(get_db_session),
     token_manager: TokenManager = Depends(get_token_manager),
 ):
@@ -136,13 +137,16 @@ async def ingest_nutrition(
                 raise auth_error
         else:
             query_params = request.query_params
-            provided_key = query_params.get("key") if hasattr(query_params, "get") else None
-            expected_key = os.getenv("NUTRITION_INGEST_KEY")
+            provided_key = ingest_key_header or (query_params.get("key") if hasattr(query_params, "get") else None)
+            ingest_secret = os.getenv("NUTRITION_INGEST_SECRET") or os.getenv("NUTRITION_INGEST_KEY")
 
-            if not expected_key or provided_key != expected_key:
+            if ingest_secret and provided_key == ingest_secret:
+                source = "header" if ingest_key_header else "query"
+                logger.info("nutrition_ingest authorized via key (%s)", source)
+            else:
+                reason = "missing secret" if not ingest_secret else "invalid key"
+                logger.warning("Nutrition ingest rejected via key (%s)", reason)
                 raise auth_error
-
-            logger.info("nutrition_ingest authorized via key")
 
         if not username:
             # Align webhook user with bot/default user resolution so the app sees the meal
@@ -469,6 +473,21 @@ async def ingest_nutrition(
                     diff_fat = abs(c.fat - t_fat)
                     diff_prot = abs(c.protein - t_protein)
                     if diff_fat < 0.1 and diff_prot < 0.1:
+                        if fiber_provided and incoming_fiber is not None:
+                            diff_fiber = abs((c.fiber or 0.0) - incoming_fiber)
+                            if diff_fiber >= 0.1:
+                                c.fiber = float(incoming_fiber)  # type: ignore[arg-type]
+                                session.add(c)
+                                await session.commit()
+                                saved_ids.append(c.id)
+                                logger.info(
+                                    "Updated fiber on existing nutrition entry %s (delta=%.2f)",
+                                    c.id,
+                                    diff_fiber,
+                                )
+                                is_duplicate = True
+                                break
+
                         if should_update_fiber(c.fiber, incoming_fiber):
                             c.fiber = float(incoming_fiber)  # type: ignore[arg-type]
                             session.add(c)
