@@ -466,7 +466,7 @@ export default function BolusPage() {
             const treatment = {
                 eventType: "Meal Bolus",
                 created_at: customDate.toISOString(),
-                carbs: isUsingOrphan ? 0 : (parseFloat(carbs) || 0),
+                carbs: (parseFloat(carbs) || 0),
                 fat: isUsingOrphan ? (orphanCarbs._diffMode ? (orphanCarbs._netFat || 0) : (orphanCarbs.fat || 0)) : (mealMetaRef.current?.fat || 0),
                 protein: isUsingOrphan ? (orphanCarbs._diffMode ? (orphanCarbs._netProtein || 0) : (orphanCarbs.protein || 0)) : (mealMetaRef.current?.protein || 0),
                 fiber: isUsingOrphan ? (orphanCarbs._diffMode ? (orphanCarbs._netFiber || 0) : (orphanCarbs.fiber || 0)) : (mealMetaRef.current?.fiber || 0),
