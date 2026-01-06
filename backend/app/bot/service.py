@@ -20,6 +20,7 @@ from app.bot import proactive
 from app.bot import context_builder
 from app.bot.llm import router
 from app.bot.image_renderer import generate_injection_image
+from app.bot.context_vars import bot_user_context
 
 # Sidecar dependencies
 from pathlib import Path
@@ -301,6 +302,10 @@ async def _exec_tool(update: Update, context: ContextTypes.DEFAULT_TYPE, name: s
          health.record_action(f"tool:{name}", False, "permission_denied")
          return
     
+    # Set Context for Tool Execution
+    username = update.effective_user.username if update.effective_user else "unknown"
+    token = bot_user_context.set(username)
+    
     try:
         if name == "calculate_bolus":
             # Special wrapper for interactive bolus
@@ -350,6 +355,8 @@ async def _exec_tool(update: Update, context: ContextTypes.DEFAULT_TYPE, name: s
         logger.error(f"Tool exec error: {e}")
         await reply_text(update, context, f"💥 Error ejecutando {name}: {e}")
         health.record_action(f"tool:{name}", False, str(e))
+    finally:
+        bot_user_context.reset(token)
 
 async def _exec_job(update: Update, context: ContextTypes.DEFAULT_TYPE, job_id: str) -> None:
     registry = build_registry()
@@ -500,8 +507,19 @@ async def ping_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
 
 async def _process_text_input(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str) -> None:
-    """Shared logic for text and transcribed voice."""
+    """Wrapper to inject user context."""
     if not text: return
+    
+    # Set Context
+    username = update.effective_user.username if update.effective_user else "unknown"
+    token = bot_user_context.set(username)
+    try:
+        await _process_text_input_internal(update, context, text)
+    finally:
+        bot_user_context.reset(token)
+
+async def _process_text_input_internal(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str) -> None:
+    """Shared logic for text and transcribed voice (Internal)."""
     
     # Check Master Switch
     try:

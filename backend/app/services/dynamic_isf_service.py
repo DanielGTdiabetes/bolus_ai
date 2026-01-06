@@ -86,7 +86,7 @@ class DynamicISFService:
                     day_count += 1
             
             if day_count == 0:
-                logger.warning("No TDD history found for DynamicISF.")
+                logger.warning(f"No TDD history found for DynamicISF (user={username}).")
                 return 1.0
                 
             week_tdd_avg = tdd_sum_7d / day_count

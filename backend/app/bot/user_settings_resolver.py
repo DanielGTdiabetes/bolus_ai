@@ -52,11 +52,14 @@ async def _load_settings_for_user(user_id: str, session: AsyncSession) -> Option
         return None
 
 
+from app.bot.context_vars import bot_user_context
+
 async def resolve_bot_user_settings(preferred_username: Optional[str] = None) -> Tuple[UserSettings, str]:
     """
     Resolve which user's settings the bot should use.
 
     Priority:
+    0) Context Variable (Implicit context from Service)
     1) Explicit preferred username (e.g., Telegram username)
     2) BOT_DEFAULT_USERNAME env (defaults to 'admin')
     3) Any non-default settings in DB, preferring freshest updated rows
@@ -68,7 +71,13 @@ async def resolve_bot_user_settings(preferred_username: Optional[str] = None) ->
 
     # Ordered preference list (no duplicates)
     preferred = []
-    if preferred_username:
+    
+    # 0. Context Var (Highest Priority if implicit)
+    ctx_user = bot_user_context.get()
+    if ctx_user:
+        preferred.append(ctx_user)
+
+    if preferred_username and preferred_username not in preferred:
         preferred.append(preferred_username)
     # Only add defaults to preferred if we have an explicit request or if we want to force them.
     # If preferred_username is None, we want to allow "freshest non-default" (Step 2) to win 
@@ -93,14 +102,46 @@ async def resolve_bot_user_settings(preferred_username: Optional[str] = None) ->
         async with AsyncSession(engine) as session:
             default_like_fallback: Optional[Tuple[UserSettings, str]] = None
 
+            # 0.5) Alias Lookup (Reverse Mapping)
+            # Check if any user explicitly allows this Telegram username
+            if preferred_username:
+                try:
+                    # Fetch all settings (optimization: could filter by JSON path)
+                    # For personal app scale, iterating is fine and DB-agnostic
+                    stmt_alias = text("SELECT user_id, settings FROM user_settings")
+                    rows_alias = (await session.execute(stmt_alias)).fetchall()
+                    
+                    for row in rows_alias:
+                        uid = row.user_id if hasattr(row, "user_id") else row[0]
+                        s_raw = row.settings if hasattr(row, "settings") else row[1]
+                        
+                        bot_cfg = s_raw.get("bot", {})
+                        if not isinstance(bot_cfg, dict): continue
+                        
+                        allowed = bot_cfg.get("allowed_usernames", [])
+                        if isinstance(allowed, list) and preferred_username in allowed:
+                            logger.info("Bot resolver found alias match: '%s' maps to user '%s'", preferred_username, uid)
+                            candidate = await _load_settings_for_user(uid, session)
+                            if candidate:
+                                return candidate, uid
+                except Exception as e:
+                    logger.warning(f"Alias lookup failed: {e}")
+
             # 1) Preferred users first
             for user_id in preferred:
                 candidate = await _load_settings_for_user(user_id, session)
                 if candidate:
+                    # STRICT CHECK: Only accept "preferred" user if they have saved settings 
+                    # that are NOT just defaults. If they don't exist in DB, _load returns None.
+                    # If they exist but are default-like, we treat as "maybe not fully set up".
                     if not _is_default_like(candidate):
                         logger.info("Bot resolver selected preferred user settings for '%s'", user_id)
                         return candidate, user_id
-                    default_like_fallback = default_like_fallback or (candidate, user_id)
+                    
+                    # If it IS default-like, we keep it as a fallback, but continue searching 
+                    # for a "real" user (like 'admin') who might have data.
+                    if not default_like_fallback:
+                         default_like_fallback = (candidate, user_id)
 
             # 2) Any other users ordered by recency
             stmt = text("SELECT user_id FROM user_settings ORDER BY updated_at DESC NULLS LAST LIMIT 50")
@@ -117,6 +158,13 @@ async def resolve_bot_user_settings(preferred_username: Optional[str] = None) ->
                         return candidate, user_id
                     if not default_like_fallback:
                         default_like_fallback = (candidate, user_id)
+
+            # 3) Fallback Users (Admin/Default) - Check them inside the session loop if we found nothing yet
+            for user_id in fallback_users:
+                 candidate = await _load_settings_for_user(user_id, session)
+                 if candidate and not _is_default_like(candidate):
+                      logger.info("Bot resolver falling back to configured default user '%s'", user_id)
+                      return candidate, user_id
 
             if default_like_fallback:
                 user_id = default_like_fallback[1]

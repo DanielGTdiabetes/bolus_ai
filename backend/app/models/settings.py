@@ -209,6 +209,7 @@ class ProactiveConfig(BaseModel):
 
 class BotConfig(BaseModel):
     enabled: bool = Field(default=True, description="Master switch for the Telegram Bot")
+    allowed_usernames: list[str] = Field(default_factory=list, description="List of Telegram usernames (aliases) allowed to control this account")
     proactive: ProactiveConfig = Field(default_factory=ProactiveConfig)
 
 
