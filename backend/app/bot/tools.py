@@ -608,24 +608,25 @@ async def calculate_bolus(carbs: float, fat: float = 0.0, protein: float = 0.0, 
     explain.append(f"🔒 Hash: {cfg_hash[:6]} | 🕒 Datos: {snap_ts}")
     
     # Calculate Rotation Preview
+    # Calculate Rotation Preview
     preview_site = None
     try:
-        store = DataStore(Path(get_settings().data.data_dir))
-        rotator = RotationService(store)
+        from app.services.async_injection_manager import AsyncInjectionManager
         # Resolve user (simple, rely on what we have, or default admin)
-        # Ideally pass username from router but for now defaulting is safe for single user
-        # We can try to peek at user_settings owner if available? No easiest is admin/default.
         target_user = "admin"
-        preview = rotator.get_next_site_preview(target_user, plan="rapid")
+        mgr = AsyncInjectionManager(target_user)
+        # Plan is 'rapid' (bolus) usually
+        preview = await mgr.get_next_site("bolus")
+        
         preview_site = {
-             "id": preview.id,
-             "name": preview.name,
-             "emoji": preview.emoji,
-             "image": preview.image_ref
+             "id": preview["id"],
+             "name": preview["name"],
+             "emoji": preview["emoji"],
+             "image": preview["image"]
         }
-        explain.append(f"📍 Sugerencia: {preview.name} {preview.emoji}")
+        explain.append(f"📍 Sugerencia: {preview['name']} {preview['emoji']}")
     except Exception as e:
-        logger.warning(f"Rotation preview failed: {e}")
+        logger.warning(f"DB Rotation preview failed: {e}")
 
     return BolusResult(units=rec.total_u, explanation=explain, confidence="high", quality="data-driven", recommended_site=preview_site)
 
@@ -1197,44 +1198,37 @@ async def add_treatment(tool_input: dict[str, Any]) -> AddTreatmentResult | Tool
              # Usually adding treatment via bot means "I just did it" -> rotate
              rotation_site = None
              try:
-                 if store:
-                     rotator = RotationService(store)
+                 if engine: # Only rotate if we have DB access for persistence? Actually AsyncManager handles it.
+                     from app.services.async_injection_manager import AsyncInjectionManager
+                     mgr = AsyncInjectionManager("admin") # Simplify user resolution
+                     
                      check_str = (notes or "") + (payload.event_type or "")
-                     plan = "basal" if "basal" in check_str.lower() else "rapid"
+                     # Detect basal/bolus. "basal" in notes or "Basal" in event type?
+                     # event_type usually "Meal Bolus" or "Correction Bolus".
+                     plan = "basal" if "basal" in check_str.lower() else "bolus"
                      
                      manual_site_id = tool_input.get("injection_site_id")
                      if manual_site_id:
                          # Manual override logic
-                         from app.services.injection_sites import InjectionManager
-                         im = InjectionManager(store)
-                         im.set_current_site("basal" if plan == "basal" else "bolus", manual_site_id)
-                         
-                         # Get details for return
-                         raw_site = im._get_site_from_id("basal" if plan == "basal" else "bolus", manual_site_id)
-                         # Convert to object compatible with rotation_site
-                         from app.services.rotation_service import InjectionSite
-                         rotation_site = InjectionSite(
-                             id=raw_site["id"],
-                             name=raw_site["name"],
-                             emoji=raw_site["emoji"], 
-                             image_ref=raw_site["image"]
-                         )
+                         await mgr.set_current_site(plan, manual_site_id)
+                         # Fetch details
+                         rotation_site = mgr._get_site_from_id(plan, manual_site_id) if ":" in manual_site_id else mgr._get_site_from_id(plan, manual_site_id + ":1")
                      else:
                          # Automatic Rotation
-                         rotation_site = rotator.rotate_site(target_user, plan=plan)
+                         rotation_site = await mgr.rotate_site(plan)
 
              except Exception as e:
-                 logger.warning(f"Rotation failed: {e}")
+                 logger.warning(f"DB Rotation failed: {e}")
         except Exception as e: 
              logger.warning(f"Post-treatment logic failed: {e}")
 
         injection_site_dict = None
         if rotation_site:
             injection_site_dict = {
-                "id": rotation_site.id,
-                "name": rotation_site.name,
-                "emoji": rotation_site.emoji,
-                "image": rotation_site.image_ref
+                "id": rotation_site["id"],
+                "name": rotation_site["name"],
+                "emoji": rotation_site["emoji"],
+                "image": rotation_site["image"]
             }
 
     health.record_action("add_treatment", ok=result.ok, error=error_text)
