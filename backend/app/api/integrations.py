@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.bot.user_settings_resolver import resolve_bot_user_settings
 from app.core import config
 from app.core.db import get_db_session
-from app.core.security import TokenManager, get_token_manager
+from app.core.security import TokenManager, get_token_manager, get_current_user, CurrentUser
 from app.core.settings import Settings, get_settings
 from app.services.store import DataStore
 
@@ -435,6 +435,36 @@ async def ingest_nutrition(
                 result_strict = await session.execute(stmt_strict)
                 existing_strict = result_strict.scalars().first()
                 
+                # DRAFT LOGIC START
+                # Criteria: Recent (< 45 min) or Future/ForcedNow
+                is_recent_draft_candidate = False
+                if force_now:
+                    is_recent_draft_candidate = True
+                else:
+                    age_seconds = (now_utc - item_ts).total_seconds()
+                    if 0 <= age_seconds < 2700: # 45 min
+                        is_recent_draft_candidate = True
+
+                if is_recent_draft_candidate:
+                    logger.info(f"Routing meal to Draft (Carbs={t_carbs}, Recency={force_now or age_seconds})")
+                    from app.services.nutrition_draft_service import NutritionDraftService
+                    draft, action = NutritionDraftService.update_draft(
+                        username, t_carbs, t_fat, t_protein, t_fiber
+                    )
+                    
+                    # Notify Bot
+                    try:
+                        from app.bot.service import on_draft_updated
+                        await on_draft_updated(username, draft, action)
+                    except ImportError:
+                        pass # Bot svc might not be fully ready or cyclic import
+                    except Exception as e:
+                        logger.error(f"Bot draft notify failed: {e}")
+                        
+                    saved_ids.append(f"draft_{username}_{action}")
+                    continue
+                # DRAFT LOGIC END
+
                 if existing_strict:
                      if should_update_fiber(existing_strict.fiber, incoming_fiber):
                          existing_strict.fiber = float(incoming_fiber)  # type: ignore[arg-type]
@@ -570,3 +600,65 @@ async def ingest_nutrition(
         logger.error(f"Nutrition Ingest Error: {e}")
         # Return 200 to not break the sender, but log error
         return {"success": 0, "error": str(e)}
+
+# --- DRAFT ENDPOINTS ---
+
+@router.get("/nutrition/draft", summary="Get active nutrition draft")
+async def get_nutrition_draft(
+    user: CurrentUser = Depends(get_current_user), # Require Auth
+):
+    from app.services.nutrition_draft_service import NutritionDraftService
+    draft = NutritionDraftService.get_draft(user.username) # user.username might be user_id
+    if not draft:
+        return {"active": False}
+    
+    # Calculate remaining time
+    now = datetime.now(timezone.utc)
+    remaining_sec = (draft.expires_at - now).total_seconds()
+    
+    return {
+        "active": True,
+        "draft": draft.dict(),
+        "remaining_seconds": max(0, remaining_sec),
+        "formatted_macros": draft.total_macros()
+    }
+
+@router.post("/nutrition/draft/close", summary="Confirm and close draft")
+async def close_nutrition_draft(
+    user: CurrentUser = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db_session)
+):
+    from app.services.nutrition_draft_service import NutritionDraftService
+    
+    # 1. Close draft -> Treatment
+    treatment = NutritionDraftService.close_draft_to_treatment(user.username)
+    if not treatment:
+        raise HTTPException(404, "No active draft")
+    
+    # 2. Save Treatment to DB
+    try:
+        session.add(treatment)
+        await session.commit()
+    except Exception as e:
+        logger.error(f"Failed to save closed draft: {e}")
+        raise HTTPException(500, "Database save failed")
+        
+    # 3. Trigger Bot (New Meal)
+    try:
+        from app.bot.service import on_new_meal_received
+        await on_new_meal_received(
+            treatment.carbs, treatment.fat, treatment.protein, treatment.fiber,
+            treatment.notes, origin_id=treatment.id
+        )
+    except Exception as e:
+        logger.warning(f"Bot trigger failed: {e}")
+        
+    return {"success": True, "treatment_id": treatment.id}
+
+@router.post("/nutrition/draft/discard", summary="Discard draft")
+async def discard_nutrition_draft(
+    user: CurrentUser = Depends(get_current_user),
+):
+    from app.services.nutrition_draft_service import NutritionDraftService
+    NutritionDraftService.discard_draft(user.username)
+    return {"success": True}

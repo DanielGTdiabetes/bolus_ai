@@ -1597,6 +1597,45 @@ async def _mark_update_handler(update: Update, context: ContextTypes.DEFAULT_TYP
     """Passive handler to mark last update time without altering behaviour."""
     health.mark_update()
 
+async def on_draft_updated(username: str, draft: Any, action: str) -> None:
+    """
+    Notifies user about an active draft update.
+    """
+    global _bot_app
+    if not _bot_app: return
+
+    # Resolve Chat ID
+    # Priority: 
+    # 1. Configured allowed ID (security)
+    # 2. Look up in settings (if we had a map)
+    # For now, default to single-user admin ID
+    chat_id = config.get_allowed_telegram_user_id()
+    
+    if not chat_id:
+        # Try to resolve via settings if not allowed_id set?
+        # But 'username' passed here is usually the DB user ID, which aligns with admin.
+        return
+
+    # Rate Limit / Cooldown check could go here.
+    # We'll just send.
+    
+    macros_txt = draft.total_macros()
+    msg_txt = f"📝 **Comida en curso**\n\nActualizado: {macros_txt}\nEstado: **{action.upper()}**\n\nSigo esperando más datos..."
+    
+    # Inline Button to Close directly
+    kb = [[InlineKeyboardButton("✅ Confirmar Ahora", callback_data=f"draft_confirm|{username}")]]
+    
+    try:
+        await bot_send(
+            chat_id=chat_id,
+            text=msg_txt,
+            bot=_bot_app.bot,
+            reply_markup=InlineKeyboardMarkup(kb),
+            log_context="draft_update"
+        )
+    except Exception as e:
+        logger.error(f"Failed to send draft update: {e}")
+
 async def on_new_meal_received(carbs: float, fat: float, protein: float, fiber: float, source: str, origin_id: Optional[str] = None) -> None:
     """
     Called by integrations.py when a new meal is ingested.
@@ -2110,6 +2149,37 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     # Always Answer
     try: await query.answer()
     except: pass
+
+    # --- Draft Confirm ---
+    if data.startswith("draft_confirm|"):
+        try:
+            target_user = data.split("|")[1]
+            from app.services.nutrition_draft_service import NutritionDraftService
+            
+            # Close Draft
+            treatment = NutritionDraftService.close_draft_to_treatment(target_user)
+            if treatment:
+                # Save to DB
+                engine = get_engine()
+                if engine:
+                     async with AsyncSession(engine) as session:
+                         session.add(treatment)
+                         await session.commit()
+                
+                await query.edit_message_text(f"✅ **Borrador Confirmado**\n{treatment.notes}")
+                
+                # Handover to standard New Meal flow
+                await on_new_meal_received(
+                    treatment.carbs, treatment.fat, treatment.protein, treatment.fiber, 
+                    "draft_confirm", origin_id=treatment.id
+                )
+            else:
+                await query.edit_message_text("❌ No hay borrador activo o ya expiró.")
+                
+        except Exception as e:
+            logger.error(f"Draft confirm error: {e}")
+            await query.edit_message_text(f"Error al confirmar: {e}")
+        return
 
     # --- Autosens Flow ---
     if data.startswith("autosens_confirm|"):
