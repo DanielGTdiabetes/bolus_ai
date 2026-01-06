@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import Literal, Optional
 
 import logging
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.core.security import get_current_user
@@ -20,6 +20,7 @@ from app.services.bolus_engine import calculate_bolus_v2
 from app.services.bolus_split import create_plan, recalc_second
 from app.services.autosens_service import AutosensService
 from app.services.iob import compute_iob_from_sources, compute_cob_from_sources
+from app.models.iob import SourceStatus
 from app.services.nightscout_client import NightscoutClient, NightscoutError
 from app.services.store import DataStore
 from app.core.db import get_db_session
@@ -230,6 +231,11 @@ async def calculate_bolus_stateless(
     bg_trend: Optional[str] = None
     bg_age_minutes: Optional[float] = None
     bg_is_stale: bool = False
+    glucose_status = SourceStatus(
+        source=bg_source,
+        status="ok" if resolved_bg is not None else "unavailable",
+        fetched_at=datetime.now(timezone.utc)
+    )
     
     # Priority: Manual > Nightscout 
     if resolved_bg is None and ns_config.enabled and ns_config.url:
@@ -245,6 +251,7 @@ async def calculate_bolus_stateless(
             resolved_bg = float(sgv.sgv)
             bg_source = "nightscout"
             bg_trend = sgv.direction
+            glucose_status.source = "nightscout"
             
             now_ms = datetime.now(timezone.utc).timestamp() * 1000
             diff_ms = now_ms - sgv.date
@@ -252,7 +259,10 @@ async def calculate_bolus_stateless(
             
             bg_age_minutes = diff_min
             if diff_min > 10: 
-                 bg_is_stale = True
+                bg_is_stale = True
+                glucose_status.status = "stale"
+            else:
+                glucose_status.status = "ok"
             
             logger.info(f"Nightscout fetch success: {resolved_bg} mg/dL, age={diff_min:.1f}m")
 
@@ -375,6 +385,56 @@ async def calculate_bolus_stateless(
         iob_u, breakdown, iob_info, iob_warning = await compute_iob_from_sources(
             now, user_settings, ns_client, store, extra_boluses=db_events
         )
+        cob_total, cob_info, cob_source_status = await compute_cob_from_sources(
+            now, ns_client, store, extra_entries=None
+        )
+        iob_info.glucose_source_status = glucose_status
+        assumptions: list[str] = []
+
+        # Confirmation gate for unavailable/stale IOB
+        if iob_info.status == "unavailable" and not payload.confirm_iob_unknown:
+            raise HTTPException(
+                status_code=424,
+                detail={
+                    "error_code": "IOB_UNAVAILABLE_CONFIRM_REQUIRED",
+                    "message": "IOB/COB no disponible (treatments). Confirma para calcular sin IOB.",
+                    "requires_confirmation": True,
+                    "required_flag": "confirm_iob_unknown",
+                    "iob": iob_info.model_dump(),
+                    "cob": cob_info.model_dump(),
+                    "treatments_source": iob_info.treatments_source_status.source if iob_info.treatments_source_status else "unknown",
+                    "glucose_source": bg_source or "unknown",
+                    "safe_alternatives": ["manual_mode"]
+                }
+            )
+
+        if iob_info.status == "stale" and not payload.confirm_iob_stale:
+            age_minutes = None
+            if iob_info.last_updated_at:
+                age_minutes = (now - iob_info.last_updated_at).total_seconds() / 60.0
+            raise HTTPException(
+                status_code=424,
+                detail={
+                    "error_code": "IOB_STALE_CONFIRM_REQUIRED",
+                    "message": "IOB/COB desactualizado. Confirma para calcular asumiendo IOB=0.",
+                    "requires_confirmation": True,
+                    "required_flag": "confirm_iob_stale",
+                    "iob": iob_info.model_dump(),
+                    "cob": cob_info.model_dump(),
+                    "data_age_minutes": age_minutes,
+                    "treatments_source": iob_info.treatments_source_status.source if iob_info.treatments_source_status else "unknown",
+                    "glucose_source": bg_source or "unknown",
+                    "safe_alternatives": ["manual_mode"]
+                }
+            )
+
+        iob_for_calc = iob_u if iob_u is not None else 0.0
+        if iob_info.status in ["unavailable", "stale"]:
+            flag = "IOB_ASSUMED_ZERO_DUE_TO_UNAVAILABLE" if iob_info.status == "unavailable" else "IOB_ASSUMED_ZERO_DUE_TO_STALE"
+            assumptions.append(flag)
+            iob_info.assumptions.append(flag)
+            iob_for_calc = 0.0
+            iob_warning = iob_warning or "IOB no disponible; se asumió 0 U tras confirmación explícita."
         
         # 5. Call Engine
         glucose_info = GlucoseUsed(
@@ -388,7 +448,7 @@ async def calculate_bolus_stateless(
         response = calculate_bolus_v2(
             request=payload,
             settings=user_settings,
-            iob_u=iob_u,
+            iob_u=iob_for_calc,
             glucose_info=glucose_info,
             autosens_ratio=autosens_ratio,
             autosens_reason=autosens_reason
@@ -396,10 +456,14 @@ async def calculate_bolus_stateless(
 
         # Inject IOB Info
         response.iob = iob_info
-        response.iob_u = round(iob_u, 2) # ensure correct assignment
+        response.cob = cob_info
+        response.assumptions.extend(assumptions + (cob_info.assumptions if cob_info else []))
+        response.iob_u = round(iob_for_calc, 2) # ensure correct assignment
 
         if iob_warning:
             response.warnings.append(iob_warning)
+        if cob_info and cob_info.status in ["unavailable", "stale"]:
+            response.warnings.append("COB no disponible o desactualizado; revisa tratamientos recientes.")
 
         if resolved_bg is None:
             response.warnings.append("⚠️ NO SE DETECTÓ GLUCOSA. El cálculo NO incluye corrección.")
@@ -689,6 +753,9 @@ async def get_current_iob(
         total_iob, breakdown, iob_info, iob_warning = await compute_iob_from_sources(
             now, settings, ns_client, store, extra_boluses=db_events
         )
+        total_cob, cob_info, cob_source_status = await compute_cob_from_sources(now, ns_client, store, extra_entries=db_carbs)
+        if not iob_info.glucose_source_status:
+            iob_info.glucose_source_status = SourceStatus(source="unknown", status="unknown", fetched_at=now)
         
         # Calculate Curve for next 4 hours (every 10 min)
         # We reused "insulin_activity_fraction" from iob.py? No it's internal.
@@ -732,14 +799,18 @@ async def get_current_iob(
             
             
         # Calculate COB
-        total_cob = await compute_cob_from_sources(now, ns_client, store, extra_entries=db_carbs)
+        iob_total_val = round(total_iob, 2) if total_iob is not None else None
+        cob_total_val = round(total_cob, 0) if total_cob is not None else None
 
         return {
-            "iob_total": round(total_iob, 2),
-            "cob_total": round(total_cob, 0),
+            "iob_total": iob_total_val,
+            "cob_total": cob_total_val,
             "breakdown": breakdown, 
             "graph": curve_points, # Legacy name, actually IOB Curve
             "iob_info": iob_info.model_dump(),
+            "cob_info": cob_info.model_dump(),
+            "glucose_source_status": iob_info.glucose_source_status.model_dump() if iob_info.glucose_source_status else None,
+            "treatments_source_status": (iob_info.treatments_source_status.model_dump() if iob_info.treatments_source_status else cob_source_status.model_dump()),
             "warning": iob_warning
         }
         

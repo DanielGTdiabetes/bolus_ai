@@ -10,7 +10,8 @@ export function getApiBase() {
 const API_BASE = (import.meta.env.VITE_API_BASE_URL || window.location.origin).replace(/\/$/, "");
 const TOKEN_KEY = "bolusai_token";
 const USER_KEY = "bolusai_user";
-const NS_STORAGE_KEY = "bolusai_ns_config"; // Added
+const NS_STORAGE_KEY = "bolusai_ns_config"; // Legacy (localStorage)
+const NS_SESSION_KEY = "bolusai_ns_config_session";
 
 let unauthorizedHandler = null;
 
@@ -19,16 +20,50 @@ export function setUnauthorizedHandler(handler) {
 }
 
 // Helper: NS Config Local
+function migrateLegacyNsConfig() {
+  try {
+    const legacy = localStorage.getItem(NS_STORAGE_KEY);
+    if (legacy) {
+      sessionStorage.setItem(NS_SESSION_KEY, legacy);
+      localStorage.removeItem(NS_STORAGE_KEY);
+    }
+  } catch (e) {
+    console.warn("NS config migration failed", e);
+  }
+}
+
+migrateLegacyNsConfig();
+
 export function getLocalNsConfig() {
   try {
-    return JSON.parse(localStorage.getItem(NS_STORAGE_KEY));
+    const raw = sessionStorage.getItem(NS_SESSION_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch (e) {
+    console.warn("Failed to read session NS config", e);
+  }
+  try {
+    // Legacy fallback (should be removed after migration)
+    const legacy = localStorage.getItem(NS_STORAGE_KEY);
+    return legacy ? JSON.parse(legacy) : null;
   } catch (e) {
     return null;
   }
 }
 
 export function saveLocalNsConfig(config) {
-  localStorage.setItem(NS_STORAGE_KEY, JSON.stringify(config));
+  sessionStorage.setItem(NS_SESSION_KEY, JSON.stringify(config));
+  localStorage.removeItem(NS_STORAGE_KEY);
+}
+
+export async function migrateNsSecretToBackend() {
+  const cfg = getLocalNsConfig();
+  if (!cfg || !cfg.url || !cfg.token) return;
+  try {
+    await saveNightscoutSecret({ url: cfg.url, api_secret: cfg.token, enabled: true });
+    sessionStorage.removeItem(NS_SESSION_KEY);
+  } catch (e) {
+    console.warn("No se pudo guardar el secreto Nightscout en backend (se mantendrá en sesión).", e?.message || e);
+  }
 }
 
 // ... rest of the file ... (I'll copy existing)
@@ -175,8 +210,13 @@ export async function calculateBolus(payload) {
   });
   const data = await toJson(response);
   if (!response.ok) {
-    const detail = data.detail || data.message || "No se pudo calcular";
-    throw new Error(detail);
+    const detailObj = typeof data.detail === "object" ? data.detail : null;
+    const detail = detailObj?.message || data.detail || data.message || "No se pudo calcular";
+    const err: any = new Error(detail);
+    err.payload = detailObj || data;
+    err.error_code = detailObj?.error_code || data.error_code;
+    err.status = response.status;
+    throw err;
   }
   return data;
 }
@@ -469,6 +509,11 @@ export async function recalcSecondBolus(payload) {
 
 export function logout() {
   clearSession();
+  try {
+    sessionStorage.removeItem(NS_SESSION_KEY);
+  } catch (e) {
+    console.warn("NS session cleanup failed", e);
+  }
   if (unauthorizedHandler) unauthorizedHandler();
 }
 

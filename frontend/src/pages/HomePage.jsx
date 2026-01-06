@@ -18,6 +18,7 @@ function GlucoseHero({ onRefresh }) {
     const [data, setData] = useState(null);
     const [loading, setLoading] = useState(false);
     const [prediction, setPrediction] = useState(null);
+    const [forecastError, setForecastError] = useState(null);
 
     // Auto-refresh config (hook requires interval in ms or null)
     useInterval(() => load(), 60000);
@@ -53,13 +54,18 @@ function GlucoseHero({ onRefresh }) {
                 if (predRes.ok) {
                     const predData = await toJson(predRes);
                     setPrediction(predData);
+                    setForecastError(null);
                 }
             } catch (err) {
                 console.warn("Forecast fetch error", err);
+                setPrediction(null);
+                setForecastError({ message: "Sin pronóstico (fuente caída)", at: new Date() });
             }
 
         } catch (e) {
             console.warn("BG Fetch Error", e);
+            setPrediction(null);
+            setForecastError({ message: "Glucosa no disponible", at: new Date() });
         } finally {
             setLoading(false);
         }
@@ -136,6 +142,12 @@ function GlucoseHero({ onRefresh }) {
             <div style={{ width: '100%', height: '160px', marginTop: '1rem' }}>
                 <MainGlucoseChart isLow={isLow} predictionData={prediction} />
             </div>
+
+            {forecastError && (
+                <div style={{ marginTop: '0.6rem', padding: '0.75rem', background: '#fffbeb', border: '1px solid #fcd34d', borderRadius: '8px', fontSize: '0.85rem', color: '#92400e' }}>
+                    ⚠️ {forecastError.message} {forecastError.at ? `(actualizado ${forecastError.at.toLocaleTimeString()})` : ""}
+                </div>
+            )}
 
             {/* Prediction Alerts */}
             {prediction && prediction.summary && (prediction.summary.min_bg < 70 || prediction.summary.max_bg > 250) && (
