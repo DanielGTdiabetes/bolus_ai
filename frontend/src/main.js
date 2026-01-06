@@ -117,22 +117,13 @@ document.addEventListener('DOMContentLoaded', async () => {
   router();
 
   // Register NEW Service Worker (v3) for PWA
+  // EMERGENCY: Disable Service Workers to fix caching issues
   if ('serviceWorker' in navigator) {
-    // First, unregister any OLD service workers (sw.js, etc) that are not sw-v3.js
     navigator.serviceWorker.getRegistrations().then(registrations => {
       for (let registration of registrations) {
-        if (!registration.active || !registration.active.scriptURL.includes('sw-v3.js')) {
-          console.log("Creating space for new SW, unregistering old:", registration);
-          registration.unregister();
-        }
+        console.log("Force Unregistering SW to fix cache:", registration);
+        registration.unregister();
       }
     });
-
-    try {
-      const reg = await navigator.serviceWorker.register('./sw-v3.js');
-      console.log('SW-V3 Registered:', reg.scope);
-    } catch (err) {
-      console.log('SW-V3 Registration failed:', err);
-    }
   }
 });
