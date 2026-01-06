@@ -4,8 +4,7 @@ from typing import Dict, Any, Optional
 
 from app.core.security import auth_required
 from app.core.settings import get_settings
-from app.services.store import DataStore
-from app.services.injection_sites import InjectionManager
+from app.services.async_injection_manager import AsyncInjectionManager
 from pathlib import Path
 
 router = APIRouter()
@@ -25,18 +24,19 @@ class RotateRequest(BaseModel):
     target: Optional[str] = None # Optional manual override
 
 @router.get("/state", response_model=InjectionStateResponse)
-def get_injection_state(store: DataStore = Depends(get_store), _: str = Depends(auth_required)):
-    """Fetch current global injection state (the truth)."""
-    mgr = InjectionManager(store)
+async def get_injection_state(_: str = Depends(auth_required)):
+    """Fetch current global injection state (from DB)."""
+    # Assume admin for single user app
+    mgr = AsyncInjectionManager("admin")
     
-    state = mgr._load_state()
+    state = await mgr.get_state()
     bolus_id = state.get("bolus", {}).get("last_used_id", "abd_l_top:1")
-    basal_id = state.get("basal", {}).get("last_used_id", "leg_right:1")
+    basal_id = state.get("basal", {}).get("last_used_id", "glute_right:1")
     
-    # Calculate Next explicitly to ensure frontend sync with Bot
+    # Calculate Next explicitly
     try:
-        n_bolus = mgr.get_next_site("bolus")
-        n_basal = mgr.get_next_site("basal")
+        n_bolus = await mgr.get_next_site("bolus")
+        n_basal = await mgr.get_next_site("basal")
         next_bolus_id = n_bolus["id"]
         next_basal_id = n_basal["id"]
     except:
@@ -51,34 +51,37 @@ def get_injection_state(store: DataStore = Depends(get_store), _: str = Depends(
     )
 
 @router.post("/rotate")
-def rotate_injection_site(payload: RotateRequest, store: DataStore = Depends(get_store), _: str = Depends(auth_required)):
+async def rotate_injection_site(payload: RotateRequest, _: str = Depends(auth_required)):
     """Frontend notifies backend of a rotation (manual selection or auto)."""
     import logging
     logger = logging.getLogger(__name__)
     
     logger.info(f"[API /rotate] Received request: type={payload.type}, target={payload.target}")
     
-    mgr = InjectionManager(store)
+    mgr = AsyncInjectionManager("admin")
+    
+    kind = "bolus" if payload.type == "rapid" else payload.type
     
     if payload.target:
         # Manual Force
-        logger.info(f"[API /rotate] Setting manual site: {payload.type} -> {payload.target}")
-        mgr.set_current_site(payload.type, payload.target)
+        logger.info(f"[API /rotate] Setting manual site: {kind} -> {payload.target}")
+        await mgr.set_current_site(kind, payload.target)
     else:
         # Auto Rotate
-        logger.info(f"[API /rotate] Auto rotating: {payload.type}")
-        mgr.rotate_site(payload.type)
+        logger.info(f"[API /rotate] Auto rotating: {kind}")
+        await mgr.rotate_site(kind)
     
     logger.info(f"[API /rotate] Done. Returning ok.")
     return {"status": "ok"}
 
 @router.get("/rotate-legacy")
-def rotate_legacy(type: str, target: str, store: DataStore = Depends(get_store), _: str = Depends(auth_required)):
-    """Fallback GET endpoint for mobile clients where POST is blocked/ghosted."""
+async def rotate_legacy(type: str, target: str, _: str = Depends(auth_required)):
+    """Fallback GET endpoint."""
     import logging
     logger = logging.getLogger(__name__)
     logger.info(f"[API /rotate-legacy] GET Request: type={type}, target={target}")
     
-    mgr = InjectionManager(store)
-    mgr.set_current_site(type, target)
+    mgr = AsyncInjectionManager("admin")
+    kind = "bolus" if type == "rapid" else type
+    await mgr.set_current_site(kind, target)
     return {"status": "ok", "method": "GET"}

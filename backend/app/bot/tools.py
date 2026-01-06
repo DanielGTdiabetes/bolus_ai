@@ -887,29 +887,25 @@ async def save_favorite_food(tool_input: dict[str, Any]) -> SaveFavoriteResult |
 
 async def get_injection_site(tool_input: dict[str, Any]) -> InjectionSiteResult | ToolError:
     try:
-        # Load store
-        settings = get_settings()
-        data_path = Path(settings.data.data_dir)
-        store = DataStore(data_path)
-        rotator = RotationService(store)
+        from app.services.async_injection_manager import AsyncInjectionManager
         
-        engine = get_engine()
-        user_id = "admin"
-        if engine:
-             async with AsyncSession(engine) as session:
-                  user_id = await _resolve_user_id(session)
-
+        # Determine plan
         plan = tool_input.get("plan", "rapid")
-        site = rotator.get_next_site_preview(user_id, plan=plan)
+        kind = "bolus" if plan == "rapid" else "basal"
+        
+        mgr = AsyncInjectionManager("admin")
+        
+        # Get NEXT site
+        site_meta = await mgr.get_next_site(kind)
         
         # Debug logging for sync issues
-        logger.info(f"[Bot] get_injection_site: data_dir={data_path}, plan={plan}, next_site={site.id}")
+        logger.info(f"[Bot] get_injection_site: plan={plan}, next_site={site_meta['id']}")
         
         return InjectionSiteResult(
-            id=site.id,
-            name=site.name,
-            emoji=site.emoji,
-            image=site.image_ref
+            id=site_meta["id"],
+            name=site_meta["name"],
+            emoji=site_meta["emoji"],
+            image=site_meta["image"]
         )
     except Exception as e:
         logger.error(f"Error getting injection site: {e}")
@@ -924,21 +920,21 @@ async def set_injection_site(tool_input: dict[str, Any]) -> InjectionSiteResult 
         if not site_id:
              return ToolError(type="validation_error", message="Falta site_id")
 
-        settings = get_settings()
-        store = DataStore(Path(settings.data.data_dir))
-        
-        # Direct access for simplicity as tool:
-        from app.services.injection_sites import InjectionManager
-        im = InjectionManager(store)
+        from app.services.async_injection_manager import AsyncInjectionManager
+        mgr = AsyncInjectionManager("admin")
         
         # Normalize plan name for manager (rapid -> bolus)
         kind = "basal" if plan == "basal" else "bolus"
         
-        # Set the current site as the "last used" so the rotation continues from here correctly
-        im.set_current_site(kind, site_id)
+        # Set the current site
+        await mgr.set_current_site(kind, site_id)
         
-        # Return the site object to confirm
-        site_meta = im._get_site_from_id(kind, site_id)
+        # Return the site object to confirm (need to refetch if not returned by set)
+        # Actually set_current_site saves it. We can map it manually or fetch it.
+        # AsyncMgr doesn't expose public _get_site_from_id but we can use get_last_site logic
+        # if we know we just set it.
+        # Let's use the helper _get_site_from_id which is stateless in the new class
+        site_meta = mgr._get_site_from_id(kind, site_id) if ":" in site_id else mgr._get_site_from_id(kind, site_id + ":1")
         
         return InjectionSiteResult(
             id=site_meta["id"],
@@ -954,33 +950,28 @@ async def set_injection_site(tool_input: dict[str, Any]) -> InjectionSiteResult 
 
 async def get_last_injection_site(tool_input: dict[str, Any]) -> InjectionSiteResult | ToolError:
     try:
-        # Load store
-        settings = get_settings()
-        data_path = Path(settings.data.data_dir)
-        store = DataStore(data_path)
-        rotator = RotationService(store)
+        from app.services.async_injection_manager import AsyncInjectionManager
         
-        engine = get_engine()
-        user_id = "admin"
-        if engine:
-             async with AsyncSession(engine) as session:
-                  user_id = await _resolve_user_id(session)
-
-        # We can detect plan from input if needed, but default to rapid for now
+        # Determine plan
         plan = tool_input.get("plan", "rapid")
-        site = rotator.get_last_site_preview(user_id, plan=plan)
+        kind = "bolus" if plan == "rapid" else "basal"
+        
+        mgr = AsyncInjectionManager("admin")
+        
+        # Get LAST site
+        site_meta = await mgr.get_last_site(kind)
         
         # Debug logging for sync issues
-        logger.info(f"[Bot] get_last_injection_site: data_dir={data_path}, plan={plan}, last_site={site.id if site else 'None'}")
+        logger.info(f"[Bot] get_last_injection_site: plan={plan}, last_site={site_meta.get('id') if site_meta else 'None'}")
         
-        if not site:
-             return ToolError(type="not_found", message="No hay registros de inyecciones previas.")
+        if not site_meta:
+             return ToolError(type="not_found", message="No hay registros de inyecciones previas en DB.")
 
         return InjectionSiteResult(
-            id=site.id,
-            name=site.name,
-            emoji=site.emoji,
-            image=site.image_ref
+            id=site_meta["id"],
+            name=site_meta["name"],
+            emoji=site_meta["emoji"],
+            image=site_meta["image"]
         )
     except Exception as e:
         logger.error(f"Error getting last injection site: {e}")

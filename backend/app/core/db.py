@@ -145,8 +145,19 @@ async def migrate_schema(conn):
                 updated_at TIMESTAMP,
                 CONSTRAINT uq_user_supply_item UNIQUE (user_id, item_key)
             )
+            )
         """))
 
+        # 8. injection_states
+        await conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS injection_states (
+                user_id VARCHAR NOT NULL,
+                plan VARCHAR NOT NULL,
+                last_used_id VARCHAR NOT NULL,
+                updated_at TIMESTAMP,
+                PRIMARY KEY (user_id, plan)
+            )
+        """))
         
         # Commit changes if using a connection that requires it (begin() usually handles this, but let's be safe)
         await conn.commit()
