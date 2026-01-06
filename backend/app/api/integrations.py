@@ -205,11 +205,13 @@ async def ingest_nutrition(
                         # HealthKit data for same meal usually shares EXACT timestamp down to second
                         if raw_date:
                             if raw_date not in parsed_meals:
-                                parsed_meals[raw_date] = {"c":0.0, "f":0.0, "p":0.0, "fib":0.0, "ts": raw_date}
+                                parsed_meals[raw_date] = {"c":0.0, "f":0.0, "p":0.0, "fib":0.0, "ts": raw_date, "fiber_provided": False}
                             
                             # Add to existing (in case multiple entries for same type/time? unlikely but safe)
                             # Actually, usually unique per type per time.
                             parsed_meals[raw_date][metric_type] += raw_qty
+                            if metric_type == "fib":
+                                parsed_meals[raw_date]["fiber_provided"] = True
         
         else:
              # Support for "Type", "Value" flat format (Shortcuts/Raw Export)
@@ -232,9 +234,11 @@ async def ingest_nutrition(
                          ts_key = p_date or datetime.now(timezone.utc).isoformat()
                          
                          if ts_key not in parsed_meals:
-                             parsed_meals[ts_key] = {"c":0.0, "f":0.0, "p":0.0, "fib":0.0, "ts": ts_key}
+                             parsed_meals[ts_key] = {"c":0.0, "f":0.0, "p":0.0, "fib":0.0, "ts": ts_key, "fiber_provided": False}
                          
                          parsed_meals[ts_key][metric_type] += val
+                         if metric_type == "fib":
+                             parsed_meals[ts_key]["fiber_provided"] = True
                          logger.info(f"Parsed Flat Payload: {metric_type}={val} from {p_type}")
                          
                      except ValueError:
@@ -243,14 +247,27 @@ async def ingest_nutrition(
              else:
                  # FALLBACK: Try Direct Flat Keys (Simple JSON / n8n / Shortcuts)
                  norm = normalize_nutrition_payload(payload)
-                 c = float(norm.get("carbs") or 0.0)
-                 f = float(norm.get("fat") or 0.0)
-                 p = float(norm.get("protein") or 0.0)
-                 fib = float(norm.get("fiber") or 0.0)
+                 c_raw = norm.get("carbs")
+                 f_raw = norm.get("fat")
+                 p_raw = norm.get("protein")
+                 fib_raw = norm.get("fiber")
+
+                 c = float(c_raw) if c_raw is not None else 0.0
+                 f = float(f_raw) if f_raw is not None else 0.0
+                 p = float(p_raw) if p_raw is not None else 0.0
+                 fib = float(fib_raw) if fib_raw is not None else None
+                 fiber_provided = fib_raw is not None
                  
-                 if c > 0 or f > 0 or p > 0 or fib > 0:
+                 if c > 0 or f > 0 or p > 0 or (fib is not None and fib > 0):
                      ts_key = norm.get("timestamp") or payload.get("timestamp") or payload.get("created_at") or datetime.now(timezone.utc).isoformat()
-                     parsed_meals[ts_key] = {"c":c, "f":f, "p":p, "fib":fib, "ts": ts_key}
+                     parsed_meals[ts_key] = {
+                         "c": c,
+                         "f": f,
+                         "p": p,
+                         "fib": fib if fib is not None else 0.0,
+                         "ts": ts_key,
+                         "fiber_provided": fiber_provided
+                     }
                      logger.info(f"Parsed Direct Payload: C={c} F={f} P={p} Fib={fib}")
 
         if not parsed_meals:
@@ -320,7 +337,10 @@ async def ingest_nutrition(
                 t_carbs = round(meal["c"], 1)
                 t_fat = round(meal["f"], 1)
                 t_protein = round(meal["p"], 1)
-                t_fiber = round(meal.get("fib", 0), 1)
+                fiber_provided = meal.get("fiber_provided", False)
+                t_fiber_raw = meal.get("fib", 0)
+                t_fiber = round(float(t_fiber_raw or 0), 1)
+                incoming_fiber = t_fiber if fiber_provided else None
                 
                 if t_carbs < 1 and t_fat < 1 and t_protein < 1 and t_fiber < 1: continue
 
@@ -404,7 +424,14 @@ async def ingest_nutrition(
                 existing_strict = result_strict.scalars().first()
                 
                 if existing_strict:
-                     logger.info(f"Skipping import {date_key} - found exact match in history (ID: {existing_strict.id})")
+                     if should_update_fiber(existing_strict.fiber, incoming_fiber):
+                         existing_strict.fiber = float(incoming_fiber)  # type: ignore[arg-type]
+                         session.add(existing_strict)
+                         await session.commit()
+                         saved_ids.append(existing_strict.id)
+                         logger.info("Updated fiber on strict-duplicate nutrition entry %s", existing_strict.id)
+                     else:
+                         logger.info(f"Skipping import {date_key} - found exact match in history (ID: {existing_strict.id})")
                      continue
 
                 # Dedup check
@@ -434,8 +461,8 @@ async def ingest_nutrition(
                     diff_fat = abs(c.fat - t_fat)
                     diff_prot = abs(c.protein - t_protein)
                     if diff_fat < 0.1 and diff_prot < 0.1:
-                        if should_update_fiber(c.fiber, t_fiber):
-                            c.fiber = t_fiber
+                        if should_update_fiber(c.fiber, incoming_fiber):
+                            c.fiber = float(incoming_fiber)  # type: ignore[arg-type]
                             session.add(c)
                             await session.commit()
                             saved_ids.append(c.id)
