@@ -5,15 +5,17 @@ from datetime import datetime, timezone
 
 # --- ZONES CONFIG (Matches Frontend) ---
 # Added: emoji, image for Bot support
+_RAPID_ZONES = [
+    {"id": "abd_l_top", "label": "Abdomen Izquierdo (Arriba)", "count": 3, "emoji": "👈🟣", "image": "body_abdomen.png"},
+    {"id": "abd_l_mid", "label": "Abdomen Izquierdo (Medio)", "count": 3, "emoji": "👈🟣", "image": "body_abdomen.png"},
+    {"id": "abd_l_bot", "label": "Abdomen Izquierdo (Bajo)", "count": 3, "emoji": "👈🟣", "image": "body_abdomen.png"},
+    {"id": "abd_r_top", "label": "Abdomen Derecho (Arriba)", "count": 3, "emoji": "🟣👉", "image": "body_abdomen.png"},
+    {"id": "abd_r_mid", "label": "Abdomen Derecho (Medio)", "count": 3, "emoji": "🟣👉", "image": "body_abdomen.png"},
+    {"id": "abd_r_bot", "label": "Abdomen Derecho (Bajo)", "count": 3, "emoji": "🟣👉", "image": "body_abdomen.png"},
+]
+
 ZONES = {
-    "bolus": [
-        {"id": "abd_l_top", "label": "Abdomen Izquierdo (Arriba)", "count": 3, "emoji": "👈🟣", "image": "body_abdomen.png"},
-        {"id": "abd_l_mid", "label": "Abdomen Izquierdo (Medio)", "count": 3, "emoji": "👈🟣", "image": "body_abdomen.png"},
-        {"id": "abd_l_bot", "label": "Abdomen Izquierdo (Bajo)", "count": 3, "emoji": "👈🟣", "image": "body_abdomen.png"},
-        {"id": "abd_r_top", "label": "Abdomen Derecho (Arriba)", "count": 3, "emoji": "🟣👉", "image": "body_abdomen.png"},
-        {"id": "abd_r_mid", "label": "Abdomen Derecho (Medio)", "count": 3, "emoji": "🟣👉", "image": "body_abdomen.png"},
-        {"id": "abd_r_bot", "label": "Abdomen Derecho (Bajo)", "count": 3, "emoji": "🟣👉", "image": "body_abdomen.png"},
-    ],
+    "rapid": _RAPID_ZONES,
     "basal": [
         {"id": "leg_left", "label": "Muslo Izquierdo", "count": 1, "emoji": "👈🦵", "image": "body_legs.png"},
         {"id": "leg_right", "label": "Muslo Derecho", "count": 1, "emoji": "🦵👉", "image": "body_legs.png"},
@@ -22,16 +24,27 @@ ZONES = {
     ]
 }
 
+# Legacy alias kept for compatibility with old disk state files or callers
+ZONES["bolus"] = ZONES["rapid"]
+
 
 class InjectionManager:
     def __init__(self, store: DataStore):
         self.store = store
         self.filename = "injection_state.json"
+    
+    def _normalize_kind(self, kind: str) -> str:
+        k = (kind or "").lower()
+        if k in ("rapid", "bolus"):
+            return "rapid"
+        if k == "basal":
+            return "basal"
+        raise ValueError(f"Tipo de insulina inválido: {kind}")
         
     def _load_state(self) -> Dict[str, Any]:
         default_state = {
-            "bolus": { "last_used_id": "abd_l_top:1", "source": "auto", "updated_at": None },
-            "basal": { "last_used_id": "glute_right:1", "source": "auto", "updated_at": None }
+            "rapid": { "last_used_id": "abd_l_top:1", "source": "default", "updated_at": None },
+            "basal": { "last_used_id": "glute_right:1", "source": "default", "updated_at": None }
         }
         # LOGGING PROOF: Log the exact path being read
         import logging
@@ -42,12 +55,14 @@ class InjectionManager:
             pass
             
         data = self.store.read_json(self.filename, default_state)
+        if "bolus" in data and "rapid" not in data:
+            data["rapid"] = data.pop("bolus")
         # Backfill missing metadata for backwards compatibility
         for key, defaults in default_state.items():
             data.setdefault(key, {})
             data[key].setdefault("last_used_id", defaults["last_used_id"])
-            data[key].setdefault("source", "auto")
-            data[key].setdefault("updated_at", None)
+            data[key].setdefault("source", defaults["source"])
+            data[key].setdefault("updated_at", defaults["updated_at"])
         return data
 
     def _save_state(self, state: Dict[str, Any]):
@@ -56,7 +71,7 @@ class InjectionManager:
     def get_next_site(self, kind: str = "bolus") -> Dict[str, Any]:
         """Returns NEXT site object."""
         state = self._load_state()
-        key = "basal" if kind.lower() == "basal" else "bolus"
+        key = self._normalize_kind(kind)
         last_id = state.get(key, {}).get("last_used_id")
         
         # Calculate Next
@@ -66,7 +81,7 @@ class InjectionManager:
     def get_last_site(self, kind: str = "bolus") -> Optional[Dict[str, Any]]:
         """Returns LAST site object."""
         state = self._load_state()
-        key = "basal" if kind.lower() == "basal" else "bolus"
+        key = self._normalize_kind(kind)
         last_id = state.get(key, {}).get("last_used_id")
         if not last_id: return None
         return self._get_site_from_id(key, last_id)
@@ -74,7 +89,7 @@ class InjectionManager:
     def rotate_site(self, kind: str = "bolus") -> Dict[str, Any]:
         """Advances rotation and returns new site object."""
         state = self._load_state()
-        key = "basal" if kind.lower() == "basal" else "bolus"
+        key = self._normalize_kind(kind)
         last_id = state.get(key, {}).get("last_used_id")
         
         next_id = self._calc_next(key, last_id)
@@ -95,7 +110,7 @@ class InjectionManager:
         logger = logging.getLogger(__name__)
         
         state = self._load_state()
-        key = "basal" if kind.lower() == "basal" else "bolus"
+        key = self._normalize_kind(kind)
         
         # Validation: If site_id comes without point (e.g. "abd_l_top"), append :1
         if ":" not in site_id:

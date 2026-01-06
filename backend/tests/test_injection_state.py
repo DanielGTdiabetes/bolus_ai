@@ -74,20 +74,20 @@ def test_manual_and_rotate_persistence(client: TestClient):
     assert data_manual["source"] == "manual"
 
     state_after_manual = client.get("/api/injection/state", headers=headers).json()
-    assert state_after_manual["states"]["bolus"]["last_point_id"] == manual_id
-    assert state_after_manual["states"]["bolus"]["source"] == "manual"
+    assert state_after_manual["states"]["rapid"]["last_point_id"] == manual_id
+    assert state_after_manual["states"]["rapid"]["source"] == "manual"
 
     # Rotate rapid (auto) should move forward and mark source auto
     rotate_resp = client.post(
         "/api/injection/rotate",
         headers=headers,
-        json={"type": "rapid"},
+        json={"insulin_type": "rapid"},
     )
     assert rotate_resp.status_code == 200
 
     state_after_rotate = client.get("/api/injection/state", headers=headers).json()
-    assert state_after_rotate["states"]["bolus"]["source"] == "auto"
-    assert state_after_rotate["states"]["bolus"]["last_point_id"] != manual_id
+    assert state_after_rotate["states"]["rapid"]["source"] == "auto"
+    assert state_after_rotate["states"]["rapid"]["last_point_id"] != manual_id
 
     # Manual basal using numeric index should be accepted
     resp_basal_manual = client.post(
@@ -115,5 +115,72 @@ def test_manual_persists_for_full_state(client: TestClient):
     state_resp = client.get("/api/injection/state", headers=headers).json()
     full_resp = client.get("/api/injection/full", headers=headers).json()
 
-    assert state_resp["states"]["bolus"]["last_point_id"] == manual_id
-    assert full_resp["states"]["bolus"]["last_point_id"] == manual_id
+    assert state_resp["states"]["rapid"]["last_point_id"] == manual_id
+    assert full_resp["states"]["rapid"]["last_point_id"] == manual_id
+
+
+def test_manual_round_trip_persists_state(client: TestClient):
+    headers = _auth_headers(client)
+
+    manual_id = "abd_r_top:1"
+    resp_manual = client.post(
+        "/api/injection/manual",
+        headers=headers,
+        json={"insulin_type": "rapid", "point_id": manual_id},
+    )
+    assert resp_manual.status_code == 200
+    payload = resp_manual.json()
+    assert payload["point_id"] == manual_id
+    assert payload["source"] == "manual"
+
+    state = client.get("/api/injection/state", headers=headers).json()
+    assert state["rapid"] == manual_id
+    assert state["states"]["rapid"]["last_point_id"] == manual_id
+    assert state["states"]["rapid"]["source"] == "manual"
+
+
+def test_basal_and_rapid_states_are_independent(client: TestClient):
+    headers = _auth_headers(client)
+
+    basal_id = "glute_left:1"
+    rapid_id = "abd_l_top:2"
+
+    assert (
+        client.post(
+            "/api/injection/manual",
+            headers=headers,
+            json={"insulin_type": "basal", "point_id": basal_id},
+        ).status_code
+        == 200
+    )
+    assert (
+        client.post(
+            "/api/injection/manual",
+            headers=headers,
+            json={"insulin_type": "rapid", "point_id": rapid_id},
+        ).status_code
+        == 200
+    )
+
+    state = client.get("/api/injection/state", headers=headers).json()
+    assert state["states"]["basal"]["last_point_id"] == basal_id
+    assert state["states"]["rapid"]["last_point_id"] == rapid_id
+
+
+def test_bolus_alias_maps_to_rapid(client: TestClient):
+    headers = _auth_headers(client)
+
+    rapid_id = "abd_r_mid:3"
+    resp_manual = client.post(
+        "/api/injection/manual",
+        headers=headers,
+        json={"insulin_type": "bolus", "point_id": rapid_id},
+    )
+    assert resp_manual.status_code == 200
+    data = resp_manual.json()
+    assert data["point_id"] == rapid_id
+    assert data["insulin_type"] == "rapid"
+
+    state = client.get("/api/injection/state", headers=headers).json()
+    assert state["states"]["rapid"]["last_point_id"] == rapid_id
+    assert "bolus" not in state["states"]

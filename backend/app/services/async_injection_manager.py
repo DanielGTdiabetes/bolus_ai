@@ -34,12 +34,33 @@ class AsyncInjectionManager:
             self._fallback_mgr = None
         return self._fallback_mgr
         
+    def _normalize_kind(self, kind: str) -> str:
+        key = (kind or "").lower()
+        if key in ("rapid", "bolus"):
+            return "rapid"
+        if key == "basal":
+            return "basal"
+        raise ValueError(f"Invalid insulin type: {kind}")
+
     def _empty_state(self) -> Dict[str, Any]:
-        now_iso = datetime.now(timezone.utc).isoformat()
         return {
-            "bolus": { "last_used_id": "abd_l_top:1", "source": "auto", "updated_at": now_iso },
-            "basal": { "last_used_id": "glute_right:1", "source": "auto", "updated_at": now_iso }
+            "rapid": { "last_used_id": "abd_l_top:1", "source": "default", "updated_at": None },
+            "basal": { "last_used_id": "glute_right:1", "source": "default", "updated_at": None }
         }
+
+    def _canonicalize_state(self, raw_state: Dict[str, Any]) -> Dict[str, Any]:
+        base = self._empty_state()
+        for raw_key, payload in (raw_state or {}).items():
+            try:
+                key = self._normalize_kind(raw_key)
+            except ValueError:
+                continue
+            base[key].update({
+                "last_used_id": payload.get("last_used_id", base[key]["last_used_id"]),
+                "source": payload.get("source", base[key]["source"]),
+                "updated_at": payload.get("updated_at", base[key]["updated_at"]),
+            })
+        return base
 
     async def get_state(self) -> Dict[str, Any]:
         """Loads state from DB, falls back to defaults."""
@@ -49,7 +70,7 @@ class AsyncInjectionManager:
         if not engine:
             fallback = self._get_fallback_mgr()
             if fallback:
-                return fallback._load_state()
+                return self._canonicalize_state(fallback._load_state())
             return state
             
         async with AsyncSession(engine) as session:
@@ -58,10 +79,13 @@ class AsyncInjectionManager:
                 result = await session.execute(stmt)
                 rows = result.scalars().all()
                 for row in rows:
-                    if row.plan in state:
-                        state[row.plan]["last_used_id"] = row.last_used_id
-                        state[row.plan]["source"] = (row.source or "auto")
-                        state[row.plan]["updated_at"] = row.updated_at.isoformat() if row.updated_at else None
+                    try:
+                        key = self._normalize_kind(row.plan)
+                    except ValueError:
+                        continue
+                    state[key]["last_used_id"] = row.last_used_id
+                    state[key]["source"] = (row.source or "auto")
+                    state[key]["updated_at"] = row.updated_at.isoformat() if row.updated_at else None
             except Exception as e:
                 logger.error(f"Failed to load injection state from DB: {e}")
                 
@@ -69,7 +93,7 @@ class AsyncInjectionManager:
 
     def _validate_site_id(self, kind: str, site_id: str) -> str:
         """Validate/normalize against known zones. Supports numeric indices."""
-        key = "basal" if kind.lower() == "basal" else "bolus"
+        key = self._normalize_kind(kind)
         zones = ZONES[key]
         raw = str(site_id).strip()
         if not raw:
@@ -108,12 +132,13 @@ class AsyncInjectionManager:
 
     async def _save_plan_site(self, plan: str, site_id: str, source: str):
         """Saves a single plan's site to DB or fallback store."""
+        plan_key = self._normalize_kind(plan)
         engine = get_engine()
         if not engine:
             fallback = self._get_fallback_mgr()
             if not fallback:
                 raise RuntimeError("Database engine not available for AsyncInjectionManager")
-            fallback.set_current_site(plan, site_id, source=source)
+            fallback.set_current_site(plan_key, site_id, source=source)
             return
             
         async with AsyncSession(engine) as session:
@@ -126,9 +151,15 @@ class AsyncInjectionManager:
             else:
                 from sqlalchemy import insert as dialect_insert
 
+            if plan_key == "rapid":
+                await session.execute(
+                    "DELETE FROM injection_states WHERE user_id=:user_id AND plan=:plan",
+                    {"user_id": self.user_id, "plan": "bolus"},
+                )
+
             stmt = dialect_insert(InjectionState).values(
                 user_id=self.user_id,
-                plan=plan,
+                plan=plan_key,
                 last_used_id=site_id,
                 source=source,
                 updated_at=datetime.now(timezone.utc)
@@ -159,7 +190,7 @@ class AsyncInjectionManager:
 
     async def get_next_site(self, kind: str = "bolus") -> Dict[str, Any]:
         engine = get_engine()
-        key = "basal" if kind.lower() == "basal" else "bolus"
+        key = self._normalize_kind(kind)
         if not engine:
             fallback = self._get_fallback_mgr()
             if fallback:
@@ -171,7 +202,7 @@ class AsyncInjectionManager:
 
     async def get_last_site(self, kind: str = "bolus") -> Optional[Dict[str, Any]]:
         engine = get_engine()
-        key = "basal" if kind.lower() == "basal" else "bolus"
+        key = self._normalize_kind(kind)
         if not engine:
             fallback = self._get_fallback_mgr()
             if fallback:
@@ -183,7 +214,7 @@ class AsyncInjectionManager:
 
     async def rotate_site(self, kind: str = "bolus") -> Dict[str, Any]:
         engine = get_engine()
-        key = "basal" if kind.lower() == "basal" else "bolus"
+        key = self._normalize_kind(kind)
         if not engine:
             fallback = self._get_fallback_mgr()
             if fallback:
@@ -200,7 +231,7 @@ class AsyncInjectionManager:
 
     async def set_current_site(self, kind: str, site_id: str, source: str = "manual"):
         """Manual set from Frontend."""
-        key = "basal" if kind.lower() == "basal" else "bolus"
+        key = self._normalize_kind(kind)
         normalized = self._validate_site_id(key, site_id)
         engine = get_engine()
         if not engine:

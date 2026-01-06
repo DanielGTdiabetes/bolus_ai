@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, field_validator
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Literal
 
 from app.core.security import auth_required
 from app.services.async_injection_manager import AsyncInjectionManager
@@ -9,16 +9,16 @@ from app.services.async_injection_manager import AsyncInjectionManager
 router = APIRouter()
 
 class InjectionPointState(BaseModel):
-    insulin_type: str
+    insulin_type: Literal["rapid", "basal"]
     last_point_id: str
     suggested_point_id: Optional[str] = None
     source: str = "auto"
     updated_at: Optional[str] = None
 
 class InjectionStateResponse(BaseModel):
-    bolus: str 
-    basal: str 
-    next_bolus: Optional[str] = None 
+    rapid: str
+    basal: str
+    next_rapid: Optional[str] = None
     next_basal: Optional[str] = None
     states: Dict[str, InjectionPointState]
 
@@ -35,48 +35,65 @@ class ManualInjectionRequest(BaseModel):
         return val
 
 class RotateRequest(BaseModel):
-    type: str # "bolus" (rapid) or "basal"
+    insulin_type: str = Field(pattern="^(basal|rapid|bolus)$", alias="type")  # "rapid" (bolus alias) or "basal"
     target: Optional[str] = None # Optional manual override
+    model_config = {"populate_by_name": True}
+
+    @field_validator("insulin_type")
+    @classmethod
+    def _normalize_type(cls, v: str) -> str:
+        val = v.lower()
+        if val == "bolus":
+            return "rapid"
+        return val
 
 async def _build_state_payload(mgr: AsyncInjectionManager) -> Dict[str, Any]:
     state = await mgr.get_state()
-    bolus_id = state.get("bolus", {}).get("last_used_id", "abd_l_top:1")
-    basal_id = state.get("basal", {}).get("last_used_id", "glute_right:1")
+    rapid_state = state.get("rapid") or {}
+    basal_state = state.get("basal") or {}
+
+    rapid_id = rapid_state.get("last_used_id")
+    basal_id = basal_state.get("last_used_id")
+
+    if not rapid_id:
+        rapid_id = "abd_l_top:1"
+    if not basal_id:
+        basal_id = "glute_right:1"
     
     # Calculate Next explicitly
     try:
-        n_bolus = await mgr.get_next_site("bolus")
+        n_rapid = await mgr.get_next_site("rapid")
         n_basal = await mgr.get_next_site("basal")
-        next_bolus_id = n_bolus["id"] if n_bolus else None
+        next_rapid_id = n_rapid["id"] if n_rapid else None
         next_basal_id = n_basal["id"] if n_basal else None
     except:
-        next_bolus_id = None
+        next_rapid_id = None
         next_basal_id = None
 
     resp_states = {
-        "bolus": {
+        "rapid": {
             "insulin_type": "rapid",
-            "last_point_id": bolus_id,
-            "suggested_point_id": next_bolus_id,
-            "source": state.get("bolus", {}).get("source", "auto"),
-            "updated_at": state.get("bolus", {}).get("updated_at"),
+            "last_point_id": rapid_id,
+            "suggested_point_id": next_rapid_id,
+            "source": rapid_state.get("source", "default" if not rapid_state else "auto"),
+            "updated_at": rapid_state.get("updated_at"),
         },
         "basal": {
             "insulin_type": "basal",
             "last_point_id": basal_id,
             "suggested_point_id": next_basal_id,
-            "source": state.get("basal", {}).get("source", "auto"),
-            "updated_at": state.get("basal", {}).get("updated_at"),
+            "source": basal_state.get("source", "default" if not basal_state else "auto"),
+            "updated_at": basal_state.get("updated_at"),
         }
     }
 
     return {
-        "bolus": bolus_id, 
+        "rapid": rapid_id,
         "basal": basal_id,
-        "next_bolus": next_bolus_id,
+        "next_rapid": next_rapid_id,
         "next_basal": next_basal_id,
         "states": resp_states,
-        "source": resp_states.get("bolus", {}).get("source")  # legacy: keep a simple source key if used elsewhere
+        "source": resp_states.get("rapid", {}).get("source")  # legacy: keep a simple source key if used elsewhere
     }
 
 @router.get("/state", response_model=InjectionStateResponse)
@@ -104,12 +121,17 @@ async def set_manual_injection(payload: ManualInjectionRequest, _: str = Depends
     logger = logging.getLogger(__name__)
 
     mgr = AsyncInjectionManager("admin")
-    kind = "bolus" if payload.insulin_type == "rapid" else payload.insulin_type
+    kind = payload.insulin_type
 
     try:
         normalized = await mgr.set_current_site(kind, payload.point_id, source="manual")
         state = await mgr.get_state()
-        last_state = state.get(kind, {})
+        saved = state.get(kind, {}).get("last_used_id")
+
+        if saved != normalized:
+            logger.critical(f"[API /manual] CRITICAL PERSISTENCE FAILURE. Expected {normalized}, got {saved}")
+            raise HTTPException(status_code=500, detail="DB Write Failed. Persistence mismatch")
+
         suggested = None
         try:
             suggested_site = await mgr.get_next_site(kind)
@@ -120,12 +142,12 @@ async def set_manual_injection(payload: ManualInjectionRequest, _: str = Depends
         resp = {
             "ok": True,
             "insulin_type": payload.insulin_type,
-            "point_id": normalized,
-            "updated_at": last_state.get("updated_at"),
+            "point_id": saved,
+            "updated_at": state.get(kind, {}).get("updated_at"),
             "source": "manual",
             "suggested_point_id": suggested
         }
-        logger.info(f"[API /manual] Set manual site {kind} -> {normalized}")
+        logger.info(f"[API /manual] Set manual site {kind} -> {saved}")
         return JSONResponse(content=resp)
     except ValueError as ve:
         logger.warning(f"[API /manual] Validation failed: {ve}")
@@ -140,22 +162,23 @@ async def rotate_injection_site(payload: RotateRequest, _: str = Depends(auth_re
     import logging
     logger = logging.getLogger(__name__)
     
-    logger.info(f"[API /rotate] Received request: type={payload.type}, target={payload.target}")
+    logger.info(f"[API /rotate] Received request: type={payload.insulin_type}, target={payload.target}")
     
     mgr = AsyncInjectionManager("admin")
     
-    kind = "bolus" if payload.type == "rapid" else payload.type
+    kind = payload.insulin_type
     
     try:
+        expected_id = None
         if payload.target:
             # Explicit rotate to target but marked as auto (back-compat)
             logger.info(f"[API /rotate] Setting site via rotate (auto source): {kind} -> {payload.target}")
-            target_id = await mgr.set_current_site(kind, payload.target, source="auto")
+            expected_id = await mgr.set_current_site(kind, payload.target, source="auto")
         else:
             # Auto Rotate
             logger.info(f"[API /rotate] Auto rotating: {kind}")
             rotated = await mgr.rotate_site(kind)
-            target_id = rotated.get("id") if rotated else None
+            expected_id = rotated.get("id") if rotated else None
             
         # VERIFICATION (Read-After-Write)
         verify_state = await mgr.get_state()
@@ -163,11 +186,9 @@ async def rotate_injection_site(payload: RotateRequest, _: str = Depends(auth_re
         
         logger.info(f"[API /rotate] VERIFY DB: Expected ~ {payload.target if payload.target else 'rotated'}, Got {saved_val}")
         
-        if payload.target:
-            normalized_target = target_id
-            if saved_val != normalized_target:
-                logger.error(f"❌ CRITICAL PERSISTENCE FAILURE. DB has {saved_val}, wanted {normalized_target}")
-                raise HTTPException(status_code=500, detail=f"DB Write Failed. Got {saved_val}")
+        if expected_id and saved_val != expected_id:
+            logger.error(f"❌ CRITICAL PERSISTENCE FAILURE. DB has {saved_val}, wanted {expected_id}")
+            raise HTTPException(status_code=500, detail=f"DB Write Failed. Got {saved_val}")
 
         logger.info(f"[API /rotate] Done. Persistence Verified.")
         
@@ -175,7 +196,7 @@ async def rotate_injection_site(payload: RotateRequest, _: str = Depends(auth_re
             "status": "ok",
             "verified": saved_val,
             "source": "auto",
-            "insulin_type": payload.type,
+            "insulin_type": payload.insulin_type,
             "point_id": saved_val
         })
         resp.headers["X-Persist-Status"] = "Verified"
@@ -193,6 +214,6 @@ async def rotate_legacy(type: str, target: str, _: str = Depends(auth_required))
     logger.info(f"[API /rotate-legacy] GET Request: type={type}, target={target}")
     
     mgr = AsyncInjectionManager("admin")
-    kind = "bolus" if type == "rapid" else type
+    kind = "rapid" if type in ("rapid", "bolus") else "basal"
     await mgr.set_current_site(kind, target, source="manual")
     return {"status": "ok", "method": "GET"}
