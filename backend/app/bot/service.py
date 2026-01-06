@@ -1623,7 +1623,12 @@ async def on_draft_updated(username: str, draft: Any, action: str) -> None:
     msg_txt = f"📝 **Comida en curso**\n\nActualizado: {macros_txt}\nEstado: **{action.upper()}**\n\nSigo esperando más datos..."
     
     # Inline Button to Close directly
-    kb = [[InlineKeyboardButton("✅ Confirmar Ahora", callback_data=f"draft_confirm|{username}")]]
+    kb = [
+        [
+            InlineKeyboardButton("✅ Confirmar Ahora", callback_data=f"draft_confirm|{username}"),
+            InlineKeyboardButton("❌ Descartar", callback_data=f"draft_discard|{username}")
+        ]
+    ]
     
     try:
         await bot_send(
@@ -2178,6 +2183,23 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         except Exception as e:
             logger.error(f"Draft confirm error: {e}")
             await query.edit_message_text(f"Error al confirmar: {e}")
+        return
+
+    # --- Draft Discard ---
+    if data.startswith("draft_discard|"):
+        try:
+            target_user = data.split("|")[1]
+            from app.services.nutrition_draft_service import NutritionDraftService
+            
+            engine = get_engine()
+            if engine:
+                 async with AsyncSession(engine) as session:
+                     await NutritionDraftService.discard_draft(target_user, session)
+                     await session.commit()
+                     await query.edit_message_text("🗑️ **Borrador Descartado**")
+        except Exception as e:
+            logger.error(f"Draft discard error: {e}")
+            await query.edit_message_text(f"Error al descartar: {e}")
         return
 
     # --- Autosens Flow ---
