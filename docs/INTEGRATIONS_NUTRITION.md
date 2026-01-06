@@ -28,3 +28,11 @@ curl -X POST "https://bolus-ai-1.onrender.com/api/integrations/nutrition" \
 ## Notas de deduplicación
 - Dos eventos con mismo timestamp y macros pero fibra distinta se actualizan (no se descartan).
 - Eventos con fibra ≥ 1 g se guardan aunque los demás macros sean 0.
+
+## Nuevo Sistema: Comida en Curso (Draft)
+
+Las peticiones recibidas por este endpoint ya NO crean un tratamiento (bolus) inmediatamente si están dentro de la ventana de agrupación.
+En su lugar, entran en un "Borrador" (`NutritionDraft`) que acumula las actualizaciones.
+El usuario debe confirmar la comida ("Cerrar Draft") a través del Bot o la App para que se guarde como tratamiento final.
+
+Ver [NUTRICION_DRAFT_FLOW.md](./NUTRICION_DRAFT_FLOW.md) para más detalles.

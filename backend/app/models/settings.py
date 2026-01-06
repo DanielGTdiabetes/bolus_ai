@@ -394,7 +394,7 @@ class UserSettingsDB(Base):
     user_id: Mapped[str] = mapped_column(String, primary_key=True)
     
     # Stores the JSON blob validated by UserSettings Pydantic model
-    settings: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    settings: Mapped[dict] = mapped_column(JSON().with_variant(JSONB, "postgresql"), nullable=False)
     
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     

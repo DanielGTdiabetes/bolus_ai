@@ -2,7 +2,7 @@
 import uuid
 from datetime import datetime, date as dt_date
 from typing import Optional, Any
-from sqlalchemy import String, Float, Integer, DateTime, Date, Boolean, UniqueConstraint
+from sqlalchemy import String, Float, Integer, DateTime, Date, Boolean, UniqueConstraint, JSON
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.dialects.postgresql import JSONB
 
@@ -74,7 +74,7 @@ class BasalAdviceDaily(Base):
     advice_date: Mapped[dt_date] = mapped_column(Date, nullable=False)
     
     message: Mapped[str] = mapped_column(String, nullable=False)
-    flags: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    flags: Mapped[dict[str, Any]] = mapped_column(JSON().with_variant(JSONB, "postgresql"), nullable=False)
     
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 
@@ -99,6 +99,6 @@ class BasalChangeEvaluation(Base):
     
     result: Mapped[str] = mapped_column(String, nullable=False)
     summary: Mapped[str] = mapped_column(String, nullable=False)
-    evidence: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    evidence: Mapped[dict[str, Any]] = mapped_column(JSON().with_variant(JSONB, "postgresql"), nullable=False)
     
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)

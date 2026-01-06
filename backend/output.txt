@@ -1,0 +1,162 @@
+============================= test session starts =============================
+platform win32 -- Python 3.14.0, pytest-8.4.2, pluggy-1.6.0
+rootdir: D:\bolus_ai\bolus_ai\backend
+configfile: pytest.ini
+plugins: anyio-4.11.0, asyncio-1.3.0
+asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 3 items
+
+tests\test_nutrition_draft.py FFF                                        [100%]
+
+================================== FAILURES ===================================
+___________________________ test_draft_lifecycle_db ___________________________
+
+async_session = <sqlalchemy.orm.session.AsyncSession object at 0x000001B3AD86A270>
+
+    @pytest.mark.asyncio
+    async def test_draft_lifecycle_db(async_session):
+        user = "test_user_db"
+    
+        # 1. Create
+        draft, action = await NutritionDraftService.update_draft(user, 10.0, 5.0, 2.0, 1.0, async_session)
+        assert action == "created"
+        assert draft.carbs == 10.0
+        assert draft.fiber == 1.0
+    
+        # Check DB directly
+        from sqlalchemy import select
+        stmt = select(NutritionDraftDB).where(NutritionDraftDB.user_id == user)
+        row = (await async_session.execute(stmt)).scalars().first()
+        assert row is not None
+        assert row.carbs == 10.0
+    
+        # 2. Add Small (Dessert) -> 5g Carbs
+>       draft, action = await NutritionDraftService.update_draft(user, 5.0, 0, 0, 0, async_session)
+                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests\test_nutrition_draft.py:48: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+user_id = 'test_user_db', new_c = 5.0, new_f = 0, new_p = 0, new_fib = 0
+session = <sqlalchemy.orm.session.AsyncSession object at 0x000001B3AD86A270>
+
+    @staticmethod
+    async def update_draft(user_id: str, new_c: float, new_f: float, new_p: float, new_fib: float, session: Any) -> Tuple[NutritionDraft, str]:
+        """
+        Returns (Draft, action_taken)
+        action_taken: 'created', 'updated_replace', 'updated_add'
+        """
+        from app.models.draft_db import NutritionDraftDB
+        from sqlalchemy import select
+    
+        # Config
+        try:
+            window_min = int(os.environ.get("NUTRITION_DRAFT_WINDOW_MIN", 30))
+        except:
+            window_min = 30
+    
+        now = datetime.now(timezone.utc)
+        expiry = now + timedelta(minutes=window_min)
+    
+        # Fetch Active
+        stmt = select(NutritionDraftDB).where(NutritionDraftDB.user_id == user_id, NutritionDraftDB.status == "active")
+        res = await session.execute(stmt)
+        current_db = res.scalars().first()
+    
+        # Check Expiry of existing
+>       if current_db and current_db.expires_at < now:
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       TypeError: can't compare offset-naive and offset-aware datetimes
+
+app\services\nutrition_draft_service.py:158: TypeError
+____________________________ test_draft_expiry_db _____________________________
+
+async_session = <sqlalchemy.orm.session.AsyncSession object at 0x000001B3AD86B770>
+
+    @pytest.mark.asyncio
+    async def test_draft_expiry_db(async_session):
+        user = "u2_db"
+        with patch.dict(os.environ, {"NUTRITION_DRAFT_WINDOW_MIN": "1"}):
+            draft, _ = await NutritionDraftService.update_draft(user, 10, 0, 0, 0, async_session)
+            assert draft is not None
+    
+            # Manually age it in DB
+            from sqlalchemy import update
+            stmt = update(NutritionDraftDB).where(NutritionDraftDB.user_id == user).values(
+                expires_at=datetime.now(timezone.utc) - timedelta(minutes=5)
+            )
+            await async_session.execute(stmt)
+            await async_session.commit()
+    
+            # Fetch should return None
+>           d2 = await NutritionDraftService.get_draft(user, async_session)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests\test_nutrition_draft.py:96: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+user_id = 'u2_db'
+session = <sqlalchemy.orm.session.AsyncSession object at 0x000001B3AD86B770>
+
+    @staticmethod
+    async def get_draft(user_id: str, session: Any) -> Optional[NutritionDraft]:
+        from app.models.draft_db import NutritionDraftDB
+        from sqlalchemy import select
+    
+        # Async query
+        stmt = select(NutritionDraftDB).where(NutritionDraftDB.user_id == user_id, NutritionDraftDB.status == "active")
+        res = await session.execute(stmt)
+        draft_db = res.scalars().first()
+    
+        if not draft_db:
+            return None
+    
+        # Check expiry
+        now = datetime.now(timezone.utc)
+>       if draft_db.expires_at < now:
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+E       TypeError: can't compare offset-naive and offset-aware datetimes
+
+app\services\nutrition_draft_service.py:56: TypeError
+_______________________________ test_discard_db _______________________________
+
+async_session = <sqlalchemy.orm.session.AsyncSession object at 0x000001B3AD938AD0>
+
+    @pytest.mark.asyncio
+    async def test_discard_db(async_session):
+        user = "u3_db"
+        await NutritionDraftService.update_draft(user, 10, 0, 0, 0, async_session)
+>       assert (await NutritionDraftService.get_draft(user, async_session)) is not None
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests\test_nutrition_draft.py:103: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+user_id = 'u3_db'
+session = <sqlalchemy.orm.session.AsyncSession object at 0x000001B3AD938AD0>
+
+    @staticmethod
+    async def get_draft(user_id: str, session: Any) -> Optional[NutritionDraft]:
+        from app.models.draft_db import NutritionDraftDB
+        from sqlalchemy import select
+    
+        # Async query
+        stmt = select(NutritionDraftDB).where(NutritionDraftDB.user_id == user_id, NutritionDraftDB.status == "active")
+        res = await session.execute(stmt)
+        draft_db = res.scalars().first()
+    
+        if not draft_db:
+            return None
+    
+        # Check expiry
+        now = datetime.now(timezone.utc)
+>       if draft_db.expires_at < now:
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+E       TypeError: can't compare offset-naive and offset-aware datetimes
+
+app\services\nutrition_draft_service.py:56: TypeError
+=========================== short test summary info ===========================
+FAILED tests/test_nutrition_draft.py::test_draft_lifecycle_db - TypeError: ca...
+FAILED tests/test_nutrition_draft.py::test_draft_expiry_db - TypeError: can't...
+FAILED tests/test_nutrition_draft.py::test_discard_db - TypeError: can't comp...
+============================== 3 failed in 0.41s ==============================

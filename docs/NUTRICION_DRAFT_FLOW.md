@@ -7,7 +7,7 @@ Resultado anterior: Se creaban 2 eventos separados (Bolo, luego otro Bolo?).
 Resultado deseado: Unificar en una sola "Comida en curso".
 
 ## Solución: Buffer / Draft
-El backend intercepta las actualizaciones recientes (< 45 min) y las almacena en un fichero temporal (`nutrition_drafts.json`).
+El backend intercepta las actualizaciones recientes (definido por variable de entorno) y las almacena en la base de datos (`nutrition_drafts`).
 El Bot notifica que hay una "Comida en curso" y espera confirmación manual.
 
 ### Reglas de Merge (Unificación)

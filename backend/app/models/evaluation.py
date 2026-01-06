@@ -23,7 +23,7 @@ class SuggestionEvaluation(Base):
     result: Mapped[str] = mapped_column(String, nullable=True) 
     
     summary: Mapped[str] = mapped_column(String, nullable=True)
-    evidence: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=True)
+    evidence: Mapped[dict[str, Any]] = mapped_column(JSON().with_variant(JSONB, "postgresql"), nullable=True)
     
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
     evaluated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)

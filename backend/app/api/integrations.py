@@ -448,8 +448,9 @@ async def ingest_nutrition(
                 if is_recent_draft_candidate:
                     logger.info(f"Routing meal to Draft (Carbs={t_carbs}, Recency={force_now or age_seconds})")
                     from app.services.nutrition_draft_service import NutritionDraftService
-                    draft, action = NutritionDraftService.update_draft(
-                        username, t_carbs, t_fat, t_protein, t_fiber
+                    # Pass session now
+                    draft, action = await NutritionDraftService.update_draft(
+                        username, t_carbs, t_fat, t_protein, t_fiber, session
                     )
                     
                     # Notify Bot
@@ -606,9 +607,10 @@ async def ingest_nutrition(
 @router.get("/nutrition/draft", summary="Get active nutrition draft")
 async def get_nutrition_draft(
     user: CurrentUser = Depends(get_current_user), # Require Auth
+    session: AsyncSession = Depends(get_db_session)
 ):
     from app.services.nutrition_draft_service import NutritionDraftService
-    draft = NutritionDraftService.get_draft(user.username) # user.username might be user_id
+    draft = await NutritionDraftService.get_draft(user.username, session) # user.username might be user_id
     if not draft:
         return {"active": False}
     
@@ -631,11 +633,13 @@ async def close_nutrition_draft(
     from app.services.nutrition_draft_service import NutritionDraftService
     
     # 1. Close draft -> Treatment
-    treatment = NutritionDraftService.close_draft_to_treatment(user.username)
+    treatment = await NutritionDraftService.close_draft_to_treatment(user.username, session)
     if not treatment:
         raise HTTPException(404, "No active draft")
     
     # 2. Save Treatment to DB
+    # close_draft_to_treatment added draft update to session but didn't commit for atomicity with treatment save.
+    # Treatment is not added to session yet.
     try:
         session.add(treatment)
         await session.commit()
@@ -658,7 +662,8 @@ async def close_nutrition_draft(
 @router.post("/nutrition/draft/discard", summary="Discard draft")
 async def discard_nutrition_draft(
     user: CurrentUser = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db_session)
 ):
     from app.services.nutrition_draft_service import NutritionDraftService
-    NutritionDraftService.discard_draft(user.username)
+    await NutritionDraftService.discard_draft(user.username, session)
     return {"success": True}

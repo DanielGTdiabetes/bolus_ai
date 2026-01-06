@@ -19,7 +19,7 @@ class ParameterSuggestion(Base):
     direction: Mapped[str] = mapped_column(String, nullable=False) # increase|decrease|review
     
     reason: Mapped[str] = mapped_column(String, nullable=False)
-    evidence: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    evidence: Mapped[dict[str, Any]] = mapped_column(JSON().with_variant(JSONB, "postgresql"), nullable=False)
     
     status: Mapped[str] = mapped_column(String, nullable=False, default="pending") # pending|accepted|rejected
     

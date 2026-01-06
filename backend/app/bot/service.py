@@ -2156,25 +2156,24 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             target_user = data.split("|")[1]
             from app.services.nutrition_draft_service import NutritionDraftService
             
-            # Close Draft
-            treatment = NutritionDraftService.close_draft_to_treatment(target_user)
-            if treatment:
-                # Save to DB
-                engine = get_engine()
-                if engine:
-                     async with AsyncSession(engine) as session:
+            engine = get_engine()
+            if engine:
+                 async with AsyncSession(engine) as session:
+                     # Close Draft (DB)
+                     treatment = await NutritionDraftService.close_draft_to_treatment(target_user, session)
+                     if treatment:
                          session.add(treatment)
                          await session.commit()
-                
-                await query.edit_message_text(f"✅ **Borrador Confirmado**\n{treatment.notes}")
-                
-                # Handover to standard New Meal flow
-                await on_new_meal_received(
-                    treatment.carbs, treatment.fat, treatment.protein, treatment.fiber, 
-                    "draft_confirm", origin_id=treatment.id
-                )
-            else:
-                await query.edit_message_text("❌ No hay borrador activo o ya expiró.")
+                         
+                         await query.edit_message_text(f"✅ **Borrador Confirmado**\n{treatment.notes}")
+                         
+                         # Handover to standard New Meal flow
+                         await on_new_meal_received(
+                            treatment.carbs, treatment.fat, treatment.protein, treatment.fiber, 
+                            "draft_confirm", origin_id=treatment.id
+                         )
+                     else:
+                        await query.edit_message_text("❌ No hay borrador activo o ya expiró.")
                 
         except Exception as e:
             logger.error(f"Draft confirm error: {e}")

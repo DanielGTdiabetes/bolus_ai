@@ -4,7 +4,8 @@ import { BottomNav } from '../components/layout/BottomNav';
 import { Card, Button } from '../components/ui/Atoms';
 import { useInterval } from '../hooks/useInterval';
 import {
-    getCurrentGlucose, getIOBData, fetchTreatments, getLocalNsConfig, getGlucoseEntries, apiFetch, toJson, saveTreatment, recalcSecondBolus
+    getCurrentGlucose, getIOBData, fetchTreatments, getLocalNsConfig, getGlucoseEntries, apiFetch, toJson, saveTreatment, recalcSecondBolus,
+    getNutritionDraft, closeNutritionDraft, discardNutritionDraft
 } from '../lib/api';
 import { formatTrend, formatNotes } from '../modules/core/utils';
 import { navigate } from '../modules/core/router';
@@ -444,6 +445,89 @@ function RestaurantActivePanel() {
     );
 }
 
+function NutritionDraftPanel() {
+    const [draft, setDraft] = useState(null);
+    const [loading, setLoading] = useState(false);
+
+    const checkDraft = async () => {
+        try {
+            const d = await getNutritionDraft();
+            setDraft(d || null);
+        } catch {
+            setDraft(null);
+        }
+    };
+
+    useInterval(checkDraft, 10000); // Check every 10s
+    useEffect(() => { checkDraft(); }, []);
+
+    const handleConfirm = async () => {
+        if (!confirm("¿Confirmar esta comida y calcular bolo?")) return;
+        setLoading(true);
+        try {
+            await closeNutritionDraft();
+            setDraft(null);
+            navigate('#/bolus'); // Go to bolus calculator
+        } catch (e) {
+            alert(e.message);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleDiscard = async () => {
+        if (!confirm("¿Descartar borrador?")) return;
+        setLoading(true);
+        try {
+            await discardNutritionDraft();
+            setDraft(null);
+        } catch (e) {
+            alert(e.message);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    if (!draft) return null;
+
+    return (
+        <section className="card draft-panel" style={{ marginBottom: '1rem', background: '#ecfdf5', borderColor: '#6ee7b7', border: '1px solid #34d399', borderRadius: '12px', padding: '1rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                <h3 style={{ margin: 0, color: '#047857', fontSize: '1rem', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                    📝 Comida en Curso
+                </h3>
+                <div style={{ fontSize: '0.8rem', color: '#059669' }}>
+                    {new Date(draft.updated_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: '10px', marginBottom: '1rem' }}>
+                <div style={{ flex: 1, textAlign: 'center', background: '#fff', borderRadius: '8px', padding: '0.5rem' }}>
+                    <div style={{ fontSize: '1.2rem', fontWeight: 'bold', color: '#059669' }}>{Math.round(draft.carbs)}</div>
+                    <div style={{ fontSize: '0.7rem', color: '#6b7280' }}>Carbs</div>
+                </div>
+                <div style={{ flex: 1, textAlign: 'center', background: '#fff', borderRadius: '8px', padding: '0.5rem' }}>
+                    <div style={{ fontSize: '1.2rem', fontWeight: 'bold', color: '#059669' }}>{Math.round(draft.fat)}</div>
+                    <div style={{ fontSize: '0.7rem', color: '#6b7280' }}>Grasa</div>
+                </div>
+                <div style={{ flex: 1, textAlign: 'center', background: '#fff', borderRadius: '8px', padding: '0.5rem' }}>
+                    <div style={{ fontSize: '1.2rem', fontWeight: 'bold', color: '#059669' }}>{Math.round(draft.protein)}</div>
+                    <div style={{ fontSize: '0.7rem', color: '#6b7280' }}>Prot</div>
+                </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: '10px' }}>
+                <Button onClick={handleDiscard} disabled={loading} size="sm" style={{ flex: 1, background: '#fee2e2', color: '#b91c1c', border: 'none' }}>
+                    Descartar
+                </Button>
+                <Button onClick={handleConfirm} disabled={loading} size="sm" style={{ flex: 2, background: '#10b981', color: '#fff', border: 'none' }}>
+                    Confirmar ahora
+                </Button>
+            </div>
+        </section>
+    );
+}
+
 // U2 Dual Panel Component
 function DualBolusPanel({ onHide, onCancel }) {
     const [plan, setPlan] = useState(null);
@@ -690,6 +774,7 @@ export default function HomePage() {
             />
             <main className="page" style={{ paddingBottom: '90px' }}>
                 <GlucoseHero onRefresh={refreshSignal} />
+                <NutritionDraftPanel />
                 <RestaurantActivePanel />
                 {activePlan && !dualHidden && (
                     <DualBolusPanel

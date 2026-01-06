@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import Optional, List, Dict, Any
 from uuid import uuid4
 
-from sqlalchemy import Column, String, Float, Integer, Boolean, DateTime, ForeignKey, Text
+from sqlalchemy import Column, String, Float, Integer, Boolean, DateTime, ForeignKey, Text, JSON
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
 
@@ -16,7 +16,7 @@ class MealEntry(Base):
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     
     # Content of the meal
-    items = Column(JSONB, nullable=True)  # List of detected food items names/details
+    items = Column(JSON().with_variant(JSONB, "postgresql"), nullable=True)  # List of detected food items names/details
     
     # Quantitative Data
     carbs_g = Column(Float, nullable=False, default=0.0)

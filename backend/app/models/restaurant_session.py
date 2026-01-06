@@ -2,7 +2,7 @@
 import uuid
 from datetime import datetime
 from typing import Optional, Any
-from sqlalchemy import String, Float, Integer, DateTime, UniqueConstraint, Boolean
+from sqlalchemy import String, Float, Integer, DateTime, UniqueConstraint, Boolean, JSON
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.dialects.postgresql import JSONB
 
@@ -26,9 +26,9 @@ class RestaurantSessionV2(Base):
     actual_protein: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
 
     # JSON blobs for flexible schema
-    items_json: Mapped[dict[str, Any]] = mapped_column(JSONB, default={}) # Raw menu items
-    plates_json: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, default=[]) # List of plate analysis results
-    warnings_json: Mapped[list[str]] = mapped_column(JSONB, default=[])
+    items_json: Mapped[dict[str, Any]] = mapped_column(JSON().with_variant(JSONB, "postgresql"), default={}) # Raw menu items
+    plates_json: Mapped[list[dict[str, Any]]] = mapped_column(JSON().with_variant(JSONB, "postgresql"), default=[]) # List of plate analysis results
+    warnings_json: Mapped[list[str]] = mapped_column(JSON().with_variant(JSONB, "postgresql"), default=[])
 
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
     finalized_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
