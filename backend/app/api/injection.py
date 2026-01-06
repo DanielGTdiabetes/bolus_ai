@@ -48,8 +48,9 @@ async def get_injection_state(_: str = Depends(auth_required)):
     })
 
 @router.post("/rotate")
-async def rotate_injection_site(payload: RotateRequest, _: str = Depends(auth_required)):
+async def rotate_injection_site(payload: RotateRequest):
     """Frontend notifies backend of a rotation (manual selection or auto)."""
+    print(f"DEBUG: Entering rotate endpoint with {payload}")
     import logging
     logger = logging.getLogger(__name__)
     
