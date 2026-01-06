@@ -4,7 +4,10 @@ set -o errexit
 
 echo "Building Frontend..."
 cd frontend
-npm install
+# Use npm ci for consistent dependency installation
+npm ci
+# Set Node memory limit to ~2.5GB to prevent OOM on Render build instances
+export NODE_OPTIONS="--max-old-space-size=2560"
 npm run build
 cd ..
 
