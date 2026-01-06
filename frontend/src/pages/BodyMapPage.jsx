@@ -39,19 +39,20 @@ export default function BodyMapPage() {
                     })
                 });
 
+
+                let textBody = "";
+                try {
+                    textBody = await res.text();
+                } catch (readErr) {
+                    textBody = "[Stream Read Error]";
+                }
+
                 let success = false;
                 if (res.ok) {
-                    try {
-                        const json = await res.json();
-                        console.log(`[BodyMap] Synced ${type} site successfully (JSON).`, json);
-                        success = true;
-                    } catch (e) {
-                        const text = await res.text();
-                        console.log(`[BodyMap] Synced ${type} site successfully (Empty/Text). Status: ${res.status}. Body: '${text}'`);
-                        success = true;
-                    }
+                    console.log(`[BodyMap] Sync POST ${res.status}. Response: ${textBody}`);
+                    success = true;
                 } else {
-                    console.warn(`[BodyMap] Sync POST failed with status: ${res.status}`);
+                    console.error(`[BodyMap] Sync POST failed with status: ${res.status}. Body: ${textBody}`);
                 }
 
                 // 2. If POST failed (Ghost response), try GET Fallback

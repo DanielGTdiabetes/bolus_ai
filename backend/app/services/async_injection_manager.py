@@ -45,33 +45,29 @@ class AsyncInjectionManager:
         """Saves a single plan's site to DB."""
         engine = get_engine()
         if not engine:
-            logger.warning("No DB engine, skipping save!")
-            return
+            raise RuntimeError("Database engine not available for AsyncInjectionManager")
             
         async with AsyncSession(engine) as session:
-            try:
-                # Upsert logic
-                stmt = select(InjectionState).where(
-                    InjectionState.user_id == self.user_id,
-                    InjectionState.plan == plan
+            # Upsert logic
+            stmt = select(InjectionState).where(
+                InjectionState.user_id == self.user_id,
+                InjectionState.plan == plan
+            )
+            existing = (await session.execute(stmt)).scalar_one_or_none()
+            
+            if existing:
+                existing.last_used_id = site_id
+                existing.updated_at = datetime.utcnow()
+            else:
+                new_rec = InjectionState(
+                    user_id=self.user_id,
+                    plan=plan,
+                    last_used_id=site_id
                 )
-                existing = (await session.execute(stmt)).scalar_one_or_none()
+                session.add(new_rec)
                 
-                if existing:
-                    existing.last_used_id = site_id
-                    existing.updated_at = datetime.utcnow()
-                else:
-                    new_rec = InjectionState(
-                        user_id=self.user_id,
-                        plan=plan,
-                        last_used_id=site_id
-                    )
-                    session.add(new_rec)
-                    
-                await session.commit()
-                logger.info(f"DB PERSIST: {self.user_id} {plan} -> {site_id}")
-            except Exception as e:
-                logger.error(f"Failed to save injection state to DB: {e}")
+            await session.commit()
+            logger.info(f"DB PERSIST: {self.user_id} {plan} -> {site_id}")
 
     # --- Public Async Methods mirroring the old API ---
 
