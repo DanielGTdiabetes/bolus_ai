@@ -1,4 +1,3 @@
-
 from typing import Dict, Any, Optional, List
 from pathlib import Path
 from sqlalchemy.future import select
@@ -44,8 +43,8 @@ class AsyncInjectionManager:
 
     def _empty_state(self) -> Dict[str, Any]:
         return {
-            "rapid": { "last_used_id": "abd_l_top:1", "source": "default", "updated_at": None },
-            "basal": { "last_used_id": "glute_right:1", "source": "default", "updated_at": None }
+            "rapid": {"last_used_id": None, "source": None, "updated_at": None},
+            "basal": {"last_used_id": None, "source": None, "updated_at": None},
         }
 
     def _canonicalize_state(self, raw_state: Dict[str, Any]) -> Dict[str, Any]:
@@ -56,7 +55,7 @@ class AsyncInjectionManager:
             except ValueError:
                 continue
             base[key].update({
-                "last_used_id": payload.get("last_used_id", base[key]["last_used_id"]),
+                "last_used_id": str(payload.get("last_used_id")) if payload.get("last_used_id") is not None else base[key]["last_used_id"],
                 "source": payload.get("source", base[key]["source"]),
                 "updated_at": payload.get("updated_at", base[key]["updated_at"]),
             })
@@ -83,7 +82,7 @@ class AsyncInjectionManager:
                         key = self._normalize_kind(row.plan)
                     except ValueError:
                         continue
-                    state[key]["last_used_id"] = row.last_used_id
+                    state[key]["last_used_id"] = str(row.last_used_id) if row.last_used_id is not None else None
                     state[key]["source"] = (row.source or "auto")
                     state[key]["updated_at"] = row.updated_at.isoformat() if row.updated_at else None
             except Exception as e:
@@ -179,7 +178,7 @@ class AsyncInjectionManager:
                 # Fallback: manual merge
                 await session.execute(
                     f"DELETE FROM injection_states WHERE user_id=:user_id AND plan=:plan",
-                    {"user_id": self.user_id, "plan": plan}
+                    {"user_id": self.user_id, "plan": plan_key}
                 )
             
             await session.execute(stmt)
