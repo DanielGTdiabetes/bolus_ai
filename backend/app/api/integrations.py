@@ -462,8 +462,13 @@ async def ingest_nutrition(
                     except Exception as e:
                         logger.error(f"Bot draft notify failed: {e}")
                         
-                    saved_ids.append(f"draft_{username}_{action}")
-                    continue
+                    # Explicit Early Return - Draft Handled
+                    return {
+                        "success": 1, 
+                        "message": f"Draft {action}", 
+                        "draft_status": draft.status,
+                        "ids": [f"draft_{username}"]
+                    }
                 # DRAFT LOGIC END
 
                 if existing_strict:
