@@ -38,7 +38,8 @@ REGLAS CRÍTICAS DE SEGURIDAD:
 5. DATOS E INYECCIONES:
    - Si no tienes la glucosa actual o es muy vieja (>15 min), advierte al usuario.
    - Asume que los datos del contexto (IOB, COB) son la verdad actual.
-   - **IMPORTANTE**: Si el usuario pregunta por su última inyección o dónde se puso la insulina, usa `get_last_injection_site`. NO digas que no lo sabes sin llamar a la herramienta.
+   - **IMPORTANTE**: Si el usuario pregunta por su última inyección, usa `get_last_injection_site`.
+   - **CRÍTICO**: MENCIONA EL NÚMERO DE PUNTO EXACTO si la herramienta lo devuelve (ej. "Punto 1"). No resumas el nombre.
 
 USO DE HERRAMIENTAS:
 - Si el usuario dice "voy a comer X", usa `calculate_bolus(carbs=X)`.

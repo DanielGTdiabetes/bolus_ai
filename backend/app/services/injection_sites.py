@@ -144,7 +144,7 @@ class InjectionManager:
             
             label = zone["label"]
             if zone["count"] > 1:
-                label = f"{label} (Punto {point_str})"
+                label = f"{label} - Punto {point_str}"
                 
             return {
                 "id": full_id,
