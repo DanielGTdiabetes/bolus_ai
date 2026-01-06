@@ -29,7 +29,6 @@ from app.services.bolus_engine import calculate_bolus_v2
 from app.models.settings import UserSettings
 from app.services.treatment_logger import log_treatment
 from app.services.suggestion_engine import generate_suggestions_service, get_suggestions_service, resolve_suggestion_service
-from app.services.rotation_service import RotationService
 from app.api.user_data import FavoriteCreate, FavoriteRead
 from app.models.user_data import FavoriteFood
 from app.services.autosens_service import AutosensService
@@ -1179,14 +1178,9 @@ async def add_treatment(tool_input: dict[str, Any]) -> AddTreatmentResult | Tool
                   # Or better, just refactor `add_treatment` to resolve user_id earlier.
                   pass
              
-             # Re-resolve (cheap local lookup usually)
-             # Actually, let's just use the `store` we have.
-             # Rotation service needs store.
-             rotator = RotationService(store)
-             
-             # We need the username. logic:
-             # If we are in `add_treatment`, we are likely 'admin' if single user. 
-             # Let's peek at how we resolved it: `user_id = await _resolve_user_id(session=session)`
+            # We need the username. logic:
+            # If we are in `add_treatment`, we are likely 'admin' if single user. 
+            # Let's peek at how we resolved it: `user_id = await _resolve_user_id(session=session)`
              # If we don't have the session anymore...
              # Let's assume 'admin' for MVP or try to resolve.
              # The correct way is to fetch user_id before logging and reuse it.

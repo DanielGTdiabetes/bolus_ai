@@ -1,6 +1,7 @@
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 from app.services.store import DataStore
+from datetime import datetime, timezone
 
 # --- ZONES CONFIG (Matches Frontend) ---
 # Added: emoji, image for Bot support
@@ -29,8 +30,8 @@ class InjectionManager:
         
     def _load_state(self) -> Dict[str, Any]:
         default_state = {
-            "bolus": { "last_used_id": "abd_l_top:1" },
-            "basal": { "last_used_id": "glute_right:1" }
+            "bolus": { "last_used_id": "abd_l_top:1", "source": "auto", "updated_at": None },
+            "basal": { "last_used_id": "glute_right:1", "source": "auto", "updated_at": None }
         }
         # LOGGING PROOF: Log the exact path being read
         import logging
@@ -40,7 +41,14 @@ class InjectionManager:
         except:
             pass
             
-        return self.store.read_json(self.filename, default_state)
+        data = self.store.read_json(self.filename, default_state)
+        # Backfill missing metadata for backwards compatibility
+        for key, defaults in default_state.items():
+            data.setdefault(key, {})
+            data[key].setdefault("last_used_id", defaults["last_used_id"])
+            data[key].setdefault("source", "auto")
+            data[key].setdefault("updated_at", None)
+        return data
 
     def _save_state(self, state: Dict[str, Any]):
         self.store.write_json(self.filename, state)
@@ -74,12 +82,14 @@ class InjectionManager:
         # Save
         if key not in state: state[key] = {}
         state[key]["last_used_id"] = next_id
+        state[key]["source"] = "auto"
+        state[key]["updated_at"] = datetime.now(timezone.utc).isoformat()
         self._save_state(state)
         
         return self._get_site_from_id(key, next_id)
 
 
-    def set_current_site(self, kind: str, site_id: str):
+    def set_current_site(self, kind: str, site_id: str, source: str = "manual"):
         """Manual set from Frontend. Ensures Format zone_id:point."""
         import logging
         logger = logging.getLogger(__name__)
@@ -95,6 +105,8 @@ class InjectionManager:
         
         if key not in state: state[key] = {}
         state[key]["last_used_id"] = site_id
+        state[key]["source"] = source
+        state[key]["updated_at"] = datetime.now(timezone.utc).isoformat()
         
         # SAVE
         self._save_state(state)
@@ -162,4 +174,3 @@ class InjectionManager:
             }
         except:
             return {"id": full_id, "name": full_id, "emoji": "📍", "image": "body_full.png"}
-

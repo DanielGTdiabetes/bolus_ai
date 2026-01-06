@@ -153,10 +153,20 @@ async def migrate_schema(conn):
                 user_id VARCHAR NOT NULL,
                 plan VARCHAR NOT NULL,
                 last_used_id VARCHAR NOT NULL,
+                source VARCHAR NOT NULL DEFAULT 'auto',
                 updated_at TIMESTAMP,
                 PRIMARY KEY (user_id, plan)
             )
         """))
+        # Ensure new columns exist on existing tables
+        try:
+            await conn.execute(text("ALTER TABLE injection_states ADD COLUMN IF NOT EXISTS source VARCHAR NOT NULL DEFAULT 'auto'"))
+        except Exception as e:
+            logger.warning(f"injection_states.source migration skipped or failed: {e}")
+        try:
+            await conn.execute(text("ALTER TABLE injection_states ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP"))
+        except Exception as e:
+            logger.warning(f"injection_states.updated_at migration skipped or failed: {e}")
 
         
         # 9. temp_modes

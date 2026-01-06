@@ -10,6 +10,7 @@ class InjectionState(Base):
     plan: Mapped[str] = mapped_column(String, primary_key=True)  # "bolus" or "basal"
     
     last_used_id: Mapped[str] = mapped_column(String, nullable=False)
+    source: Mapped[str] = mapped_column(String, nullable=False, default="auto")
     
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), 

@@ -32,7 +32,6 @@ from app.services.iob import compute_iob_from_sources, compute_cob_from_sources
 from app.services.bolus_engine import calculate_bolus_v2
 from app.services.basal_repo import get_latest_basal_dose
 from app.models.bolus_v2 import BolusRequestV2, BolusResponseV2, GlucoseUsed
-from app.services.injection_sites import InjectionManager
 from app.bot.capabilities.registry import build_registry, Permission
 
 
@@ -1021,8 +1020,9 @@ async def _handle_add_treatment_tool(update: Update, context: ContextTypes.DEFAU
     
     # 5. Send Card
     # ---------------------------------------------------------
-    injection_mgr = InjectionManager(store)
-    next_site = injection_mgr.get_next_site("bolus")
+    from app.services.async_injection_manager import AsyncInjectionManager
+    injection_mgr = AsyncInjectionManager("admin")
+    next_site = await injection_mgr.get_next_site("bolus")
     
     # Enrich message with recommendation
     msg_text += f"\n\n📍 Sugerencia: {next_site['name']} {next_site['emoji']}"
@@ -1979,11 +1979,11 @@ async def _handle_snapshot_callback(query, data: str) -> None:
                      logger.error(f"Failed to send injection image: {e}", exc_info=True)
         else:
              try:
-                 settings = get_settings()
-                 store = DataStore(Path(settings.data.data_dir))
-                 im = InjectionManager(store)
-                 new_next = im.rotate_site("bolus")
-                 success_msg += f"\n\n📍 Rotado. Siguiente: {new_next['name']} {new_next['emoji']}"
+                 from app.services.async_injection_manager import AsyncInjectionManager
+                 mgr = AsyncInjectionManager("admin")
+                 new_next = await mgr.rotate_site("bolus")
+                 if new_next:
+                     success_msg += f"\n\n📍 Rotado. Siguiente: {new_next['name']} {new_next['emoji']}"
              except Exception: pass
 
         # New Buttons
@@ -2589,5 +2589,3 @@ async def _handle_voice_callback(update: Update, context: ContextTypes.DEFAULT_T
         except Exception as e:
             logger.error(f"Voice confirm processing error: {e}")
             await reply_text(update, context, f"Error procesando voz: {e}")
-
-
