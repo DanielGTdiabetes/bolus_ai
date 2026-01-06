@@ -1,18 +1,20 @@
-from fastapi import APIRouter, Depends, HTTPException, Body, Response
-from pydantic import BaseModel, Field
-from typing import Optional, List, Dict, Any
 import logging
-import uuid
-from datetime import datetime, timezone, timedelta
 import os
-from sqlalchemy import select, and_
+import uuid
+from datetime import datetime, timedelta, timezone
+from typing import Any, Dict, List, Optional
 
-from app.core.security import get_current_user, CurrentUser
-from app.api.bolus import save_treatment
-from app.services.store import DataStore
-from app.core.settings import get_settings, Settings
-from app.core.db import get_db_session
+from fastapi import APIRouter, Body, Depends, Header, HTTPException, Request
+from pydantic import BaseModel, Field
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.bot.user_settings_resolver import resolve_bot_user_settings
+from app.core import config
+from app.core.db import get_db_session
+from app.core.security import TokenManager, get_token_manager
+from app.core.settings import Settings, get_settings
+from app.services.store import DataStore
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -99,18 +101,13 @@ class NutritionPayload(BaseModel):
     # Generic bucket
     metrics: Optional[List[Dict[str, Any]]] = None # Health Auto Export suele mandar una lista de métricas
 
-from fastapi import APIRouter, Depends, HTTPException, Body, Response, Query, Header
-from app.core import config
-from app.bot.user_settings_resolver import resolve_bot_user_settings
-from app.core.security import get_current_user_optional, CurrentUser
-
 @router.post("/nutrition", summary="Webhook for Health Auto Export / External Nutrition")
 async def ingest_nutrition(
+    request: Request,
     payload: Dict[str, Any] = Body(...),
-    user: Optional[CurrentUser] = Depends(get_current_user_optional),
-    api_key: Optional[str] = Query(None, alias="api_key"),
-    auth_header: Optional[str] = Header(None, alias="X-Auth-Token"),
+    authorization: Optional[str] = Header(None, alias="Authorization"),
     session: AsyncSession = Depends(get_db_session),
+    token_manager: TokenManager = Depends(get_token_manager),
 ):
     """
     Recibe datos de nutrición externos (Health Auto Export, n8n, Shortcuts).
@@ -118,23 +115,34 @@ async def ingest_nutrition(
     Es "silencioso": si falla, no rompe nada, solo loguea error.
     """
     try:
-        # Auth Logic: JWT User OR Shared Secret (API Key)
-        username: Optional[str] = user.username if user else None
-        allow_unauth = os.getenv("ALLOW_UNAUTH_NUTRITION_INGEST", "false").lower() == "true"
+        auth_error = HTTPException(
+            status_code=401,
+            detail={"success": 0, "error": "Authentication required for nutrition ingest"},
+        )
 
-        if not user:
-            secret = config.get_admin_shared_secret()
-            provided = api_key or auth_header
+        username: Optional[str] = None
+        bearer_value = authorization or ""
+        bearer_token = None
 
-            if secret:
-                if provided != secret:
-                    logger.warning("Unauthorized nutrition attempt. Invalid Key.")
-                    raise HTTPException(status_code=401, detail="Invalid API Key")
-            elif not allow_unauth:
-                logger.warning("Rejecting nutrition ingest without Auth (flag disabled)")
-                raise HTTPException(status_code=401, detail="Authentication required for nutrition ingest")
-            else:
-                logger.warning("Allowing nutrition ingest without Auth due to ALLOW_UNAUTH_NUTRITION_INGEST")
+        if bearer_value.lower().startswith("bearer "):
+            bearer_token = bearer_value.split(" ", 1)[1].strip()
+
+        if bearer_token:
+            try:
+                payload_token = token_manager.decode_token(bearer_token, expected_type="access")
+                subject = payload_token.get("sub")
+                username = str(subject) if subject is not None else None
+            except HTTPException:
+                raise auth_error
+        else:
+            query_params = request.query_params
+            provided_key = query_params.get("key") if hasattr(query_params, "get") else None
+            expected_key = os.getenv("NUTRITION_INGEST_KEY")
+
+            if not expected_key or provided_key != expected_key:
+                raise auth_error
+
+            logger.info("nutrition_ingest authorized via key")
 
         if not username:
             # Align webhook user with bot/default user resolution so the app sees the meal
@@ -271,7 +279,7 @@ async def ingest_nutrition(
                      logger.info(f"Parsed Direct Payload: C={c} F={f} P={p} Fib={fib}")
 
         if not parsed_meals:
-             return {"success": False, "message": "No parseable metrics found in payload"}
+             return {"success": 0, "message": "No parseable metrics found in payload"}
 
         # 2. Process distinct meals found
         # Sort by date descending (newest first)
@@ -530,13 +538,16 @@ async def ingest_nutrition(
                 except Exception as e:
                     logger.error(f"Failed to trigger bot notification: {e}")
 
-                return {"success": True, "ingested_count": len(saved_ids), "ids": saved_ids}
+                return {"success": 1, "ingested_count": len(saved_ids), "ids": saved_ids}
             else:
-                return {"success": True, "message": "No new meals found (all duplicates or empty)"}
+                return {"success": 1, "message": "No new meals found (all duplicates or empty)"}
 
-        return {"success": False, "message": "Database session missing"}
+        return {"success": 0, "message": "Database session missing"}
         
+    except HTTPException:
+        # Bubble up authentication errors or explicit HTTP responses
+        raise
     except Exception as e:
         logger.error(f"Nutrition Ingest Error: {e}")
         # Return 200 to not break the sender, but log error
-        return {"success": False, "error": str(e)}
+        return {"success": 0, "error": str(e)}

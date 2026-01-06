@@ -2,10 +2,12 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+from fastapi import HTTPException
 import pytest
 import pytest_asyncio
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
+from starlette.requests import Request
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 sys.path.append(str(ROOT_DIR))
@@ -13,7 +15,8 @@ sys.path.append(str(ROOT_DIR / "backend"))
 
 from app.api.integrations import ingest_nutrition  # noqa: E402
 from app.core.db import Base  # noqa: E402
-from app.core.security import CurrentUser  # noqa: E402
+from app.core.security import TokenManager  # noqa: E402
+from app.core.settings import get_settings  # noqa: E402
 from app.models.treatment import Treatment  # noqa: E402
 
 
@@ -55,41 +58,72 @@ async def db_session():
         engine.dispose()
 
 
+@pytest.fixture
+def token_manager():
+    return TokenManager(get_settings())
+
+
+@pytest.fixture
+def nutrition_key(monkeypatch):
+    key = "secret-key"
+    monkeypatch.setenv("NUTRITION_INGEST_KEY", key)
+    return key
+
+
+def _make_request(query: str = ""):
+    async def _receive():
+        return {"type": "http.request"}
+
+    scope = {
+        "type": "http",
+        "http_version": "1.1",
+        "method": "POST",
+        "path": "/api/integrations/nutrition",
+        "raw_path": b"/api/integrations/nutrition",
+        "query_string": query.encode(),
+        "headers": [],
+        "client": ("testclient", 50000),
+        "server": ("testserver", 80),
+        "scheme": "http",
+        "root_path": "",
+    }
+    return Request(scope, receive=_receive)
+
+
 @pytest.mark.asyncio
-async def test_ingest_saves_fiber(db_session):
+async def test_ingest_saves_fiber(db_session, token_manager, nutrition_key):
     ts = _ts_now()
     result = await ingest_nutrition(
         payload={"fiber": 12, "timestamp": ts},
-        user=CurrentUser(username="tester", role="admin"),
-        api_key=None,
-        auth_header=None,
+        request=_make_request(f"key={nutrition_key}"),
+        authorization=None,
         session=db_session,
+        token_manager=token_manager,
     )
 
-    assert result["success"] is True
+    assert result["success"] == 1
     saved = (await db_session.execute(select(Treatment))).scalars().all()
     assert len(saved) == 1
     assert saved[0].fiber == pytest.approx(12)
 
 
 @pytest.mark.asyncio
-async def test_ingest_updates_fiber_on_duplicate(db_session):
+async def test_ingest_updates_fiber_on_duplicate(db_session, token_manager, nutrition_key):
     ts = _ts_now()
-    user = CurrentUser(username="tester", role="admin")
 
     await ingest_nutrition(
         payload={"fiber": 12, "timestamp": ts},
-        user=user,
-        api_key=None,
-        auth_header=None,
+        request=_make_request(f"key={nutrition_key}"),
+        authorization=None,
         session=db_session,
+        token_manager=token_manager,
     )
     await ingest_nutrition(
         payload={"fiber": 18, "timestamp": ts},
-        user=user,
-        api_key=None,
-        auth_header=None,
+        request=_make_request(f"key={nutrition_key}"),
+        authorization=None,
         session=db_session,
+        token_manager=token_manager,
     )
 
     saved = (await db_session.execute(select(Treatment))).scalars().all()
@@ -98,18 +132,53 @@ async def test_ingest_updates_fiber_on_duplicate(db_session):
 
 
 @pytest.mark.asyncio
-async def test_ingest_accepts_fiber_only_entries(db_session):
+async def test_ingest_accepts_fiber_only_entries(db_session, token_manager, nutrition_key):
     ts = _ts_now()
     result = await ingest_nutrition(
         payload={"carbs": 0, "fat": 0, "protein": 0, "fiber": 10, "timestamp": ts},
-        user=CurrentUser(username="tester", role="admin"),
-        api_key=None,
-        auth_header=None,
+        request=_make_request(f"key={nutrition_key}"),
+        authorization=None,
         session=db_session,
+        token_manager=token_manager,
     )
 
-    assert result["success"] is True
+    assert result["success"] == 1
     saved = (await db_session.execute(select(Treatment))).scalars().all()
     assert len(saved) == 1
     assert saved[0].carbs == pytest.approx(0)
     assert saved[0].fiber == pytest.approx(10)
+
+
+@pytest.mark.asyncio
+async def test_ingest_rejects_without_auth(db_session, token_manager, monkeypatch):
+    monkeypatch.delenv("NUTRITION_INGEST_KEY", raising=False)
+    with pytest.raises(HTTPException) as exc:
+        await ingest_nutrition(
+            payload={"fiber": 5},
+            request=_make_request(),
+            authorization=None,
+            session=db_session,
+            token_manager=token_manager,
+        )
+
+    assert exc.value.status_code == 401
+    assert exc.value.detail["success"] == 0
+
+
+@pytest.mark.asyncio
+async def test_ingest_accepts_bearer_token(db_session, token_manager):
+    ts = _ts_now()
+    token = token_manager.create_access_token("tester")
+
+    result = await ingest_nutrition(
+        payload={"fiber": 7, "timestamp": ts},
+        request=_make_request(),
+        authorization=f"Bearer {token}",
+        session=db_session,
+        token_manager=token_manager,
+    )
+
+    assert result["success"] == 1
+    saved = (await db_session.execute(select(Treatment))).scalars().all()
+    assert len(saved) == 1
+    assert saved[0].fiber == pytest.approx(7)
