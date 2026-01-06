@@ -9,14 +9,10 @@ from pathlib import Path
 
 router = APIRouter()
 
-def get_store() -> DataStore:
-    s = get_settings()
-    return DataStore(Path(s.data.data_dir))
-
 class InjectionStateResponse(BaseModel):
-    bolus: str # "zone:point" e.g. "abd_l_top:1" (LAST USED)
+    bolus: str 
     basal: str 
-    next_bolus: Optional[str] = None # Calculated NEXT
+    next_bolus: Optional[str] = None 
     next_basal: Optional[str] = None
 
 class RotateRequest(BaseModel):
