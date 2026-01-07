@@ -1880,7 +1880,7 @@ async def on_new_meal_received(carbs: float, fat: float, protein: float, fiber: 
     rec_u = rec.total_u_final
     
     lines = []
-    lines.append(f"🍽️ **Nueva Comida Detectada** (MFP)")
+    lines.append(f"🍽️ **Nueva Comida Detectada** ({source})")
     lines.append("")
     lines.append(f"Resultado: **{rec_u} U**")
     lines.append("")
@@ -2224,7 +2224,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                          extra={
                              "draft_id": treatment_payload["draft_id"],
                              "treatment_id": treatment_payload["id"],
-                             "created": created,
+                             "is_newly_created": created,
                          },
                      )
                      

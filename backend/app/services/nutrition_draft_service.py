@@ -253,9 +253,9 @@ class NutritionDraftService:
              ), "created"
 
         # --- MERGE LOGIC ---
-        SMALL_C = 20.0
-        SMALL_F = 15.0
-        EPSILON = 2.0
+        SMALL_C = 40.0
+        SMALL_F = 20.0
+        EPSILON = 5.0
         
         is_small = (new_c < SMALL_C and new_f < SMALL_F and new_p < SMALL_F)
         
