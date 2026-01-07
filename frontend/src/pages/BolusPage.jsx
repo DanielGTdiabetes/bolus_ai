@@ -277,6 +277,26 @@ export default function BolusPage() {
             try {
                 const currentCarbs = parseFloat(carbs) || 0;
 
+                // Determine Fat and Protein for Simulation (using same logic as HandleCalculate)
+                let fatVal = 0;
+                let proteinVal = 0;
+                let fiberVal = 0;
+                if (isUsingOrphan && orphanCarbs) {
+                    if (orphanCarbs._diffMode) {
+                        fatVal = orphanCarbs._netFat || 0;
+                        proteinVal = orphanCarbs._netProtein || 0;
+                        fiberVal = orphanCarbs._netFiber || 0;
+                    } else {
+                        fatVal = orphanCarbs.fat || 0;
+                        proteinVal = orphanCarbs.protein || 0;
+                        fiberVal = orphanCarbs.fiber || 0;
+                    }
+                } else if (mealMetaRef.current) {
+                    fatVal = mealMetaRef.current.fat || 0;
+                    proteinVal = mealMetaRef.current.protein || 0;
+                    fiberVal = mealMetaRef.current.fiber || 0;
+                }
+
                 // Get params
                 const mealParams = getCalcParams();
                 // If not loaded, retry later or defaults
@@ -292,21 +312,14 @@ export default function BolusPage() {
                         carb_absorption_minutes: 180
                     },
                     events: {
-                        boluses: [], // We simulate "What if I take this dose?"
-                        // Actually, we don't know the dose yet unless user confirms?
-                        // Loop usually simulates "What if I do nothing" vs "What if I take Rec. Dose".
-                        // For now, let's simulate "Net Effect of Carbs" (User hasn't entered insulin yet).
-                        // OR maybe we can estimate insulin? 
-                        // Let's sim Carbs Only first, as that's the input we have.
-                        // Usage: User enters 50g carbs -> Graph shoots up.
-                        // Then User enters "Insulin" manually?
-                        // The UI doesn't have an "Insulin Input" field in the first stage (Calculadora). 
-                        // It calculates it for you.
-                        // So we should simulate "Carbs Only" to show the spike risk.
+                        boluses: [], 
                         carbs: currentCarbs > 0 ? [{
                             time_offset_min: 0,
                             grams: currentCarbs,
-                            carb_profile: carbProfile
+                            carb_profile: carbProfile,
+                            fat_g: fatVal,
+                            protein_g: proteinVal,
+                            fiber_g: fiberVal
                         }] : []
                     }
                 };
