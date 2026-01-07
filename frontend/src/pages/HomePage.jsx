@@ -84,7 +84,11 @@ function GlucoseHero({ onRefresh }) {
         }
     };
 
-    useEffect(() => { load(); }, [onRefresh]);
+    useEffect(() => {
+        if (isAuthenticated()) {
+            load();
+        }
+    }, [onRefresh]);
 
     const displayVal = data ? Math.round(data.bg_mgdl) : '--';
     const displayArrow = data ? (data.trendArrow || formatTrend(data.trend, false)) : '--';
