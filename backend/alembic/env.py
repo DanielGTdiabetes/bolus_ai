@@ -97,10 +97,38 @@ async def run_async_migrations() -> None:
             connection.run_callable(do_run_migrations)
          return
 
+    
+    # Clean sslmode from URL for asyncpg and pass as connect_args
+    section = config.get_section(config.config_ini_section, {})
+    connect_args = {}
+    
+    # If the URL in the config has sslmode, we need to strip it and move it to connect_args
+    # This is because asyncpg via SQLAlchemy doesn't support sslmode in the query string well.
+    current_url = section.get("sqlalchemy.url")
+    if current_url and "sslmode" in current_url:
+        from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
+        
+        # Parse URL
+        u = urlparse(current_url)
+        q = parse_qs(u.query)
+        
+        if "sslmode" in q:
+            mode = q.pop("sslmode")[0] # parse_qs returns list
+            if mode == "require" or mode == "verify-full":
+                connect_args["ssl"] = "require"
+            elif mode == "disable":
+                connect_args["ssl"] = False
+            
+            # Reconstruct URL without sslmode
+            new_query = urlencode(q, doseq=True)
+            u = u._replace(query=new_query)
+            section["sqlalchemy.url"] = urlunparse(u)
+
     connectable = async_engine_from_config(
-        config.get_section(config.config_ini_section, {}),
+        section,
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
+        connect_args=connect_args
     )
 
     async with connectable.connect() as connection:
