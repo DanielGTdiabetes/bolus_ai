@@ -354,9 +354,15 @@ async def get_current_forecast(
         # offset must be negative for past events
         offset = -1 * diff_min
         
-        # Determine Hour in User Time (Approx UTC+1 for Daniel/Spain)
-        # Ideally we store timezone in user settings
-        user_hour = (created_at.hour + 1) % 24 
+        # Determine Hour in User Time
+        user_hour = (created_at.hour + 1) % 24 # Fallback
+        if user_settings.timezone:
+            try:
+                from zoneinfo import ZoneInfo
+                tz = ZoneInfo(user_settings.timezone)
+                user_hour = created_at.astimezone(tz).hour
+            except Exception:
+                pass 
 
         evt_icr, _, base_absorption = get_slot_params(user_hour, user_settings)
         
@@ -610,6 +616,14 @@ async def get_current_forecast(
     # 4. Construct Request
     # Current params
     now_user_hour = (now_utc.hour + 1) % 24
+    if user_settings.timezone:
+        try:
+            from zoneinfo import ZoneInfo
+            tz = ZoneInfo(user_settings.timezone)
+            now_user_hour = now_utc.astimezone(tz).hour
+        except Exception:
+            pass
+
     curr_icr, curr_isf, curr_abs = get_slot_params(now_user_hour, user_settings)
     
     # Check Sick Mode (Resistance)
@@ -1048,8 +1062,14 @@ async def simulate_forecast(
                 offset = -1 * diff_min # Negative for past
                 
                 # Resolving User Hour for Settings
-                # Assuming UTC+1 for now as per project convention or settings timezone if we had it
                 user_hour = (created_at.hour + 1) % 24
+                if user_settings and user_settings.timezone:
+                    try:
+                        from zoneinfo import ZoneInfo
+                        tz = ZoneInfo(user_settings.timezone)
+                        user_hour = created_at.astimezone(tz).hour
+                    except Exception:
+                        pass
                 
                 hist_icr, hist_abs = _resolve_hist_params(user_hour, user_settings)
 

@@ -232,6 +232,7 @@ class MealSchedule(BaseModel):
 class UserSettings(BaseModel):
     schema_version: int = 1
     units: Literal["mg/dL"] = "mg/dL"
+    timezone: Optional[str] = Field(default="Europe/Madrid", description="IANA Timezone string, e.g. Europe/Madrid")
     targets: TargetRange = Field(default_factory=TargetRange)
     schedule: MealSchedule = Field(default_factory=MealSchedule)
     cf: CorrectionFactors = Field(default_factory=lambda: CorrectionFactors(breakfast=30, lunch=30, dinner=30, snack=30)) # Default CF 30
