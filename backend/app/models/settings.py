@@ -131,9 +131,12 @@ class WarsawConfig(BaseModel):
 
 
 class AutosensConfig(BaseModel):
-    enabled: bool = True
+    enabled: bool = False
     min_ratio: float = 0.7
     max_ratio: float = 1.2
+    recent_hypo_hours: int = Field(default=12, ge=1, le=48)
+    min_cgm_points: int = Field(default=12, ge=1)
+    min_deviation_points: int = Field(default=10, ge=1)
 
 
 

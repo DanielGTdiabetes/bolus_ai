@@ -554,7 +554,10 @@ async def calculate_bolus(carbs: float, fat: float = 0.0, protein: float = 0.0, 
 
                   # 3. Combine
                   autosens_ratio = tdd_ratio * local_ratio
-                  autosens_ratio = max(0.6, min(1.4, autosens_ratio))
+                  autosens_ratio = max(
+                       user_settings.autosens.min_ratio,
+                       min(user_settings.autosens.max_ratio, autosens_ratio),
+                  )
                   
                   if autosens_ratio != 1.0:
                        autosens_reason = f"Híbrido (TDD {tdd_ratio:.2f}x · Local {local_ratio:.2f}x)"

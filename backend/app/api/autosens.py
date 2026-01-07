@@ -1,12 +1,14 @@
-from typing import Any
+from typing import Any, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 
 from app.core.security import get_current_user
 from app.core.db import get_db_session
 from app.services.autosens_service import AutosensService
 from app.services.settings_service import get_user_settings_service
 from app.models.settings import UserSettings
+from app.models.autosens import AutosensRun
 from pydantic import BaseModel
 
 router = APIRouter()
@@ -14,6 +16,17 @@ router = APIRouter()
 class AutosensResponse(BaseModel):
     ratio: float
     reason: str
+
+
+class AutosensRunResponse(BaseModel):
+    id: int
+    created_at_utc: Optional[str]
+    ratio: float
+    window_hours: int
+    input_summary_json: dict
+    clamp_applied: bool
+    reason_flags: list[str]
+    enabled_state: bool
 
 @router.get("/calculate", response_model=AutosensResponse, summary="Calculate Autosens Ratio")
 async def calculate_autosens_endpoint(
@@ -34,7 +47,8 @@ async def calculate_autosens_endpoint(
         result = await AutosensService.calculate_autosens(
             username=current_user.username,
             session=db,
-            settings=settings
+            settings=settings,
+            record_run=True,
         )
         
         return AutosensResponse(ratio=result.ratio, reason=result.reason)
@@ -43,3 +57,31 @@ async def calculate_autosens_endpoint(
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Autosens failed: {str(e)}")
+
+
+@router.get("/runs", response_model=list[AutosensRunResponse], summary="List Autosens Runs")
+async def list_autosens_runs(
+    limit: int = Query(50, ge=1, le=200),
+    current_user: Any = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+):
+    stmt = (
+        select(AutosensRun)
+        .where(AutosensRun.user_id == current_user.username)
+        .order_by(AutosensRun.created_at_utc.desc())
+        .limit(limit)
+    )
+    rows = (await db.execute(stmt)).scalars().all()
+    return [
+        AutosensRunResponse(
+            id=row.id,
+            created_at_utc=row.created_at_utc.isoformat() if row.created_at_utc else None,
+            ratio=row.ratio,
+            window_hours=row.window_hours,
+            input_summary_json=row.input_summary_json,
+            clamp_applied=row.clamp_applied,
+            reason_flags=row.reason_flags or [],
+            enabled_state=row.enabled_state,
+        )
+        for row in rows
+    ]

@@ -359,7 +359,8 @@ async def calculate_bolus_stateless(
                 res = await AutosensService.calculate_autosens(
                     username=user.username,
                     session=session,
-                    settings=user_settings
+                    settings=user_settings,
+                    record_run=True,
                 )
                 local_ratio = res.ratio
                 if local_ratio != 1.0:
@@ -370,8 +371,11 @@ async def calculate_bolus_stateless(
              # 3. Combine
              autosens_ratio = tdd_ratio * local_ratio
              
-             # Final Clamp for Safety (Global limits)
-             autosens_ratio = max(0.6, min(1.4, autosens_ratio))
+             # Final Clamp for Safety (Autosens limits)
+             autosens_ratio = max(
+                 user_settings.autosens.min_ratio,
+                 min(user_settings.autosens.max_ratio, autosens_ratio),
+             )
              
              autosens_reason = f"Híbrido: TDD {tdd_ratio:.2f}x * Local {local_ratio:.2f}x"
                  
