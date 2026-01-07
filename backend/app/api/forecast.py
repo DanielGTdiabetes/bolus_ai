@@ -2,10 +2,21 @@ import re
 from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Query
 from typing import Optional, List
-from app.models.forecast import ForecastSimulateRequest, ForecastResponse, ForecastEvents, ForecastEventBolus, ForecastEventCarbs, SimulationParams, ForecastBasalInjection
+from app.models.forecast import (
+    ForecastSimulateRequest,
+    ForecastResponse,
+    ForecastEvents,
+    ForecastEventBolus,
+    ForecastEventCarbs,
+    SimulationParams,
+    ForecastBasalInjection,
+    PredictionMeta,
+    NightPatternMeta,
+)
 from app.services.forecast_engine import ForecastEngine
 from app.core.security import get_current_user, CurrentUser
 from app.core.db import get_db_session
+from app.core.settings import Settings, get_settings
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.services.settings_service import get_user_settings_service
 from app.models.settings import UserSettings
@@ -14,13 +25,30 @@ from app.services.nightscout_client import NightscoutClient
 from app.services.autosens_service import AutosensService
 from app.models.basal import BasalEntry
 from app.services.dexcom_client import DexcomClient
+from app.services.store import DataStore
+from pathlib import Path
+from app.services.iob import compute_iob_from_sources, compute_cob_from_sources
+from app.services.nutrition_draft_service import NutritionDraftService
+from app.services.night_pattern import (
+    LOCAL_TZ,
+    NightPatternContext,
+    apply_night_pattern_adjustment,
+    get_or_compute_pattern,
+    sustained_rise_detected,
+    trend_slope_from_series,
+)
 
 router = APIRouter()
+
+def _data_store(settings: Settings = Depends(get_settings)) -> DataStore:
+    return DataStore(Path(settings.data.data_dir))
 
 @router.get("/current", response_model=ForecastResponse, summary="Get ambient forecast based on current status")
 async def get_current_forecast(
     user: CurrentUser = Depends(get_current_user),
     session: AsyncSession = Depends(get_db_session),
+    settings: Settings = Depends(get_settings),
+    store: DataStore = Depends(_data_store),
     start_bg_param: Optional[float] = Query(None, alias="start_bg", description="Override start BG if known by client"),
     future_insulin_u: Optional[float] = Query(None, description="Future planned insulin units (e.g. dual bolus remainder)"),
     future_insulin_delay_min: Optional[int] = Query(0, description="Delay in minutes for future insulin")
@@ -96,6 +124,7 @@ async def get_current_forecast(
 
     
     recent_bg_series = []
+    cgm_source = None
     
     if ns_config and ns_config.enabled and ns_config.url:
         try:
@@ -117,6 +146,7 @@ async def get_current_forecast(
                 # Use the very latest as start_bg IF not overridden
                 if start_bg_param is None:
                     start_bg = float(history_sgvs[0].sgv)
+                cgm_source = "nightscout"
                 
                 # Build series for momentum
                 # ForecastEngine expects: [{'minutes_ago': 0, 'value': 120}, ...]
@@ -161,6 +191,7 @@ async def get_current_forecast(
              reading = await dex.get_latest_sgv()
              if reading:
                  start_bg = float(reading.sgv)
+                 cgm_source = "dexcom"
                  # We cannot build momentum history from single point, but we have start_bg.
                  # Momentum will implicitly be 0.
         except Exception as e:
@@ -731,7 +762,151 @@ async def get_current_forecast(
         
         response_base = ForecastEngine.calculate_forecast(payload_base)
         response.baseline_series = response_base.series
-        
+    pattern_meta = NightPatternMeta(enabled=settings.night_pattern.enabled, applied=False)
+    if settings.night_pattern.enabled:
+        now_utc = datetime.now(timezone.utc)
+        now_local = now_utc.astimezone(LOCAL_TZ)
+        try:
+            draft = await NutritionDraftService.get_draft(user.username, session)
+        except Exception:
+            draft = None
+
+        meal_recent = False
+        bolus_recent = False
+        last_meal_high_fat_protein = False
+
+        meal_cutoff = now_utc - timedelta(hours=settings.night_pattern.meal_lookback_h)
+        bolus_cutoff = now_utc - timedelta(hours=settings.night_pattern.bolus_lookback_h)
+
+        for row in unique_rows:
+            r_time = row.created_at
+            if r_time.tzinfo is None:
+                r_time = r_time.replace(tzinfo=timezone.utc)
+            if (row.carbs or 0) > 0 and r_time >= meal_cutoff:
+                meal_recent = True
+                if (row.fat or 0) + (row.protein or 0) >= 25:
+                    last_meal_high_fat_protein = True
+            if (row.insulin or 0) > 0 and r_time >= bolus_cutoff:
+                bolus_recent = True
+
+        ns_client_for_iob = (
+            NightscoutClient(ns_config.url, ns_config.api_secret)
+            if ns_config and ns_config.enabled and ns_config.url
+            else None
+        )
+        try:
+            iob_total, _, iob_info, _ = await compute_iob_from_sources(
+                now=now_utc,
+                settings=user_settings,
+                nightscout_client=ns_client_for_iob,
+                data_store=store,
+                extra_boluses=None,
+            )
+            cob_total, cob_info, _ = await compute_cob_from_sources(
+                now=now_utc,
+                nightscout_client=ns_client_for_iob,
+                data_store=store,
+                extra_entries=None,
+            )
+        finally:
+            if ns_client_for_iob:
+                await ns_client_for_iob.aclose()
+
+        trend_slope = trend_slope_from_series(recent_bg_series)
+        sustained_rise = sustained_rise_detected(recent_bg_series)
+        slow_digestion_signal = bool(
+            meal_recent
+            or draft is not None
+            or (cob_total is not None and cob_total > 1.0)
+        )
+
+        context = NightPatternContext(
+            draft_active=draft is not None,
+            meal_recent=meal_recent,
+            bolus_recent=bolus_recent,
+            iob_u=iob_total if iob_info.status in ["ok", "partial"] else None,
+            cob_g=cob_total if cob_info.status in ["ok", "partial"] else None,
+            trend_slope=trend_slope,
+            sustained_rise=sustained_rise,
+            slow_digestion_signal=slow_digestion_signal,
+            last_meal_high_fat_protein=last_meal_high_fat_protein,
+        )
+
+        if not cgm_source:
+            if ns_config and ns_config.enabled and ns_config.url:
+                cgm_source = "nightscout"
+            elif user_settings and user_settings.dexcom and user_settings.dexcom.username:
+                cgm_source = "dexcom"
+
+        cgm_entries = []
+        if cgm_source == "nightscout" and ns_config and ns_config.enabled and ns_config.url:
+            client = NightscoutClient(ns_config.url, ns_config.api_secret)
+            start_range = now_utc - timedelta(days=settings.night_pattern.days)
+            end_range = now_utc
+            try:
+                sgvs = await client.get_sgv_range(start_range, end_range, count=5000)
+                cgm_entries = [
+                    (datetime.fromtimestamp(s.date / 1000, tz=timezone.utc), float(s.sgv)) for s in sgvs
+                ]
+            finally:
+                await client.aclose()
+        elif cgm_source == "dexcom" and user_settings and user_settings.dexcom and user_settings.dexcom.username:
+            dex = DexcomClient(
+                username=user_settings.dexcom.username,
+                password=user_settings.dexcom.password,
+                region=user_settings.dexcom.region or "ous",
+            )
+            start_range = now_utc - timedelta(days=settings.night_pattern.days)
+            cgm_entries = [
+                (reading.date, float(reading.sgv))
+                for reading in await dex.get_sgv_range(start_range, now_utc)
+            ]
+
+        pattern = None
+        if cgm_entries:
+            pattern = await get_or_compute_pattern(
+                session=session,
+                user_id=user.username,
+                cfg=settings.night_pattern,
+                source=cgm_source or "unknown",
+                cgm_entries=cgm_entries,
+                treatments=unique_rows,
+            )
+
+        if pattern:
+            adjusted_series, meta_dict, adjustment = apply_night_pattern_adjustment(
+                response.series,
+                pattern,
+                settings.night_pattern,
+                now_local,
+                context,
+            )
+            response.series = adjusted_series
+            if response.baseline_series and adjustment != 0:
+                response.baseline_series = [
+                    ForecastPoint(t_min=point.t_min, bg=round(point.bg + adjustment, 1))
+                    for point in response.baseline_series
+                ]
+            pattern_meta = NightPatternMeta(**meta_dict)
+        else:
+            pattern_meta.reason_not_applied = "Patrón no disponible"
+
+        logger.info(
+            "Night pattern evaluation",
+            extra={
+                "user_id": user.username,
+                "pattern_enabled": settings.night_pattern.enabled,
+                "pattern_applied": pattern_meta.applied,
+                "pattern_reason": pattern_meta.reason_not_applied,
+                "pattern_window": pattern_meta.window,
+                "pattern_source": cgm_source,
+            },
+        )
+
+    else:
+        pattern_meta.reason_not_applied = "Desactivado por configuración"
+
+    response.prediction_meta = PredictionMeta(pattern=pattern_meta)
     return response
 
 

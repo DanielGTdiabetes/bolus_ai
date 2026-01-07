@@ -108,6 +108,24 @@ class DexcomConfig(BaseModel):
     password: Optional[str] = None
     region: Optional[str] = "ous"
 
+class NightPatternConfig(BaseModel):
+    enabled: bool = False
+    days: int = 18
+    bucket_minutes: int = 15
+    horizon_minutes: int = 75
+    weight_a: float = 0.30
+    weight_b: float = 0.20
+    cap_mgdl: float = 25.0
+    window_a_start: str = "00:00"
+    window_a_end: str = "02:00"
+    window_b_start: str = "02:00"
+    window_b_end: str = "03:45"
+    disable_at: str = "04:00"
+    meal_lookback_h: float = 6.0
+    bolus_lookback_h: float = 4.0
+    iob_max_u: float = 0.3
+    slope_max_mgdl_per_min: float = 0.4
+
 
 class Settings(BaseModel):
     nightscout: NightscoutConfig
@@ -118,6 +136,7 @@ class Settings(BaseModel):
     database: DatabaseConfig = Field(default_factory=DatabaseConfig)
     proactive: "ProactiveGlobalConfig" = Field(default_factory=lambda: ProactiveGlobalConfig())
     dexcom: DexcomConfig = Field(default_factory=DexcomConfig)
+    night_pattern: NightPatternConfig = Field(default_factory=NightPatternConfig)
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -221,6 +240,70 @@ def _load_env() -> dict[str, Any]:
     if dex_region:
         env_config.setdefault("dexcom", {})["region"] = dex_region
 
+    night_pattern_enabled = os.environ.get("NIGHT_PATTERN_ENABLED")
+    if night_pattern_enabled is not None:
+        env_config.setdefault("night_pattern", {})["enabled"] = night_pattern_enabled.lower() == "true"
+
+    night_pattern_days = os.environ.get("NIGHT_PATTERN_DAYS")
+    if night_pattern_days:
+        env_config.setdefault("night_pattern", {})["days"] = int(night_pattern_days)
+
+    night_pattern_bucket = os.environ.get("NIGHT_PATTERN_BUCKET_MIN")
+    if night_pattern_bucket:
+        env_config.setdefault("night_pattern", {})["bucket_minutes"] = int(night_pattern_bucket)
+
+    night_pattern_horizon = os.environ.get("NIGHT_PATTERN_HORIZON_MIN")
+    if night_pattern_horizon:
+        env_config.setdefault("night_pattern", {})["horizon_minutes"] = int(night_pattern_horizon)
+
+    night_pattern_weight_a = os.environ.get("NIGHT_PATTERN_WEIGHT_A")
+    if night_pattern_weight_a:
+        env_config.setdefault("night_pattern", {})["weight_a"] = float(night_pattern_weight_a)
+
+    night_pattern_weight_b = os.environ.get("NIGHT_PATTERN_WEIGHT_B")
+    if night_pattern_weight_b:
+        env_config.setdefault("night_pattern", {})["weight_b"] = float(night_pattern_weight_b)
+
+    night_pattern_cap = os.environ.get("NIGHT_PATTERN_CAP_MGDL")
+    if night_pattern_cap:
+        env_config.setdefault("night_pattern", {})["cap_mgdl"] = float(night_pattern_cap)
+
+    night_pattern_window_a_start = os.environ.get("NIGHT_PATTERN_WINDOW_A_START")
+    if night_pattern_window_a_start:
+        env_config.setdefault("night_pattern", {})["window_a_start"] = night_pattern_window_a_start
+
+    night_pattern_window_a_end = os.environ.get("NIGHT_PATTERN_WINDOW_A_END")
+    if night_pattern_window_a_end:
+        env_config.setdefault("night_pattern", {})["window_a_end"] = night_pattern_window_a_end
+
+    night_pattern_window_b_start = os.environ.get("NIGHT_PATTERN_WINDOW_B_START")
+    if night_pattern_window_b_start:
+        env_config.setdefault("night_pattern", {})["window_b_start"] = night_pattern_window_b_start
+
+    night_pattern_window_b_end = os.environ.get("NIGHT_PATTERN_WINDOW_B_END")
+    if night_pattern_window_b_end:
+        env_config.setdefault("night_pattern", {})["window_b_end"] = night_pattern_window_b_end
+
+    night_pattern_disable_at = os.environ.get("NIGHT_PATTERN_DISABLE_AT")
+    if night_pattern_disable_at:
+        env_config.setdefault("night_pattern", {})["disable_at"] = night_pattern_disable_at
+
+    night_pattern_meal_lookback = os.environ.get("NIGHT_PATTERN_MEAL_LOOKBACK_H")
+    if night_pattern_meal_lookback:
+        env_config.setdefault("night_pattern", {})["meal_lookback_h"] = float(night_pattern_meal_lookback)
+
+    night_pattern_bolus_lookback = os.environ.get("NIGHT_PATTERN_BOLUS_LOOKBACK_H")
+    if night_pattern_bolus_lookback:
+        env_config.setdefault("night_pattern", {})["bolus_lookback_h"] = float(night_pattern_bolus_lookback)
+
+    night_pattern_iob_max = os.environ.get("NIGHT_PATTERN_IOB_MAX_U")
+    if night_pattern_iob_max:
+        env_config.setdefault("night_pattern", {})["iob_max_u"] = float(night_pattern_iob_max)
+
+    night_pattern_slope_max = os.environ.get("NIGHT_PATTERN_SLOPE_MAX_MGDL_PER_MIN")
+    if night_pattern_slope_max:
+        env_config.setdefault("night_pattern", {})["slope_max_mgdl_per_min"] = float(night_pattern_slope_max)
+
     return env_config
 
 
@@ -233,6 +316,7 @@ def merge_settings(env_config: dict[str, Any], file_config: dict[str, Any]) -> d
     merged["vision"] = {**file_config.get("vision", {}), **env_config.get("vision", {})}
     merged["database"] = {**file_config.get("database", {}), **env_config.get("database", {})}
     merged["dexcom"] = {**file_config.get("dexcom", {}), **env_config.get("dexcom", {})}
+    merged["night_pattern"] = {**file_config.get("night_pattern", {}), **env_config.get("night_pattern", {})}
     return merged
 
 

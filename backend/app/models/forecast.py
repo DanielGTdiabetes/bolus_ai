@@ -87,6 +87,22 @@ class ForecastSummary(BaseModel):
     time_to_min: Optional[int] = None # Minutes until lowest point
     ending_bg: float
 
+class NightPatternMeta(BaseModel):
+    enabled: bool = False
+    applied: bool = False
+    window: Optional[Literal["A", "B"]] = None
+    reason_not_applied: Optional[str] = None
+    weight: Optional[float] = None
+    cap_mgdl: Optional[float] = None
+    sample_days: Optional[int] = None
+    sample_points: Optional[int] = None
+    dispersion: Optional[float] = None
+    computed_at: Optional[datetime] = None
+
+
+class PredictionMeta(BaseModel):
+    pattern: NightPatternMeta = Field(default_factory=NightPatternMeta)
+
 class ForecastResponse(BaseModel):
     series: List[ForecastPoint]
     baseline_series: Optional[List[ForecastPoint]] = None # Comparison series (e.g., without future bolus)
@@ -104,3 +120,5 @@ class ForecastResponse(BaseModel):
 
     slow_absorption_active: bool = False # Flag for Visual Feedback (Comida Grasa / Dual)
     slow_absorption_reason: Optional[str] = None # Reason for slow mode (e.g. Alcohol, Dual Bolus)
+
+    prediction_meta: Optional[PredictionMeta] = None

@@ -152,8 +152,30 @@ export function MainGlucoseChart({ isLow, predictionData }) {
     const strokeColor = isSafe ? '#3b82f6' : 'url(#splitColor)';
     const fillColor = isSafe ? 'rgba(59, 130, 246, 0.2)' : 'url(#splitFill)';
 
+    const nightPatternApplied = Boolean(predictionData?.prediction_meta?.pattern?.applied);
+
     return (
         <div style={{ width: '100%', height: '100%', minHeight: '160px', marginTop: '0.5rem', position: 'relative' }}>
+            {nightPatternApplied && (
+                <div
+                    title="Ajuste basado en tu patrón nocturno (00:00–03:45). Se desactiva si hay digestión lenta o datos incompletos."
+                    style={{
+                        position: 'absolute',
+                        top: '4px',
+                        right: '8px',
+                        background: '#f1f5f9',
+                        color: '#475569',
+                        fontSize: '0.7rem',
+                        fontWeight: 600,
+                        padding: '2px 6px',
+                        borderRadius: '999px',
+                        border: '1px solid #e2e8f0',
+                        zIndex: 2
+                    }}
+                >
+                    Patrón nocturno
+                </div>
+            )}
             <ResponsiveContainer width="100%" height="100%">
                 <ComposedChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
                     <defs>
