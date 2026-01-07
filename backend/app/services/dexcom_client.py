@@ -92,3 +92,40 @@ class DexcomClient:
             if self.cache_key in _CLIENT_CACHE:
                 del _CLIENT_CACHE[self.cache_key]
             return None
+
+    async def get_sgv_range(self, start_dt: datetime, end_dt: datetime) -> list[GlucoseReading]:
+        try:
+            client = await self._get_client()
+
+            def _fetch():
+                return client.get_glucose_readings(start_dt=start_dt, end_dt=end_dt)
+
+            readings = await asyncio.to_thread(_fetch)
+            results: list[GlucoseReading] = []
+            if not readings:
+                return results
+            for bg in readings:
+                bg_dt = getattr(bg, "datetime", None) or getattr(bg, "timestamp", None)
+                if not bg_dt:
+                    continue
+                if isinstance(bg_dt, datetime):
+                    if bg_dt.tzinfo is None:
+                        bg_dt = bg_dt.replace(tzinfo=timezone.utc)
+                    else:
+                        bg_dt = bg_dt.astimezone(timezone.utc)
+                else:
+                    bg_dt = datetime.fromtimestamp(bg_dt, tz=timezone.utc)
+                results.append(
+                    GlucoseReading(
+                        sgv=getattr(bg, "value", None) or getattr(bg, "sgv", 0),
+                        trend=getattr(bg, "trend_arrow", None) or "",
+                        date=bg_dt,
+                        delta=None,
+                    )
+                )
+            return results
+        except Exception as exc:
+            logger.error(f"Dexcom Share Range Fetch Error: {exc}")
+            if self.cache_key in _CLIENT_CACHE:
+                del _CLIENT_CACHE[self.cache_key]
+            return []

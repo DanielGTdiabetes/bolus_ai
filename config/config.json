@@ -18,5 +18,23 @@
   },
   "data": {
     "data_dir": "backend/data"
+  },
+  "night_pattern": {
+    "enabled": false,
+    "days": 18,
+    "bucket_minutes": 15,
+    "horizon_minutes": 75,
+    "weight_a": 0.3,
+    "weight_b": 0.2,
+    "cap_mgdl": 25,
+    "window_a_start": "00:00",
+    "window_a_end": "02:00",
+    "window_b_start": "02:00",
+    "window_b_end": "03:45",
+    "disable_at": "04:00",
+    "meal_lookback_h": 6,
+    "bolus_lookback_h": 4,
+    "iob_max_u": 0.3,
+    "slope_max_mgdl_per_min": 0.4
   }
 }
