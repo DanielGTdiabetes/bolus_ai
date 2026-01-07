@@ -1654,19 +1654,24 @@ async def on_draft_updated(username: str, draft: Any, action: str) -> None:
     last_msg_id = DRAFT_MSG_CACHE.get(chat_id)
     if last_msg_id:
         try:
-            # Check for redundancy to avoid API spam if content identical?
-            # Telegram API handles identical content errors strictly ("Message is not modified"), 
-            # so we catch BadRequest.
-            await edit_message_text_safe(_bot_app.bot,
+            # Use bot.edit_message_text directly (not via wrapper which expects CallbackQuery)
+            await _bot_app.bot.edit_message_text(
                 chat_id=chat_id,
                 message_id=last_msg_id,
                 text=msg_txt,
                 reply_markup=markup,
                 parse_mode="Markdown"
             )
+            logger.info(f"Draft message edited successfully (msg_id={last_msg_id})")
             return # Edited successfully
+        except BadRequest as e:
+            if "Message is not modified" in str(e):
+                logger.info("Draft edit skipped (content identical)")
+                return
+            # If error (message deleted, too old), fall back to send new
+            logger.info(f"Draft edit failed ({e}), sending new.")
+            DRAFT_MSG_CACHE.pop(chat_id, None)
         except Exception as e:
-            # If error (message deleted, too old, or not modified), fall back to send new
             logger.info(f"Draft edit failed ({e}), sending new.")
             DRAFT_MSG_CACHE.pop(chat_id, None)
 
