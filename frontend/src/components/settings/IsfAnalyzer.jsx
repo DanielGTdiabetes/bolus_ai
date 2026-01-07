@@ -7,6 +7,7 @@ const COLORS = {
     ok: '#22c55e', // green
     strong_drop: '#ef4444', // red
     weak_drop: '#f59e0b', // amber
+    blocked_recent_hypo: '#f97316', // orange
     insufficient_data: '#94a3b8' // slate
 };
 
@@ -14,6 +15,7 @@ const LABELS = {
     ok: 'Correcto',
     strong_drop: 'Excesivo (Baja mucho)',
     weak_drop: 'Insuficiente (Se queda corto)',
+    blocked_recent_hypo: 'Limitado por hipo reciente',
     insufficient_data: 'Faltan datos'
 };
 
@@ -87,12 +89,20 @@ export function IsfAnalyzer() {
         );
     }
 
+    const cleanEventCount = result?.clean_events?.filter(ev => ev.quality_ok).length ?? 0;
+
     return (
         <div className="stack" style={{ gap: '1rem', animation: 'fadeIn 0.5s ease' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <h3 style={{ margin: 0, fontSize: '1.1rem' }}>Resultados ({days} días)</h3>
                 <Button variant="ghost" onClick={() => setResult(null)} style={{ fontSize: '0.8rem', padding: '0.4rem' }}>Cerrar</Button>
             </div>
+
+            {result.blocked_recent_hypo && (
+                <div style={{ background: '#fff7ed', border: '1px solid #fed7aa', color: '#9a3412', padding: '0.8rem', borderRadius: '10px', fontSize: '0.85rem' }}>
+                    ⚠️ Análisis limitado por hipoglucemia reciente. No se recomiendan ajustes agresivos.
+                </div>
+            )}
 
             <div style={{ display: 'grid', gap: '1rem' }}>
                 {result.buckets.map(bucket => (
@@ -106,7 +116,7 @@ export function IsfAnalyzer() {
                     style={{ width: '100%', fontSize: '0.9rem' }}
                     onClick={() => setShowEvents(!showEvents)}
                 >
-                    {showEvents ? 'Ocultar Detalles' : `Ver ${result.clean_events.length} Correcciones Limpias`}
+                    {showEvents ? 'Ocultar Detalles' : `Ver ${cleanEventCount} Correcciones Limpias`}
                 </Button>
             </div>
 
@@ -115,7 +125,7 @@ export function IsfAnalyzer() {
                     {result.clean_events.length === 0 ? (
                         <p style={{ textAlign: 'center', color: '#94a3b8' }}>No se encontraron eventos limpios.</p>
                     ) : result.clean_events.map(ev => (
-                        <div key={ev.id} style={{ borderBottom: '1px solid #e2e8f0', padding: '0.5rem 0', display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                        <div key={ev.id} style={{ borderBottom: '1px solid #e2e8f0', padding: '0.5rem 0', display: 'flex', flexDirection: 'column', gap: '0.2rem', opacity: ev.quality_ok ? 1 : 0.7 }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 500 }}>
                                 <span>{new Date(ev.timestamp).toLocaleString()}</span>
                                 <span style={{
@@ -132,8 +142,29 @@ export function IsfAnalyzer() {
                             <div style={{ color: '#94a3b8', fontSize: '0.75rem' }}>
                                 Inicio: {ev.bg_start} → Fin: {ev.bg_end} (IOB al inicio: {ev.iob}U)
                             </div>
+                            {!ev.quality_ok && ev.reason_flags?.length > 0 && (
+                                <div style={{ color: '#f97316', fontSize: '0.72rem', fontWeight: 600 }}>
+                                    Descartado por calidad CGM: {ev.reason_flags.join(', ')}
+                                </div>
+                            )}
                         </div>
                     ))}
+                </div>
+            )}
+
+            {result.runs && result.runs.length > 0 && (
+                <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', padding: '0.8rem', borderRadius: '8px' }}>
+                    <div style={{ fontSize: '0.75rem', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.6px', marginBottom: '0.4rem' }}>
+                        Últimos análisis
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                        {result.runs.map((run, idx) => (
+                            <div key={`${run.timestamp}-${idx}`} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', color: '#475569' }}>
+                                <span>{new Date(run.timestamp).toLocaleDateString()} · {run.days}d</span>
+                                <span>{run.recommendation || '—'}{run.diff_percent !== null && run.diff_percent !== undefined ? ` (${run.diff_percent}%)` : ''}</span>
+                            </div>
+                        ))}
+                    </div>
                 </div>
             )}
         </div>

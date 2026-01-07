@@ -85,7 +85,13 @@ async def analyze_isf(
         night_end_hour=user_settings.nightscout.filter_night_end_hour,
         treatments_lookback_minutes=user_settings.nightscout.treatments_lookback_minutes,
     )
-    service = IsfAnalysisService(client, current_cf, profile_settings, compression_config=compression_config)
+    service = IsfAnalysisService(
+        client,
+        current_cf,
+        profile_settings,
+        compression_config=compression_config,
+        db_session=db,
+    )
     
     try:
         result = await service.run_analysis(user_id, days)

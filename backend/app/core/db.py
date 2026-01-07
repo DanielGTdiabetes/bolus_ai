@@ -20,7 +20,8 @@ _async_engine = None
 _async_session_factory = None
 _in_memory_store = {
     "entries": [],
-    "checkins": []
+    "checkins": [],
+    "isf_runs": [],
 }
 
 def init_db():
@@ -194,6 +195,20 @@ async def migrate_schema(conn):
                 started_at TIMESTAMP,
                 expires_at TIMESTAMP,
                 note TEXT
+            )
+        """))
+
+        # 10. isf_runs
+        await conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS isf_runs (
+                id UUID PRIMARY KEY,
+                user_id VARCHAR NOT NULL,
+                timestamp TIMESTAMP,
+                days INTEGER NOT NULL,
+                n_events INTEGER NOT NULL,
+                recommendation VARCHAR,
+                diff_percent FLOAT,
+                flags JSON
             )
         """))
 

@@ -1,9 +1,13 @@
 import logging
 import statistics
 from datetime import datetime, timedelta, timezone
-from typing import List, Dict, Optional, Tuple
+from typing import List, Optional
 
-from app.models.isf import IsfAnalysisResponse, IsfBucketStat, IsfEvent
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.models.isf import IsfAnalysisResponse, IsfBucketStat, IsfEvent, IsfRunSummary
+from app.models.isf_run import IsfRun
 from app.models.schemas import Treatment, NightscoutSGV
 from app.services.nightscout_client import NightscoutClient
 from app.services.iob import compute_iob, InsulinActionProfile
@@ -25,6 +29,10 @@ BUCKET_LABELS = {
     "night": "Noche (18-24)"
 }
 
+RECENT_HYPO_HOURS = 12
+CGM_GAP_MINUTES = 25
+MAX_SLOPE_MGDL_PER_MIN = 5.0
+
 class IsfAnalysisService:
     def __init__(
         self,
@@ -32,6 +40,7 @@ class IsfAnalysisService:
         current_cf_settings: dict,
         profile_settings: dict,
         compression_config: Optional[FilterConfig] = None,
+        db_session: Optional[AsyncSession] = None,
     ):
         self.ns = ns_client
         self.current_cf = current_cf_settings
@@ -45,6 +54,7 @@ class IsfAnalysisService:
             if compression_config and compression_config.enabled
             else None
         )
+        self.db_session = db_session
 
     def _get_bucket(self, dt: datetime) -> str:
         # User defined buckets: 0-6, 6-12, 12-18, 18-24
@@ -79,6 +89,87 @@ class IsfAnalysisService:
         key = mapping.get(bucket, "lunch")
         return float(self.current_cf.get(key, 30.0))
 
+    def _get_sgv_window(self, sgv_entries: List[dict], start_dt: datetime, end_dt: datetime) -> List[dict]:
+        start_ms = int(start_dt.timestamp() * 1000)
+        end_ms = int(end_dt.timestamp() * 1000)
+        window_entries = [e for e in sgv_entries if start_ms <= e["date"] <= end_ms]
+        window_entries.sort(key=lambda e: e["date"])
+        return window_entries
+
+    def _has_cgm_gap(self, window_entries: List[dict], start_dt: datetime, end_dt: datetime) -> bool:
+        if not window_entries:
+            return True
+        start_ms = int(start_dt.timestamp() * 1000)
+        end_ms = int(end_dt.timestamp() * 1000)
+        prev_ms = start_ms
+        for entry in window_entries:
+            gap_minutes = (entry["date"] - prev_ms) / 60000.0
+            if gap_minutes > CGM_GAP_MINUTES:
+                return True
+            prev_ms = entry["date"]
+        final_gap = (end_ms - prev_ms) / 60000.0
+        return final_gap > CGM_GAP_MINUTES
+
+    def _has_unreliable_slope(self, window_entries: List[dict]) -> bool:
+        sustained_count = 0
+        for prev, curr in zip(window_entries, window_entries[1:]):
+            dt_minutes = (curr["date"] - prev["date"]) / 60000.0
+            if dt_minutes <= 0:
+                continue
+            slope = abs((curr["sgv"] - prev["sgv"]) / dt_minutes)
+            if slope > MAX_SLOPE_MGDL_PER_MIN:
+                sustained_count += 1
+                if sustained_count >= 2:
+                    return True
+            else:
+                sustained_count = 0
+        return False
+
+    async def _record_run(
+        self,
+        user_id: str,
+        days: int,
+        n_events: int,
+        recommendation: Optional[str],
+        diff_percent: Optional[float],
+        flags: List[str],
+    ) -> None:
+        if not self.db_session:
+            return
+        run = IsfRun(
+            user_id=user_id,
+            timestamp=datetime.now(timezone.utc),
+            days=days,
+            n_events=n_events,
+            recommendation=recommendation,
+            diff_percent=diff_percent,
+            flags=flags,
+        )
+        self.db_session.add(run)
+        await self.db_session.commit()
+
+    async def _get_recent_runs(self, user_id: str, limit: int = 5) -> List[IsfRunSummary]:
+        if not self.db_session:
+            return []
+        result = await self.db_session.execute(
+            select(IsfRun)
+            .where(IsfRun.user_id == user_id)
+            .order_by(IsfRun.timestamp.desc())
+            .limit(limit)
+        )
+        runs = result.scalars().all()
+        return [
+            IsfRunSummary(
+                timestamp=run.timestamp,
+                days=run.days,
+                n_events=run.n_events,
+                recommendation=run.recommendation,
+                diff_percent=run.diff_percent,
+                flags=run.flags or [],
+            )
+            for run in runs
+        ]
+
     async def run_analysis(self, user_id: str, days: int = 14) -> IsfAnalysisResponse:
         logger.info(f"Starting ISF Analysis for user {user_id}, days={days}")
         
@@ -95,14 +186,19 @@ class IsfAnalysisService:
         # Sort SGV by date ascending
         sgv_data.sort(key=lambda x: x.date)
 
-        # Optional: filter out suspected compression lows for analysis only
-        if self.compression_detector and len(sgv_data) > 1:
-            entries_dicts = [e.model_dump() for e in sgv_data]
+        sgv_entries = [e.model_dump() for e in sgv_data]
+        # Optional: detect suspected compression lows for analysis quality only
+        if self.compression_detector and len(sgv_entries) > 1:
             treatments_dicts = [t.model_dump() for t in treatments]
-            processed = self.compression_detector.detect(entries_dicts, treatments_dicts)
-            compression_dates = {e["date"] for e in processed if e.get("is_compression")}
-            if compression_dates:
-                sgv_data = [e for e in sgv_data if e.date not in compression_dates]
+            sgv_entries = self.compression_detector.detect(sgv_entries, treatments_dicts)
+
+        recent_hypo_cutoff = now_utc - timedelta(hours=RECENT_HYPO_HOURS)
+        recent_hypo_cutoff_ms = int(recent_hypo_cutoff.timestamp() * 1000)
+        blocked_recent_hypo = any(
+            e["date"] >= recent_hypo_cutoff_ms and e["sgv"] < 70
+            for e in sgv_entries
+        )
+        global_reason_flags = ["recent_hypo"] if blocked_recent_hypo else []
         
         # Helper to find SGV at time
         # sgv.date is epoch ms
@@ -115,13 +211,13 @@ class IsfAnalysisService:
             closest = None
             min_diff = float("inf")
             
-            for s in sgv_data:
-                diff = abs(s.date - target_ms)
+            for s in sgv_entries:
+                diff = abs(s["date"] - target_ms)
                 if diff < min_diff and diff < window_ms:
                     min_diff = diff
                     closest = s
             
-            return closest.sgv if closest else None
+            return int(closest["sgv"]) if closest else None
 
         # Filter Candidates
         candidates = []
@@ -180,6 +276,16 @@ class IsfAnalysisService:
                 # valid = False
                 # reason = "Datos CGM faltantes"
                 continue # Skip efficiently
+
+            reason_flags = []
+            window_entries = self._get_sgv_window(sgv_entries, t_start, t_end)
+            if any(e.get("is_compression") for e in window_entries):
+                reason_flags.append("compression")
+            if self._has_cgm_gap(window_entries, t_start, t_end):
+                reason_flags.append("cgm_gap")
+            if self._has_unreliable_slope(window_entries):
+                reason_flags.append("unreliable_cgm")
+            quality_ok = len(reason_flags) == 0
                 
             delta = bg_start - bg_end # Positive means Drop (Start 200, End 100 => Delta 100)
             # User Formula: ISF = DeltaBG / Units
@@ -203,8 +309,10 @@ class IsfAnalysisService:
                 isf_observed=round(isf_obs, 1),
                 iob=round(iob_curr, 2),
                 bucket=bucket,
-                valid=True,
-                reason=None
+                valid=quality_ok,
+                reason=None,
+                quality_ok=quality_ok,
+                reason_flags=reason_flags
             )
             clean_events.append(event)
             
@@ -212,7 +320,7 @@ class IsfAnalysisService:
         bucket_stats = []
         
         for bucket_key, label in BUCKET_LABELS.items():
-            events = [e for e in clean_events if e.bucket == bucket_key]
+            events = [e for e in clean_events if e.bucket == bucket_key and e.quality_ok]
             current_isf = self._get_configured_isf(bucket_key)
             
             count = len(events)
@@ -260,22 +368,56 @@ class IsfAnalysisService:
                     # Example: Obs=30, Curr=50. (30-50)/50 = -0.4 (-40%).
                     # Insulin drops LESS. We are resistant.
                     # We need to DECREASE ISF number to give MORE insulin.
-                    stat.status = "weak_drop"
-                    stat.suggestion_type = "decrease"
-                    
-                    suggested = current_isf * 0.95
-                    if diff_ratio < -0.30:
-                        suggested = current_isf * 0.90
+                    if blocked_recent_hypo:
+                        stat.status = "blocked_recent_hypo"
+                        stat.suggestion_type = None
+                        stat.suggested_isf = None
+                        stat.confidence = "low"
+                    else:
+                        stat.status = "weak_drop"
+                        stat.suggestion_type = "decrease"
                         
-                    stat.suggested_isf = round(suggested, 1)
-                    stat.confidence = "high" if count > 10 else "medium"
+                        suggested = current_isf * 0.95
+                        if diff_ratio < -0.30:
+                            suggested = current_isf * 0.90
+                            
+                        stat.suggested_isf = round(suggested, 1)
+                        stat.confidence = "high" if count > 10 else "medium"
                 else:
                     stat.status = "ok"
                     stat.confidence = "high"
             
             bucket_stats.append(stat)
-            
+
+        valid_events_count = len([e for e in clean_events if e.quality_ok])
+        blocked_stat = next((s for s in bucket_stats if s.status == "blocked_recent_hypo"), None)
+        actionable_stats = [s for s in bucket_stats if s.suggestion_type in ("increase", "decrease")]
+        recommendation = None
+        diff_percent = None
+        if blocked_stat:
+            recommendation = "blocked_recent_hypo"
+            diff_percent = round(blocked_stat.change_ratio * 100, 1)
+        elif actionable_stats:
+            best_stat = max(actionable_stats, key=lambda s: abs(s.change_ratio))
+            recommendation = best_stat.suggestion_type
+            diff_percent = round(best_stat.change_ratio * 100, 1)
+        else:
+            recommendation = "none"
+
+        await self._record_run(
+            user_id=user_id,
+            days=days,
+            n_events=valid_events_count,
+            recommendation=recommendation,
+            diff_percent=diff_percent,
+            flags=global_reason_flags,
+        )
+        runs = await self._get_recent_runs(user_id)
+
         return IsfAnalysisResponse(
             buckets=bucket_stats,
-            clean_events=clean_events
+            clean_events=clean_events,
+            blocked_recent_hypo=blocked_recent_hypo,
+            global_reason_flags=global_reason_flags,
+            runs=runs,
         )
