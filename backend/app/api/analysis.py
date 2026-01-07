@@ -137,8 +137,42 @@ async def get_shadow_logs(
     store: DataStore = Depends(_data_store),
     db: AsyncSession = Depends(get_db_session)
 ):
-    from app.models.learning import ShadowLog
+    from app.models.learning import ShadowLog, MealEntry, MealOutcome
     from sqlalchemy import select
+
+    def _shadow_log_payload(log: ShadowLog) -> dict:
+        return {
+            "id": log.id,
+            "user_id": log.user_id,
+            "created_at": log.created_at,
+            "meal_name": log.meal_name,
+            "scenario": log.scenario,
+            "suggestion": log.suggestion,
+            "is_better": log.is_better,
+            "improvement_pct": log.improvement_pct,
+            "status": log.status,
+        }
+
+    def _format_learning_summary(outcome: MealOutcome) -> tuple[str, str, bool]:
+        if outcome.score is None:
+            summary = outcome.notes or "Resultado sin puntuar"
+            return summary, "neutral", False
+
+        summary_parts = [f"Score {outcome.score}/10"]
+        if outcome.max_bg is not None:
+            summary_parts.append(f"Max {int(outcome.max_bg)}")
+        if outcome.min_bg is not None:
+            summary_parts.append(f"Min {int(outcome.min_bg)}")
+        if outcome.final_bg is not None:
+            summary_parts.append(f"Final {int(outcome.final_bg)}")
+
+        status = "neutral"
+        if outcome.hypo_occurred or outcome.hyper_occurred:
+            status = "failed"
+        elif outcome.score >= 8:
+            status = "success"
+
+        return " · ".join(summary_parts), status, status == "success"
     
     # 1. Fetch DB Logs
     stmt = (
@@ -149,6 +183,38 @@ async def get_shadow_logs(
     )
     result = await db.execute(stmt)
     db_logs = result.scalars().all()
+
+    # 1b. Fetch learning outcomes (MealEntry + MealOutcome) for history
+    stmt_learning = (
+        select(MealEntry, MealOutcome)
+        .join(MealOutcome, MealOutcome.meal_entry_id == MealEntry.id)
+        .where(MealEntry.user_id == current_user.username)
+        .order_by(MealOutcome.evaluated_at.desc())
+        .limit(limit)
+    )
+    learning_rows = (await db.execute(stmt_learning)).all()
+    learning_logs = []
+    for entry, outcome in learning_rows:
+        created_at = outcome.evaluated_at or entry.created_at
+        meal_name = "Comida"
+        if entry.items and isinstance(entry.items, list):
+            first_item = next((str(item).strip() for item in entry.items if str(item).strip()), None)
+            if first_item:
+                meal_name = first_item
+
+        summary, status, is_better = _format_learning_summary(outcome)
+
+        learning_logs.append({
+            "id": outcome.id,
+            "user_id": entry.user_id,
+            "created_at": created_at,
+            "meal_name": meal_name,
+            "scenario": "Evaluación de aprendizaje",
+            "suggestion": summary,
+            "is_better": is_better,
+            "improvement_pct": None,
+            "status": status,
+        })
     
     # 2. Fetch "Learning Records" from JSON Store (The new Feedback system)
     # This bridges the gap so the user sees their feedback actions here.
@@ -186,7 +252,9 @@ async def get_shadow_logs(
             memory_logs.append(sim_log)
 
     # Combine and Sort
-    all_logs = list(db_logs) + memory_logs
-    all_logs.sort(key=lambda x: x.created_at, reverse=True)
-    
+    all_logs = [_shadow_log_payload(log) for log in db_logs] + learning_logs + [
+        _shadow_log_payload(log) for log in memory_logs
+    ]
+    all_logs.sort(key=lambda x: x["created_at"], reverse=True)
+
     return all_logs[:limit]
