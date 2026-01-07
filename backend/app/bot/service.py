@@ -1317,7 +1317,14 @@ def create_bot_app() -> Application:
         logger.warning("TELEGRAM_BOT_TOKEN not set. Bot will not run.")
         return None
 
-    application = Application.builder().token(token).build()
+    application = (
+        Application.builder()
+        .token(token)
+        .connect_timeout(30.0)
+        .read_timeout(30.0)
+        .write_timeout(30.0)
+        .build()
+    )
 
     # Register Handlers
     application.add_handler(CommandHandler("ping", ping_command))
@@ -1370,6 +1377,14 @@ async def initialize() -> None:
     logger.info("Voice notes: %s (provider: Gemini)", "enabled" if voice_enabled else "disabled")
     if not config.get_allowed_telegram_user_id():
         logger.warning("ALLOWED_TELEGRAM_USER_ID missing; bot will warn user on /start.")
+
+    # Diagnostic: Check Timezone Availability
+    try:
+        from app.utils.timezone import DEFAULT_TIMEZONE, get_user_timezone
+        tz_check = get_user_timezone() # Should be Madrid defaults
+        logger.info(f"Timezone System Check: Default='{DEFAULT_TIMEZONE}' -> Resolved={tz_check}")
+    except Exception as e:
+        logger.warning(f"Timezone System Check: FAILED ({e}). specific time features might be affected.")
 
     if mode == BotMode.DISABLED:
         return
