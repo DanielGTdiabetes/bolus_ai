@@ -114,6 +114,16 @@ async def startup_event() -> None:
         from app.core.migration import ensure_basal_schema, ensure_treatment_columns
         await ensure_basal_schema(get_engine())
         await ensure_treatment_columns(get_engine())
+
+        # Verify critical tables
+        from sqlalchemy import text
+        try:
+             async with get_engine().connect() as conn:
+                 await conn.execute(text("SELECT 1 FROM nutrition_drafts LIMIT 1"))
+             logger.info("✅ Table 'nutrition_drafts' verification successful.")
+        except Exception as e:
+             logger.critical(f"❌ Table 'nutrition_drafts' MISSING or inaccessible: {e}")
+        
         logger.info("✅ Database ready.")
     except Exception as e:
         logger.critical(f"❌ Critical DB Init Error: {e}")
