@@ -50,16 +50,22 @@ export function DraftNotification() {
         }
     };
 
+    // Only poll when visible AND authenticated
+    const shouldPoll = isVisible && isAuthenticated();
+
     useInterval(() => {
-        if (isVisible) {
+        if (shouldPoll) {
             pollDraft();
         }
-    }, isVisible ? pollDelay : null);
+    }, shouldPoll ? pollDelay : null);
 
     useEffect(() => {
         const handleVisibility = () => setIsVisible(document.visibilityState === 'visible');
         document.addEventListener('visibilitychange', handleVisibility);
-        pollDraft();
+        // Only do initial poll if authenticated
+        if (isAuthenticated()) {
+            pollDraft();
+        }
         return () => document.removeEventListener('visibilitychange', handleVisibility);
     }, []);
 

@@ -145,6 +145,7 @@ export async function apiFetch(path: string, options: ApiOptions = {}) {
   }
 
   const token = getStoredToken();
+  const hadToken = Boolean(token); // Track if we had a token at request time
   if (token) {
     headers.Authorization = `Bearer ${token}`;
   }
@@ -165,8 +166,13 @@ export async function apiFetch(path: string, options: ApiOptions = {}) {
   }
 
   if (response.status === 401) {
-    clearSession();
-    if (unauthorizedHandler) unauthorizedHandler();
+    // Only clear session and trigger handler if this request had a token attached.
+    // This prevents race conditions where old requests without tokens (made before login)
+    // clear the newly saved session token.
+    if (hadToken) {
+      clearSession();
+      if (unauthorizedHandler) unauthorizedHandler();
+    }
     throw new Error("Sesión caducada. Vuelve a iniciar sesión.");
   }
 
