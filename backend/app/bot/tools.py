@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field, ValidationError
 from app.bot.state import health
 from app.core.settings import get_settings
 from app.core.db import SessionLocal
+from sqlalchemy import text
 from app.services.store import DataStore
 from app.services.nightscout_client import NightscoutClient, NightscoutError
 from app.services.dexcom_client import DexcomClient
@@ -325,8 +326,8 @@ async def get_status_context(username: str = "admin", user_settings: Optional[Us
     cob_g = None
     iob_u = None
     try:
-        iob_u, _, iob_info, _ = await compute_iob_from_sources(now, user_settings, ns_client, store)
-        cob_g, cob_info, _ = await compute_cob_from_sources(now, ns_client, store)
+        iob_u, _, iob_info, _ = await compute_iob_from_sources(now, user_settings, None, store)
+        cob_g, cob_info, _ = await compute_cob_from_sources(now, None, store)
         if iob_info and iob_info.status in ["unavailable", "stale"]:
             quality = "degraded"
         if cob_info and cob_info.status in ["unavailable", "stale"]:
@@ -736,37 +737,42 @@ async def simulate_whatif(carbs: float, horizon_minutes: int = 180) -> WhatIfRes
     # Instead of lumping COB, we fetch recent treatments to model actual absorption curves.
     history_events = []
     try:
-        # Use NS Client to get reliable history
-        client = _build_ns_client(user_settings)
-        if client:
+        # Use Local DB to get reliable history
+        # We perform the query manually to avoid dragging in full IOB service overhead
+        async with SessionLocal() as session:
             # Fetch 6h history
-            recents = await client.get_recent_treatments(hours=6)
+            cutoff = datetime.now(timezone.utc) - timedelta(hours=6)
+            cutoff_naive = cutoff.replace(tzinfo=None)
+            
+            query = text("""
+                SELECT created_at, carbs 
+                FROM treatments 
+                WHERE created_at > :cutoff 
+                AND carbs > 0
+            """)
+            
+            result = await session.execute(query, {"cutoff": cutoff_naive})
+            recents = result.fetchall()
+            
             now_utc = datetime.now(timezone.utc)
             
-            for t in recents:
-                # 2.1 Carbs
-                if t.carbs and t.carbs > 0:
-                    age_min = (now_utc - t.created_at).total_seconds() / 60
+            for r in recents:
+                created_at = r.created_at
+                # Handle naive (DB) -> aware (Calc)
+                if created_at.tzinfo is None:
+                    created_at = created_at.replace(tzinfo=timezone.utc)
+                
+                carbs_val = float(r.carbs)
+                if carbs_val > 0:
+                    age_min = (now_utc - created_at).total_seconds() / 60
                     # Event time relative to NOW (t=0) is negative
                     offset = -1 * age_min
                     history_events.append(ForecastEventCarbs(
                         time_offset_min=int(offset),
-                        grams=t.carbs,
-                        absorption_minutes=180 # Default, or complex logic
+                        grams=carbs_val,
+                        absorption_minutes=180 # Default
                     ))
-                
-                # 2.2 Bolus History (for IOB simulation if needed, but engine usually calculates IOB separately. 
-                # However, ForecastEngine logic might want Bolus events to compute IOB curve if we don't pass 'initial_iob'?)
-                # Current ForecastEngine usually takes 'initial_iob' OR 'events'. 
-                # If we pass initial_iob (computed by simple_iob), we might duplicate if we also pass bolus events.
-                # Safest: Pass carb events for COB info, but rely on status.iob_u for IOB starting point?
-                # Actually, status.cob_g is total COB. If we pass Carb Events, the engine re-calculates COB.
-                # So if we pass Carb Events, we should NOT rely on status.cob_g for "initial_cob", or strictly one.
-                # The engine 'initial_cob' param is typically an override or starting state.
-                # Let's pass history events and let engine handle it.
-                pass
-                
-            await client.aclose()
+
     except Exception as e:
         logger.warning(f"Simulate history fetch failed: {e}")
         # Fallback: Ghost Meal if history fetch fails
