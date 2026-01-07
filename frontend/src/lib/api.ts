@@ -950,21 +950,21 @@ export async function updateSettings(settings) {
 }
 
 export async function getNutritionDraft() {
-  const response = await apiFetch("/api/nutrition/draft");
+  const response = await apiFetch("/api/integrations/nutrition/draft");
   const data = await toJson(response);
   if (!response.ok) throw new Error(data.detail || "Error obteniendo draft");
   return data;
 }
 
 export async function closeNutritionDraft() {
-  const response = await apiFetch("/api/nutrition/draft/close", { method: "POST" });
+  const response = await apiFetch("/api/integrations/nutrition/draft/close", { method: "POST" });
   const data = await toJson(response);
   if (!response.ok) throw new Error(data.detail || "Error cerrando draft");
   return data;
 }
 
 export async function discardNutritionDraft() {
-  const response = await apiFetch("/api/nutrition/draft/discard", { method: "POST" });
+  const response = await apiFetch("/api/integrations/nutrition/draft/discard", { method: "POST" });
   const data = await toJson(response);
   if (!response.ok) throw new Error(data.detail || "Error descartando draft");
   return data;
