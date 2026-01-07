@@ -22,9 +22,14 @@ function GlucoseHero({ onRefresh }) {
     const [forecastError, setForecastError] = useState(null);
 
     // Auto-refresh config (hook requires interval in ms or null)
-    useInterval(() => load(), 60000);
+    useInterval(isAuthenticated() ? load : null, 60000);
 
     const load = async () => {
+        // Don't fetch if not authenticated
+        if (!isAuthenticated()) {
+            return;
+        }
+
         setLoading(true);
         try {
             const config = getLocalNsConfig();
