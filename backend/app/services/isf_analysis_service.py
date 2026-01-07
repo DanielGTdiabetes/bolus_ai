@@ -7,6 +7,7 @@ from app.models.isf import IsfAnalysisResponse, IsfBucketStat, IsfEvent
 from app.models.schemas import Treatment, NightscoutSGV
 from app.services.nightscout_client import NightscoutClient
 from app.services.iob import compute_iob, InsulinActionProfile
+from app.services.smart_filter import CompressionDetector, FilterConfig
 
 logger = logging.getLogger(__name__)
 
@@ -25,13 +26,24 @@ BUCKET_LABELS = {
 }
 
 class IsfAnalysisService:
-    def __init__(self, ns_client: NightscoutClient, current_cf_settings: dict, profile_settings: dict):
+    def __init__(
+        self,
+        ns_client: NightscoutClient,
+        current_cf_settings: dict,
+        profile_settings: dict,
+        compression_config: Optional[FilterConfig] = None,
+    ):
         self.ns = ns_client
         self.current_cf = current_cf_settings
         self.profile = InsulinActionProfile(
             dia_hours=float(profile_settings.get("dia_hours", 4.0)),
             curve=profile_settings.get("curve", "walsh"),
             peak_minutes=int(profile_settings.get("peak_minutes", 75))
+        )
+        self.compression_detector = (
+            CompressionDetector(compression_config)
+            if compression_config and compression_config.enabled
+            else None
         )
 
     def _get_bucket(self, dt: datetime) -> str:
@@ -82,6 +94,15 @@ class IsfAnalysisService:
         
         # Sort SGV by date ascending
         sgv_data.sort(key=lambda x: x.date)
+
+        # Optional: filter out suspected compression lows for analysis only
+        if self.compression_detector and len(sgv_data) > 1:
+            entries_dicts = [e.model_dump() for e in sgv_data]
+            treatments_dicts = [t.model_dump() for t in treatments]
+            processed = self.compression_detector.detect(entries_dicts, treatments_dicts)
+            compression_dates = {e["date"] for e in processed if e.get("is_compression")}
+            if compression_dates:
+                sgv_data = [e for e in sgv_data if e.date not in compression_dates]
         
         # Helper to find SGV at time
         # sgv.date is epoch ms

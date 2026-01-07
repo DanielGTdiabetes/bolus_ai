@@ -19,6 +19,7 @@ from app.models.bolus_split import (
 from app.services.bolus_engine import calculate_bolus_v2
 from app.services.bolus_split import create_plan, recalc_second
 from app.services.autosens_service import AutosensService
+from app.services.smart_filter import CompressionDetector, FilterConfig
 from app.services.iob import compute_iob_from_sources, compute_cob_from_sources
 from app.models.iob import SourceStatus
 from app.services.nightscout_client import NightscoutClient, NightscoutError
@@ -81,6 +82,7 @@ async def calculate_bolus_stateless(
     store: DataStore = Depends(_data_store),
     user: CurrentUser = Depends(get_current_user),
     session: AsyncSession = Depends(get_db_session),
+    settings: Settings = Depends(get_settings),
 ):
     # 1. Resolve Settings
     # If payload has settings, construct a temporary UserSettings object to satisfy the engine interface
@@ -225,12 +227,23 @@ async def calculate_bolus_stateless(
         except Exception as e:
             logger.warning(f"Failed to fetch NS config from DB: {e}")
 
+    compression_config = FilterConfig(
+        enabled=settings.nightscout.filter_compression,
+        night_start_hour=settings.nightscout.filter_night_start,
+        night_end_hour=settings.nightscout.filter_night_end,
+        drop_threshold_mgdl=settings.nightscout.filter_drop_mgdl,
+        rebound_threshold_mgdl=settings.nightscout.filter_rebound_mgdl,
+        rebound_window_minutes=settings.nightscout.filter_window_min
+    )
+
     # 3. Resolve Glucose (Manual vs Nightscout)
     resolved_bg: Optional[float] = payload.bg_mgdl
     bg_source: Literal["manual", "nightscout", "none"] = "manual" if resolved_bg is not None else "none"
     bg_trend: Optional[str] = None
     bg_age_minutes: Optional[float] = None
     bg_is_stale: bool = False
+    compression_flag = False
+    compression_reason = None
     glucose_status = SourceStatus(
         source=bg_source,
         status="ok" if resolved_bg is not None else "unavailable",
@@ -246,12 +259,37 @@ async def calculate_bolus_stateless(
                 token=ns_config.token,
                 timeout_seconds=5
             )
-            sgv: NightscoutSGV = await ns_client.get_latest_sgv()
+            entries = []
+            if compression_config.enabled:
+                end_dt = datetime.now(timezone.utc)
+                start_dt = end_dt - timedelta(minutes=60)
+                entries = await ns_client.get_sgv_range(start_dt, end_dt, count=12)
+
+            if entries:
+                entries.sort(key=lambda x: x.date)
+                sgv = entries[-1]
+            else:
+                sgv = await ns_client.get_latest_sgv()
             
             resolved_bg = float(sgv.sgv)
             bg_source = "nightscout"
             bg_trend = sgv.direction
             glucose_status.source = "nightscout"
+
+            if compression_config.enabled and len(entries) > 1:
+                treatments = await ns_client.get_recent_treatments(hours=2, limit=10)
+                detector = CompressionDetector(config=compression_config)
+                processed = detector.detect(
+                    [e.model_dump() for e in entries],
+                    [t.model_dump() for t in treatments]
+                )
+                if processed:
+                    last_proc = processed[-1]
+                    if last_proc.get("date") == sgv.date:
+                        compression_flag = last_proc.get("is_compression", False)
+                        compression_reason = last_proc.get("compression_reason")
+                        if compression_flag:
+                            glucose_status.reason = "compression_suspected"
             
             now_ms = datetime.now(timezone.utc).timestamp() * 1000
             diff_ms = now_ms - sgv.date
@@ -361,6 +399,7 @@ async def calculate_bolus_stateless(
                     session=session,
                     settings=user_settings,
                     record_run=True,
+                    compression_config=compression_config,
                 )
                 local_ratio = res.ratio
                 if local_ratio != 1.0:
@@ -471,6 +510,11 @@ async def calculate_bolus_stateless(
 
         if resolved_bg is None:
             response.warnings.append("⚠️ NO SE DETECTÓ GLUCOSA. El cálculo NO incluye corrección.")
+        if compression_flag:
+            warning = "⚠️ Posible compresión detectada en CGM; verifica con medición capilar."
+            if compression_reason:
+                warning = f"{warning} ({compression_reason})"
+            response.warnings.append(warning)
         
         if breakdown:
              response.explain.append(f"   (IOB basado en {len(breakdown)} tratamientos):")
@@ -622,7 +666,12 @@ async def save_treatment(
                      
                      # Double check to prevent "risk" even if code was called
                      if not us.autosens.enabled: return
-                     res = await AutosensService.calculate_autosens(u_id, task_session, us)
+                     res = await AutosensService.calculate_autosens(
+                         u_id,
+                         task_session,
+                         us,
+                         compression_config=compression_config,
+                     )
                      ratio = res.ratio
                      
                      # Threshold: Deviating at least 1% to avoid pure noise. 

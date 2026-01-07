@@ -23,6 +23,7 @@ from app.models.settings import UserSettings
 from app.services.nightscout_secrets_service import get_ns_config
 from app.services.nightscout_client import NightscoutClient
 from app.services.autosens_service import AutosensService
+from app.services.smart_filter import FilterConfig
 from app.models.basal import BasalEntry
 from app.services.dexcom_client import DexcomClient
 from app.services.store import DataStore
@@ -535,7 +536,20 @@ async def get_current_forecast(
     if user_settings.autosens.enabled:
          try:
              # We need to await it. Service is async.
-             res = await AutosensService.calculate_autosens(user.username, session, user_settings)
+             compression_config = FilterConfig(
+                 enabled=settings.nightscout.filter_compression,
+                 night_start_hour=settings.nightscout.filter_night_start,
+                 night_end_hour=settings.nightscout.filter_night_end,
+                 drop_threshold_mgdl=settings.nightscout.filter_drop_mgdl,
+                 rebound_threshold_mgdl=settings.nightscout.filter_rebound_mgdl,
+                 rebound_window_minutes=settings.nightscout.filter_window_min
+             )
+             res = await AutosensService.calculate_autosens(
+                 user.username,
+                 session,
+                 user_settings,
+                 compression_config=compression_config
+             )
              autosens_ratio = res.ratio
              # Log or append to response warnings/info?
              # For now just apply it silently to improve graph accuracy.
