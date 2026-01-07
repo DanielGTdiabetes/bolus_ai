@@ -120,3 +120,12 @@ async def ensure_treatment_columns(engine: AsyncEngine):
                 except Exception:
                     await conn.rollback()
                     pass
+
+        try:
+            await conn.execute(
+                text("CREATE UNIQUE INDEX IF NOT EXISTS uq_treatments_draft_id ON treatments (draft_id);")
+            )
+            await conn.commit()
+        except Exception as e:
+            await conn.rollback()
+            logger.warning(f"Failed to ensure unique draft_id index: {e}")

@@ -24,6 +24,7 @@ import ScalePage from './pages/ScalePage';
 import BodyMapPage from './pages/BodyMapPage';
 import SuppliesPage from './pages/SuppliesPage';
 import NotificationsPage from './pages/NotificationsPage';
+import { DraftNotification } from './components/layout/DraftNotification';
 
 import ForecastPage from './pages/ForecastPage';
 import StatusPage from './pages/StatusPage';
@@ -100,6 +101,7 @@ export function mountReactPage(pageName, containerId = 'app') {
         reactRoot.render(
             <React.StrictMode>
                 <Component />
+                <DraftNotification />
                 <ToastContainer />
             </React.StrictMode>
         );
