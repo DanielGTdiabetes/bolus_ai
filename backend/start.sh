@@ -3,7 +3,7 @@ set -e
 
 # Run migrations (idempotent)
 echo "Running database migrations..."
-alembic upgrade head
+python -m alembic upgrade head
 
 # Start the application
 echo "Starting application..."
