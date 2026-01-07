@@ -74,6 +74,9 @@ export default function BolusPage() {
     const [iob, setIob] = useState(null);
     const [nsConfig] = useState(getLocalNsConfig() || {});
 
+    // Nutrition Draft State
+    const [draft, setDraft] = useState(null);
+
     // Memory Ref for Learning (Fat, Protein, Items)
     const mealMetaRef = React.useRef(null);
     const [learningHint, setLearningHint] = useState(null);
@@ -98,6 +101,19 @@ export default function BolusPage() {
             // Favorites
             const favs = await getFavorites();
             if (favs) setFavorites(favs);
+
+            // Check for Nutrition Draft (Higher Priority than Orphan)
+            try {
+                const { getNutritionDraft } = await import('../lib/api');
+                const dr = await getNutritionDraft();
+                if (dr && dr.active && dr.draft) {
+                    setDraft(dr.draft);
+                    // If draft exists, we might want to skip orphan check or show both?
+                    // Showing both is fine, user chooses.
+                }
+            } catch (err) {
+                console.warn("Draft check failed", err);
+            }
 
             // Recent Treatments (Orphan Carbs Detection)
             try {
@@ -659,8 +675,87 @@ export default function BolusPage() {
                 {!result && (
                     <div className="stack fade-in">
 
+                        {/* Nutrition Draft Alert */}
+                        {draft && (
+                            <div className="fade-in" style={{
+                                background: '#f5f3ff', border: '1px solid #8b5cf6',
+                                borderRadius: '12px', padding: '1rem', marginBottom: '1rem',
+                                display: 'flex', flexDirection: 'column', gap: '8px'
+                            }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#5b21b6', fontWeight: 700 }}>
+                                    <span>📩 Borrador Recibido</span>
+                                    <span style={{ fontSize: '0.75rem', fontWeight: 400, background: 'rgba(0,0,0,0.05)', padding: '2px 8px', borderRadius: '10px' }}>
+                                        hace {Math.round((new Date() - new Date(draft.updated_at)) / 60000)} min
+                                    </span>
+                                </div>
+                                <div style={{ fontSize: '0.9rem', color: '#4c1d95' }}>
+                                    <div>
+                                        <strong>{draft.carbs}g Carbohidratos</strong>
+                                    </div>
+                                    {(draft.fat > 0 || draft.protein > 0) && (
+                                        <div style={{ fontSize: '0.85rem' }}>
+                                            {draft.fat}g Grasas, {draft.protein}g Proteínas
+                                        </div>
+                                    )}
+                                    {draft.notes && <div style={{ fontStyle: 'italic', fontSize: '0.8rem', marginTop: '4px' }}>"{draft.notes}"</div>}
+                                </div>
+                                <div style={{ display: 'flex', gap: '10px', marginTop: '5px' }}>
+                                    <Button
+                                        onClick={async () => {
+                                            setCarbs(String(draft.carbs));
+
+                                            // Set macros in ref for calculation
+                                            mealMetaRef.current = {
+                                                items: draft.items || [],
+                                                fat: draft.fat,
+                                                protein: draft.protein,
+                                                fiber: draft.fiber
+                                            };
+
+                                            // Close draft in backend
+                                            try {
+                                                const { closeNutritionDraft } = await import('../lib/api');
+                                                await closeNutritionDraft();
+                                                showToast("✅ Borrador aplicado.", "success");
+                                                setDraft(null); // Clear from UI
+                                            } catch (e) {
+                                                console.error(e);
+                                                showToast("Aplicado localmente (error cerrando en servidor)", "warning");
+                                            }
+
+                                            // Auto-suggest Dual if heavy meal
+                                            const kcal = draft.fat * 9 + draft.protein * 4;
+                                            if (kcal > 250) {
+                                                setDualEnabled(true);
+                                                showToast("💡 Bolo Dual activado por contenido graso.", "info", 4000);
+                                            }
+                                        }}
+                                        style={{ background: '#7c3aed', color: '#fff', fontSize: '0.85rem', padding: '6px 12px' }}
+                                    >
+                                        Usar Datos
+                                    </Button>
+                                    <Button
+                                        onClick={async () => {
+                                            if (!confirm("¿Descartar este borrador?")) return;
+                                            try {
+                                                const { discardNutritionDraft } = await import('../lib/api');
+                                                await discardNutritionDraft();
+                                                setDraft(null);
+                                            } catch (e) {
+                                                console.error(e);
+                                            }
+                                        }}
+                                        variant="outline"
+                                        style={{ fontSize: '0.85rem', padding: '6px 12px', color: '#ef4444', borderColor: '#ef4444' }}
+                                    >
+                                        Descartar
+                                    </Button>
+                                </div>
+                            </div>
+                        )}
+
                         {/* Orphan Carbs Alert */}
-                        {orphanCarbs && !isUsingOrphan && (
+                        {orphanCarbs && !isUsingOrphan && !draft && (
                             <div className="fade-in" style={{
                                 background: '#f0fdf4', border: '1px solid #86efac',
                                 borderRadius: '12px', padding: '1rem', marginBottom: '1rem',
@@ -1298,11 +1393,11 @@ function ResultView({ result, slot, usedParams, onBack, onSave, saving, currentC
 
             const carbsVal = parseFloat(currentCarbs) || 0;
             const primaryCarbs = carbsVal > 0 ? [{
-                    time_offset_min: 0,
-                    grams: carbsVal,
-                    carb_profile: carbProfile,
-                    is_dessert: dessertMode
-                }] : [];
+                time_offset_min: 0,
+                grams: carbsVal,
+                carb_profile: carbProfile,
+                is_dessert: dessertMode
+            }] : [];
 
             let historyEvents = { boluses: [], carbs: [] };
             try {

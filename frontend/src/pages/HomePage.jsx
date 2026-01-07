@@ -466,17 +466,9 @@ function NutritionDraftPanel() {
     useEffect(() => { checkDraft(); }, []);
 
     const handleConfirm = async () => {
-        if (!confirm("¿Confirmar esta comida y calcular bolo?")) return;
-        setLoading(true);
-        try {
-            await closeNutritionDraft();
-            setDraft(null);
-            navigate('#/bolus'); // Go to bolus calculator
-        } catch (e) {
-            alert(e.message);
-        } finally {
-            setLoading(false);
-        }
+        // We do NOT close the draft here. We navigate to Bolus Page.
+        // The Bolus Page will detect the active draft and prompt the user to apply it.
+        navigate('#/bolus');
     };
 
     const handleDiscard = async () => {
@@ -540,8 +532,8 @@ function NutritionDraftPanel() {
                 <Button onClick={handleDiscard} disabled={loading} size="sm" style={{ flex: 1, background: '#fee2e2', color: '#b91c1c', border: 'none' }}>
                     Descartar
                 </Button>
-                <Button onClick={handleConfirm} disabled={loading} size="sm" style={{ flex: 2, background: '#10b981', color: '#fff', border: 'none' }}>
-                    Confirmar ahora
+                <Button onClick={handleConfirm} disabled={loading} size="sm" style={{ flex: 2, background: '#7c3aed', color: '#fff', border: 'none' }}>
+                    Revisar en Calculadora
                 </Button>
             </div>
         </section>
