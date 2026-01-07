@@ -83,11 +83,29 @@ function NightscoutPanel() {
     const [hasSecret, setHasSecret] = useState(false);
     const [status, setStatus] = useState({ msg: '', type: 'neutral' }); // neutral, success, error
     const [loading, setLoading] = useState(false);
+    const [filterConfig, setFilterConfig] = useState({
+        enabled: false,
+        night_start: "23:00",
+        night_end: "07:00",
+        treatments_lookback_minutes: 120
+    });
+    const [filterStatus, setFilterStatus] = useState({ msg: '', type: 'neutral' });
+    const [savingFilter, setSavingFilter] = useState(false);
 
     useEffect(() => {
         getNightscoutSecretStatus().then(res => {
             if (res.url) setUrl(res.url);
             setHasSecret(res.has_secret);
+        }).catch(err => console.warn(err));
+
+        getSettings().then(res => {
+            const nsSettings = res.settings?.nightscout || {};
+            setFilterConfig({
+                enabled: Boolean(nsSettings.filter_compression),
+                night_start: nsSettings.filter_night_start || "23:00",
+                night_end: nsSettings.filter_night_end || "07:00",
+                treatments_lookback_minutes: nsSettings.treatments_lookback_minutes ?? 120
+            });
         }).catch(err => console.warn(err));
     }, []);
 
@@ -143,6 +161,34 @@ function NightscoutPanel() {
         }
     };
 
+    const handleSaveFilter = async () => {
+        setSavingFilter(true);
+        setFilterStatus({ msg: 'Guardando...', type: 'neutral' });
+
+        try {
+            const current = await getSettings();
+            const newSettings = current.settings || {};
+            newSettings.nightscout = {
+                ...(newSettings.nightscout || {}),
+                filter_compression: filterConfig.enabled,
+                filter_night_start: filterConfig.night_start,
+                filter_night_end: filterConfig.night_end,
+                treatments_lookback_minutes: Number(filterConfig.treatments_lookback_minutes || 120)
+            };
+
+            await updateSettings({ ...newSettings, version: current.version });
+            setFilterStatus({ msg: '✅ Filtro actualizado.', type: 'success' });
+        } catch (e) {
+            if (e.isConflict) {
+                setFilterStatus({ msg: '❌ Conflicto de versión. Recarga e intenta de nuevo.', type: 'error' });
+            } else {
+                setFilterStatus({ msg: `❌ Error guardando: ${e.message}`, type: 'error' });
+            }
+        } finally {
+            setSavingFilter(false);
+        }
+    };
+
     return (
         <div className="stack">
             <h3 style={{ marginTop: 0 }}>Conexión Nightscout</h3>
@@ -175,6 +221,63 @@ function NightscoutPanel() {
                     {status.msg}
                 </div>
             )}
+
+            <div style={{ marginTop: '1.5rem', padding: '1rem', borderRadius: '12px', border: '1px solid #e2e8f0', background: '#f8fafc' }}>
+                <h4 style={{ margin: '0 0 0.5rem 0' }}>Filtro anti-compresión (falsos bajos nocturnos)</h4>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', fontWeight: 600 }}>
+                    <input
+                        type="checkbox"
+                        checked={filterConfig.enabled}
+                        onChange={e => setFilterConfig(prev => ({ ...prev, enabled: e.target.checked }))}
+                    />
+                    Activar filtro
+                </label>
+
+                {filterConfig.enabled && (
+                    <div className="stack" style={{ marginTop: '0.8rem' }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                            <Input
+                                label="Inicio noche"
+                                type="time"
+                                value={filterConfig.night_start}
+                                onChange={e => setFilterConfig(prev => ({ ...prev, night_start: e.target.value }))}
+                            />
+                            <Input
+                                label="Fin noche"
+                                type="time"
+                                value={filterConfig.night_end}
+                                onChange={e => setFilterConfig(prev => ({ ...prev, night_end: e.target.value }))}
+                            />
+                        </div>
+                        <Input
+                            label="Lookback tratamientos (min)"
+                            type="number"
+                            min="0"
+                            value={filterConfig.treatments_lookback_minutes}
+                            onChange={e => setFilterConfig(prev => ({ ...prev, treatments_lookback_minutes: e.target.value }))}
+                        />
+                        <p className="text-muted text-sm" style={{ margin: 0 }}>
+                            Ajusta cuánto tiempo atrás se consideran tratamientos recientes para evitar falsos positivos.
+                        </p>
+                    </div>
+                )}
+
+                <Button onClick={handleSaveFilter} disabled={savingFilter} style={{ marginTop: '1rem' }}>
+                    {savingFilter ? 'Guardando...' : 'Guardar Ajustes'}
+                </Button>
+                {filterStatus.msg && (
+                    <div style={{
+                        marginTop: '0.75rem',
+                        padding: '0.6rem',
+                        borderRadius: '8px',
+                        background: filterStatus.type === 'error' ? '#fee2e2' : (filterStatus.type === 'success' ? '#dcfce7' : '#f1f5f9'),
+                        color: filterStatus.type === 'error' ? '#ef4444' : (filterStatus.type === 'success' ? '#166534' : '#334155'),
+                        fontWeight: 600
+                    }}>
+                        {filterStatus.msg}
+                    </div>
+                )}
+            </div>
         </div>
     );
 }

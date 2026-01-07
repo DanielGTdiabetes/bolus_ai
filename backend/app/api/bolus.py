@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+import math
 from pathlib import Path
 from typing import Literal, Optional
 
@@ -82,7 +83,6 @@ async def calculate_bolus_stateless(
     store: DataStore = Depends(_data_store),
     user: CurrentUser = Depends(get_current_user),
     session: AsyncSession = Depends(get_db_session),
-    settings: Settings = Depends(get_settings),
 ):
     # 1. Resolve Settings
     # If payload has settings, construct a temporary UserSettings object to satisfy the engine interface
@@ -228,12 +228,10 @@ async def calculate_bolus_stateless(
             logger.warning(f"Failed to fetch NS config from DB: {e}")
 
     compression_config = FilterConfig(
-        enabled=settings.nightscout.filter_compression,
-        night_start_hour=settings.nightscout.filter_night_start,
-        night_end_hour=settings.nightscout.filter_night_end,
-        drop_threshold_mgdl=settings.nightscout.filter_drop_mgdl,
-        rebound_threshold_mgdl=settings.nightscout.filter_rebound_mgdl,
-        rebound_window_minutes=settings.nightscout.filter_window_min
+        enabled=user_settings.nightscout.filter_compression,
+        night_start_hour=user_settings.nightscout.filter_night_start_hour,
+        night_end_hour=user_settings.nightscout.filter_night_end_hour,
+        treatments_lookback_minutes=user_settings.nightscout.treatments_lookback_minutes,
     )
 
     # 3. Resolve Glucose (Manual vs Nightscout)
@@ -277,7 +275,8 @@ async def calculate_bolus_stateless(
             glucose_status.source = "nightscout"
 
             if compression_config.enabled and len(entries) > 1:
-                treatments = await ns_client.get_recent_treatments(hours=2, limit=10)
+                lookback_hours = max(1, math.ceil(compression_config.treatments_lookback_minutes / 60))
+                treatments = await ns_client.get_recent_treatments(hours=lookback_hours, limit=10)
                 detector = CompressionDetector(config=compression_config)
                 processed = detector.detect(
                     [e.model_dump() for e in entries],

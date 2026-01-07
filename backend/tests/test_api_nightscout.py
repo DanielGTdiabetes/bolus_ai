@@ -1,10 +1,12 @@
 import importlib
+from datetime import datetime, timezone, timedelta
 from unittest.mock import patch, AsyncMock
 
 import pytest
 from fastapi.testclient import TestClient
 
 from app.core import settings as settings_module
+from app.models.schemas import NightscoutSGV
 
 
 @pytest.fixture()
@@ -73,3 +75,75 @@ def test_nightscout_test_endpoint(client: TestClient):
         assert resp.status_code == 200
         assert resp.json()["ok"] is True
         assert resp.json()["message"] == "Conexión exitosa a Nightscout"
+
+
+def _make_compression_entries():
+    base = datetime(2024, 1, 1, 23, 0, tzinfo=timezone.utc)
+    return [
+        NightscoutSGV(sgv=110, direction="Flat", date=base),
+        NightscoutSGV(sgv=60, direction="Flat", date=base + timedelta(minutes=5)),
+        NightscoutSGV(sgv=85, direction="Flat", date=base + timedelta(minutes=10)),
+    ]
+
+
+def test_current_glucose_get_uses_filter_settings(client: TestClient):
+    login_resp = client.post("/api/auth/login", json={"username": "admin", "password": "admin123"})
+    headers = {"Authorization": f"Bearer {login_resp.json()['access_token']}"}
+
+    client.put("/api/nightscout/secret", headers=headers, json={
+        "url": "https://test-ns.example.com",
+        "api_secret": "secret-token",
+        "enabled": True
+    })
+
+    settings_res = client.get("/api/settings", headers=headers).json()
+    settings_payload = settings_res["settings"] or {}
+    settings_payload["nightscout"] = {
+        **(settings_payload.get("nightscout") or {}),
+        "filter_compression": True,
+        "filter_night_start": "23:00",
+        "filter_night_end": "07:00",
+        "treatments_lookback_minutes": 120
+    }
+    client.put("/api/settings", headers=headers, json={
+        "settings": settings_payload,
+        "version": settings_res["version"]
+    })
+
+    entries = _make_compression_entries()
+    with patch("app.api.nightscout.NightscoutClient") as MockClient:
+        instance = MockClient.return_value
+        instance.get_sgv_range = AsyncMock(return_value=entries)
+        instance.get_latest_sgv = AsyncMock(return_value=entries[-1])
+        instance.get_recent_treatments = AsyncMock(return_value=[])
+        instance.aclose = AsyncMock()
+
+        resp = client.get("/api/nightscout/current", headers=headers)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["is_compression"] is True
+
+
+def test_current_glucose_post_stateless_filter(client: TestClient):
+    login_resp = client.post("/api/auth/login", json={"username": "admin", "password": "admin123"})
+    headers = {"Authorization": f"Bearer {login_resp.json()['access_token']}"}
+
+    entries = _make_compression_entries()
+    with patch("app.api.nightscout.NightscoutClient") as MockClient:
+        instance = MockClient.return_value
+        instance.get_sgv_range = AsyncMock(return_value=entries)
+        instance.get_latest_sgv = AsyncMock(return_value=entries[-1])
+        instance.get_recent_treatments = AsyncMock(return_value=[])
+        instance.aclose = AsyncMock()
+
+        resp = client.post("/api/nightscout/current", headers=headers, json={
+            "url": "https://test-ns.example.com",
+            "token": "secret-token",
+            "filter_compression": True,
+            "night_start": "23:00",
+            "night_end": "07:00",
+            "lookback": 120
+        })
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["is_compression"] is True

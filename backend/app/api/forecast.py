@@ -48,7 +48,6 @@ def _data_store(settings: Settings = Depends(get_settings)) -> DataStore:
 async def get_current_forecast(
     user: CurrentUser = Depends(get_current_user),
     session: AsyncSession = Depends(get_db_session),
-    settings: Settings = Depends(get_settings),
     store: DataStore = Depends(_data_store),
     start_bg_param: Optional[float] = Query(None, alias="start_bg", description="Override start BG if known by client"),
     future_insulin_u: Optional[float] = Query(None, description="Future planned insulin units (e.g. dual bolus remainder)"),
@@ -537,12 +536,10 @@ async def get_current_forecast(
          try:
              # We need to await it. Service is async.
              compression_config = FilterConfig(
-                 enabled=settings.nightscout.filter_compression,
-                 night_start_hour=settings.nightscout.filter_night_start,
-                 night_end_hour=settings.nightscout.filter_night_end,
-                 drop_threshold_mgdl=settings.nightscout.filter_drop_mgdl,
-                 rebound_threshold_mgdl=settings.nightscout.filter_rebound_mgdl,
-                 rebound_window_minutes=settings.nightscout.filter_window_min
+                 enabled=user_settings.nightscout.filter_compression,
+                 night_start_hour=user_settings.nightscout.filter_night_start_hour,
+                 night_end_hour=user_settings.nightscout.filter_night_end_hour,
+                 treatments_lookback_minutes=user_settings.nightscout.treatments_lookback_minutes,
              )
              res = await AutosensService.calculate_autosens(
                  user.username,

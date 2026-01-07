@@ -1,4 +1,5 @@
 from pathlib import Path
+import math
 from typing import Optional, Literal
 from datetime import datetime, timezone, timedelta
 
@@ -14,6 +15,7 @@ from app.services.store import DataStore
 from app.core.db import get_db_session
 from app.services.nightscout_secrets_service import get_ns_config, upsert_ns_config
 from app.services.smart_filter import CompressionDetector, FilterConfig
+from app.services.settings_service import get_user_settings_service
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.security import CurrentUser
 
@@ -32,6 +34,10 @@ class StatelessConfig(BaseModel):
     url: str
     token: Optional[str] = None
     units: Optional[str] = "mgdl"
+    filter_compression: Optional[bool] = None
+    night_start: Optional[str] = None
+    night_end: Optional[str] = None
+    lookback: Optional[int] = None
 
 
 class CurrentGlucoseResponse(BaseModel):
@@ -53,6 +59,24 @@ class CurrentGlucoseResponse(BaseModel):
 
 def _data_store(settings: Settings = Depends(get_settings)) -> DataStore:
     return DataStore(Path(settings.data.data_dir))
+
+
+def _parse_hour(value: Optional[str], default: int) -> int:
+    if not value:
+        return default
+    try:
+        return datetime.strptime(value, "%H:%M").hour
+    except Exception:
+        return default
+
+
+def _stateless_filter_config(config: StatelessConfig) -> FilterConfig:
+    return FilterConfig(
+        enabled=bool(config.filter_compression),
+        night_start_hour=_parse_hour(config.night_start, 23),
+        night_end_hour=_parse_hour(config.night_end, 7),
+        treatments_lookback_minutes=config.lookback or 120,
+    )
 
 
 @router.get("/status", response_model=NightscoutStatusResponse, summary="Get Nightscout status (Server-Stored)")
@@ -94,7 +118,6 @@ async def get_status(
 async def get_current_glucose_stateless(
     config: StatelessConfig,
     _: dict = Depends(get_current_user),
-    settings: Settings = Depends(get_settings),
 ):
     import logging
     logger = logging.getLogger(__name__)
@@ -111,15 +134,8 @@ async def get_current_glucose_stateless(
         client = NightscoutClient(base_url=config.url, token=config.token, timeout_seconds=10)
         try:
             # Filter Config
-            from app.services.smart_filter import CompressionDetector, FilterConfig
-            f_config = FilterConfig(
-                enabled=settings.nightscout.filter_compression,
-                night_start_hour=settings.nightscout.filter_night_start,
-                night_end_hour=settings.nightscout.filter_night_end,
-                drop_threshold_mgdl=settings.nightscout.filter_drop_mgdl,
-                rebound_threshold_mgdl=settings.nightscout.filter_rebound_mgdl,
-                rebound_window_minutes=settings.nightscout.filter_window_min
-            )
+            from app.services.smart_filter import CompressionDetector
+            f_config = _stateless_filter_config(config)
 
             # Fetch last 12 entries (~1 hour) for compression detection
             end_dt = datetime.now(timezone.utc)
@@ -143,7 +159,8 @@ async def get_current_glucose_stateless(
             comp_reason = None
 
             if f_config.enabled and len(entries) > 1:
-                treatments = await client.get_recent_treatments(hours=2, limit=10)
+                lookback_hours = max(1, math.ceil(f_config.treatments_lookback_minutes / 60))
+                treatments = await client.get_recent_treatments(hours=lookback_hours, limit=10)
                 detector = CompressionDetector(config=f_config)
                 e_dicts = [e.model_dump() for e in entries]
                 t_dicts = [t.model_dump() for t in treatments]
@@ -153,6 +170,13 @@ async def get_current_glucose_stateless(
                     if last_proc.get("date") == latest_entry.date:
                         is_comp = last_proc.get("is_compression", False)
                         comp_reason = last_proc.get("compression_reason")
+                    else:
+                        for entry in reversed(processed):
+                            if entry.get("is_compression"):
+                                if latest_entry.date - entry.get("date", 0) <= f_config.rebound_window_minutes * 60000:
+                                    is_comp = True
+                                    comp_reason = entry.get("compression_reason")
+                                break
 
             sgv = latest_entry
             now_ms = datetime.now(timezone.utc).timestamp() * 1000
@@ -202,22 +226,25 @@ async def get_current_glucose_stateless(
 async def get_current_glucose_server(
     user: CurrentUser = Depends(get_current_user),
     session: AsyncSession = Depends(get_db_session),
-    settings: Settings = Depends(get_settings)
 ):
     ns = await get_ns_config(session, user.username)
     if not ns or not ns.enabled or not ns.url:
          raise HTTPException(status_code=400, detail="Nightscout is not configured")
+
+    settings_data = await get_user_settings_service(user.username, session)
+    if settings_data and settings_data.get("settings"):
+        user_settings = UserSettings.migrate(settings_data["settings"])
+    else:
+        user_settings = UserSettings.default()
     
     import logging
     logger = logging.getLogger(__name__)
     
     f_config = FilterConfig(
-        enabled=settings.nightscout.filter_compression,
-        night_start_hour=settings.nightscout.filter_night_start,
-        night_end_hour=settings.nightscout.filter_night_end,
-        drop_threshold_mgdl=settings.nightscout.filter_drop_mgdl,
-        rebound_threshold_mgdl=settings.nightscout.filter_rebound_mgdl,
-        rebound_window_minutes=settings.nightscout.filter_window_min
+        enabled=user_settings.nightscout.filter_compression,
+        night_start_hour=user_settings.nightscout.filter_night_start_hour,
+        night_end_hour=user_settings.nightscout.filter_night_end_hour,
+        treatments_lookback_minutes=user_settings.nightscout.treatments_lookback_minutes,
     )
     
     try:
@@ -267,7 +294,8 @@ async def get_current_glucose_server(
                 treatments = []
                 # Simple heuristic: Only fetch treatments if latest value is < 80 or drop is large?
                 # Or just fetch them (clients usually cache or small payload).
-                treatments = await client.get_recent_treatments(hours=2, limit=10)
+                lookback_hours = max(1, math.ceil(f_config.treatments_lookback_minutes / 60))
+                treatments = await client.get_recent_treatments(hours=lookback_hours, limit=10)
                 
                 detector = CompressionDetector(config=f_config)
                 
@@ -284,6 +312,13 @@ async def get_current_glucose_server(
                     if last_proc.get("date") == latest_entry.date:
                         is_comp = last_proc.get("is_compression", False)
                         comp_reason = last_proc.get("compression_reason")
+                    else:
+                        for entry in reversed(processed):
+                            if entry.get("is_compression"):
+                                if latest_entry.date - entry.get("date", 0) <= f_config.rebound_window_minutes * 60000:
+                                    is_comp = True
+                                    comp_reason = entry.get("compression_reason")
+                                break
             
             # Prepare Response
             sgv = latest_entry
@@ -632,11 +667,16 @@ async def get_entries(
     full_history: bool = False, # If true, might fetch more?
     user: CurrentUser = Depends(get_current_user),
     session: AsyncSession = Depends(get_db_session),
-    settings: Settings = Depends(get_settings), # To access filter settings
 ):
     ns = await get_ns_config(session, user.username)
     if not ns or not ns.enabled or not ns.url:
          raise HTTPException(status_code=400, detail="Nightscout is not configured")
+
+    settings_data = await get_user_settings_service(user.username, session)
+    if settings_data and settings_data.get("settings"):
+        user_settings = UserSettings.migrate(settings_data["settings"])
+    else:
+        user_settings = UserSettings.default()
     
     # 1. Fetch raw entries
     entries = []
@@ -645,12 +685,10 @@ async def get_entries(
     # Construct Filter Config from Settings (or NS Settings if we moved them to DB? 
     # For now, we use global settings as per prompt request "Add in config")
     f_config = FilterConfig(
-        enabled=settings.nightscout.filter_compression,
-        night_start_hour=settings.nightscout.filter_night_start,
-        night_end_hour=settings.nightscout.filter_night_end,
-        drop_threshold_mgdl=settings.nightscout.filter_drop_mgdl,
-        rebound_threshold_mgdl=settings.nightscout.filter_rebound_mgdl,
-        rebound_window_minutes=settings.nightscout.filter_window_min
+        enabled=user_settings.nightscout.filter_compression,
+        night_start_hour=user_settings.nightscout.filter_night_start_hour,
+        night_end_hour=user_settings.nightscout.filter_night_end_hour,
+        treatments_lookback_minutes=user_settings.nightscout.treatments_lookback_minutes,
     )
     
     try:
