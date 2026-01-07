@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Header } from '../components/layout/Header';
 import { BottomNav } from '../components/layout/BottomNav';
 import { Card, Button } from '../components/ui/Atoms';
-import { fetchHealth, fetchAutosens, getShadowLogs, getSuggestions, getAnalysisSummary } from '../lib/api';
+import { fetchHealth, fetchAutosens, getLearningLogs, getSuggestions, getAnalysisSummary } from '../lib/api';
 import { navigate } from '../modules/core/router';
 
 export default function StatusPage() {
@@ -20,7 +20,7 @@ export default function StatusPage() {
             const [h, a, l, s, an] = await Promise.allSettled([
                 fetchHealth(),
                 fetchAutosens(),
-                getShadowLogs(10), // Limit 10 for dashboard
+                getLearningLogs(10), // Limit 10 for dashboard
                 getSuggestions('pending'),
                 getAnalysisSummary(14)
             ]);
@@ -119,8 +119,8 @@ export default function StatusPage() {
                     </div>
                 </Card>
 
-                {/* SHADOW LABS / LEARNING */}
-                <Card title="Aprendizaje (Shadow Labs)">
+                {/* APRENDIZAJE */}
+                <Card title="Aprendizaje">
                     <div style={{ marginBottom: '1rem' }}>
                         <div style={{ fontSize: '0.9rem', color: '#64748b' }}>
                             Historial de aprendizaje y feedback reciente.

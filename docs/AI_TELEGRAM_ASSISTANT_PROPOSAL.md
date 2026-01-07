@@ -98,7 +98,7 @@ Reporte diario a las 08:00 AM (o configurable) con:
 
 Se ha decidido **posponer** el módulo de auto-aprendizaje (Machine Learning / Auto-Tune) a una segunda fase por motivos de seguridad y madurez de datos:
 
-1.  **Filosofía "Shadow Advisor"**: El sistema no debe modificar parámetros (ICR/ISF/Horarios) por sí solo. Debe aprender en silencio y **sugerir** cambios solo cuando tenga una certeza estadística alta.
+1.  **Filosofía de auditoría pasiva**: El sistema no debe modificar parámetros (ICR/ISF/Horarios) por sí solo. Debe aprender de forma pasiva y **sugerir** cambios solo cuando tenga una certeza estadística alta.
 2.  **Necesidad de Datos**: Los algoritmos de clustering requieren al menos 4-8 semanas de historial limpio y consistente en el nuevo sistema (`DataStore`) para ofrecer conclusiones válidas.
 3.  **Estrategia V2**: Una vez recolectados los datos con la V1 actual, se implementará un proceso analítico (semanal/mensual) que generará un informe de "Sugerencias de Optimización" para que el usuario las apruebe manualmente.
 
@@ -113,5 +113,4 @@ Dado que la conectividad puede ser inestable:
 
 
 ## 6. Filosofía del Asistente: "El Compañero Transparente"
-
 

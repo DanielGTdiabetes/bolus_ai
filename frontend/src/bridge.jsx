@@ -28,7 +28,6 @@ import { DraftNotification } from './components/layout/DraftNotification';
 
 import ForecastPage from './pages/ForecastPage';
 import StatusPage from './pages/StatusPage';
-import LabsPage from './pages/LabsPage';
 import ManualCalculatorPage from './pages/ManualCalculatorPage';
 
 const PAGES = {
@@ -53,7 +52,6 @@ const PAGES = {
     'notifications': NotificationsPage,
     'forecast': ForecastPage,
     'status': StatusPage,
-    'labs': LabsPage,
     'manual': ManualCalculatorPage,
 };
 

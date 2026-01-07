@@ -35,7 +35,7 @@ export default function NotificationsPage() {
                 if (summary && summary.items) {
                     // Mark as seen automatically? Or only on interaction?
                     // Usually opening the center marks "New" as seen (removes badge), but keeps actionable items in list.
-                    // But our backend logic for some items (Shadow) hides them if seen.
+                    // Some backend items may hide after being seen.
                     // For now, let's NOT auto-mark everything. Let the user dismiss or act.
                     // We only mark "unread" items as "read" to clear the badge count?
                     // We'll calculate IDs to mark seen if that's the desired behavior.
@@ -62,11 +62,7 @@ export default function NotificationsPage() {
                                 backendType: item.type // keep track for marking seen
                             };
 
-                            if (item.type === 'shadow_labs_ready') {
-                                uiItem.type = 'success'; // Green/Special
-                                uiItem.btn = 'Activar Ahora';
-                                uiItem.title = '✨ ' + item.title;
-                            } else if (item.type === 'suggestion_pending') {
+                            if (item.type === 'suggestion_pending') {
                                 uiItem.type = 'info';
                                 uiItem.btn = 'Revisar';
                             } else if (item.type === 'basal_review_today') {

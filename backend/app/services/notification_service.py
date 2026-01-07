@@ -148,56 +148,7 @@ async def get_notification_summary_service(user_id: str, db: AsyncSession):
                 "priority": "high"
             })
 
-    # --- Check 4: Shadow Labs Ready (Beta) ---
-    # Condition: Confidence > 80% AND Feature Disabled AND Not recently dismissed
-    from app.services.settings_service import get_user_settings_service
-    settings_data = await get_user_settings_service(user_id, db)
-    
-    shadow_enabled = False
-    if settings_data and settings_data.get("settings"):
-        # We need to parse deep json
-        try:
-            shadow_enabled = settings_data["settings"].get("labs", {}).get("shadow_mode_enabled", False)
-        except: pass
-    
-    if not shadow_enabled:
-        # Check logs confidence
-        from app.models.learning import ShadowLog
-        # Fetch last 20 logs
-        q_logs = (
-            select(ShadowLog)
-            .where(ShadowLog.user_id == user_id)
-            .order_by(ShadowLog.created_at.desc())
-            .limit(20)
-        )
-        logs = (await db.execute(q_logs)).scalars().all()
-        
-        if len(logs) >= 20: # Rigid Sample Size (Safety First)
-            success_count = len([l for l in logs if l.status == 'success'])
-            # Safety Check: ZERO failures allowed in the sample window
-            # We assume 'neutral' is okay, but 'failed' (worse outcome) is a dealbreaker.
-            failures = len([l for l in logs if l.status == 'failed' or l.status == 'danger'])
-            
-            if failures == 0:
-                conf = (success_count / len(logs)) * 100
-                
-                if conf >= 80:
-                    # Check if seen/dismissed recently
-                    key_shadow = "shadow_labs_ready"
-                    last_seen_shadow = state_map.get(key_shadow)
-                    
-                    if not last_seen_shadow:
-                        items.append({
-                            "type": "shadow_labs_ready",
-                            "count": 1,
-                            "title": "⚡ Labs: Auto-Absorción",
-                            "message": f"Tu análisis de sombra es seguro (0 fallos en 20 test) y fiable ({int(conf)}%). Actívalo en Ajustes.",
-                            "route": "#/settings",
-                            "unread": True,
-                            "priority": "low"
-                        })
-            
-    # --- Check 5: Smart Post-Prandial Guardian (Pen Friendly) ---
+    # --- Check 4: Smart Post-Prandial Guardian (Pen Friendly) ---
     # Trigger: Meal ~2h ago AND High BG AND No Recent bolus (last 45m)
     # 1. Find Meal Bolus in [Now-2.5h, Now-1.5h]
     from app.models.treatment import Treatment

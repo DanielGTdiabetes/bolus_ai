@@ -10,7 +10,7 @@ import {
 import {
     getNightscoutSecretStatus, saveNightscoutSecret, testNightscout,
     fetchHealth, exportUserData, importUserData, fetchAutosens,
-    getSettings, updateSettings, getShadowLogs, testDexcom
+    getSettings, updateSettings, getLearningLogs, testDexcom
 } from '../lib/api';
 import { IsfAnalyzer } from '../components/settings/IsfAnalyzer';
 
@@ -30,7 +30,7 @@ export default function SettingsPage() {
                         <TabButton label="IA / Visión" active={activeTab === 'vision'} onClick={() => setActiveTab('vision')} />
                         <TabButton label="Análisis" active={activeTab === 'analysis'} onClick={() => setActiveTab('analysis')} />
                         <TabButton label="Datos" active={activeTab === 'data'} onClick={() => setActiveTab('data')} />
-                        <TabButton label="Labs" active={activeTab === 'labs'} onClick={() => setActiveTab('labs')} />
+                        <TabButton label="Aprendizaje" active={activeTab === 'labs'} onClick={() => setActiveTab('labs')} />
                         <TabButton label="Bot" active={activeTab === 'bot'} onClick={() => setActiveTab('bot')} />
                     </div>
 
@@ -1719,7 +1719,7 @@ function LabsPanel() {
             try {
                 const [s, l] = await Promise.all([
                     getSettings(),
-                    getShadowLogs(5)
+                    getLearningLogs(5)
                 ]);
                 setResponse(s || {});
                 setLogs(l || []);
@@ -1734,56 +1734,6 @@ function LabsPanel() {
 
     const inner = response?.settings || {};
     const version = response?.version;
-
-    const handleUpdateLearning = async (enabled) => {
-        if (!response) return;
-
-        try {
-            // 1. Optimistic Update
-            const newInner = {
-                ...inner,
-                labs: { ...inner.labs, shadow_mode_enabled: enabled }
-            };
-            setResponse(prev => ({ ...prev, settings: newInner }));
-
-            // 2. Prepare Payload
-            const payload = {
-                ...newInner,
-                version: version
-            };
-
-            await updateSettings(payload);
-
-            // 3. Confirm with fresh data
-            const fresh = await getSettings();
-            setResponse(fresh);
-        } catch (e) {
-            console.error(e);
-            if (e.isConflict && e.serverSettings) {
-                console.log("Conflict detected, retrying with server version...", e.serverVersion);
-                try {
-                    // Retry with server settings
-                    const retryInner = e.serverSettings;
-                    const retryPayload = {
-                        ...retryInner,
-                        labs: { ...(retryInner.labs || {}), shadow_mode_enabled: enabled },
-                        version: e.serverVersion
-                    };
-                    await updateSettings(retryPayload);
-                    const fresh = await getSettings();
-                    setResponse(fresh);
-                } catch (retryErr) {
-                    alert("Error tras reintento: " + retryErr.message);
-                    const fresh = await getSettings();
-                    setResponse(fresh);
-                }
-            } else {
-                alert("Error: " + e.message);
-                const fresh = await getSettings();
-                setResponse(fresh);
-            }
-        }
-    };
 
     const handleUpdateAutonomy = async (enabled) => {
         if (!response) return;
@@ -1837,29 +1787,10 @@ function LabsPanel() {
 
     return (
         <div className="stack">
-            <h3 style={{ marginTop: 0 }}>Laboratorio (Labs)</h3>
+            <h3 style={{ marginTop: 0 }}>Aprendizaje y Autonomía</h3>
             <p className="text-muted text-sm" style={{ marginBottom: '1.5rem' }}>
-                Funciones experimentales de aprendizaje automático. El sistema aprende de tus correcciones.
+                Funciones de aprendizaje automático y control de autonomía. El sistema registra resultados para mejorar sugerencias.
             </p>
-
-            <div style={{ padding: '1rem', background: '#f0fdf4', borderRadius: '8px', border: '1px solid #bbf7d0', marginBottom: '1rem' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <div>
-                        <div style={{ fontWeight: 600, color: '#166534' }}>Aprendizaje Activo</div>
-                        <div style={{ fontSize: '0.8rem', color: '#15803d', marginTop: '2px' }}>
-                            Analizar patrones en segundo plano (Shadow Mode).
-                        </div>
-                    </div>
-                    <label className="switch">
-                        <input
-                            type="checkbox"
-                            checked={inner?.labs?.shadow_mode_enabled ?? false}
-                            onChange={e => handleUpdateLearning(e.target.checked)}
-                        />
-                        <span className="slider"></span>
-                    </label>
-                </div>
-            </div>
 
             <div style={{ padding: '1rem', background: '#fff7ed', borderRadius: '8px', border: '1px solid #fed7aa', marginBottom: '1rem' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -1918,5 +1849,3 @@ function LabsPanel() {
         </div>
     );
 }
-
-
