@@ -253,29 +253,16 @@ class NutritionDraftService:
              ), "created"
 
         # --- MERGE LOGIC ---
-        SMALL_C = 40.0
-        SMALL_F = 20.0
-        EPSILON = 5.0
+        # Upstream integrations.py already handles deduplication of identical payloads (network retries).
+        # Therefore, any payload reaching here is treated as a NEW addition to the buffer (Draft).
+        # We accumulate (Add) to allow "Course 1 + Course 2" flows.
         
-        is_small = (new_c < SMALL_C and new_f < SMALL_F and new_p < SMALL_F)
+        action = "updated_add"
         
-        diff_c = abs(current_db.carbs - new_c)
-        diff_f = abs(current_db.fat - new_f)
-        is_similar = (diff_c < EPSILON and diff_f < EPSILON)
-        
-        action = "updated_replace"
-        final_c, final_f, final_p, final_fib = new_c, new_f, new_p, new_fib
-        
-        if is_similar:
-             action = "updated_replace"
-        elif is_small:
-             action = "updated_add"
-             final_c = current_db.carbs + new_c
-             final_f = current_db.fat + new_f
-             final_p = current_db.protein + new_p
-             final_fib = current_db.fiber + new_fib
-        else:
-             action = "updated_replace"
+        final_c = current_db.carbs + new_c
+        final_f = current_db.fat + new_f
+        final_p = current_db.protein + new_p
+        final_fib = current_db.fiber + new_fib
         
         current_db.carbs = float(round(final_c, 1))
         current_db.fat = float(round(final_f, 1))

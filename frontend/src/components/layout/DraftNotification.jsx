@@ -4,7 +4,7 @@ import { Button } from '../ui/Atoms';
 import { useInterval } from '../../hooks/useInterval';
 import { showToast } from '../ui/Toast';
 
-const LAST_SEEN_DRAFT_KEY = 'bolusai_last_seen_draft_id';
+const LAST_SEEN_DRAFT_KEY = 'bolusai_last_seen_draft_v2';
 
 export function DraftNotification() {
     const [currentDraft, setCurrentDraft] = useState(null);
@@ -14,10 +14,11 @@ export function DraftNotification() {
     const errorCountRef = useRef(0);
     const lastSeenRef = useRef(localStorage.getItem(LAST_SEEN_DRAFT_KEY));
 
-    const markSeen = (draftId) => {
-        if (!draftId) return;
-        localStorage.setItem(LAST_SEEN_DRAFT_KEY, draftId);
-        lastSeenRef.current = draftId;
+    const markSeen = (draft) => {
+        if (!draft?.id) return;
+        const key = `${draft.id}|${draft.updated_at}`;
+        localStorage.setItem(LAST_SEEN_DRAFT_KEY, key);
+        lastSeenRef.current = key;
     };
 
     const pollDraft = async () => {
@@ -29,7 +30,9 @@ export function DraftNotification() {
             if (payload?.active && payload?.draft?.id) {
                 const nextDraft = payload.draft;
                 setCurrentDraft(nextDraft);
-                if (nextDraft.id !== lastSeenRef.current) {
+
+                const currentKey = `${nextDraft.id}|${nextDraft.updated_at}`;
+                if (currentKey !== lastSeenRef.current) {
                     setShowModal(true);
                 }
                 return;
@@ -58,7 +61,7 @@ export function DraftNotification() {
 
     const handleDismiss = () => {
         if (currentDraft?.id) {
-            markSeen(currentDraft.id);
+            markSeen(currentDraft);
         }
         setShowModal(false);
     };
@@ -67,7 +70,7 @@ export function DraftNotification() {
         if (!currentDraft?.id) return;
         try {
             await closeNutritionDraft();
-            markSeen(currentDraft.id);
+            markSeen(currentDraft);
             setShowModal(false);
             setCurrentDraft(null);
             showToast("✅ Draft confirmado.", "success");
@@ -80,7 +83,7 @@ export function DraftNotification() {
         if (!currentDraft?.id) return;
         try {
             await discardNutritionDraft();
-            markSeen(currentDraft.id);
+            markSeen(currentDraft);
             setShowModal(false);
             setCurrentDraft(null);
             showToast("Draft descartado.", "info");

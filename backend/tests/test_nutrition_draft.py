@@ -53,24 +53,29 @@ async def test_draft_lifecycle_db(async_session):
     draft_fetched = await NutritionDraftService.get_draft(user, async_session)
     assert draft_fetched.carbs == 15.0
 
-    # 3. Cumulative Update (Correction of Total) -> 16g
-    # 16 is close to 15 (epsilon 2.0). 
+    # 3. Cumulative Update (Correction? Now Accumulation) -> 16g
+    # 16 is close to 15 (epsilon 2.0). But we ALWAYS ADD now.
     draft, action = await NutritionDraftService.update_draft(user, 16.0, 5.0, 2.0, 1.0, async_session)
-    assert action == "updated_replace"
-    assert draft.carbs == 16.0
+    assert action == "updated_add"
+    assert draft.carbs == 31.0
     
     # 4. Big Update (New Meal part?) -> 40g
-    # 40 > 20 (small threshold) -> Replace
+    # 40 > 20 (small threshold) -> Now Add!
     draft, action = await NutritionDraftService.update_draft(user, 40.0, 10.0, 10.0, 5.0, async_session)
-    assert action == "updated_replace"
-    assert draft.carbs == 40.0
-    assert draft.fiber == 5.0
+    assert action == "updated_add"
+    assert draft.carbs == 71.0 # 31 + 40
+    assert draft.fiber == 7.0 # 1 (base) + 1 (add) + 5 (add) = 7
+    # Wait, fiber math check:
+    # Step 1: 1.0
+    # Step 2: 0 (draft.fiber stays 1.0)
+    # Step 3: +1.0 -> 2.0
+    # Step 4: +5.0 -> 7.0
 
     # 5. Close
-    t = await NutritionDraftService.close_draft_to_treatment(user, async_session)
+    t, created, closed = await NutritionDraftService.close_draft_to_treatment(user, async_session)
     assert t is not None
-    assert t.carbs == 40.0
-    assert t.fiber == 5.0
+    assert t.carbs == 71.0
+    assert t.fiber == 7.0
     assert t.notes == "Draft confirmed #draft"
     
     # 6. Ensure cleared (status closed)
