@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { getNutritionDraft, closeNutritionDraft, discardNutritionDraft } from '../../lib/api';
+import { getNutritionDraft, closeNutritionDraft, discardNutritionDraft, isAuthenticated } from '../../lib/api';
 import { Button } from '../ui/Atoms';
 import { useInterval } from '../../hooks/useInterval';
 import { showToast } from '../ui/Toast';
@@ -22,6 +22,10 @@ export function DraftNotification() {
     };
 
     const pollDraft = async () => {
+        // Don't poll if user is not authenticated - prevents infinite 401 loop
+        if (!isAuthenticated()) {
+            return;
+        }
         try {
             const payload = await getNutritionDraft();
             errorCountRef.current = 0;
