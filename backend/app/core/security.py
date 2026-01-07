@@ -88,6 +88,8 @@ class TokenManager:
         return jwt_encode(to_encode, self.settings.security.jwt_secret)
 
     def decode_token(self, token: str, expected_type: str = "access") -> dict[str, Any]:
+        if not token:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="No token provided")
         try:
             payload = jwt_decode(token, self.settings.security.jwt_secret, issuer=self.settings.security.jwt_issuer)
         except JWTError:
@@ -120,6 +122,8 @@ def hash_password(password: str) -> str:
 
 
 def auth_required(token: str = Depends(oauth2_scheme), token_manager: TokenManager = Depends(get_token_manager)) -> str:
+    if not token:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
     payload = token_manager.decode_token(token, expected_type="access")
     return str(payload.get("sub"))
 

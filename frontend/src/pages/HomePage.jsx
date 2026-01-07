@@ -5,7 +5,7 @@ import { Card, Button } from '../components/ui/Atoms';
 import { useInterval } from '../hooks/useInterval';
 import {
     getCurrentGlucose, getIOBData, fetchTreatments, getLocalNsConfig, getGlucoseEntries, apiFetch, toJson, saveTreatment, recalcSecondBolus,
-    getNutritionDraft, closeNutritionDraft, discardNutritionDraft
+    getNutritionDraft, closeNutritionDraft, discardNutritionDraft, isAuthenticated
 } from '../lib/api';
 import { formatTrend, formatNotes } from '../modules/core/utils';
 import { navigate } from '../modules/core/router';
@@ -60,7 +60,14 @@ function GlucoseHero({ onRefresh }) {
             } catch (err) {
                 console.warn("Forecast fetch error", err);
                 setPrediction(null);
-                setForecastError({ message: "Sin pronóstico (fuente caída)", at: new Date() });
+                // Don't show auth-related errors as forecast errors
+                const errMsg = err?.message || "";
+                const isAuthError = errMsg.includes("Autenticación") ||
+                    errMsg.includes("Sesión caducada") ||
+                    errMsg.includes("Request obsoleto");
+                if (!isAuthError) {
+                    setForecastError({ message: "Sin pronóstico (fuente caída)", at: new Date() });
+                }
             }
 
         } catch (e) {
@@ -450,6 +457,11 @@ function NutritionDraftPanel() {
     const [loading, setLoading] = useState(false);
 
     const checkDraft = async () => {
+        // Don't check if not authenticated
+        if (!isAuthenticated()) {
+            setDraft(null);
+            return;
+        }
         try {
             const d = await getNutritionDraft();
             if (d?.active && d?.draft) {
@@ -462,8 +474,9 @@ function NutritionDraftPanel() {
         }
     };
 
-    useInterval(checkDraft, 10000); // Check every 10s
-    useEffect(() => { checkDraft(); }, []);
+    // Only poll when authenticated
+    useInterval(isAuthenticated() ? checkDraft : null, 10000);
+    useEffect(() => { if (isAuthenticated()) checkDraft(); }, []);
 
     const handleConfirm = async () => {
         // We do NOT close the draft here. We navigate to Bolus Page.

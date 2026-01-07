@@ -170,10 +170,22 @@ export async function apiFetch(path: string, options: ApiOptions = {}) {
     // This prevents race conditions where old requests without tokens (made before login)
     // clear the newly saved session token.
     if (hadToken) {
-      clearSession();
-      if (unauthorizedHandler) unauthorizedHandler();
+      // Check if there's STILL a token - another request might have logged in
+      const currentToken = getStoredToken();
+      if (currentToken === token) {
+        // Same token that failed, clear it
+        clearSession();
+        if (unauthorizedHandler) unauthorizedHandler();
+        throw new Error("Sesión caducada. Vuelve a iniciar sesión.");
+      } else {
+        // Token changed (new login happened), don't clear, just fail silently for this request
+        throw new Error("Request obsoleto, reintentar.");
+      }
+    } else {
+      // No token was sent - this is expected for unauthenticated requests
+      // Don't show "session expired" - just indicate auth is required
+      throw new Error("Autenticación requerida.");
     }
-    throw new Error("Sesión caducada. Vuelve a iniciar sesión.");
   }
 
   if (response.status === 0) {
