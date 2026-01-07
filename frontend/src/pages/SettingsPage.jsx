@@ -364,12 +364,11 @@ function CalcParamsPanel() {
         dia_hours: 4,
         round_step_u: 0.5,
         max_bolus_u: 10,
-        round_step_u: 0.5,
-        max_bolus_u: 10,
         techne: { enabled: false, max_step_change: 0.5, safety_iob_threshold: 1.5 },
         warsaw: { enabled: true, trigger_threshold_kcal: 300, safety_factor: 0.1, safety_factor_dual: 0.2 },
         autosens: { enabled: true, min_ratio: 0.7, max_ratio: 1.2 },
-        calculator: { subtract_fiber: false, fiber_factor: 0.5 }
+        calculator: { subtract_fiber: false, fiber_factor: 0.5 },
+        timezone: 'Europe/Madrid'
     };
 
     const [params, setParams] = useState(defaults);
@@ -1644,8 +1643,36 @@ function SchedulePanel({ settings, onChange }) {
     return (
         <div style={{ background: 'white', padding: '1rem', borderRadius: '12px', border: '1px solid #e2e8f0', marginBottom: '1.5rem', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
             <h4 style={{ marginTop: 0, marginBottom: '1rem', color: '#334155', fontSize: '1rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                ⏰ Horarios de Comidas (Inicio)
+                ⏰ Horarios y Zona
             </h4>
+
+            <div style={{ marginBottom: '1rem' }}>
+                <label style={{ display: 'block', marginBottom: '0.4rem', fontWeight: 600, fontSize: '0.8rem', color: '#64748b', textTransform: 'uppercase' }}>
+                    Zona Horaria
+                </label>
+                <select
+                    value={settings.timezone || 'Europe/Madrid'}
+                    onChange={e => onChange(prev => ({ ...prev, timezone: e.target.value }))}
+                    style={{
+                        width: '100%',
+                        padding: '0.6rem',
+                        borderRadius: '8px',
+                        border: '1px solid #cbd5e1',
+                        fontSize: '1rem',
+                        background: 'white'
+                    }}
+                >
+                    <option value="Europe/Madrid">Europe/Madrid (España Peninsular)</option>
+                    <option value="Atlantic/Canary">Atlantic/Canary (Canarias)</option>
+                    <option value="Europe/London">Europe/London (UK / Portugal)</option>
+                    <option value="Europe/Paris">Europe/Paris (Central Europe)</option>
+                    <option value="America/New_York">America/New_York (US East)</option>
+                    <option value="America/Chicago">America/Chicago (US Central)</option>
+                    <option value="America/Los_Angeles">America/Los_Angeles (US West)</option>
+                    <option value="UTC">UTC (Universal)</option>
+                </select>
+            </div>
+
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '1rem' }}>
                 <div>
                     <label style={labelStyle}>Desayuno</label>
