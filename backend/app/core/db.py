@@ -72,7 +72,11 @@ def init_db():
                 max_overflow=20
             )
 
-        _async_session_factory = async_sessionmaker(_async_engine, expire_on_commit=False)
+        _async_session_factory = async_sessionmaker(
+            _async_engine,
+            expire_on_commit=False,
+            class_=AsyncSession,
+        )
     else:
         # Safety Check for Production
         import os
@@ -91,6 +95,14 @@ def init_db():
 
 def get_engine():
     return _async_engine
+
+def get_session_factory():
+    return _async_session_factory
+
+def SessionLocal():
+    if not _async_session_factory:
+        raise RuntimeError("Database not initialized")
+    return _async_session_factory()
 
 async def check_db_health():
     """Simple health check: SELECT now()"""
@@ -128,6 +140,9 @@ async def migrate_schema(conn):
         
         # 4. fiber (treatments)
         await conn.execute(text("ALTER TABLE treatments ADD COLUMN IF NOT EXISTS fiber FLOAT DEFAULT 0.0"))
+
+        # 4b. draft_id (treatments)
+        await conn.execute(text("ALTER TABLE treatments ADD COLUMN IF NOT EXISTS draft_id VARCHAR"))
 
         # 5. fiber (favorite_foods)
         await conn.execute(text("ALTER TABLE favorite_foods ADD COLUMN IF NOT EXISTS fiber FLOAT DEFAULT 0.0"))

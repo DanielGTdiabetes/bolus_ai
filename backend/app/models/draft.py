@@ -3,6 +3,7 @@ from typing import Optional
 from pydantic import BaseModel, Field
 
 class NutritionDraft(BaseModel):
+    id: str
     user_id: str
     carbs: float = 0.0
     fat: float = 0.0

@@ -961,9 +961,7 @@ async def trend_alert(username: str = "admin", chat_id: Optional[int] = None, tr
         return
 
     # 4. Gating: Check Recent Treatments (Carbs/Bolus) from DB
-    from app.core.db import get_engine, AsyncSession
-    
-    engine = get_engine()
+    from app.core.db import SessionLocal
     has_recent_carbs = False
     has_recent_bolus = False
     
@@ -974,32 +972,31 @@ async def trend_alert(username: str = "admin", chat_id: Optional[int] = None, tr
     from app.models.treatment import Treatment
     from sqlalchemy import select
     
-    if engine:
-        try:
-            async with AsyncSession(engine) as session:
-                stmt = (
-                    select(Treatment)
-                    .where(Treatment.user_id == username)
-                    .where(Treatment.created_at >= cutoff.replace(tzinfo=None))
-                    .order_by(Treatment.created_at.desc())
-                )
-                res = await session.execute(stmt)
-                rows = res.scalars().all()
+    try:
+        async with SessionLocal() as session:
+            stmt = (
+                select(Treatment)
+                .where(Treatment.user_id == username)
+                .where(Treatment.created_at >= cutoff.replace(tzinfo=None))
+                .order_by(Treatment.created_at.desc())
+            )
+            res = await session.execute(stmt)
+            rows = res.scalars().all()
+            
+            # Check Carbs
+            for r in rows:
+                c_time = r.created_at
+                if c_time.tzinfo is None: c_time = c_time.replace(tzinfo=timezone.utc)
+                c_mins = (now_utc - c_time).total_seconds() / 60.0
                 
-                # Check Carbs
-                for r in rows:
-                    c_time = r.created_at
-                    if c_time.tzinfo is None: c_time = c_time.replace(tzinfo=timezone.utc)
-                    c_mins = (now_utc - c_time).total_seconds() / 60.0
-                    
-                    if r.carbs and r.carbs > 0 and c_mins <= conf.recent_carbs_minutes:
-                         has_recent_carbs = True
-                    
-                    if r.insulin and r.insulin > 0 and c_mins <= conf.recent_bolus_minutes:
-                         has_recent_bolus = True
-        except Exception as e:
-            logger.error(f"Trend check DB error: {e}")
-            pass
+                if r.carbs and r.carbs > 0 and c_mins <= conf.recent_carbs_minutes:
+                     has_recent_carbs = True
+                
+                if r.insulin and r.insulin > 0 and c_mins <= conf.recent_bolus_minutes:
+                     has_recent_bolus = True
+    except Exception as e:
+        logger.error(f"Trend check DB error: {e}")
+        pass
 
     # Evaluate Heuristics
     if has_recent_carbs:
@@ -1107,13 +1104,10 @@ async def check_isf_suggestions(username: str = "admin", chat_id: Optional[int] 
             return
 
         # 4. Persistence & Notification with Buttons
-        from app.core.db import get_engine, AsyncSession
+        from app.core.db import SessionLocal
         from app.models.suggestion import ParameterSuggestion
-        
-        engine = get_engine()
-        if not engine: return
-        
-        async with AsyncSession(engine) as session:
+
+        async with SessionLocal() as session:
             for item in actionable:
                 # Create Suggestion Record
                 direction = "decrease" if item.suggestion_type == "decrease" else "increase"
@@ -1215,15 +1209,12 @@ async def check_app_notifications(username: str = "admin", chat_id: Optional[int
         return
 
     # 3. Query Notification Service
-    from app.core.db import get_engine, AsyncSession
+    from app.core.db import SessionLocal
     from app.services.notification_service import get_notification_summary_service
-
-    engine = get_engine()
-    if not engine: return
     
     summary = {}
     try:
-        async with AsyncSession(engine) as session:
+        async with SessionLocal() as session:
             # We must use "admin" or correct user_id. 
             # Context builder resolved settings for 'username', let's use that.
             summary = await get_notification_summary_service(username, session)
@@ -1295,16 +1286,13 @@ async def check_supplies_status(username: str = "admin", chat_id: Optional[int] 
 
     # 2. Check Stock using Tool Logic
     try:
-        from app.core.db import get_engine, AsyncSession
+        from app.core.db import SessionLocal
         from app.models.user_data import SupplyItem
         from sqlalchemy import select
         
-        engine = get_engine()
-        if not engine: return
-        
         warnings = []
         
-        async with AsyncSession(engine) as session:
+        async with SessionLocal() as session:
              # simplistic resolution
              stmt = select(SupplyItem).where(SupplyItem.quantity >= 0) # get all
              result = await session.execute(stmt)

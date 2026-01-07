@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field, ValidationError
 
 from app.bot.state import health
 from app.core.settings import get_settings
-from app.core.db import get_engine, AsyncSession
+from app.core.db import SessionLocal
 from app.services.store import DataStore
 from app.services.nightscout_client import NightscoutClient, NightscoutError
 from app.services.dexcom_client import DexcomClient
@@ -349,45 +349,43 @@ async def get_status_context(username: str = "admin", user_settings: Optional[Us
     
     # 1. DB Source (Primary)
     try:
-        engine = get_engine()
-        if engine:
-             async with AsyncSession(engine) as session:
-                  target_user = username
-                  if username == "admin":
-                       target_user = await _resolve_user_id(session)
-                  
-                  # Naive Midnight? Or Smart?
-                  # We use UTC midnight for simple "last 24h" window alignment? 
-                  # No, "Daily Totals" means "Since 00:00".
-                  # Let's assume server local time is user time for now (MVP).
-                  from datetime import time
-                  now_n = datetime.now()
-                  midnight = now_n.replace(hour=0, minute=0, second=0, microsecond=0)
-                  # Convert to UTC if created_at is UTC
-                  start_of_day = midnight.astimezone(timezone.utc).replace(tzinfo=None) # Cast to naive for asyncpg
-                  
-                  from sqlalchemy import select, func
-                  from app.models.treatment import Treatment
+        async with SessionLocal() as session:
+            target_user = username
+            if username == "admin":
+                 target_user = await _resolve_user_id(session)
+            
+            # Naive Midnight? Or Smart?
+            # We use UTC midnight for simple "last 24h" window alignment? 
+            # No, "Daily Totals" means "Since 00:00".
+            # Let's assume server local time is user time for now (MVP).
+            from datetime import time
+            now_n = datetime.now()
+            midnight = now_n.replace(hour=0, minute=0, second=0, microsecond=0)
+            # Convert to UTC if created_at is UTC
+            start_of_day = midnight.astimezone(timezone.utc).replace(tzinfo=None) # Cast to naive for asyncpg
+            
+            from sqlalchemy import select, func
+            from app.models.treatment import Treatment
 
-                  stmt = (
-                      select(
-                          func.sum(Treatment.insulin),
-                          func.sum(Treatment.carbs),
-                          func.sum(Treatment.fat),
-                          func.sum(Treatment.protein),
-                          func.sum(Treatment.fiber)
-                      )
-                      .where(Treatment.user_id == target_user)
-                      .where(Treatment.created_at >= start_of_day)
-                  )
-                  row = (await session.execute(stmt)).fetchone()
-                  if row:
-                      daily_stats["insulin"] = row[0] or 0.0
-                      daily_stats["carbs"] = row[1] or 0.0
-                      daily_stats["fat"] = row[2] or 0.0
-                      daily_stats["protein"] = row[3] or 0.0
-                      daily_stats["fiber"] = row[4] or 0.0
-                      
+            stmt = (
+                select(
+                    func.sum(Treatment.insulin),
+                    func.sum(Treatment.carbs),
+                    func.sum(Treatment.fat),
+                    func.sum(Treatment.protein),
+                    func.sum(Treatment.fiber)
+                )
+                .where(Treatment.user_id == target_user)
+                .where(Treatment.created_at >= start_of_day)
+            )
+            row = (await session.execute(stmt)).fetchone()
+            if row:
+                daily_stats["insulin"] = row[0] or 0.0
+                daily_stats["carbs"] = row[1] or 0.0
+                daily_stats["fat"] = row[2] or 0.0
+                daily_stats["protein"] = row[3] or 0.0
+                daily_stats["fiber"] = row[4] or 0.0
+
     except Exception as e:
         logger.warning(f"Failed to fetch daily stats from DB: {e}")
 
@@ -477,21 +475,19 @@ async def calculate_bolus(carbs: float, fat: float = 0.0, protein: float = 0.0, 
 
     # Check for Active Temp Modes (Global Override)
     try:
-        engine = get_engine()
-        if engine:
-            from app.models.temp_mode import TempModeDB
-            from sqlalchemy import select
-            async with AsyncSession(engine) as session:
-                 # Find active mode
-                 now = datetime.now(timezone.utc)
-                 stmt = select(TempModeDB).where(
-                     TempModeDB.expires_at > now,
-                     TempModeDB.mode == "alcohol"
-                 )
-                 res = await session.execute(stmt)
-                 active = res.scalars().first()
-                 if active:
-                     alcohol = True
+        from app.models.temp_mode import TempModeDB
+        from sqlalchemy import select
+        async with SessionLocal() as session:
+             # Find active mode
+             now = datetime.now(timezone.utc)
+             stmt = select(TempModeDB).where(
+                 TempModeDB.expires_at > now,
+                 TempModeDB.mode == "alcohol"
+             )
+             res = await session.execute(stmt)
+             active = res.scalars().first()
+             if active:
+                 alcohol = True
     except Exception as e:
         logger.warning(f"Failed to check temp modes from DB: {e}")
 
@@ -519,27 +515,25 @@ async def calculate_bolus(carbs: float, fat: float = 0.0, protein: float = 0.0, 
     autosens_ratio = 1.0
     autosens_reason = None
     try:
-        engine = get_engine()
-        if engine:
-             async with AsyncSession(engine) as session:
-                  # Removed internal import of _resolve_user_id that caused mismatch
-                  # u_id = await _resolve_user_id(session)
-                  u_id = user_id # Use the consistently resolved ID
-                  
-                  # 1. Macro (TDD)
-                  from app.services.dynamic_isf_service import DynamicISFService
-                  tdd_ratio = await DynamicISFService.calculate_dynamic_ratio(u_id, session, user_settings)
-                  
-                  # 2. Micro (Local)
-                  local_ratio = 1.0
-                  try:
-                       res = await AutosensService.calculate_autosens(u_id, session, user_settings)
-                       local_ratio = res.ratio
-                  except: pass
-                  
-                  # SMART FALLBACK: If we got neutral results (1.0) and we are not admin,
-                  # it's possible this is a 'shadow' user (Telegram alias) without data.
-                  # Try checking the default/admin user for data.
+        async with SessionLocal() as session:
+             # Removed internal import of _resolve_user_id that caused mismatch
+             # u_id = await _resolve_user_id(session)
+             u_id = user_id # Use the consistently resolved ID
+             
+             # 1. Macro (TDD)
+             from app.services.dynamic_isf_service import DynamicISFService
+             tdd_ratio = await DynamicISFService.calculate_dynamic_ratio(u_id, session, user_settings)
+             
+             # 2. Micro (Local)
+             local_ratio = 1.0
+             try:
+                  res = await AutosensService.calculate_autosens(u_id, session, user_settings)
+                  local_ratio = res.ratio
+             except: pass
+             
+             # SMART FALLBACK: If we got neutral results (1.0) and we are not admin,
+             # it's possible this is a 'shadow' user (Telegram alias) without data.
+             # Try checking the default/admin user for data.
                   if tdd_ratio == 1.0 and local_ratio == 1.0 and u_id != "admin":
                        from app.core import config
                        fallback_uid = config.get_bot_default_username()
@@ -864,11 +858,7 @@ async def save_favorite_food(tool_input: dict[str, Any]) -> SaveFavoriteResult |
             notes=tool_input.get("notes")
         )
         
-        engine = get_engine()
-        if not engine:
-             return ToolError(type="db_error", message="Base de datos no disponible")
-             
-        async with AsyncSession(engine) as session:
+        async with SessionLocal() as session:
              user_id = await _resolve_user_id(session)
              
              # Check if exists (by name, simple unique constraint simulation)
@@ -1008,13 +998,9 @@ async def search_food(tool_input: dict[str, Any]) -> SearchFoodResult | ToolErro
     if not query:
         return SearchFoodResult(found=False, items=[])
         
-    engine = get_engine()
-    if not engine:
-         return ToolError(type="db_error", message="Base de datos no disponible")
-         
     try:
         from sqlalchemy import select
-        async with AsyncSession(engine) as session:
+        async with SessionLocal() as session:
              user_id = await _resolve_user_id(session)
              stmt = select(FavoriteFood).where(FavoriteFood.user_id == user_id)
              res = await session.execute(stmt)
@@ -1033,18 +1019,16 @@ async def search_food(tool_input: dict[str, Any]) -> SearchFoodResult | ToolErro
 async def set_temp_mode(temp: TempMode) -> dict[str, Any]:
     expires_at = datetime.utcnow() + timedelta(minutes=temp.expires_minutes)
     
-    engine = get_engine()
-    if engine:
-        from app.models.temp_mode import TempModeDB
-        async with AsyncSession(engine) as session:
-            new_mode = TempModeDB(
-                user_id="admin", # Default for now
-                mode=temp.mode,
-                expires_at=expires_at,
-                note=temp.note
-            )
-            session.add(new_mode)
-            await session.commit()
+    from app.models.temp_mode import TempModeDB
+    async with SessionLocal() as session:
+        new_mode = TempModeDB(
+            user_id="admin", # Default for now
+            mode=temp.mode,
+            expires_at=expires_at,
+            note=temp.note
+        )
+        session.add(new_mode)
+        await session.commit()
             
     return {"mode": temp.mode, "expires_at": expires_at.isoformat()}
 
@@ -1060,29 +1044,12 @@ async def add_treatment(tool_input: dict[str, Any]) -> AddTreatmentResult | Tool
     carbs = float(payload.carbs or 0)
     notes = payload.notes or "Chat Bot"
     store = DataStore(Path(get_settings().data.data_dir))
-    engine = get_engine()
     result = None
+    user_id = None
 
     try:
-        if engine:
-            async with AsyncSession(engine) as session:
-                user_id = await _resolve_user_id(session=session)
-                result = await log_treatment(
-                    user_id=user_id,
-                    insulin=insulin,
-                    carbs=carbs,
-                    fat=float(payload.fat or 0),
-                    protein=float(payload.protein or 0),
-                    fiber=float(payload.fiber or 0),
-                    notes=notes,
-                    entered_by="TelegramBot",
-                    event_type=payload.event_type or ("Correction Bolus" if carbs == 0 else "Meal Bolus"),
-                    created_at=datetime.now(timezone.utc),
-                    store=store,
-                    session=session,
-                )
-        else:
-            user_id = await _resolve_user_id()
+        async with SessionLocal() as session:
+            user_id = await _resolve_user_id(session=session)
             result = await log_treatment(
                 user_id=user_id,
                 insulin=insulin,
@@ -1095,7 +1062,7 @@ async def add_treatment(tool_input: dict[str, Any]) -> AddTreatmentResult | Tool
                 event_type=payload.event_type or ("Correction Bolus" if carbs == 0 else "Meal Bolus"),
                 created_at=datetime.now(timezone.utc),
                 store=store,
-                session=None,
+                session=session,
             )
     except Exception as exc:  # pragma: no cover - unexpected runtime errors
         logger.exception("add_treatment execution failed")
@@ -1116,22 +1083,21 @@ async def add_treatment(tool_input: dict[str, Any]) -> AddTreatmentResult | Tool
     if payload.replace_id and result.ok:
         try:
              # Delete from DB
-             if engine:
-                 async with AsyncSession(engine) as session:
-                      from app.models.treatment import Treatment
-                      from sqlalchemy import select
-                      
-                      # Check existence first for debugging
-                      stmt_check = select(Treatment).where(Treatment.id == payload.replace_id)
-                      existing = (await session.execute(stmt_check)).scalar_one_or_none()
-                      
-                      if existing:
-                          await session.delete(existing)
-                          await session.commit()
-                          replaced_id = payload.replace_id
-                          logger.info(f"✅ Successfully deleted original treatment {payload.replace_id}")
-                      else:
-                          logger.warning(f"⚠️ Original treatment {payload.replace_id} not found for deletion.")
+             async with SessionLocal() as session:
+                  from app.models.treatment import Treatment
+                  from sqlalchemy import select
+                  
+                  # Check existence first for debugging
+                  stmt_check = select(Treatment).where(Treatment.id == payload.replace_id)
+                  existing = (await session.execute(stmt_check)).scalar_one_or_none()
+                  
+                  if existing:
+                      await session.delete(existing)
+                      await session.commit()
+                      replaced_id = payload.replace_id
+                      logger.info(f"✅ Successfully deleted original treatment {payload.replace_id}")
+                  else:
+                      logger.warning(f"⚠️ Original treatment {payload.replace_id} not found for deletion.")
 
              # Delete from Local Store
              # Store uses '_id' or 'id'
@@ -1154,39 +1120,35 @@ async def add_treatment(tool_input: dict[str, Any]) -> AddTreatmentResult | Tool
     rotation_site = None
     if result.ok:
         # Learning Hook (Memory)
-        if engine:
-             try:
-                from app.services.learning_service import LearningService
-                async with AsyncSession(engine) as session:
-                     ls = LearningService(session)
-                     
-                     strategy = {
-                         "kind": "normal",
-                         "total": insulin,
-                         "upfront": insulin,
-                         "later": 0,
-                         "delay": 0
-                     }
-                     # Basic user resolution
-                     l_user = "admin"
-                     try:
-                        l_user = await _resolve_user_id(session)
-                     except: pass
+        try:
+            from app.services.learning_service import LearningService
+            async with SessionLocal() as session:
+                 ls = LearningService(session)
+                 
+                 strategy = {
+                     "kind": "normal",
+                     "total": insulin,
+                     "upfront": insulin,
+                     "later": 0,
+                     "delay": 0
+                 }
+                 # Basic user resolution
+                 l_user = user_id or "admin"
 
-                     # Empty context for now
-                     await ls.save_meal_entry(
-                         user_id=l_user,
-                         items=[], # Auto-generate
-                         carbs=carbs,
-                         fat=float(payload.fat or 0),
-                         protein=float(payload.protein or 0),
-                         bolus_data=strategy,
-                         context={},
-                         notes=notes,
-                         fiber=float(payload.fiber or 0)
-                     )
-             except Exception as mem_e:
-                 logger.warning(f"Memory save failed: {mem_e}")
+                 # Empty context for now
+                 await ls.save_meal_entry(
+                     user_id=l_user,
+                     items=[], # Auto-generate
+                     carbs=carbs,
+                     fat=float(payload.fat or 0),
+                     protein=float(payload.protein or 0),
+                     bolus_data=strategy,
+                     context={},
+                     notes=notes,
+                     fiber=float(payload.fiber or 0)
+                 )
+        except Exception as mem_e:
+            logger.warning(f"Memory save failed: {mem_e}")
 
         try:
              # Need user_id used in logging. 
@@ -1194,14 +1156,7 @@ async def add_treatment(tool_input: dict[str, Any]) -> AddTreatmentResult | Tool
              # 'result' from log_treatment doesn't have user_id, but we did await _resolve_user_id()
              # Wait, in the code above user_id is in local scope of `if engine:`.
              # We need to resolve it reliably here.
-             u_id = "admin" # Default
-             if engine:
-                  # We can't reuse the closed session. 
-                  # But we can try to resolve again or assume admin if no session.
-                  # Ideally log_treatment should return user_id used? No.
-                  # Let's re-resolve quickly 
-                  # Or better, just refactor `add_treatment` to resolve user_id earlier.
-                  pass
+             u_id = user_id or "admin" # Default
              
             # We need the username. logic:
             # If we are in `add_treatment`, we are likely 'admin' if single user. 
@@ -1214,30 +1169,28 @@ async def add_treatment(tool_input: dict[str, Any]) -> AddTreatmentResult | Tool
              # But i can't see the lines above easily in this 'Replace' block.
              # I will just use 'admin' as fallback, or re-run _resolve_user_id logic.
              
-             target_user = "admin"
-             try:
-                 if engine:
-                     async with AsyncSession(engine) as s:
+             target_user = user_id or "admin"
+             if not target_user:
+                 try:
+                     async with SessionLocal() as s:
                          target_user = await _resolve_user_id(s)
-                 else:
-                     target_user = await _resolve_user_id()
-             except: pass
+                 except: 
+                     target_user = "admin"
              
              # Rotate Injection Site (if confirmed via Telegram and not just "logged")
              # Usually adding treatment via bot means "I just did it" -> rotate
              rotation_site = None
              try:
-                 if engine: # Only rotate if we have DB access for persistence? Actually AsyncManager handles it.
-                     from app.services.async_injection_manager import AsyncInjectionManager
-                     mgr = AsyncInjectionManager("admin") # Simplify user resolution
-                     
-                     check_str = (notes or "") + (payload.event_type or "")
-                     # Detect basal/bolus. "basal" in notes or "Basal" in event type?
-                     # event_type usually "Meal Bolus" or "Correction Bolus".
-                     plan = "basal" if "basal" in check_str.lower() else "bolus"
-                     
-                     manual_site_id = tool_input.get("injection_site_id")
-                     if manual_site_id:
+                 from app.services.async_injection_manager import AsyncInjectionManager
+                 mgr = AsyncInjectionManager("admin") # Simplify user resolution
+                 
+                 check_str = (notes or "") + (payload.event_type or "")
+                 # Detect basal/bolus. "basal" in notes or "Basal" in event type?
+                 # event_type usually "Meal Bolus" or "Correction Bolus".
+                 plan = "basal" if "basal" in check_str.lower() else "bolus"
+                 
+                 manual_site_id = tool_input.get("injection_site_id")
+                 if manual_site_id:
                          # Manual override logic
                          await mgr.set_current_site(plan, manual_site_id)
                          # Fetch details
@@ -1280,11 +1233,7 @@ async def configure_basal_reminder(tool_input: dict[str, Any]) -> ConfigureBasal
         time_val = tool_input.get("time") # "HH:MM"
         units_val = tool_input.get("units")
 
-        engine = get_engine()
-        if not engine:
-             return ToolError(type="db_error", message="Base de datos no disponible")
-
-        async with AsyncSession(engine) as session:
+        async with SessionLocal() as session:
              # 1. Resolve User
              user_id = await _resolve_user_id(session)
              
@@ -1356,11 +1305,7 @@ async def get_optimization_suggestions(days: int = 7) -> OptimizationResult | To
         # Resolve User ID properly (from settings or default)
         # Usually settings don't have user_id field explicitly if loaded from file?
         # But we need user_id for DB queries.
-        engine = get_engine()
-        if not engine:
-             return ToolError(type="db_error", message="No hay base de datos disponible para análisis.")
-             
-        async with AsyncSession(engine) as session:
+        async with SessionLocal() as session:
             # We need a user_id. If "admin" is default...
             # The service expects user_id column matches.
             # Usually we use "admin" or get it from auth.
@@ -1612,14 +1557,10 @@ AI_TOOL_DECLARATIONS = [
 
 async def check_supplies_stock(tool_input: dict[str, Any]) -> SupplyCheckResult | ToolError:
     try:
-        engine = get_engine()
-        if not engine:
-             return ToolError(type="db_error", message="Base de datos no disponible")
-             
         items = []
         warnings = []
         
-        async with AsyncSession(engine) as session:
+        async with SessionLocal() as session:
              user_id = await _resolve_user_id(session)
              from sqlalchemy import select
              stmt = select(SupplyItem).where(SupplyItem.user_id == user_id)
@@ -1660,12 +1601,8 @@ async def update_supply_quantity(tool_input: dict[str, Any]) -> SupplyCheckResul
         qty = tool_input.get("quantity")
         if not key or qty is None:
             return ToolError(type="validation_error", message="Falta nombre o cantidad")
-            
-        engine = get_engine()
-        if not engine:
-             return ToolError(type="db_error", message="DB no accesible")
              
-        async with AsyncSession(engine) as session:
+        async with SessionLocal() as session:
              user_id = await _resolve_user_id(session)
              from sqlalchemy import select
              stmt = select(SupplyItem).where(SupplyItem.user_id == user_id, SupplyItem.item_key == key)
@@ -1690,11 +1627,9 @@ async def update_supply_quantity(tool_input: dict[str, Any]) -> SupplyCheckResul
 async def start_restaurant_session(expected_carbs: float, expected_fat: float = 0.0, expected_protein: float = 0.0, notes: str = "") -> RestaurantSessionResult:
     try:
         user_settings = await _load_user_settings() # Gets admin/bot user
-        engine = get_engine()
         user_id = "admin"
-        if engine:
-             async with AsyncSession(engine) as session:
-                  user_id = await _resolve_user_id(session)
+        async with SessionLocal() as session:
+             user_id = await _resolve_user_id(session)
 
         sess = await RestaurantDBService.create_session(
             user_id=user_id,

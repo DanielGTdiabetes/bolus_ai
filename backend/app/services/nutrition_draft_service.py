@@ -61,6 +61,7 @@ class NutritionDraftService:
              
         # Convert to Pydantic for API consistency
         return NutritionDraft(
+            id=draft_db.id,
             user_id=draft_db.user_id,
             carbs=draft_db.carbs,
             fat=draft_db.fat,
@@ -74,14 +75,24 @@ class NutritionDraftService:
         )
 
     @staticmethod
-    async def discard_draft(user_id: str, session: Any):
+    async def discard_draft(user_id: str, session: Any, draft_id: Optional[str] = None):
         from app.models.draft_db import NutritionDraftDB
-        from sqlalchemy import select, delete
+        from sqlalchemy import select
         
         # Soft delete or hard? Requirement says "discarded". Let's update status.
         # Actually API logic removed it. Let's mark as discarded or delete.
         # Prompt said "status: discarded".
-        stmt = select(NutritionDraftDB).where(NutritionDraftDB.user_id == user_id, NutritionDraftDB.status == "active")
+        if draft_id:
+            stmt = select(NutritionDraftDB).where(
+                NutritionDraftDB.user_id == user_id,
+                NutritionDraftDB.id == draft_id,
+                NutritionDraftDB.status == "active",
+            )
+        else:
+            stmt = select(NutritionDraftDB).where(
+                NutritionDraftDB.user_id == user_id,
+                NutritionDraftDB.status == "active",
+            )
         res = await session.execute(stmt)
         draft = res.scalars().first()
         if draft:
@@ -90,29 +101,68 @@ class NutritionDraftService:
             await session.commit()
 
     @staticmethod
-    async def close_draft_to_treatment(user_id: str, session: Any) -> Optional[Treatment]:
+    async def close_draft_to_treatment(
+        user_id: str,
+        session: Any,
+        draft_id: Optional[str] = None,
+    ) -> Tuple[Optional[Treatment], bool, bool]:
         from app.models.draft_db import NutritionDraftDB
         from sqlalchemy import update
+        from sqlalchemy import select
         
         # Atomic Update: "Claim" the draft by setting status to closed.
         # Only the request that actually changes status from 'active' to 'closed' will get a result.
-        stmt = (
-            update(NutritionDraftDB)
-            .where(NutritionDraftDB.user_id == user_id, NutritionDraftDB.status == "active")
-            .values(status="closed")
-            .returning(NutritionDraftDB)
-        )
+        if draft_id:
+            stmt = (
+                update(NutritionDraftDB)
+                .where(
+                    NutritionDraftDB.user_id == user_id,
+                    NutritionDraftDB.id == draft_id,
+                    NutritionDraftDB.status == "active",
+                )
+                .values(status="closed")
+                .returning(NutritionDraftDB)
+            )
+        else:
+            stmt = (
+                update(NutritionDraftDB)
+                .where(NutritionDraftDB.user_id == user_id, NutritionDraftDB.status == "active")
+                .values(status="closed")
+                .returning(NutritionDraftDB)
+            )
         
         res = await session.execute(stmt)
         draft_db = res.scalars().first()
         
         if not draft_db:
-            return None
+            if draft_id:
+                existing = await session.execute(
+                    select(Treatment).where(Treatment.draft_id == draft_id)
+                )
+                treatment = existing.scalars().first()
+                if treatment:
+                    logger.info(
+                        "draft_close_idempotent_hit",
+                        extra={"draft_id": draft_id, "treatment_id": treatment.id},
+                    )
+                    return treatment, False, False
+            return None, False, False
             
         # Treat as orphans for now, frontend will see them
         import uuid
         tid = str(uuid.uuid4())
         
+        existing = await session.execute(
+            select(Treatment).where(Treatment.draft_id == draft_db.id)
+        )
+        existing_treatment = existing.scalars().first()
+        if existing_treatment:
+            logger.info(
+                "draft_close_idempotent_exists",
+                extra={"draft_id": draft_db.id, "treatment_id": existing_treatment.id},
+            )
+            return existing_treatment, False, True
+
         t = Treatment(
             id=tid,
             user_id=user_id,
@@ -123,15 +173,20 @@ class NutritionDraftService:
             fat=draft_db.fat,
             protein=draft_db.protein,
             fiber=draft_db.fiber,
-            notes=f"Draft confirmed #draft",
+            notes="Draft confirmed #draft",
             entered_by="draft-service",
-            is_uploaded=False
+            is_uploaded=False,
+            draft_id=draft_db.id,
         )
         
         # Treatment is created but not yet added/committed. 
         # The DRAFT update IS in the session transaction pending commit.
         
-        return t
+        logger.info(
+            "draft_closed_to_treatment",
+            extra={"draft_id": draft_db.id, "treatment_id": tid},
+        )
+        return t, True, True
 
     @staticmethod
     async def update_draft(user_id: str, new_c: float, new_f: float, new_p: float, new_fib: float, session: Any) -> Tuple[NutritionDraft, str]:
@@ -185,6 +240,7 @@ class NutritionDraftService:
              await session.refresh(new_draft)
              
              return NutritionDraft(
+                 id=new_draft.id,
                  user_id=user_id,
                  carbs=new_c,
                  fat=new_f,
@@ -233,13 +289,14 @@ class NutritionDraftService:
         await session.refresh(current_db)
         
         return NutritionDraft(
-             user_id=user_id,
-             carbs=current_db.carbs,
-             fat=current_db.fat,
-             protein=current_db.protein,
-             fiber=current_db.fiber,
-             created_at=current_db.created_at,
-             updated_at=current_db.updated_at,
-             expires_at=current_db.expires_at,
-             status="active"
+            id=current_db.id,
+            user_id=user_id,
+            carbs=current_db.carbs,
+            fat=current_db.fat,
+            protein=current_db.protein,
+            fiber=current_db.fiber,
+            created_at=current_db.created_at,
+            updated_at=current_db.updated_at,
+            expires_at=current_db.expires_at,
+            status="active",
         ), action

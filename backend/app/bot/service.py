@@ -8,6 +8,7 @@ import uuid
 
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.error import BadRequest
 from telegram.ext import Application, CommandHandler, MessageHandler, ContextTypes, filters, CallbackQueryHandler
 from telegram import constants
 
@@ -43,12 +44,11 @@ SNAPSHOT_STORAGE: Dict[str, Any] = {}
 
 
 # DB Access for Settings
-from app.core.db import get_engine, AsyncSession
+from app.core.db import SessionLocal
 from app.services import settings_service as svc_settings
 from app.services import nightscout_secrets_service as svc_ns_secrets
 from app.models.settings import UserSettings
 from app.bot.user_settings_resolver import resolve_bot_user_settings
-from app.models.treatment import Treatment
 
 async def fetch_history_context(user_settings: UserSettings, hours: int = 6) -> str:
     """Fetches simplified glucose history context using Local DB as primary, Nightscout as fallback."""
@@ -60,29 +60,27 @@ async def fetch_history_context(user_settings: UserSettings, hours: int = 6) -> 
 
     # 1. Try Local DB
     try:
-        engine = get_engine()
-        if engine:
-            async with AsyncSession(engine) as session:
-                from sqlalchemy import text
-                # We need sgv and date. date in internal DB is usually ISO string or epoch.
-                # In entries table it's typically date_string (ISO) or date (epoch ms common in NS sync)
-                stmt = text("""
-                    SELECT sgv, date 
-                    FROM entries 
-                    WHERE date >= :start_ms 
-                    ORDER BY date ASC
-                """)
-                # NS epoch is ms
-                start_ms = int(start_time.timestamp() * 1000)
-                res = await session.execute(stmt, {"start_ms": start_ms})
-                for row in res.fetchall():
-                    # mock a NS-like object for compatibility with logic below
-                    from dataclasses import dataclass
-                    @dataclass
-                    class MockEntry:
-                        sgv: float
-                        date: int
-                    entries.append(MockEntry(sgv=float(row[0]), date=int(row[1])))
+        async with SessionLocal() as session:
+            from sqlalchemy import text
+            # We need sgv and date. date in internal DB is usually ISO string or epoch.
+            # In entries table it's typically date_string (ISO) or date (epoch ms common in NS sync)
+            stmt = text("""
+                SELECT sgv, date 
+                FROM entries 
+                WHERE date >= :start_ms 
+                ORDER BY date ASC
+            """)
+            # NS epoch is ms
+            start_ms = int(start_time.timestamp() * 1000)
+            res = await session.execute(stmt, {"start_ms": start_ms})
+            for row in res.fetchall():
+                # mock a NS-like object for compatibility with logic below
+                from dataclasses import dataclass
+                @dataclass
+                class MockEntry:
+                    sgv: float
+                    date: int
+                entries.append(MockEntry(sgv=float(row[0]), date=int(row[1])))
     except Exception as e:
         logger.warning(f"Local history fetch failed: {e}")
 
@@ -173,6 +171,16 @@ async def bot_send(
         logger.error(f"reply failed: {error_msg}")
         health.set_reply_error(error_msg)
         return None
+
+
+async def edit_message_text_safe(editor, *args: Any, **kwargs: Any) -> Optional[Any]:
+    try:
+        return await editor.edit_message_text(*args, **kwargs)
+    except BadRequest as exc:
+        if "Message is not modified" in str(exc):
+            logger.info("edit_message_not_modified", extra={"context": kwargs.get("context")})
+            return None
+        raise
 
 
 async def reply_text(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str, **kwargs: Any) -> Optional[Any]:
@@ -609,14 +617,12 @@ async def _process_text_input_internal(update: Update, context: ContextTypes.DEF
              if found: store.save_events(events)
 
              # Update DB
-             engine = get_engine()
-             if engine:
-                 async with AsyncSession(engine) as session:
-                      from app.models.treatment import Treatment
-                      from sqlalchemy import update as sql_update
-                      stmt = sql_update(Treatment).where(Treatment.id == renaming_id).values(notes=new_note)
-                      await session.execute(stmt)
-                      await session.commit()
+             async with SessionLocal() as session:
+                  from app.models.treatment import Treatment
+                  from sqlalchemy import update as sql_update
+                  stmt = sql_update(Treatment).where(Treatment.id == renaming_id).values(notes=new_note)
+                  await session.execute(stmt)
+                  await session.commit()
              
              await reply_text(update, context, f"✅ Nota actualizada: {new_note}")
         except Exception as e:
@@ -689,22 +695,18 @@ async def _process_text_input_internal(update: Update, context: ContextTypes.DEF
             out.append(f"👤 **User DB URL:** `{ns.url}` (Enabled: {ns.enabled})")
             
             # DB Discovery Detail
-            engine = get_engine()
-            if engine:
-                async with AsyncSession(engine) as session:
-                    # List all users
-                    from sqlalchemy import text as sql_text
-                    stmt = sql_text("SELECT user_id, settings FROM user_settings")
-                    rows = (await session.execute(stmt)).fetchall()
-                    out.append(f"📊 **Usuarios en DB:** {len(rows)}")
-                    for r in rows:
-                        uid = r.user_id
-                        raw = r.settings
-                        ns_raw = raw.get("nightscout", {})
-                        url_raw = ns_raw.get("url", "EMPTY")
-                        out.append(f"- User `{uid}`: NS_URL=`{url_raw}`")
-            else:
-                out.append("⚠️ **DB Desconectada.**")
+            async with SessionLocal() as session:
+                # List all users
+                from sqlalchemy import text as sql_text
+                stmt = sql_text("SELECT user_id, settings FROM user_settings")
+                rows = (await session.execute(stmt)).fetchall()
+                out.append(f"📊 **Usuarios en DB:** {len(rows)}")
+                for r in rows:
+                    uid = r.user_id
+                    raw = r.settings
+                    ns_raw = raw.get("nightscout", {})
+                    url_raw = ns_raw.get("url", "EMPTY")
+                    out.append(f"- User `{uid}`: NS_URL=`{url_raw}`")
 
             # 3. Connection Test
             target_url = ns.url or (str(env_url) if env_url else None)
@@ -724,18 +726,14 @@ async def _process_text_input_internal(update: Update, context: ContextTypes.DEF
                  out.append("🛑 **No hay URL para probar.**")
 
             # 4. Check DB History
-            engine = get_engine()
-            if engine:
-                 async with AsyncSession(engine) as session:
-                    from sqlalchemy import text as sql_text
-                    stmt = sql_text("SELECT created_at, insulin FROM treatments ORDER BY created_at DESC LIMIT 1")
-                    row = (await session.execute(stmt)).fetchone() 
-                    if row:
-                         out.append(f"💉 **Último Bolo (DB):** {row.insulin} U ({row.created_at.strftime('%H:%M')})")
-                    else:
-                         out.append(f"💉 **Último Bolo (DB):** (Vacío)")
-            else:
-                 out.append("⚠️ **Sin acceso a Historial DB**")
+            async with SessionLocal() as session:
+                from sqlalchemy import text as sql_text
+                stmt = sql_text("SELECT created_at, insulin FROM treatments ORDER BY created_at DESC LIMIT 1")
+                row = (await session.execute(stmt)).fetchone() 
+                if row:
+                     out.append(f"💉 **Último Bolo (DB):** {row.insulin} U ({row.created_at.strftime('%H:%M')})")
+                else:
+                     out.append(f"💉 **Último Bolo (DB):** (Vacío)")
 
         except Exception as e:
             out.append(f"💥 **Error Script:** `{e}`")
@@ -876,13 +874,11 @@ async def _handle_add_treatment_tool(update: Update, context: ContextTypes.DEFAU
         # Fallback Local DB
         if bg_val is None:
             try:
-                engine = get_engine()
-                if engine:
-                    async with AsyncSession(engine) as session:
-                        from sqlalchemy import text
-                        stmt = text("SELECT sgv FROM entries ORDER BY date_string DESC LIMIT 1") 
-                        row = (await session.execute(stmt)).fetchone()
-                        if row: bg_val = float(row.sgv)
+                async with SessionLocal() as session:
+                    from sqlalchemy import text
+                    stmt = text("SELECT sgv FROM entries ORDER BY date_string DESC LIMIT 1") 
+                    row = (await session.execute(stmt)).fetchone()
+                    if row: bg_val = float(row.sgv)
             except Exception: pass
 
         # Calc IOB
@@ -1638,8 +1634,8 @@ async def on_draft_updated(username: str, draft: Any, action: str) -> None:
     # Inline Button to Close directly
     kb = [
         [
-            InlineKeyboardButton("✅ Confirmar Ahora", callback_data=f"draft_confirm|{username}"),
-            InlineKeyboardButton("❌ Descartar", callback_data=f"draft_discard|{username}")
+            InlineKeyboardButton("✅ Confirmar Ahora", callback_data=f"draft_confirm|{username}|{draft.id}"),
+            InlineKeyboardButton("❌ Descartar", callback_data=f"draft_discard|{username}|{draft.id}")
         ]
     ]
     
@@ -1653,7 +1649,7 @@ async def on_draft_updated(username: str, draft: Any, action: str) -> None:
             # Check for redundancy to avoid API spam if content identical?
             # Telegram API handles identical content errors strictly ("Message is not modified"), 
             # so we catch BadRequest.
-            await _bot_app.bot.edit_message_text(
+            await edit_message_text_safe(_bot_app.bot,
                 chat_id=chat_id,
                 message_id=last_msg_id,
                 text=msg_txt,
@@ -1796,10 +1792,7 @@ async def on_new_meal_received(carbs: float, fat: float, protein: float, fiber: 
     async def _fetch_from_local_db() -> bool:
         nonlocal bg_val, bg_trend, bg_datetime, bg_source
         try:
-            engine = get_engine()
-            if not engine:
-                return False
-            async with AsyncSession(engine) as session:
+            async with SessionLocal() as session:
                 from sqlalchemy import text
                 stmt = text("SELECT sgv, date FROM entries ORDER BY date DESC LIMIT 1")
                 row = (await session.execute(stmt)).fetchone()
@@ -1976,7 +1969,7 @@ async def _handle_snapshot_callback(query, data: str) -> None:
         if not snapshot:
             logger.warning(f"Snapshot missing for req={request_id}. Available count={len(SNAPSHOT_STORAGE)}")
             health.record_action(f"callback:{'accept' if is_accept else 'cancel'}:{request_id}", False, "snapshot_missing")
-            await query.edit_message_text(f"⚠️ Error: No encuentro el snapshot ({request_id}). Recalcula.")
+            await edit_message_text_safe(query, f"⚠️ Error: No encuentro el snapshot ({request_id}). Recalcula.")
             return
 
         # --- Handle Cancellation (Ignorar) ---
@@ -1985,18 +1978,16 @@ async def _handle_snapshot_callback(query, data: str) -> None:
              base_text = query.message.text if query.message else ""
              if origin_id:
                   try:
-                      engine = get_engine()
-                      if engine:
-                          async with AsyncSession(engine) as session:
-                               from sqlalchemy import text
-                               await session.execute(text("DELETE FROM treatments WHERE id = :oid"), {"oid": origin_id})
-                               await session.commit()
-                      await query.edit_message_text(f"{base_text}\n\n🗑️ Descartado y borrado.")
+                      async with SessionLocal() as session:
+                           from sqlalchemy import text
+                           await session.execute(text("DELETE FROM treatments WHERE id = :oid"), {"oid": origin_id})
+                           await session.commit()
+                      await edit_message_text_safe(query, f"{base_text}\n\n🗑️ Descartado y borrado.")
                   except Exception as e:
                       logger.error(f"Failed to delete ignored treatment: {e}")
-                      await query.edit_message_text(f"{base_text}\n\n❌ Descartado (Error al borrar: {e})")
+                      await edit_message_text_safe(query, f"{base_text}\n\n❌ Descartado (Error al borrar: {e})")
              else:
-                  await query.edit_message_text(f"{base_text}\n\n❌ Descartado.")
+                  await edit_message_text_safe(query, f"{base_text}\n\n❌ Descartado.")
              
              SNAPSHOT_STORAGE.pop(request_id, None)
              return
@@ -2010,13 +2001,13 @@ async def _handle_snapshot_callback(query, data: str) -> None:
              units = units_override if units_override is not None else snapshot["units"]
              carbs = snapshot.get("carbs", 0)
         else:
-             await query.edit_message_text("⚠️ Error: Snapshot irreconocible.")
+             await edit_message_text_safe(query, "⚠️ Error: Snapshot irreconocible.")
              return
 
         if units < 0:
              health.record_action(f"callback:accept:{request_id}", False, "negative_dose")
              await query.answer("Error: Dosis negativa")
-             await query.edit_message_text("⛔ Error: Dosis negativa.")
+             await edit_message_text_safe(query, "⛔ Error: Dosis negativa.")
              return
 
         notes = snapshot.get("notes", "Bolus Bot V2")
@@ -2037,7 +2028,7 @@ async def _handle_snapshot_callback(query, data: str) -> None:
         if isinstance(result, tools.ToolError) or not getattr(result, "ok", False):
             error_msg = result.message if isinstance(result, tools.ToolError) else (result.ns_error or "Error")
             health.record_action(f"callback:accept:{request_id}", False, error_msg)
-            await query.edit_message_text(text=f"{base_text}\n\n❌ Error: {error_msg}", parse_mode="Markdown")
+            await edit_message_text_safe(query, text=f"{base_text}\n\n❌ Error: {error_msg}", parse_mode="Markdown")
             return
 
         success_msg = f"{base_text}\n\nRegistrado ✅ {units} U"
@@ -2101,14 +2092,14 @@ async def _handle_snapshot_callback(query, data: str) -> None:
                  InlineKeyboardButton("⭐ Guardar Plato", callback_data=f"save_fav_txn|{result.treatment_id}")
              ])
 
-        await query.edit_message_text(text=success_msg, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb_post) if kb_post else None)
+        await edit_message_text_safe(query, text=success_msg, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb_post) if kb_post else None)
         SNAPSHOT_STORAGE.pop(request_id, None)
         health.record_action(f"callback:accept:{request_id}", True)
 
     except Exception as e:
         logger.error(f"Snapshot Callback error: {e}")
         health.record_action(f"callback:error", False, str(e))
-        await query.edit_message_text(text=f"Error fatal: {e}")
+        await edit_message_text_safe(query, text=f"Error fatal: {e}")
 
 async def _update_basal_event(status: str, snooze_minutes: int = 0) -> None:
     """Helper to update basal daily status in DataStore."""
@@ -2198,56 +2189,87 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     # --- Draft Confirm ---
     if data.startswith("draft_confirm|"):
         try:
-            target_user = data.split("|")[1]
+            parts = data.split("|")
+            target_user = parts[1]
+            draft_id = parts[2] if len(parts) > 2 else None
             from app.services.nutrition_draft_service import NutritionDraftService
             
             # Clear Cache for this chat as interaction ends or restarts
             chat_id = query.message.chat.id
             DRAFT_MSG_CACHE.pop(chat_id, None)
 
-            engine = get_engine()
-            if engine:
-                 async with AsyncSession(engine) as session:
-                     # Close Draft (DB)
-                     treatment = await NutritionDraftService.close_draft_to_treatment(target_user, session)
-                     if treatment:
+            async with SessionLocal() as session:
+                 # Close Draft (DB)
+                 treatment, created, draft_closed = await NutritionDraftService.close_draft_to_treatment(
+                     target_user,
+                     session,
+                     draft_id=draft_id,
+                 )
+                 if treatment:
+                     treatment_payload = {
+                         "id": treatment.id,
+                         "carbs": treatment.carbs,
+                         "fat": treatment.fat,
+                         "protein": treatment.protein,
+                         "fiber": treatment.fiber,
+                         "notes": treatment.notes,
+                         "draft_id": treatment.draft_id,
+                     }
+                     if created:
                          session.add(treatment)
+                     if created or draft_closed:
                          await session.commit()
-                         
-                         await query.edit_message_text(f"✅ **Borrador Confirmado**\n{treatment.notes}")
-                         
-                         # Handover to standard New Meal flow
-                         await on_new_meal_received(
-                            treatment.carbs, treatment.fat, treatment.protein, treatment.fiber, 
-                            "draft_confirm", origin_id=treatment.id
-                         )
-                     else:
-                        await query.edit_message_text("❌ No hay borrador activo o ya expiró.")
+                     logger.info(
+                         "draft_confirmed",
+                         extra={
+                             "draft_id": treatment_payload["draft_id"],
+                             "treatment_id": treatment_payload["id"],
+                             "created": created,
+                         },
+                     )
+                     
+                     await edit_message_text_safe(
+                         query,
+                         f"✅ **Borrador Confirmado**\n{treatment_payload['notes']}",
+                     )
+                     
+                     # Handover to standard New Meal flow
+                     if created:
+                        await on_new_meal_received(
+                            treatment_payload["carbs"],
+                            treatment_payload["fat"],
+                            treatment_payload["protein"],
+                            treatment_payload["fiber"],
+                            "draft_confirm",
+                            origin_id=treatment_payload["id"],
+                        )
+                 else:
+                    await edit_message_text_safe(query, "❌ No hay borrador activo o ya expiró.")
                 
         except Exception as e:
             logger.error(f"Draft confirm error: {e}")
-            await query.edit_message_text(f"Error al confirmar: {e}")
+            await edit_message_text_safe(query, f"Error al confirmar: {e}")
         return
 
     # --- Draft Discard ---
     if data.startswith("draft_discard|"):
         try:
-            target_user = data.split("|")[1]
+            parts = data.split("|")
+            target_user = parts[1]
+            draft_id = parts[2] if len(parts) > 2 else None
             from app.services.nutrition_draft_service import NutritionDraftService
             
             # Clear Cache
             chat_id = query.message.chat.id
             DRAFT_MSG_CACHE.pop(chat_id, None)
 
-            engine = get_engine()
-            if engine:
-                 async with AsyncSession(engine) as session:
-                     await NutritionDraftService.discard_draft(target_user, session)
-                     await session.commit()
-                     await query.edit_message_text("🗑️ **Borrador Descartado**")
+            async with SessionLocal() as session:
+                 await NutritionDraftService.discard_draft(target_user, session, draft_id=draft_id)
+                 await session.commit()
+                 await edit_message_text_safe(query, "🗑️ **Borrador Descartado**")
         except Exception as e:
             logger.error(f"Draft discard error: {e}")
-            await query.edit_message_text(f"Error al descartar: {e}")
+            await edit_message_text_safe(query, f"Error al descartar: {e}")
         return
 
     # --- Autosens Flow ---
@@ -2263,54 +2285,50 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             user_settings = await get_bot_user_settings()
             username = user_settings.username or "admin"
             
-            engine = get_engine()
-            if engine:
-                 async with AsyncSession(engine) as session:
-                     # Fetch current raw settings
-                     from app.services.settings_service import get_user_settings_service, update_user_settings_service
-                     current_raw = await get_user_settings_service(username, session)
-                     if current_raw and "settings" in current_raw:
-                         s = current_raw["settings"]
-                         # Navigate to cf -> slot
-                         if "cf" not in s: s["cf"] = {}
-                         s["cf"][slot] = new_val
-                         
-                         await update_user_settings_service(username, s, session)
-                         
-                         # 2. Mark Suggestion Accepted
-                         from app.models.suggestion import ParameterSuggestion
-                         from sqlalchemy import select
-                         stmt = select(ParameterSuggestion).where(ParameterSuggestion.id == sug_id)
-                         sug = (await session.execute(stmt)).scalars().first()
-                         if sug:
-                             sug.status = "accepted"
-                             sug.applied_at = datetime.now(timezone.utc)
-                         
-                         await session.commit()
-                         
-            await query.edit_message_text(f"✅ **Perfil Actualizado**\nISF {slot.upper()} ahora es {new_val}.")
-            health.record_action("autosens_update", True)
-            
-        except Exception as e:
-            logger.error(f"Autosens confirm failed: {e}")
-            await query.edit_message_text(f"❌ Error al actualizar: {e}")
-        return
-
-    if data.startswith("autosens_cancel|"):
-        try:
-            sug_id = data.split("|")[1]
-            engine = get_engine()
-            if engine:
-                 async with AsyncSession(engine) as session:
+            async with SessionLocal() as session:
+                 # Fetch current raw settings
+                 from app.services.settings_service import get_user_settings_service, update_user_settings_service
+                 current_raw = await get_user_settings_service(username, session)
+                 if current_raw and "settings" in current_raw:
+                     s = current_raw["settings"]
+                     # Navigate to cf -> slot
+                     if "cf" not in s: s["cf"] = {}
+                     s["cf"][slot] = new_val
+                     
+                     await update_user_settings_service(username, s, session)
+                     
+                     # 2. Mark Suggestion Accepted
                      from app.models.suggestion import ParameterSuggestion
                      from sqlalchemy import select
                      stmt = select(ParameterSuggestion).where(ParameterSuggestion.id == sug_id)
                      sug = (await session.execute(stmt)).scalars().first()
                      if sug:
-                         sug.status = "rejected"
-                         await session.commit()
+                         sug.status = "accepted"
+                         sug.applied_at = datetime.now(timezone.utc)
+                     
+                     await session.commit()
+                         
+            await edit_message_text_safe(query, f"✅ **Perfil Actualizado**\nISF {slot.upper()} ahora es {new_val}.")
+            health.record_action("autosens_update", True)
             
-            await query.edit_message_text("❌ Sugerencia descartada.")
+        except Exception as e:
+            logger.error(f"Autosens confirm failed: {e}")
+            await edit_message_text_safe(query, f"❌ Error al actualizar: {e}")
+        return
+
+    if data.startswith("autosens_cancel|"):
+        try:
+            sug_id = data.split("|")[1]
+            async with SessionLocal() as session:
+                 from app.models.suggestion import ParameterSuggestion
+                 from sqlalchemy import select
+                 stmt = select(ParameterSuggestion).where(ParameterSuggestion.id == sug_id)
+                 sug = (await session.execute(stmt)).scalars().first()
+                 if sug:
+                     sug.status = "rejected"
+                     await session.commit()
+            
+            await edit_message_text_safe(query, "❌ Sugerencia descartada.")
         except Exception as e:
              logger.error(f"Autosens cancel failed: {e}")
         return
@@ -2348,11 +2366,11 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             await status_command(update, context)
             
         else:
-            await query.edit_message_text(f"Comando desconocido en botón: {cmd_name}")
+            await edit_message_text_safe(query, f"Comando desconocido en botón: {cmd_name}")
             
         health.record_action(f"callback:run_cmd:{cmd_name}", True)
         return
-        await query.edit_message_text(text=f"Recibido ✅ {data}")
+        await edit_message_text_safe(query, text=f"Recibido ✅ {data}")
         return
 
     # --- 1. ProActive / MFP Flow (Snapshot) ---
@@ -2367,7 +2385,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 current_u = parts[1]
                 req_id = parts[2]
                 context.user_data["editing_bolus_request"] = req_id
-                await query.edit_message_text(
+                await edit_message_text_safe(query, 
                     text=f"{query.message.text}\n\n✏️ **Modo Edición**\nEscribe la nueva cantidad (sugerida: {current_u} U):",
                     parse_mode="Markdown"
                 )
@@ -2443,7 +2461,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                         InlineKeyboardButton("🥨 Snack", callback_data=f"set_slot|snack|{req_id}"),
                     ]
                 ]
-                await query.edit_message_text(text=msg_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+                await edit_message_text_safe(query, text=msg_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
                 await query.answer(f"Slot cambiado a {slot}")
                 health.record_action(f"callback:set_slot:{slot}", True)
             except Exception as e:
@@ -2463,7 +2481,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             health.record_action("vision_calc", True)
         except Exception as e:
             logger.error(f"Vision calc error: {e}")
-            await query.edit_message_text(text=f"❌ Error: {e}")
+            await edit_message_text_safe(query, text=f"❌ Error: {e}")
         return
 
     # --- 2. Voice Flow ---
@@ -2482,16 +2500,16 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
              # Trigger logic to add remaining part? 
              # For now, just prompt user or log. User asked to "Registrar 2a parte".
              # We assume manual entry or simplified addition.
-             await query.edit_message_text("✅ Anotado. (Funcionalidad completa en vNext)")
+             await edit_message_text_safe(query, "✅ Anotado. (Funcionalidad completa en vNext)")
              health.record_action(f"callback:combo_yes:{tid}", True)
              
         elif action == "combo_later":
              # Snooze
-             await query.edit_message_text("⏳ Pospuesto 30 min.")
+             await edit_message_text_safe(query, "⏳ Pospuesto 30 min.")
              health.record_action(f"callback:combo_later:{tid}", True)
              
         elif action == "combo_no":
-             await query.edit_message_text("❌ Descartado.")
+             await edit_message_text_safe(query, "❌ Descartado.")
              health.record_action(f"callback:combo_no:{tid}", True)
              health.record_action(f"callback:combo_no:{tid}", True)
         return
@@ -2500,13 +2518,13 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     if data.startswith("rename_txn|"):
          tid = data.split("|")[1]
          context.user_data["renaming_treatment_id"] = tid
-         await query.edit_message_text(f"{query.message.text}\n\n✏️ **Escribe el nuevo nombre/nota para el historial:**")
+         await edit_message_text_safe(query, f"{query.message.text}\n\n✏️ **Escribe el nuevo nombre/nota para el historial:**")
          return
 
     if data.startswith("save_fav_txn|"):
          tid = data.split("|")[1]
          context.user_data["saving_favorite_tid"] = tid
-         await query.edit_message_text(f"{query.message.text}\n\n⭐ **Escribe el nombre para guardar en Mis Platos:**")
+         await edit_message_text_safe(query, f"{query.message.text}\n\n⭐ **Escribe el nombre para guardar en Mis Platos:**")
          return
 
     # --- 4. Basal Interactive Flow ---
@@ -2514,20 +2532,20 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         # Snooze 15m
         await _update_basal_event("snoozed", snooze_minutes=15)
         health.record_action("action_basal_snoozed", True, "15m")
-        await query.edit_message_text(f"{query.message.text}\n\n⏳ Te avisaré en 15 minutos.")
+        await edit_message_text_safe(query, f"{query.message.text}\n\n⏳ Te avisaré en 15 minutos.")
         return
 
     if data == "basal_no":
          await _update_basal_event("dismissed")
          health.record_action("action_basal_dismissed_today", True)
-         await query.edit_message_text(f"{query.message.text}\n\n❌ Oído cocina. Hoy no pregunto más.")
+         await edit_message_text_safe(query, f"{query.message.text}\n\n❌ Oído cocina. Hoy no pregunto más.")
          return
     
     if data == "basal_cancel":
          # Just cancel interaction, keep "asked" state or revert? 
          # User says "cancel" maybe means "don't do now". treated same as "asked" but message closed.
          health.record_action("action_basal_cancelled", True)
-         await query.edit_message_text(f"{query.message.text}\n\n❌ Cancelado.")
+         await edit_message_text_safe(query, f"{query.message.text}\n\n❌ Cancelado.")
          return
 
     if data == "basal_yes":
@@ -2572,12 +2590,12 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                  [InlineKeyboardButton("✏️ Editar", callback_data="basal_edit")],
                  [InlineKeyboardButton("❌ Cancelar", callback_data="basal_cancel")]
              ]
-             await query.edit_message_text(text=msg_text, reply_markup=InlineKeyboardMarkup(kb), parse_mode="Markdown")
+             await edit_message_text_safe(query, text=msg_text, reply_markup=InlineKeyboardMarkup(kb), parse_mode="Markdown")
              health.record_action("action_basal_register_start", True)
              
          except Exception as e:
              logger.error(f"Basal yes error: {e}")
-             await query.edit_message_text("Error interno.")
+             await edit_message_text_safe(query, "Error interno.")
          return
 
     if data.startswith("basal_confirm|"):
@@ -2600,7 +2618,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                      logger.warning(f"Guardrail blocked basal: Found one {mins_ago}m ago")
                      await _update_basal_event("done") # Mark as done so we don't ask again
                      health.record_action("basal_guardrail_block", True, f"found_recent_{mins_ago}m")
-                     await query.edit_message_text(f"{query.message.text}\n\n⚠️ **Ya registrada**\nHe visto una basal reciente ({int(mins_ago)} min). No la duplico.")
+                     await edit_message_text_safe(query, f"{query.message.text}\n\n⚠️ **Ya registrada**\nHe visto una basal reciente ({int(mins_ago)} min). No la duplico.")
                      return
              except Exception as e:
                  logger.error(f"Basal guardrail check failed: {e}")
@@ -2660,16 +2678,16 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                      except Exception as e:
                          logger.error(f"Failed to send basal injection image: {e}")
 
-             await query.edit_message_text(success_txt, parse_mode="Markdown")
+             await edit_message_text_safe(query, success_txt, parse_mode="Markdown")
              
          except Exception as e:
              health.record_action("action_basal_register_done", False, str(e))
-             await query.edit_message_text(f"❌ Error al registrar: {e}")
+             await edit_message_text_safe(query, f"❌ Error al registrar: {e}")
          return
 
     if data == "basal_edit":
          context.user_data["editing_basal"] = True
-         await query.edit_message_text(f"{query.message.text}\n\n✏️ **Escribe la cantidad de unidades:**")
+         await edit_message_text_safe(query, f"{query.message.text}\n\n✏️ **Escribe la cantidad de unidades:**")
          return
 
 async def _handle_voice_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -2684,21 +2702,21 @@ async def _handle_voice_callback(update: Update, context: ContextTypes.DEFAULT_T
     
     if action == "cancel":
         context.user_data.pop("pending_voice_text", None)
-        await query.edit_message_text("❌ Nota de voz descartada.")
+        await edit_message_text_safe(query, "❌ Nota de voz descartada.")
         return
 
     if action == "retry":
         context.user_data.pop("pending_voice_text", None)
-        await query.edit_message_text("🔄 Vale, descarte. Envía otra nota de voz o escribe.")
+        await edit_message_text_safe(query, "🔄 Vale, descarte. Envía otra nota de voz o escribe.")
         return
 
     if action == "yes":
         if not pending_text:
-             await query.edit_message_text("⚠️ Error: Texto perdido. Por favor repite.")
+             await edit_message_text_safe(query, "⚠️ Error: Texto perdido. Por favor repite.")
              return
              
         # Simulate text message
-        await query.edit_message_text(f"🗣️ Procesando: \"{pending_text}\"...")
+        await edit_message_text_safe(query, f"🗣️ Procesando: \"{pending_text}\"...")
         
         # We need to call handle_message, but update.message might be None or pointing to the button click?
         # We can't easily fake the update object fully without side effects.

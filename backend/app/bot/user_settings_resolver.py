@@ -4,9 +4,10 @@ from pathlib import Path
 from typing import Optional, Tuple
 
 from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import config
-from app.core.db import AsyncSession, get_engine
+from app.core.db import SessionLocal
 from app.core.settings import get_settings
 from app.models.settings import UserSettings
 from app.services import nightscout_secrets_service as svc_ns_secrets
@@ -67,8 +68,6 @@ async def resolve_bot_user_settings(preferred_username: Optional[str] = None) ->
     5) File store (data_dir) using the same priority order
     """
     settings = get_settings()
-    engine = get_engine()
-
     # Ordered preference list (no duplicates)
     preferred = []
     
@@ -98,8 +97,8 @@ async def resolve_bot_user_settings(preferred_username: Optional[str] = None) ->
     if "admin" not in preferred and "admin" not in fallback_users:
         fallback_users.append("admin")
 
-    if engine:
-        async with AsyncSession(engine) as session:
+    try:
+        async with SessionLocal() as session:
             default_like_fallback: Optional[Tuple[UserSettings, str]] = None
 
             # 0.5) Alias Lookup (Reverse Mapping)
@@ -170,6 +169,8 @@ async def resolve_bot_user_settings(preferred_username: Optional[str] = None) ->
                 user_id = default_like_fallback[1]
                 logger.info("Bot resolver falling back to default-like settings for '%s'", user_id)
                 return default_like_fallback
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Bot resolver: DB lookup failed: %s", exc)
 
     # 3) File store fallback (legacy/offline)
     store = DataStore(Path(settings.data.data_dir))
@@ -201,14 +202,6 @@ async def resolve_bot_user_settings(preferred_username: Optional[str] = None) ->
     except Exception as exc:  # noqa: BLE001
         logger.warning("Bot resolver: error scanning data dir for settings files: %s", exc)
 
-    # 4) Fallback Users (Admin/Default)
-    # We check these LAST, only if no fresh/custom user was found above.
-    for user_id in fallback_users:
-         candidate = await _load_settings_for_user(user_id, AsyncSession(engine) if engine else None) # Hacky: need session?
-         # Actually we exited the session block. We need to handle this pattern better or assume defaults.
-         # For simplicity, if we are here, we probably just want to return the default settings wrapper for the fallback user.
-         pass
-    
     # Simplification: Just load store for fallback user
     target_fallback = fallback_users[0]
     logger.info("Bot resolver using last-resort settings for '%s'", target_fallback)

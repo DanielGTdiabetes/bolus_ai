@@ -99,22 +99,18 @@ async def _process_text_input(update: Update, context: ContextTypes.DEFAULT_TYPE
             out.append(f"👤 **User DB URL:** `{ns.url}` (Enabled: {ns.enabled})")
             
             # DB Discovery Detail
-            engine = get_engine()
-            if engine:
-                async with AsyncSession(engine) as session:
-                    # List all users
-                    from sqlalchemy import text as sql_text
-                    stmt = sql_text("SELECT user_id, settings FROM user_settings")
-                    rows = (await session.execute(stmt)).fetchall()
-                    out.append(f"📊 **Usuarios en DB:** {len(rows)}")
-                    for r in rows:
-                        uid = r.user_id
-                        raw = r.settings
-                        ns_raw = raw.get("nightscout", {})
-                        url_raw = ns_raw.get("url", "EMPTY")
-                        out.append(f"- User `{uid}`: NS_URL=`{url_raw}`")
-            else:
-                out.append("⚠️ **DB Desconectada.**")
+            async with SessionLocal() as session:
+                # List all users
+                from sqlalchemy import text as sql_text
+                stmt = sql_text("SELECT user_id, settings FROM user_settings")
+                rows = (await session.execute(stmt)).fetchall()
+                out.append(f"📊 **Usuarios en DB:** {len(rows)}")
+                for r in rows:
+                    uid = r.user_id
+                    raw = r.settings
+                    ns_raw = raw.get("nightscout", {})
+                    url_raw = ns_raw.get("url", "EMPTY")
+                    out.append(f"- User `{uid}`: NS_URL=`{url_raw}`")
 
             # 3. Connection Test
             target_url = ns.url or (str(env_url) if env_url else None)
@@ -134,18 +130,14 @@ async def _process_text_input(update: Update, context: ContextTypes.DEFAULT_TYPE
                  out.append("🛑 **No hay URL para probar.**")
 
             # 4. Check DB History
-            engine = get_engine()
-            if engine:
-                 async with AsyncSession(engine) as session:
-                    from sqlalchemy import text as sql_text
-                    stmt = sql_text("SELECT created_at, insulin FROM treatments ORDER BY created_at DESC LIMIT 1")
-                    row = (await session.execute(stmt)).fetchone() 
-                    if row:
-                         out.append(f"💉 **Último Bolo (DB):** {row.insulin} U ({row.created_at.strftime('%H:%M')})")
-                    else:
-                         out.append(f"💉 **Último Bolo (DB):** (Vacío)")
-            else:
-                 out.append("⚠️ **Sin acceso a Historial DB**")
+            async with SessionLocal() as session:
+                from sqlalchemy import text as sql_text
+                stmt = sql_text("SELECT created_at, insulin FROM treatments ORDER BY created_at DESC LIMIT 1")
+                row = (await session.execute(stmt)).fetchone() 
+                if row:
+                     out.append(f"💉 **Último Bolo (DB):** {row.insulin} U ({row.created_at.strftime('%H:%M')})")
+                else:
+                     out.append(f"💉 **Último Bolo (DB):** (Vacío)")
 
         except Exception as e:
             out.append(f"💥 **Error Script:** `{e}`")

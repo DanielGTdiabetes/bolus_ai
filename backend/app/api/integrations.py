@@ -638,7 +638,10 @@ async def close_nutrition_draft(
     from app.services.nutrition_draft_service import NutritionDraftService
     
     # 1. Close draft -> Treatment
-    treatment = await NutritionDraftService.close_draft_to_treatment(user.username, session)
+    treatment, created, draft_closed = await NutritionDraftService.close_draft_to_treatment(
+        user.username,
+        session,
+    )
     if not treatment:
         raise HTTPException(404, "No active draft")
     
@@ -646,23 +649,32 @@ async def close_nutrition_draft(
     # close_draft_to_treatment added draft update to session but didn't commit for atomicity with treatment save.
     # Treatment is not added to session yet.
     try:
-        session.add(treatment)
-        await session.commit()
+        if created:
+            session.add(treatment)
+        if created or draft_closed:
+            await session.commit()
     except Exception as e:
         logger.error(f"Failed to save closed draft: {e}")
         raise HTTPException(500, "Database save failed")
         
     # 3. Trigger Bot (New Meal)
+    carbs = treatment.carbs
+    fat = treatment.fat
+    protein = treatment.protein
+    fiber = treatment.fiber
+    notes = treatment.notes
+    treatment_id = treatment.id
     try:
-        from app.bot.service import on_new_meal_received
-        await on_new_meal_received(
-            treatment.carbs, treatment.fat, treatment.protein, treatment.fiber,
-            treatment.notes, origin_id=treatment.id
-        )
+        if created:
+            from app.bot.service import on_new_meal_received
+            await on_new_meal_received(
+                carbs, fat, protein, fiber,
+                notes, origin_id=treatment_id
+            )
     except Exception as e:
         logger.warning(f"Bot trigger failed: {e}")
         
-    return {"success": True, "treatment_id": treatment.id}
+    return {"success": True, "treatment_id": treatment_id}
 
 @router.post("/nutrition/draft/discard", summary="Discard draft")
 async def discard_nutrition_draft(

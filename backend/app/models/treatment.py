@@ -23,6 +23,8 @@ class Treatment(Base):
     
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     entered_by: Mapped[str] = mapped_column(String, nullable=True)
+
+    draft_id: Mapped[Optional[str]] = mapped_column(String, nullable=True, index=True)
     
     # Sync Status
     is_uploaded: Mapped[bool] = mapped_column(Boolean, default=False)
