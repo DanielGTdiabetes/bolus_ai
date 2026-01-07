@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 from typing import List, Optional, Tuple, Dict, Any
 from sqlalchemy.future import select
 
+from app.models.autosens import AutosensRun
 from app.models.treatment import Treatment
 from app.models.settings import UserSettings
 from app.services.math.curves import InsulinCurves, CarbCurves
@@ -17,9 +18,23 @@ from app.core.db import get_db_session
 logger = logging.getLogger(__name__)
 
 class AutosensResult:
-    def __init__(self, ratio: float, reason: str):
+    def __init__(
+        self,
+        ratio: float,
+        reason: str,
+        reason_flags: Optional[list[str]] = None,
+        window_hours: int = 24,
+        input_summary: Optional[dict[str, Any]] = None,
+        clamp_applied: bool = False,
+        enabled_state: bool = False,
+    ):
         self.ratio = ratio
         self.reason = reason
+        self.reason_flags = reason_flags or []
+        self.window_hours = window_hours
+        self.input_summary = input_summary or {}
+        self.clamp_applied = clamp_applied
+        self.enabled_state = enabled_state
 
 class AutosensService:
     """
@@ -32,12 +47,14 @@ class AutosensService:
         username: str, 
         session, 
         settings: UserSettings, 
-        bg_target: float = 110.0
+        bg_target: float = 110.0,
+        record_run: bool = False,
     ) -> AutosensResult:
         
         # --- 1. Fetch History Data (24h) ---
         now_utc = datetime.now(timezone.utc)
-        start_calcs = now_utc - timedelta(hours=24)
+        window_hours = 24
+        start_calcs = now_utc - timedelta(hours=window_hours)
         
         # Buffer for insulin/carb activity (look back further for active IOB/COB at start of window)
         # DIA is typically 4-6h. Let's look back 24h + 8h buffer.
@@ -66,10 +83,30 @@ class AutosensService:
                 bg_data.sort(key=lambda x: x['time'])
             except Exception as e:
                 logger.error(f"Autosens BG fetch failed: {e}")
-                return AutosensResult(1.0, "Error fetching BG data")
-        
-        if len(bg_data) < 12: # Require at least 1h of data
-            return AutosensResult(1.0, "Insufficient BG data")
+                input_summary = AutosensService._build_input_summary(bg_data, [])
+                result = AutosensResult(
+                    1.0,
+                    "Error fetching BG data",
+                    reason_flags=["insufficient_data"],
+                    window_hours=window_hours,
+                    input_summary=input_summary,
+                    enabled_state=settings.autosens.enabled,
+                )
+                await AutosensService._record_run_if_needed(record_run, session, username, result)
+                return result
+
+        if len(bg_data) < settings.autosens.min_cgm_points:
+            input_summary = AutosensService._build_input_summary(bg_data, [])
+            result = AutosensResult(
+                1.0,
+                "Datos insuficientes",
+                reason_flags=["insufficient_data"],
+                window_hours=window_hours,
+                input_summary=input_summary,
+                enabled_state=settings.autosens.enabled,
+            )
+            await AutosensService._record_run_if_needed(record_run, session, username, result)
+            return result
 
         # B. Fetch Treatments (DB + NS)
         # See ForecastEngine for robust fetching, here we simplify for brevity but keep core logic
@@ -105,6 +142,20 @@ class AutosensService:
         # Simplify treatment list
         # Sort
         temp_treatments.sort(key=lambda x: x['time'])
+
+        input_summary = AutosensService._build_input_summary(bg_data, temp_treatments)
+        guardrail_flags = AutosensService._guardrail_flags(bg_data, now_utc, settings)
+        if guardrail_flags:
+            result = AutosensResult(
+                1.0,
+                "Guardrails activos",
+                reason_flags=guardrail_flags,
+                window_hours=window_hours,
+                input_summary=input_summary,
+                enabled_state=settings.autosens.enabled,
+            )
+            await AutosensService._record_run_if_needed(record_run, session, username, result)
+            return result
         
         # --- 2. Calculate Deviations ---
         # We analyze 5-minute intervals.
@@ -246,8 +297,9 @@ class AutosensService:
         
         # --- 4. Aggregate & Calculate Ratio ---
         
-        def calculate_ratio_from_deviations(devs: List[float]) -> float:
-            if len(devs) < 10: return 1.0 # Not enough data
+        def calculate_ratio_from_deviations(devs: List[float]) -> Tuple[float, bool]:
+            if len(devs) < settings.autosens.min_deviation_points:
+                return 1.0, False
             
             # Median often safer than mean for outliers
             med = statistics.median(devs)
@@ -266,13 +318,30 @@ class AutosensService:
             k = 0.05 
             
             ratio = 1.0 + (k * med)
+
+            # Clamp (Autosens safety limits)
+            min_ratio = settings.autosens.min_ratio
+            max_ratio = settings.autosens.max_ratio
+            clamped_ratio = max(min_ratio, min(max_ratio, ratio))
+            return clamped_ratio, clamped_ratio != ratio
             
-            # Clamp (Tighter limits for Local/Hybrid Autosens)
-            # Was 0.7 - 1.2. Now 0.9 - 1.1 per hybrid design.
-            return max(0.9, min(1.1, ratio))
-            
-        ratio_8h = calculate_ratio_from_deviations(deviations_8h)
-        ratio_24h = calculate_ratio_from_deviations(deviations_24h)
+        if (
+            len(deviations_8h) < settings.autosens.min_deviation_points
+            and len(deviations_24h) < settings.autosens.min_deviation_points
+        ):
+            result = AutosensResult(
+                1.0,
+                "Datos insuficientes",
+                reason_flags=["insufficient_data"],
+                window_hours=window_hours,
+                input_summary=input_summary,
+                enabled_state=settings.autosens.enabled,
+            )
+            await AutosensService._record_run_if_needed(record_run, session, username, result)
+            return result
+
+        ratio_8h, clamped_8h = calculate_ratio_from_deviations(deviations_8h)
+        ratio_24h, clamped_24h = calculate_ratio_from_deviations(deviations_24h)
         
         # --- 5. Combine ---
         # Logic: If both same direction, use closest to 1.
@@ -292,6 +361,11 @@ class AutosensService:
         # Mixed
         else:
              final_ratio = 1.0 # Disagreement -> Cancel out
+        min_ratio = settings.autosens.min_ratio
+        max_ratio = settings.autosens.max_ratio
+        clamped_final = max(min_ratio, min(max_ratio, final_ratio))
+        clamp_applied = clamped_final != final_ratio or clamped_8h or clamped_24h
+        final_ratio = clamped_final
              
         # Reason string
         reason = f"Normal (Ratio {final_ratio:.2f})"
@@ -302,5 +376,70 @@ class AutosensService:
             pct = int((1 - final_ratio) * 100)
             reason = f"Sensibilidad detectada (-{pct}% conservative)"
             
-        return AutosensResult(final_ratio, reason)
+        result = AutosensResult(
+            final_ratio,
+            reason,
+            reason_flags=[],
+            window_hours=window_hours,
+            input_summary=input_summary,
+            clamp_applied=clamp_applied,
+            enabled_state=settings.autosens.enabled,
+        )
+        await AutosensService._record_run_if_needed(record_run, session, username, result)
+        return result
 
+    @staticmethod
+    def _build_input_summary(bg_data: List[Dict[str, Any]], treatments: List[Dict[str, Any]]) -> dict[str, Any]:
+        values = [entry["sgv"] for entry in bg_data if entry.get("sgv") is not None]
+        if values:
+            bg_min = min(values)
+            bg_max = max(values)
+            bg_avg = sum(values) / len(values)
+        else:
+            bg_min = None
+            bg_max = None
+            bg_avg = None
+        return {
+            "num_cgm_points": len(bg_data),
+            "num_treatments": len(treatments),
+            "bg_min": bg_min,
+            "bg_max": bg_max,
+            "bg_avg": bg_avg,
+        }
+
+    @staticmethod
+    def _guardrail_flags(bg_data: List[Dict[str, Any]], now_utc: datetime, settings: UserSettings) -> list[str]:
+        flags: list[str] = []
+        if len(bg_data) < settings.autosens.min_cgm_points:
+            flags.append("insufficient_data")
+            return flags
+        recent_window = timedelta(hours=settings.autosens.recent_hypo_hours)
+        cutoff = now_utc - recent_window
+        if any(entry["sgv"] < 70 and entry["time"] >= cutoff for entry in bg_data):
+            flags.append("recent_hypos")
+        return flags
+
+    @staticmethod
+    async def _record_run_if_needed(
+        record_run: bool,
+        session,
+        username: str,
+        result: AutosensResult,
+    ) -> None:
+        if not record_run or not session or not result.enabled_state:
+            return
+        try:
+            run = AutosensRun(
+                user_id=username,
+                created_at_utc=datetime.now(timezone.utc),
+                ratio=result.ratio,
+                window_hours=result.window_hours,
+                input_summary_json=result.input_summary,
+                clamp_applied=result.clamp_applied,
+                reason_flags=result.reason_flags,
+                enabled_state=result.enabled_state,
+            )
+            session.add(run)
+            await session.commit()
+        except Exception as e:
+            logger.error(f"Autosens run logging failed: {e}")
