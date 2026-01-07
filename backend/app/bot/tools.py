@@ -1140,86 +1140,91 @@ async def add_treatment(tool_input: dict[str, Any]) -> AddTreatmentResult | Tool
         try:
             from app.services.learning_service import LearningService
             async with SessionLocal() as session:
-                 ls = LearningService(session)
-                 
-                 strategy = {
-                     "kind": "normal",
-                     "total": insulin,
-                     "upfront": insulin,
-                     "later": 0,
-                     "delay": 0
-                 }
-                 # Basic user resolution
-                 l_user = user_id or "admin"
+                ls = LearningService(session)
 
-                 # Empty context for now
-                 await ls.save_meal_entry(
-                     user_id=l_user,
-                     items=[], # Auto-generate
-                     carbs=carbs,
-                     fat=float(payload.fat or 0),
-                     protein=float(payload.protein or 0),
-                     bolus_data=strategy,
-                     context={},
-                     notes=notes,
-                     fiber=float(payload.fiber or 0)
-                 )
+                strategy = {
+                    "kind": "normal",
+                    "total": insulin,
+                    "upfront": insulin,
+                    "later": 0,
+                    "delay": 0,
+                }
+                # Basic user resolution
+                l_user = user_id or "admin"
+
+                # Empty context for now
+                await ls.save_meal_entry(
+                    user_id=l_user,
+                    items=[],  # Auto-generate
+                    carbs=carbs,
+                    fat=float(payload.fat or 0),
+                    protein=float(payload.protein or 0),
+                    bolus_data=strategy,
+                    context={},
+                    notes=notes,
+                    fiber=float(payload.fiber or 0),
+                )
         except Exception as mem_e:
             logger.warning(f"Memory save failed: {mem_e}")
 
         try:
-             # Need user_id used in logging. 
-             # We resolve it inside the logic above but don't strictly have it here unless we kept it?
-             # 'result' from log_treatment doesn't have user_id, but we did await _resolve_user_id()
-             # Wait, in the code above user_id is in local scope of `if engine:`.
-             # We need to resolve it reliably here.
-             u_id = user_id or "admin" # Default
-             
-            # We need the username. logic:
-            # If we are in `add_treatment`, we are likely 'admin' if single user. 
-            # Let's peek at how we resolved it: `user_id = await _resolve_user_id(session=session)`
-             # If we don't have the session anymore...
-             # Let's assume 'admin' for MVP or try to resolve.
-             # The correct way is to fetch user_id before logging and reuse it.
-             
-             # FIX: I will modify add_treatment logic slightly above to capture user_id
-             # But i can't see the lines above easily in this 'Replace' block.
-             # I will just use 'admin' as fallback, or re-run _resolve_user_id logic.
-             
-             target_user = user_id or "admin"
-             if not target_user:
-                 try:
-                     async with SessionLocal() as s:
-                         target_user = await _resolve_user_id(s)
-                 except: 
-                     target_user = "admin"
-             
-             # Rotate Injection Site (if confirmed via Telegram and not just "logged")
-             # Usually adding treatment via bot means "I just did it" -> rotate
-             rotation_site = None
-             try:
-                 from app.services.async_injection_manager import AsyncInjectionManager
-                 mgr = AsyncInjectionManager("admin") # Simplify user resolution
-                 
-                 check_str = (notes or "") + (payload.event_type or "")
-                 # Detect basal/bolus. "basal" in notes or "Basal" in event type?
-                 # event_type usually "Meal Bolus" or "Correction Bolus".
-                 plan = "basal" if "basal" in check_str.lower() else "bolus"
-                 
-                 manual_site_id = tool_input.get("injection_site_id")
-                 if manual_site_id:
-                         # Manual override logic
-                         await mgr.set_current_site(plan, manual_site_id)
-                         # Fetch details
-                         rotation_site = mgr._get_site_from_id(plan, manual_site_id) if ":" in manual_site_id else mgr._get_site_from_id(plan, manual_site_id + ":1")
-                     else:
-                         # Automatic Rotation
-                         rotation_site = await mgr.rotate_site(plan)
+            # Need user_id used in logging.
+            # We resolve it inside the logic above but don't strictly have it here unless we kept it?
+            # 'result' from log_treatment doesn't have user_id, but we did await _resolve_user_id()
+            # Wait, in the code above user_id is in local scope of `if engine:`.
+            # We need to resolve it reliably here.
+            u_id = user_id or "admin"  # Default
 
-             except Exception as e:
-                 logger.warning(f"DB Rotation failed: {e}")
-        except Exception as e: 
-             logger.warning(f"Post-treatment logic failed: {e}")
+            # We need the username. logic:
+            # If we are in `add_treatment`, we are likely 'admin' if single user.
+            # Let's peek at how we resolved it: `user_id = await _resolve_user_id(session=session)`
+            # If we don't have the session anymore...
+            # Let's assume 'admin' for MVP or try to resolve.
+            # The correct way is to fetch user_id before logging and reuse it.
+
+            # FIX: I will modify add_treatment logic slightly above to capture user_id
+            # But i can't see the lines above easily in this 'Replace' block.
+            # I will just use 'admin' as fallback, or re-run _resolve_user_id logic.
+
+            target_user = user_id or "admin"
+            if not target_user:
+                try:
+                    async with SessionLocal() as s:
+                        target_user = await _resolve_user_id(s)
+                except Exception:
+                    target_user = "admin"
+
+            # Rotate Injection Site (if confirmed via Telegram and not just "logged")
+            # Usually adding treatment via bot means "I just did it" -> rotate
+            rotation_site = None
+            try:
+                from app.services.async_injection_manager import AsyncInjectionManager
+
+                mgr = AsyncInjectionManager("admin")  # Simplify user resolution
+
+                check_str = (notes or "") + (payload.event_type or "")
+                # Detect basal/bolus. "basal" in notes or "Basal" in event type?
+                # event_type usually "Meal Bolus" or "Correction Bolus".
+                plan = "basal" if "basal" in check_str.lower() else "bolus"
+
+                manual_site_id = tool_input.get("injection_site_id")
+                if manual_site_id:
+                    # Manual override logic
+                    await mgr.set_current_site(plan, manual_site_id)
+                    # Fetch details
+                    rotation_site = (
+                        mgr._get_site_from_id(plan, manual_site_id)
+                        if ":" in manual_site_id
+                        else mgr._get_site_from_id(plan, manual_site_id + ":1")
+                    )
+                else:
+                    # Automatic Rotation
+                    rotation_site = await mgr.rotate_site(plan)
+
+            except Exception as e:
+                logger.warning(f"DB Rotation failed: {e}")
+        except Exception as e:
+            logger.warning(f"Post-treatment logic failed: {e}")
 
         injection_site_dict = None
         if rotation_site:
