@@ -516,53 +516,67 @@ async def calculate_bolus(carbs: float, fat: float = 0.0, protein: float = 0.0, 
     autosens_reason = None
     try:
         async with SessionLocal() as session:
-             # Removed internal import of _resolve_user_id that caused mismatch
-             # u_id = await _resolve_user_id(session)
-             u_id = user_id # Use the consistently resolved ID
-             
-             # 1. Macro (TDD)
-             from app.services.dynamic_isf_service import DynamicISFService
-             tdd_ratio = await DynamicISFService.calculate_dynamic_ratio(u_id, session, user_settings)
-             
-             # 2. Micro (Local)
-             local_ratio = 1.0
-             try:
-                  res = await AutosensService.calculate_autosens(u_id, session, user_settings)
-                  local_ratio = res.ratio
-             except: pass
-             
-             # SMART FALLBACK: If we got neutral results (1.0) and we are not admin,
-             # it's possible this is a 'shadow' user (Telegram alias) without data.
-             # Try checking the default/admin user for data.
-                  if tdd_ratio == 1.0 and local_ratio == 1.0 and u_id != "admin":
-                       from app.core import config
-                       fallback_uid = config.get_bot_default_username()
-                       if fallback_uid and fallback_uid != u_id:
-                            logger.info(f"Autosens neutral for '{u_id}', attempting fallback to '{fallback_uid}' data...")
-                            tdd_ratio_fb = await DynamicISFService.calculate_dynamic_ratio(fallback_uid, session, user_settings)
-                            
-                            local_ratio_fb = 1.0
-                            try:
-                                 res_fb = await AutosensService.calculate_autosens(fallback_uid, session, user_settings)
-                                 local_ratio_fb = res_fb.ratio
-                            except: pass
-                            
-                            if tdd_ratio_fb != 1.0 or local_ratio_fb != 1.0:
-                                 logger.info(f"Fallback successful: Using '{fallback_uid}' autosens data.")
-                                 tdd_ratio = tdd_ratio_fb
-                                 local_ratio = local_ratio_fb
+            # Removed internal import of _resolve_user_id that caused mismatch
+            # u_id = await _resolve_user_id(session)
+            u_id = user_id  # Use the consistently resolved ID
 
-                  # 3. Combine
-                  autosens_ratio = tdd_ratio * local_ratio
-                  autosens_ratio = max(
-                       user_settings.autosens.min_ratio,
-                       min(user_settings.autosens.max_ratio, autosens_ratio),
-                  )
-                  
-                  if autosens_ratio != 1.0:
-                       autosens_reason = f"Híbrido (TDD {tdd_ratio:.2f}x · Local {local_ratio:.2f}x)"
-                  else:
-                       autosens_reason = "Estable"
+            # 1. Macro (TDD)
+            from app.services.dynamic_isf_service import DynamicISFService
+            tdd_ratio = await DynamicISFService.calculate_dynamic_ratio(u_id, session, user_settings)
+
+            # 2. Micro (Local)
+            local_ratio = 1.0
+            try:
+                res = await AutosensService.calculate_autosens(u_id, session, user_settings)
+                local_ratio = res.ratio
+            except:
+                pass
+
+            # SMART FALLBACK: If we got neutral results (1.0) and we are not admin,
+            # it's possible this is a 'shadow' user (Telegram alias) without data.
+            # Try checking the default/admin user for data.
+            if tdd_ratio == 1.0 and local_ratio == 1.0 and u_id != "admin":
+                from app.core import config
+                fallback_uid = config.get_bot_default_username()
+                if fallback_uid and fallback_uid != u_id:
+                    logger.info(
+                        f"Autosens neutral for '{u_id}', attempting fallback to '{fallback_uid}' data..."
+                    )
+                    tdd_ratio_fb = await DynamicISFService.calculate_dynamic_ratio(
+                        fallback_uid,
+                        session,
+                        user_settings,
+                    )
+
+                    local_ratio_fb = 1.0
+                    try:
+                        res_fb = await AutosensService.calculate_autosens(
+                            fallback_uid,
+                            session,
+                            user_settings,
+                        )
+                        local_ratio_fb = res_fb.ratio
+                    except:
+                        pass
+
+                    if tdd_ratio_fb != 1.0 or local_ratio_fb != 1.0:
+                        logger.info(
+                            f"Fallback successful: Using '{fallback_uid}' autosens data."
+                        )
+                        tdd_ratio = tdd_ratio_fb
+                        local_ratio = local_ratio_fb
+
+            # 3. Combine
+            autosens_ratio = tdd_ratio * local_ratio
+            autosens_ratio = max(
+                user_settings.autosens.min_ratio,
+                min(user_settings.autosens.max_ratio, autosens_ratio),
+            )
+
+            if autosens_ratio != 1.0:
+                autosens_reason = f"Híbrido (TDD {tdd_ratio:.2f}x · Local {local_ratio:.2f}x)"
+            else:
+                autosens_reason = "Estable"
     except Exception as e:
         logger.warning(f"Bot Hybrid Autosens failed: {e}")
     
