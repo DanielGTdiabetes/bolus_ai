@@ -929,7 +929,7 @@ export async function toggleSickMode(enabled: boolean) {
   return data;
 }
 
-export async function getShadowLogs(limit = 20) {
+export async function getLearningLogs(limit = 20) {
   const response = await apiFetch(`/api/analysis/shadow/logs?limit=${limit}`);
   const data = await toJson(response);
   if (!response.ok) throw new Error(data.detail || "Error al obtener logs");

@@ -542,7 +542,7 @@ export default function BolusPage() {
                 injection_site: siteId || null
             };
 
-            // Add Meal Meta for Learning (CRITICAL for Labs/Shadow Mode)
+            // Add Meal Meta for Learning (critical for outcomes & history)
             // We use the Ref if it exists (high fidelity from Vision/Scale), otherwise we construct from UI state.
             const metaItems = (mealMetaRef.current?.items?.length > 0)
                 ? mealMetaRef.current.items

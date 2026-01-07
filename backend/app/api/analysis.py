@@ -130,7 +130,7 @@ async def get_summary_endpoint(
     return await get_summary_service(user_id=user_id, days=days, db=db, settings=settings)
 
 
-@router.get("/shadow/logs", summary="Get Shadow Mode logs")
+@router.get("/shadow/logs", summary="Get learning history logs")
 async def get_shadow_logs(
     limit: int = 50,
     current_user: Any = Depends(get_current_user),

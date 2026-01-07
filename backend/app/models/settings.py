@@ -213,10 +213,6 @@ class BotConfig(BaseModel):
     proactive: ProactiveConfig = Field(default_factory=ProactiveConfig)
 
 
-class LabsConfig(BaseModel):
-    shadow_mode_enabled: bool = False
-
-
 class InsulinSettings(BaseModel):
     name: str = Field(default="Novorapid", description="Name of the insulin used")
     sensor_delay_min: int = Field(default=15, description="Delay in minutes for glucose sensor readings")
@@ -250,7 +246,6 @@ class UserSettings(BaseModel):
     calculator: CalculatorConfig = Field(default_factory=CalculatorConfig)
     warsaw: WarsawConfig = Field(default_factory=WarsawConfig)
     vision: VisionConfig = Field(default_factory=VisionConfig)
-    labs: LabsConfig = Field(default_factory=LabsConfig)
     absorption: MealDuration = Field(default_factory=MealDuration)
     autosens: AutosensConfig = Field(default_factory=AutosensConfig)
     bot: BotConfig = Field(default_factory=BotConfig)

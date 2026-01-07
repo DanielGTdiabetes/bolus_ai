@@ -187,9 +187,6 @@
     "openai_key": null,
     "openai_model": "gpt-4o"
   },
-  "labs": {
-    "shadow_mode_enabled": false
-  },
   "absorption": {
     "breakfast": 180,
     "lunch": 180,
