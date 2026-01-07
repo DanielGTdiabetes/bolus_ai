@@ -14,7 +14,7 @@ from app.models.forecast import (
     NightPatternMeta,
 )
 from app.services.forecast_engine import ForecastEngine
-from app.core.security import get_current_user, CurrentUser
+from app.core.security import get_current_user_optional, CurrentUser
 from app.core.db import get_db_session
 from app.core.settings import Settings, get_settings
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -46,7 +46,7 @@ def _data_store(settings: Settings = Depends(get_settings)) -> DataStore:
 
 @router.get("/current", response_model=ForecastResponse, summary="Get ambient forecast based on current status")
 async def get_current_forecast(
-    user: CurrentUser = Depends(get_current_user),
+    user: Optional[CurrentUser] = Depends(get_current_user_optional),
     session: AsyncSession = Depends(get_db_session),
     store: DataStore = Depends(_data_store),
     settings: Settings = Depends(get_settings),
@@ -106,10 +106,12 @@ async def get_current_forecast(
         re.IGNORECASE,
     )
 
+    username = user.username if user else "admin"
+
     # 1. Load Settings
     user_settings = None
     try:
-        data = await get_user_settings_service(user.username, session)
+        data = await get_user_settings_service(username, session)
         if data and data.get("settings"):
             user_settings = UserSettings.migrate(data["settings"])
     except Exception:
@@ -119,7 +121,7 @@ async def get_current_forecast(
         raise HTTPException(status_code=400, detail="Settings not found")
 
     # 2. Fetch Current BG & History (NS)
-    ns_config = await get_ns_config(session, user.username)
+    ns_config = await get_ns_config(session, username)
     # Default fallback or explicit override
     start_bg = start_bg_param
 
@@ -213,7 +215,7 @@ async def get_current_forecast(
     # 3.0 Fetch DB Treatments
     stmt = (
         select(Treatment)
-        .where(Treatment.user_id == user.username)
+        .where(Treatment.user_id == username)
         .where(Treatment.created_at >= cutoff.replace(tzinfo=None)) # DB assumes naive usually
         .order_by(Treatment.created_at.desc())
     )
@@ -480,7 +482,7 @@ async def get_current_forecast(
         basal_cutoff = datetime.now(timezone.utc) - timedelta(hours=48)
         stmt_basal = (
             select(BasalEntry)
-            .where(BasalEntry.user_id == user.username)
+            .where(BasalEntry.user_id == username)
             .where(BasalEntry.created_at >= basal_cutoff.replace(tzinfo=None))
             .order_by(BasalEntry.created_at.desc())
         )
@@ -543,7 +545,7 @@ async def get_current_forecast(
                  treatments_lookback_minutes=user_settings.nightscout.treatments_lookback_minutes,
              )
              res = await AutosensService.calculate_autosens(
-                 user.username,
+                 username,
                  session,
                  user_settings,
                  compression_config=compression_config
@@ -642,7 +644,7 @@ async def get_current_forecast(
     try:
         sick_stmt = (
             select(Treatment)
-            .where(Treatment.user_id == user.username)
+            .where(Treatment.user_id == username)
             .where(Treatment.event_type == 'Note')
             .where(Treatment.notes.like('Sick Mode%'))
             .order_by(Treatment.created_at.desc())
@@ -671,7 +673,7 @@ async def get_current_forecast(
         b_cutoff = datetime.now(timezone.utc) - timedelta(days=7)
         stmt_avg = (
             select(BasalEntry.dose_u)
-            .where(BasalEntry.user_id == user.username)
+            .where(BasalEntry.user_id == username)
             .where(BasalEntry.created_at >= b_cutoff.replace(tzinfo=None))
         )
         res_avg = await session.execute(stmt_avg)
@@ -683,7 +685,7 @@ async def get_current_forecast(
             # Divide by (Now - First_Entry) days.
             first_entry_stmt = (
                  select(BasalEntry.created_at)
-                 .where(BasalEntry.user_id == user.username)
+                 .where(BasalEntry.user_id == username)
                  .order_by(BasalEntry.created_at.asc())
                  .limit(1)
             )
@@ -752,7 +754,7 @@ async def get_current_forecast(
         now_utc = datetime.now(timezone.utc)
         now_local = now_utc.astimezone(LOCAL_TZ)
         try:
-            draft = await NutritionDraftService.get_draft(user.username, session)
+            draft = await NutritionDraftService.get_draft(username, session)
         except Exception:
             draft = None
 
@@ -851,7 +853,7 @@ async def get_current_forecast(
         if cgm_entries:
             pattern = await get_or_compute_pattern(
                 session=session,
-                user_id=user.username,
+                user_id=username,
                 cfg=settings.night_pattern,
                 source=cgm_source or "unknown",
                 cgm_entries=cgm_entries,
@@ -879,7 +881,7 @@ async def get_current_forecast(
         logger.info(
             "Night pattern evaluation",
             extra={
-                "user_id": user.username,
+                "user_id": username,
                 "pattern_enabled": settings.night_pattern.enabled,
                 "pattern_applied": pattern_meta.applied,
                 "pattern_reason": pattern_meta.reason_not_applied,
