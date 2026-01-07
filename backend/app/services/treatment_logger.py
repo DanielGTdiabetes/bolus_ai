@@ -156,7 +156,7 @@ async def log_treatment(
                 "notes": notes,
                 "enteredBy": entered_by,
             }
-            await client.upload_treatments([ns_payload])
+            ns_response = await client.upload_treatments([ns_payload])
             await client.aclose()
             ns_uploaded = True
         except Exception as exc:
@@ -165,7 +165,21 @@ async def log_treatment(
 
         if ns_uploaded and active_session and db_treatment:
             try:
+                nightscout_id = None
+                if isinstance(ns_response, list):
+                    for item in ns_response:
+                        if isinstance(item, dict):
+                            nightscout_id = item.get("_id") or item.get("id")
+                        elif hasattr(item, "id"):
+                            nightscout_id = item.id
+                        if nightscout_id:
+                            break
+                elif isinstance(ns_response, dict):
+                    nightscout_id = ns_response.get("_id") or ns_response.get("id")
+
                 db_treatment.is_uploaded = True
+                if nightscout_id:
+                    db_treatment.nightscout_id = str(nightscout_id)
                 await active_session.commit()
             except Exception as exc:
                 logger.error("Failed to flag DB treatment as uploaded: %s", exc)

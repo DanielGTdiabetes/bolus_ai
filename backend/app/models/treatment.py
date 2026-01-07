@@ -1,11 +1,14 @@
 from datetime import datetime
 from typing import Optional
-from sqlalchemy import String, Float, DateTime, Text, Boolean
+from sqlalchemy import String, Float, DateTime, Text, Boolean, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 from app.core.db import Base
 
 class Treatment(Base):
     __tablename__ = "treatments"
+    __table_args__ = (
+        UniqueConstraint("draft_id", name="uq_treatments_draft_id"),
+    )
 
     id: Mapped[str] = mapped_column(String, primary_key=True, comment="UUID or Unique ID")
     user_id: Mapped[str] = mapped_column(String, nullable=True, index=True)
