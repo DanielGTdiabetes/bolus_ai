@@ -13,6 +13,7 @@ from app.services.nightscout_client import NightscoutClient, NightscoutError
 from app.services.store import DataStore
 from app.core.db import get_db_session
 from app.services.nightscout_secrets_service import get_ns_config, upsert_ns_config
+from app.services.smart_filter import CompressionDetector, FilterConfig
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.security import CurrentUser
 
@@ -93,6 +94,7 @@ async def get_status(
 async def get_current_glucose_stateless(
     config: StatelessConfig,
     _: dict = Depends(get_current_user),
+    settings: Settings = Depends(get_settings),
 ):
     import logging
     logger = logging.getLogger(__name__)
@@ -108,9 +110,51 @@ async def get_current_glucose_stateless(
     try:
         client = NightscoutClient(base_url=config.url, token=config.token, timeout_seconds=10)
         try:
-            # We don't check "status" first, just get SGV to be fast
-            sgv: NightscoutSGV = await client.get_latest_sgv()
-            
+            # Filter Config
+            from app.services.smart_filter import CompressionDetector, FilterConfig
+            f_config = FilterConfig(
+                enabled=settings.nightscout.filter_compression,
+                night_start_hour=settings.nightscout.filter_night_start,
+                night_end_hour=settings.nightscout.filter_night_end,
+                drop_threshold_mgdl=settings.nightscout.filter_drop_mgdl,
+                rebound_threshold_mgdl=settings.nightscout.filter_rebound_mgdl,
+                rebound_window_minutes=settings.nightscout.filter_window_min
+            )
+
+            # Fetch last 12 entries (~1 hour) for compression detection
+            end_dt = datetime.now(timezone.utc)
+            start_dt = end_dt - timedelta(minutes=60)
+            entries = await client.get_sgv_range(start_dt, end_dt, count=12)
+
+            if not entries:
+                try:
+                    latest_single = await client.get_latest_sgv()
+                    entries = [latest_single]
+                except Exception:
+                    pass
+
+            if not entries:
+                raise HTTPException(status_code=404, detail="No BG data found")
+
+            entries.sort(key=lambda x: x.date)
+            latest_entry = entries[-1]
+
+            is_comp = False
+            comp_reason = None
+
+            if f_config.enabled and len(entries) > 1:
+                treatments = await client.get_recent_treatments(hours=2, limit=10)
+                detector = CompressionDetector(config=f_config)
+                e_dicts = [e.model_dump() for e in entries]
+                t_dicts = [t.model_dump() for t in treatments]
+                processed = detector.detect(e_dicts, t_dicts)
+                if processed:
+                    last_proc = processed[-1]
+                    if last_proc.get("date") == latest_entry.date:
+                        is_comp = last_proc.get("is_compression", False)
+                        comp_reason = last_proc.get("compression_reason")
+
+            sgv = latest_entry
             now_ms = datetime.now(timezone.utc).timestamp() * 1000
             diff_ms = now_ms - sgv.date
             diff_min = diff_ms / 60000.0
@@ -132,7 +176,9 @@ async def get_current_glucose_stateless(
                 age_minutes=diff_min,
                 date=int(sgv.date),
                 stale=diff_min > 10,
-                source="nightscout"
+                source="nightscout",
+                is_compression=is_comp,
+                compression_reason=comp_reason
             )
 
         except NightscoutError as nse:
@@ -165,8 +211,6 @@ async def get_current_glucose_server(
     import logging
     logger = logging.getLogger(__name__)
     
-    # Filter Config
-    from app.services.smart_filter import CompressionDetector, FilterConfig
     f_config = FilterConfig(
         enabled=settings.nightscout.filter_compression,
         night_start_hour=settings.nightscout.filter_night_start,
@@ -593,8 +637,6 @@ async def get_entries(
     ns = await get_ns_config(session, user.username)
     if not ns or not ns.enabled or not ns.url:
          raise HTTPException(status_code=400, detail="Nightscout is not configured")
-    
-    from app.services.smart_filter import CompressionDetector, FilterConfig
     
     # 1. Fetch raw entries
     entries = []

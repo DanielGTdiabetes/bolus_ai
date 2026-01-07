@@ -8,7 +8,9 @@ from app.api.analysis import _data_store
 from app.services.store import DataStore
 from app.services.nightscout_client import NightscoutClient
 from app.services.nightscout_secrets_service import get_ns_config
+from app.core.settings import Settings, get_settings
 from app.services.isf_analysis_service import IsfAnalysisService
+from app.services.smart_filter import FilterConfig
 from app.models.isf import IsfAnalysisResponse
 from app.models.settings import UserSettings
 
@@ -19,7 +21,8 @@ async def analyze_isf(
     days: int = Query(14, ge=7, le=90),
     current_user: Any = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
-    store: DataStore = Depends(_data_store) # Legacy settings store for profiles
+    store: DataStore = Depends(_data_store), # Legacy settings store for profiles
+    settings: Settings = Depends(get_settings),
 ):
     user_id = current_user.username
     
@@ -78,7 +81,15 @@ async def analyze_isf(
         await client.aclose()
         raise HTTPException(status_code=500, detail=f"Error loading user settings: {e}")
     
-    service = IsfAnalysisService(client, current_cf, profile_settings)
+    compression_config = FilterConfig(
+        enabled=settings.nightscout.filter_compression,
+        night_start_hour=settings.nightscout.filter_night_start,
+        night_end_hour=settings.nightscout.filter_night_end,
+        drop_threshold_mgdl=settings.nightscout.filter_drop_mgdl,
+        rebound_threshold_mgdl=settings.nightscout.filter_rebound_mgdl,
+        rebound_window_minutes=settings.nightscout.filter_window_min
+    )
+    service = IsfAnalysisService(client, current_cf, profile_settings, compression_config=compression_config)
     
     try:
         result = await service.run_analysis(user_id, days)

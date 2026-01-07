@@ -90,3 +90,39 @@ def test_no_compression_if_daytime_disabled():
     res = detector.detect(entries, [])
     assert not any(e.get('is_compression') for e in res)
 
+def test_compression_low_flagged_for_fast_drop_and_rebound():
+    cfg = FilterConfig(enabled=True, night_start_hour=0, night_end_hour=24)
+    detector = CompressionDetector(cfg)
+
+    entries = [
+        mk_entry(120, BASE_TIME),
+        mk_entry(118, BASE_TIME + 5 * 60000),
+        mk_entry(95, BASE_TIME + 10 * 60000),  # Drop 23
+        mk_entry(62, BASE_TIME + 15 * 60000),  # Low point
+        mk_entry(65, BASE_TIME + 20 * 60000),
+        mk_entry(90, BASE_TIME + 25 * 60000),  # Rebound 28
+        mk_entry(100, BASE_TIME + 30 * 60000),
+    ]
+
+    res = detector.detect(entries, [])
+    low_point = res[3]
+    assert low_point["sgv"] == 62
+    assert low_point.get("is_compression") is True
+
+def test_real_hypo_with_treatment_not_flagged():
+    cfg = FilterConfig(enabled=True, night_start_hour=0, night_end_hour=24)
+    detector = CompressionDetector(cfg)
+
+    entries = [
+        mk_entry(130, BASE_TIME),
+        mk_entry(110, BASE_TIME + 5 * 60000),
+        mk_entry(85, BASE_TIME + 10 * 60000),
+        mk_entry(65, BASE_TIME + 15 * 60000),  # Low after insulin
+        mk_entry(58, BASE_TIME + 20 * 60000),
+        mk_entry(55, BASE_TIME + 25 * 60000),
+        mk_entry(52, BASE_TIME + 30 * 60000),
+    ]
+
+    treatments = [mk_treat(BASE_TIME + 10 * 60000, insulin=1.0)]
+    res = detector.detect(entries, treatments)
+    assert not any(e.get("is_compression") for e in res)

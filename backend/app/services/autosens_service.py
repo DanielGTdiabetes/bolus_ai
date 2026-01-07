@@ -13,6 +13,7 @@ from app.services.math.curves import InsulinCurves, CarbCurves
 from app.services.math.basal import BasalModels
 from app.services.nightscout_client import NightscoutClient
 from app.services.nightscout_secrets_service import get_ns_config
+from app.services.smart_filter import CompressionDetector, FilterConfig
 from app.core.db import get_db_session
 
 logger = logging.getLogger(__name__)
@@ -49,6 +50,7 @@ class AutosensService:
         settings: UserSettings, 
         bg_target: float = 110.0,
         record_run: bool = False,
+        compression_config: Optional[FilterConfig] = None,
     ) -> AutosensResult:
         
         # --- 1. Fetch History Data (24h) ---
@@ -62,6 +64,7 @@ class AutosensService:
         
         # A. Fetch BG (Nightscout)
         bg_data: List[Dict[str, Any]] = []
+        sgv_entries: List[Any] = []
         ns_config = await get_ns_config(session, username)
         
         if ns_config and ns_config.enabled and ns_config.url:
@@ -69,6 +72,7 @@ class AutosensService:
                 client = NightscoutClient(ns_config.url, ns_config.api_secret)
                 # Fetch readings for calculation window (plus small buffer)
                 sgvs = await client.get_sgv_range(start_calcs - timedelta(minutes=15), now_utc, count=2000)
+                sgv_entries = sgvs
                 await client.aclose()
                 
                 # Normalize
@@ -77,7 +81,8 @@ class AutosensService:
                     dt = datetime.fromtimestamp(ts, timezone.utc)
                     bg_data.append({
                         'time': dt,
-                        'sgv': float(s.sgv)
+                        'sgv': float(s.sgv),
+                        'is_compression': False
                     })
                 
                 bg_data.sort(key=lambda x: x['time'])
@@ -142,6 +147,24 @@ class AutosensService:
         # Simplify treatment list
         # Sort
         temp_treatments.sort(key=lambda x: x['time'])
+
+        if compression_config and compression_config.enabled and len(sgv_entries) > 1:
+            detector = CompressionDetector(config=compression_config)
+            entries_dicts = [e.model_dump() for e in sgv_entries]
+            treatments_dicts = []
+            for tr in temp_treatments:
+                if tr.get("time"):
+                    treatments_dicts.append({
+                        "date": tr["time"].timestamp() * 1000,
+                        "insulin": tr.get("insulin") or 0,
+                        "carbs": tr.get("carbs") or 0,
+                        "created_at": tr["time"].isoformat(),
+                    })
+            processed = detector.detect(entries_dicts, treatments_dicts)
+            compression_dates = {e["date"] for e in processed if e.get("is_compression")}
+            if compression_dates:
+                for entry in bg_data:
+                    entry["is_compression"] = (entry["time"].timestamp() * 1000) in compression_dates
 
         input_summary = AutosensService._build_input_summary(bg_data, temp_treatments)
         guardrail_flags = AutosensService._guardrail_flags(bg_data, now_utc, settings)
@@ -274,6 +297,9 @@ class AutosensService:
             
             is_valid = True
             
+            if prev.get("is_compression") or curr.get("is_compression"):
+                is_valid = False
+
             if has_active_carbs:
                 is_valid = False
             
