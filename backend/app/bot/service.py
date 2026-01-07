@@ -1629,7 +1629,15 @@ async def on_draft_updated(username: str, draft: Any, action: str) -> None:
         return
 
     macros_txt = draft.total_macros()
-    msg_txt = f"📝 **Comida en curso**\n\nActualizado: {macros_txt}\nEstado: **{action.upper()}**\n\nSigo esperando más datos..."
+    # Map action to user friendly
+    action_map = {
+        "updated_add": "AÑADIDO",
+        "updated_replace": "CORREGIDO",
+        "created": "CREADO"
+    }
+    action_str = action_map.get(action, action.upper()).replace("_", " ")
+    
+    msg_txt = f"📝 **Comida en curso**\n\nActualizado: `{macros_txt}`\nEstado: **{action_str}**\n\nSigo esperando más datos..."
     
     # Inline Button to Close directly
     kb = [
@@ -1880,7 +1888,9 @@ async def on_new_meal_received(carbs: float, fat: float, protein: float, fiber: 
     rec_u = rec.total_u_final
     
     lines = []
-    lines.append(f"🍽️ **Nueva Comida Detectada** ({source})")
+    # Sanitize source for Markdown
+    safe_source = source.replace("_", "\\_") if source else "Unknown"
+    lines.append(f"🍽️ **Nueva Comida Detectada** ({safe_source})")
     lines.append("")
     lines.append(f"Resultado: **{rec_u} U**")
     lines.append("")
