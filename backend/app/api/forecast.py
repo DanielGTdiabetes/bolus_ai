@@ -49,6 +49,7 @@ async def get_current_forecast(
     user: CurrentUser = Depends(get_current_user),
     session: AsyncSession = Depends(get_db_session),
     store: DataStore = Depends(_data_store),
+    settings: Settings = Depends(get_settings),
     start_bg_param: Optional[float] = Query(None, alias="start_bg", description="Override start BG if known by client"),
     future_insulin_u: Optional[float] = Query(None, description="Future planned insulin units (e.g. dual bolus remainder)"),
     future_insulin_delay_min: Optional[int] = Query(0, description="Delay in minutes for future insulin")
