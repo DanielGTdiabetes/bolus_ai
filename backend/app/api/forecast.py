@@ -14,7 +14,7 @@ from app.models.forecast import (
     NightPatternMeta,
 )
 from app.services.forecast_engine import ForecastEngine
-from app.core.security import get_current_user_optional, CurrentUser
+from app.core.security import get_current_user, get_current_user_optional, CurrentUser
 from app.core.db import get_db_session
 from app.core.settings import Settings, get_settings
 from sqlalchemy.ext.asyncio import AsyncSession
