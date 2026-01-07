@@ -17,7 +17,12 @@ depends_on = None
 
 
 def upgrade() -> None:
-    try:
+    conn = op.get_bind()
+    from sqlalchemy import inspect
+    inspector = inspect(conn)
+    tables = inspector.get_table_names()
+    
+    if "nutrition_drafts" not in tables:
         op.create_table('nutrition_drafts',
         sa.Column('id', sa.String(), nullable=False),
         sa.Column('user_id', sa.String(), nullable=False),
@@ -32,15 +37,7 @@ def upgrade() -> None:
         sa.Column('last_hash', sa.String(), nullable=True),
         sa.PrimaryKeyConstraint('id')
         )
-    except Exception:
-        # Idempotency: Ignore if table exists
-        pass
-
-    try:
         op.create_index(op.f('ix_nutrition_drafts_user_id'), 'nutrition_drafts', ['user_id'], unique=False)
-    except Exception:
-        # Idempotency
-        pass
 
 
 def downgrade() -> None:

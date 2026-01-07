@@ -17,7 +17,12 @@ depends_on = None
 
 
 def upgrade() -> None:
-    try:
+    conn = op.get_bind()
+    from sqlalchemy import inspect
+    inspector = inspect(conn)
+    tables = inspector.get_table_names()
+    
+    if "night_pattern_profiles" not in tables:
         op.create_table(
             "night_pattern_profiles",
             sa.Column("user_id", sa.String(), nullable=False),
@@ -33,8 +38,6 @@ def upgrade() -> None:
             sa.Column("dispersion_iqr", sa.Float(), nullable=True),
             sa.PrimaryKeyConstraint("user_id"),
         )
-    except Exception:
-        pass
 
 
 def downgrade() -> None:
