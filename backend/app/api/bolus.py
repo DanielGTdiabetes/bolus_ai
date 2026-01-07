@@ -536,6 +536,27 @@ async def save_treatment(
         except Exception as e:
             logger.error(f"Failed to save meal learning entry: {e}")
 
+    # --- FIX: Ensure macros are populated from meal_meta if missing in top-level ---
+    # Some frontend flows (e.g. Favorites) might populate meal_meta but leave top-level fat/protein as 0.
+    if payload.meal_meta:
+        if payload.fat <= 0 and "fat" in payload.meal_meta:
+            try:
+                payload.fat = float(payload.meal_meta["fat"])
+                logger.debug(f"Populated missing fat from meal_meta: {payload.fat}")
+            except: pass
+            
+        if payload.protein <= 0 and "protein" in payload.meal_meta:
+            try:
+                payload.protein = float(payload.meal_meta["protein"])
+                logger.debug(f"Populated missing protein from meal_meta: {payload.protein}")
+            except: pass
+
+        if payload.fiber <= 0 and "fiber" in payload.meal_meta:
+            try:
+                payload.fiber = float(payload.meal_meta["fiber"])
+                logger.debug(f"Populated missing fiber from meal_meta: {payload.fiber}")
+            except: pass
+            
     # Resolve Nightscout config preference (payload overrides DB only when present)
     ns_url = payload.nightscout.get("url") if payload.nightscout else None
     ns_token = payload.nightscout.get("token") if payload.nightscout else None
