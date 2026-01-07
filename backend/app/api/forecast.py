@@ -219,54 +219,10 @@ async def get_current_forecast(
     result = await session.execute(stmt)
     db_rows = result.scalars().all()
 
-    # 3.1 Fetch NS Treatments (External Data)
+    # 3.1 OLD: Fetch NS Treatments (External Data) - REMOVED BY USER REQUEST
+    # We rely 100% on Local DB to avoid duplication and sync issues.
     ns_rows = []
-    if ns_config and ns_config.enabled and ns_config.url:
-        try:
-            client = NightscoutClient(ns_config.url, ns_config.api_secret, timeout_seconds=5)
-            # Fetch last 6 hours
-            ns_treatments = await client.get_recent_treatments(hours=12, limit=200)
-            await client.aclose()
-            
-            # Convert NS treatments to pseudo-Treatment objects for uniform processing
-            for t in ns_treatments:
-                # Map fields
-                _id = t.id or t._id
-                _created_at = t.created_at
-                _insulin = t.insulin
-                _carbs = t.carbs
-                _notes = t.notes
-                _duration = getattr(t, "duration", 0)
-                
-                # Filter out obvious duplicates already in DB? 
-                # We do dedupe below, so just append.
-                # Create a simple object or dict accessor wrapper
-                class PseudoTreatment:
-                    def __init__(self, id, created_at, insulin, carbs, notes, duration, event_type=None):
-                        self.id = id
-                        self.created_at = created_at
-                        self.insulin = insulin
-                        self.carbs = carbs
-                        self.notes = notes
-                        self.duration = duration
-                        self.event_type = event_type
-                
-                # Check formatting
-                if isinstance(_created_at, str):
-                    try:
-                        _created_at = datetime.fromisoformat(_created_at.replace("Z", "+00:00"))
-                    except:
-                        pass
-                
-                # Ensure UTC
-                if isinstance(_created_at, datetime) and _created_at.tzinfo is None:
-                    _created_at = _created_at.replace(tzinfo=timezone.utc)
-                
-                ns_rows.append(PseudoTreatment(_id, _created_at, _insulin, _carbs, _notes, _duration, getattr(t, 'eventType', None)))
-                
-        except Exception as e:
-            print(f"Forecast NS Treatment fetch failed: {e}")
-            pass
+    # (NS connection code removed)
 
     # 3.2 Merge & Deduplicate
     all_rows = []
@@ -489,7 +445,10 @@ async def get_current_forecast(
                 time_offset_min=int(offset), 
                 grams=row.carbs,
                 icr=evt_icr,
-                absorption_minutes=evt_abs
+                absorption_minutes=evt_abs,
+                fat_g=getattr(row, 'fat', 0) or 0,
+                protein_g=getattr(row, 'protein', 0) or 0,
+                fiber_g=getattr(row, 'fiber', 0) or 0
             ))
 
         warsaw_equiv = compute_warsaw_equivalent_carbs(
@@ -1026,6 +985,11 @@ async def simulate_forecast(
                      r_carbs = getattr(row, 'carbs', 0) or 0
                      l_carbs = getattr(last_row, 'carbs', 0) or 0
                      
+                     # Preserve macros if present in either (prefer the one we keep, usually 'row')
+                     # Note: Deduplication logic below might discard 'row' or 'unique_rows.pop()'.
+                     # The structure of ForecastEventCarbs creation later relies on 'rows' having these attrs.
+
+                     
                      # 1. Carb Update Collision (Insulin=0 for both)
                      if not is_dup and r_ins == 0 and l_ins == 0:
                          if dt_diff < 300:
@@ -1123,7 +1087,10 @@ async def simulate_forecast(
                         time_offset_min=int(offset), 
                         grams=row.carbs,
                         icr=float(hist_icr), 
-                        absorption_minutes=hist_abs 
+                        absorption_minutes=hist_abs,
+                        fat_g=getattr(row, 'fat', 0) or 0,
+                        protein_g=getattr(row, 'protein', 0) or 0,
+                        fiber_g=getattr(row, 'fiber', 0) or 0
                     ))
 
              # Fetch Basal History for Simulation
