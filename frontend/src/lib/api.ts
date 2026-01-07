@@ -264,6 +264,14 @@ export async function getNightscoutStatus() {
 }
 
 export async function getCurrentGlucose(config) {
+  if (isAuthenticated()) {
+    const response = await apiFetch("/api/nightscout/current", {
+      method: "GET"
+    });
+    const data = await toJson(response);
+    if (!response.ok) throw new Error(data.detail || "Error al obtener glucosa (Backend)");
+    return data;
+  }
   // If config is present, use stateless POST
   if (config && config.url) {
     const response = await apiFetch("/api/nightscout/current", {

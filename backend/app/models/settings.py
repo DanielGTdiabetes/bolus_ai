@@ -101,6 +101,27 @@ class NightscoutConfig(BaseModel):
     url: str = ""
     token: Optional[str] = None
     units: Literal["mg/dl", "mmol/l"] = "mg/dl"
+    filter_compression: bool = False
+    filter_night_start: str = "23:00"
+    filter_night_end: str = "07:00"
+    treatments_lookback_minutes: int = Field(default=120, ge=0)
+
+    @staticmethod
+    def _parse_hour(value: Optional[str], default: int) -> int:
+        if not value:
+            return default
+        try:
+            return datetime.strptime(value, "%H:%M").hour
+        except Exception:
+            return default
+
+    @property
+    def filter_night_start_hour(self) -> int:
+        return self._parse_hour(self.filter_night_start, 23)
+
+    @property
+    def filter_night_end_hour(self) -> int:
+        return self._parse_hour(self.filter_night_end, 7)
 
 
 class DexcomSettings(BaseModel):

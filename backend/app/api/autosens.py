@@ -5,7 +5,6 @@ from sqlalchemy import select
 
 from app.core.security import get_current_user
 from app.core.db import get_db_session
-from app.core.settings import Settings, get_settings
 from app.services.autosens_service import AutosensService
 from app.services.smart_filter import FilterConfig
 from app.services.settings_service import get_user_settings_service
@@ -34,7 +33,6 @@ class AutosensRunResponse(BaseModel):
 async def calculate_autosens_endpoint(
     current_user: Any = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
-    settings: Settings = Depends(get_settings),
 ):
     try:
         # Load Settings
@@ -49,11 +47,9 @@ async def calculate_autosens_endpoint(
         # Run Service
         compression_config = FilterConfig(
             enabled=settings.nightscout.filter_compression,
-            night_start_hour=settings.nightscout.filter_night_start,
-            night_end_hour=settings.nightscout.filter_night_end,
-            drop_threshold_mgdl=settings.nightscout.filter_drop_mgdl,
-            rebound_threshold_mgdl=settings.nightscout.filter_rebound_mgdl,
-            rebound_window_minutes=settings.nightscout.filter_window_min
+            night_start_hour=settings.nightscout.filter_night_start_hour,
+            night_end_hour=settings.nightscout.filter_night_end_hour,
+            treatments_lookback_minutes=settings.nightscout.treatments_lookback_minutes,
         )
         result = await AutosensService.calculate_autosens(
             username=current_user.username,
