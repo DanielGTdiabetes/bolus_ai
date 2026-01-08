@@ -488,11 +488,23 @@ async def ingest_nutrition(
                     from app.services.nutrition_draft_service import NutritionDraftService
                     # Pass session now
                     draft, action = await NutritionDraftService.update_draft(
-                        username, t_carbs, t_fat, t_protein, t_fiber, session
+                        username, t_carbs, t_fat, t_protein, t_fiber, session,
+                        dedup_id=date_key
                     )
                     
-                    latest_draft = draft
-                    latest_draft_action = action
+                    if action != "skipped_duplicate":
+                        latest_draft = draft
+                        latest_draft_action = action
+                    else:
+                        logger.info(f"Draft skipped duplicate: {date_key}")
+                        if latest_draft is None:
+                             # Keep reference to draft but denote no action if you want, 
+                             # but strictly we only want to notify if something changed.
+                             # If we have [A (new), B (dup)], A sets latest_draft. B has info logic.
+                             # If we have [A (dup)], latest_draft stays None?
+                             # Let's set it to allow return "Active Draft" info, but handle notification logic later.
+                             pass
+                             
                     continue
                 # DRAFT LOGIC END
 
@@ -619,7 +631,7 @@ async def ingest_nutrition(
                 
             await session.commit()
             
-            if latest_draft:
+            if latest_draft and latest_draft_action:
                  try:
                     from app.bot.service import on_draft_updated
                     await on_draft_updated(username, latest_draft, latest_draft_action)
@@ -631,6 +643,13 @@ async def ingest_nutrition(
                     "message": f"Draft Updated (Buffered)", 
                     "draft_status": latest_draft.status,
                     "ids": [f"draft_{username}"]
+                 }
+            elif latest_draft and not latest_draft_action:
+                 # Case where we only hit duplicates in draft
+                 return {
+                     "success": 1,
+                     "message": "Draft Deduplicated (No Change)",
+                     "draft_status": "active", ## latest_draft.status might be unavailable if we didn't assign it
                  }
 
             if saved_ids:

@@ -198,7 +198,7 @@ class NutritionDraftService:
         return t, True, True
 
     @staticmethod
-    async def update_draft(user_id: str, new_c: float, new_f: float, new_p: float, new_fib: float, session: Any) -> Tuple[NutritionDraft, str]:
+    async def update_draft(user_id: str, new_c: float, new_f: float, new_p: float, new_fib: float, session: Any, dedup_id: Optional[str] = None) -> Tuple[NutritionDraft, str]:
         """
         Returns (Draft, action_taken)
         action_taken: 'created', 'updated_replace', 'updated_add'
@@ -241,7 +241,9 @@ class NutritionDraftService:
                  protein=new_p,
                  fiber=new_fib,
                  expires_at=expiry,
-                 status="active"
+                 expires_at=expiry,
+                 status="active",
+                 last_hash=json.dumps([dedup_id]) if dedup_id else None
              )
              session.add(new_draft)
              await session.commit()
@@ -257,13 +259,43 @@ class NutritionDraftService:
                  created_at=_ensure_aware(new_draft.created_at) or new_draft.created_at,
                  updated_at=_ensure_aware(new_draft.updated_at) or new_draft.updated_at,
                  expires_at=_ensure_aware(new_draft.expires_at) or new_draft.expires_at,
-                 status="active"
+                 status="active",
              ), "created"
 
         # --- MERGE LOGIC ---
         # Upstream integrations.py already handles deduplication of identical payloads (network retries).
         # Therefore, any payload reaching here is treated as a NEW addition to the buffer (Draft).
         # We accumulate (Add) to allow "Course 1 + Course 2" flows.
+        
+        # DEDUP CHECK using last_hash as storage for processed items
+        if dedup_id:
+            existing_items = []
+            if current_db.last_hash:
+                try:
+                    loaded = json.loads(current_db.last_hash)
+                    if isinstance(loaded, list):
+                        existing_items = loaded
+                except Exception:
+                    pass
+
+            if dedup_id in existing_items:
+                 return NutritionDraft(
+                    id=current_db.id,
+                    user_id=user_id,
+                    carbs=current_db.carbs,
+                    fat=current_db.fat,
+                    protein=current_db.protein,
+                    fiber=current_db.fiber,
+                    created_at=_ensure_aware(current_db.created_at) or current_db.created_at,
+                    updated_at=_ensure_aware(current_db.updated_at) or current_db.updated_at,
+                    expires_at=_ensure_aware(current_db.expires_at) or current_db.expires_at,
+                    status="active",
+                    last_hash=current_db.last_hash
+                 ), "skipped_duplicate"
+            
+            # Append new ID
+            existing_items.append(dedup_id)
+            current_db.last_hash = json.dumps(existing_items)
         
         action = "updated_add"
         
@@ -294,6 +326,7 @@ class NutritionDraftService:
             updated_at=_ensure_aware(current_db.updated_at) or current_db.updated_at,
             expires_at=_ensure_aware(current_db.expires_at) or current_db.expires_at,
             status="active",
+            last_hash=current_db.last_hash
         ), action
 
     @staticmethod
@@ -345,5 +378,6 @@ class NutritionDraftService:
             updated_at=_ensure_aware(current_db.updated_at) or current_db.updated_at,
             expires_at=_ensure_aware(current_db.expires_at) or current_db.expires_at,
             status="active",
+             last_hash=current_db.last_hash
         ), "updated_replace"
 

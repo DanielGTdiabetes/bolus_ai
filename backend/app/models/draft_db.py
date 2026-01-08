@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 import uuid
 from typing import Optional
 
-from sqlalchemy import String, Float, DateTime, Enum, Column
+from sqlalchemy import String, Float, DateTime, Enum, Column, JSON
 from sqlalchemy.orm import Mapped, mapped_column
 from app.core.db import Base
 
