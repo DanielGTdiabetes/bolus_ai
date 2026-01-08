@@ -968,3 +968,10 @@ export async function updateNutritionDraft(id, payload) {
   if (!response.ok) throw new Error(data.detail || "Error actualizando draft");
   return data;
 }
+
+export async function fetchIngestLogs() {
+  const response = await apiFetch("/api/integrations/nutrition/logs");
+  const data = await toJson(response);
+  if (!response.ok) throw new Error(data.detail || "Error fetching logs");
+  return data;
+}

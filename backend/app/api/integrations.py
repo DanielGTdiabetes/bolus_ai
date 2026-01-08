@@ -109,13 +109,47 @@ async def ingest_nutrition(
     ingest_key_header: Optional[str] = Header(None, alias="X-Ingest-Key"),
     session: AsyncSession = Depends(get_db_session),
     token_manager: TokenManager = Depends(get_token_manager),
+    settings: Settings = Depends(get_settings),
 ):
     """
     Recibe datos de nutrición externos (Health Auto Export, n8n, Shortcuts).
     Crea un tratamiento con insulin=0 (Orphan) para que el frontend lo detecte.
     Es "silencioso": si falla, no rompe nada, solo loguea error.
     """
+    # Initialize DataStore locally or via dependency if preferred, here we use settings for path
+    from pathlib import Path
+    from app.services.store import DataStore
+    ds = DataStore(Path(settings.data.data_dir))
+    
+    # 0. DEBUG LOGGING
+    ingest_id = str(uuid.uuid4())[:8]
+    log_entry = {
+        "id": ingest_id,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "payload": payload,
+        "headers": {
+            "user_agent": request.headers.get("user-agent"),
+            "content_type": request.headers.get("content-type"),
+            "x_ingest_key": "REDACTED" if ingest_key_header else None
+        },
+        "status": "pending",
+        "result": None
+    }
+    
+    # Helper to append log safely
+    def append_log(entry):
+        try:
+            logs = ds.read_json("ingest_logs.json", [])
+            # Keep last 50
+            logs.insert(0, entry)
+            if len(logs) > 50:
+                logs = logs[:50]
+            ds.write_json("ingest_logs.json", logs)
+        except Exception as e:
+            logger.error(f"Failed to write ingest log: {e}")
+
     try:
+
         auth_error = HTTPException(
             status_code=401,
             detail={"success": 0, "error": "Authentication required for nutrition ingest"},
@@ -146,6 +180,9 @@ async def ingest_nutrition(
             else:
                 reason = "missing secret" if not ingest_secret else "invalid key"
                 logger.warning("Nutrition ingest rejected via key (%s)", reason)
+                log_entry["status"] = "error"
+                log_entry["result"] = {"error": "Authentication failed", "reason": reason}
+                append_log(log_entry)
                 raise auth_error
 
         if not username:
@@ -283,7 +320,11 @@ async def ingest_nutrition(
                      logger.info(f"Parsed Direct Payload: C={c} F={f} P={p} Fib={fib}")
 
         if not parsed_meals:
-             return {"success": 0, "message": "No parseable metrics found in payload"}
+             res = {"success": 0, "message": "No parseable metrics found in payload"}
+             log_entry["status"] = "rejected"
+             log_entry["result"] = res
+             append_log(log_entry)
+             return res
 
         # 2. Process distinct meals found
         # Sort by date descending (newest first)
@@ -638,19 +679,27 @@ async def ingest_nutrition(
                  except Exception as e:
                     logger.error(f"Bot draft notify failed: {e}")
                  
-                 return {
+                 res = {
                     "success": 1, 
                     "message": f"Draft Updated (Buffered)", 
                     "draft_status": latest_draft.status,
                     "ids": [f"draft_{username}"]
                  }
+                 log_entry["status"] = "success"
+                 log_entry["result"] = res
+                 append_log(log_entry)
+                 return res
             elif latest_draft and not latest_draft_action:
                  # Case where we only hit duplicates in draft
-                 return {
+                 res = {
                      "success": 1,
                      "message": "Draft Deduplicated (No Change)",
                      "draft_status": "active", ## latest_draft.status might be unavailable if we didn't assign it
                  }
+                 log_entry["status"] = "success" # Technically success even if no change
+                 log_entry["result"] = res
+                 append_log(log_entry)
+                 return res
 
             if saved_ids:
                 logger.info(f"Ingested {len(saved_ids)} new meals from export.")
@@ -665,9 +714,17 @@ async def ingest_nutrition(
                 except Exception as e:
                     logger.error(f"Failed to trigger bot notification: {e}")
 
-                return {"success": 1, "ingested_count": len(saved_ids), "ids": saved_ids}
+                res = {"success": 1, "ingested_count": len(saved_ids), "ids": saved_ids}
+                log_entry["status"] = "success"
+                log_entry["result"] = res
+                append_log(log_entry)
+                return res
             else:
-                return {"success": 1, "message": "No new meals found (all duplicates or empty)"}
+                res = {"success": 1, "message": "No new meals found (all duplicates or empty)"}
+                log_entry["status"] = "ignored"
+                log_entry["result"] = res
+                append_log(log_entry)
+                return res
 
         return {"success": 0, "message": "Database session missing"}
         
@@ -677,7 +734,21 @@ async def ingest_nutrition(
     except Exception as e:
         logger.error(f"Nutrition Ingest Error: {e}")
         # Return 200 to not break the sender, but log error
-        return {"success": 0, "error": str(e)}
+        res = {"success": 0, "error": str(e)}
+        log_entry["status"] = "error"
+        log_entry["result"] = res
+        append_log(log_entry)
+        return res
+
+@router.get("/nutrition/logs", summary="Get recent ingestion logs")
+async def get_ingest_logs(
+    settings: Settings = Depends(get_settings),
+    user: CurrentUser = Depends(get_current_user)
+):
+    from pathlib import Path
+    from app.services.store import DataStore
+    ds = DataStore(Path(settings.data.data_dir))
+    return ds.read_json("ingest_logs.json", [])
 
 # --- DRAFT ENDPOINTS ---
 

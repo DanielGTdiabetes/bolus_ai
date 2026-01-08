@@ -10,7 +10,8 @@ import {
 import {
     getNightscoutSecretStatus, saveNightscoutSecret, testNightscout,
     fetchHealth, exportUserData, importUserData, fetchAutosens,
-    getSettings, updateSettings, getLearningLogs, testDexcom
+    getSettings, updateSettings, getLearningLogs, testDexcom,
+    fetchIngestLogs
 } from '../lib/api';
 import { IsfAnalyzer } from '../components/settings/IsfAnalyzer';
 
@@ -32,6 +33,7 @@ export default function SettingsPage() {
                         <TabButton label="Datos" active={activeTab === 'data'} onClick={() => setActiveTab('data')} />
                         <TabButton label="Aprendizaje" active={activeTab === 'labs'} onClick={() => setActiveTab('labs')} />
                         <TabButton label="Bot" active={activeTab === 'bot'} onClick={() => setActiveTab('bot')} />
+                        <TabButton label="Logs Ingesta" active={activeTab === 'logs'} onClick={() => setActiveTab('logs')} />
                     </div>
 
                     {activeTab === 'ns' && <NightscoutPanel />}
@@ -42,6 +44,7 @@ export default function SettingsPage() {
                     {activeTab === 'analysis' && <IsfAnalyzer />}
                     {activeTab === 'data' && <DataPanel />}
                     {activeTab === 'labs' && <LabsPanel />}
+                    {activeTab === 'logs' && <IngestLogsPanel />}
                 </Card>
 
                 {activeTab === 'data' && (
@@ -1946,6 +1949,113 @@ function LabsPanel() {
                         }}>
                             {(log.is_better || log.status === 'success') ? "OK" : "Revisar"}
                         </div>
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
+}
+
+function IngestLogsPanel() {
+    const [logs, setLogs] = useState([]);
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState(null);
+
+    const load = async () => {
+        setLoading(true);
+        setError(null);
+        try {
+            const data = await fetchIngestLogs();
+            setLogs(data);
+        } catch (e) {
+            setError(e.message);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        load();
+    }, []);
+
+    const copyToClipboard = (text) => {
+        navigator.clipboard.writeText(text).then(() => {
+            alert("Copiado al portapapeles");
+        });
+    };
+
+    return (
+        <div className="stack">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <h3 style={{ margin: 0 }}>Registro de Ingesta (AutoExport)</h3>
+                <Button variant="secondary" onClick={load} disabled={loading}>
+                    {loading ? 'Refrescando...' : '🔄 Refrescar'}
+                </Button>
+            </div>
+            <p className="text-muted text-sm">
+                Muestra los últimos 50 intentos de entrada de datos externos (Shortcuts / AutoExport).
+                Útil para depurar por qué no aparecen las comidas.
+            </p>
+
+            {error && (
+                <div style={{ padding: '1rem', background: '#fee2e2', color: '#b91c1c', borderRadius: '8px' }}>
+                    Error: {error}
+                </div>
+            )}
+
+            {!loading && logs.length === 0 && (
+                <div style={{ padding: '2rem', textAlign: 'center', color: '#64748b' }}>
+                    No hay registros disponibles.
+                </div>
+            )}
+
+            <div className="stack" style={{ gap: '1rem' }}>
+                {logs.map((log, i) => (
+                    <div key={i} style={{
+                        border: '1px solid #e2e8f0',
+                        borderRadius: '8px',
+                        padding: '1rem',
+                        background: log.status === 'success' ? '#f0fdf4' :
+                            log.status === 'rejected' ? '#fee2e2' :
+                                log.status === 'error' ? '#fef2f2' :
+                                    log.status === 'ignored' ? '#f8fafc' : '#fff'
+                    }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
+                            <div>
+                                <span style={{
+                                    fontWeight: 'bold',
+                                    color: log.status === 'success' ? '#166534' :
+                                        log.status === 'rejected' ? '#991b1b' :
+                                            log.status === 'error' ? '#991b1b' :
+                                                log.status === 'ignored' ? '#64748b' : '#334155'
+                                }}>
+                                    {log.status?.toUpperCase()}
+                                </span>
+                                <span style={{ marginLeft: '10px', color: '#64748b', fontSize: '0.9rem' }}>
+                                    {new Date(log.timestamp).toLocaleString()}
+                                </span>
+                            </div>
+                            <Button
+                                variant="secondary"
+                                style={{ padding: '0.2rem 0.6rem', fontSize: '0.8rem' }}
+                                onClick={() => copyToClipboard(JSON.stringify(log, null, 2))}
+                            >
+                                📋 JSON
+                            </Button>
+                        </div>
+
+                        <div style={{ background: '#1e293b', color: '#f8fafc', padding: '0.8rem', borderRadius: '6px', overflowX: 'auto', fontSize: '0.8rem' }}>
+                            <div style={{ fontWeight: 'bold', color: '#94a3b8', marginBottom: '4px' }}>Resultado:</div>
+                            <pre style={{ margin: 0 }}>{JSON.stringify(log.result, null, 2)}</pre>
+                        </div>
+                        {log.payload && (
+                            <details style={{ marginTop: '0.5rem', fontSize: '0.85rem' }}>
+                                <summary style={{ cursor: 'pointer', color: '#475569', fontWeight: 600 }}>Ver Payload Original</summary>
+                                <div style={{ marginTop: '0.4rem', background: '#f1f5f9', padding: '0.5rem', borderRadius: '4px', border: '1px solid #e2e8f0' }}>
+                                    <pre style={{ margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-all', fontSize: '0.75rem' }}>{JSON.stringify(log.payload, null, 2)}</pre>
+                                </div>
+                            </details>
+                        )}
                     </div>
                 ))}
             </div>
