@@ -1,67 +1,51 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import NightscoutSettingsPage from './pages/NightscoutSettingsPage';
 import { ToastContainer } from './components/ui/Toast';
 
-// Registry of React Pages
-import FavoritesPage from './pages/FavoritesPage';
-import HistoryPage from './pages/HistoryPage';
-import SettingsPage from './pages/SettingsPage';
-import HomePage from './pages/HomePage';
-import BolusPage from './pages/BolusPage';
-import ScanPage from './pages/ScanPage';
-import BasalPage from './pages/BasalPage';
-import PatternsPage from './pages/PatternsPage';
-import SuggestionsPage from './pages/SuggestionsPage';
-import LoginPage from './pages/LoginPage';
-import ChangePasswordPage from './pages/ChangePasswordPage';
-import ProfilePage from './pages/ProfilePage';
 import { RESTAURANT_MODE_ENABLED } from './lib/featureFlags';
-import RestaurantPage from './pages/RestaurantPage';
-import MenuPage from './pages/MenuPage';
-import FoodDatabasePage from './pages/FoodDatabasePage';
-import ScalePage from './pages/ScalePage';
-import BodyMapPage from './pages/BodyMapPage';
-import SuppliesPage from './pages/SuppliesPage';
-import NotificationsPage from './pages/NotificationsPage';
 import { DraftNotification } from './components/layout/DraftNotification';
 
-import ForecastPage from './pages/ForecastPage';
-import StatusPage from './pages/StatusPage';
-import ManualCalculatorPage from './pages/ManualCalculatorPage';
-
-const PAGES = {
-    'favorites': FavoritesPage,
-    'history': HistoryPage,
-    'settings': SettingsPage,
-    'home': HomePage,
-    'bolus': BolusPage,
-    'scan': ScanPage,
-    'basal': BasalPage,
-    'patterns': PatternsPage,
-    'nightscout-settings': NightscoutSettingsPage,
-    'login': LoginPage,
-    'change-password': ChangePasswordPage,
-    'suggestions': SuggestionsPage,
-    'profile': ProfilePage,
-    'menu': MenuPage,
-    'scale': ScalePage,
-    'food-db': FoodDatabasePage,
-    'bodymap': BodyMapPage,
-    'supplies': SuppliesPage,
-    'notifications': NotificationsPage,
-    'forecast': ForecastPage,
-    'status': StatusPage,
-    'manual': ManualCalculatorPage,
+const PAGE_LOADERS = {
+    favorites: () => import('./pages/FavoritesPage'),
+    history: () => import('./pages/HistoryPage'),
+    settings: () => import('./pages/SettingsPage'),
+    home: () => import('./pages/HomePage'),
+    bolus: () => import('./pages/BolusPage'),
+    scan: () => import('./pages/ScanPage'),
+    basal: () => import('./pages/BasalPage'),
+    patterns: () => import('./pages/PatternsPage'),
+    'nightscout-settings': () => import('./pages/NightscoutSettingsPage'),
+    login: () => import('./pages/LoginPage'),
+    'change-password': () => import('./pages/ChangePasswordPage'),
+    suggestions: () => import('./pages/SuggestionsPage'),
+    profile: () => import('./pages/ProfilePage'),
+    menu: () => import('./pages/MenuPage'),
+    scale: () => import('./pages/ScalePage'),
+    'food-db': () => import('./pages/FoodDatabasePage'),
+    bodymap: () => import('./pages/BodyMapPage'),
+    supplies: () => import('./pages/SuppliesPage'),
+    notifications: () => import('./pages/NotificationsPage'),
+    forecast: () => import('./pages/ForecastPage'),
+    status: () => import('./pages/StatusPage'),
+    manual: () => import('./pages/ManualCalculatorPage'),
 };
 
 if (RESTAURANT_MODE_ENABLED) {
-    PAGES['restaurant'] = RestaurantPage;
+    PAGE_LOADERS.restaurant = () => import('./pages/RestaurantPage');
 }
 
 let reactRoot = null;
+let mountToken = 0;
 
-export function mountReactPage(pageName, containerId = 'app') {
+async function loadPageComponent(pageName) {
+    const loader = PAGE_LOADERS[pageName];
+    if (!loader) return null;
+    const module = await loader();
+    return module.default;
+}
+
+export async function mountReactPage(pageName, containerId = 'app') {
+    const token = ++mountToken;
     const container = document.getElementById(containerId);
     if (!container) return;
 
@@ -80,7 +64,17 @@ export function mountReactPage(pageName, containerId = 'app') {
     // <div id="react-root"></div> inside #app?
     // Let's stick to simple: Mount new root. It's safe enough for page transitions.
 
-    const Component = PAGES[pageName];
+    container.innerHTML = '<div class="spinner">Cargando...</div>';
+    let Component = null;
+    try {
+        Component = await loadPageComponent(pageName);
+    } catch (error) {
+        console.error("React page load error:", error);
+        if (token !== mountToken) return;
+        container.innerHTML = `<div class="error">React Load Error: ${error.message}</div>`;
+        return;
+    }
+    if (token !== mountToken) return;
     if (!Component) {
         container.innerHTML = `<div class="error">React Component '${pageName}' not found</div>`;
         return;
