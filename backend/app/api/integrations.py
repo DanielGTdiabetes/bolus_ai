@@ -697,6 +697,19 @@ async def ingest_nutrition(
                 
             await session.commit()
             
+            if saved_ids:
+                logger.info(f"Ingested {len(saved_ids)} new meals from export.")
+                
+                try:
+                    from app.bot.service import on_new_meal_received
+                    first_id = saved_ids[0]
+                    t_obj = await session.get(Treatment, first_id)
+                    if t_obj and t_obj.carbs > 0:
+                        await on_new_meal_received(t_obj.carbs, t_obj.fat or 0.0, t_obj.protein or 0.0, t_obj.fiber or 0.0, f"Importado ({username})", origin_id=first_id)
+                        
+                except Exception as e:
+                    logger.error(f"Failed to trigger bot notification: {e}")
+
             if latest_draft and latest_draft_action:
                  try:
                     from app.bot.service import on_draft_updated
@@ -727,18 +740,6 @@ async def ingest_nutrition(
                  return res
 
             if saved_ids:
-                logger.info(f"Ingested {len(saved_ids)} new meals from export.")
-                
-                try:
-                    from app.bot.service import on_new_meal_received
-                    first_id = saved_ids[0]
-                    t_obj = await session.get(Treatment, first_id)
-                    if t_obj and t_obj.carbs > 0:
-                        await on_new_meal_received(t_obj.carbs, t_obj.fat or 0.0, t_obj.protein or 0.0, t_obj.fiber or 0.0, f"Importado ({username})", origin_id=first_id)
-                        
-                except Exception as e:
-                    logger.error(f"Failed to trigger bot notification: {e}")
-
                 res = {"success": 1, "ingested_count": len(saved_ids), "ids": saved_ids}
                 log_entry["status"] = "success"
                 log_entry["result"] = res
