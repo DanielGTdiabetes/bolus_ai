@@ -665,19 +665,21 @@ async def get_current_forecast(
     # If the user wants snacks to be faster, they should set "snack" absorption lower 
     # and ensure snacks are logged in snack slots (or just accept meal absorption).
 
-    # Calculate Reference Basal (Zero-Drift Logic)
-    # We calculate the CURRENT active basal rate from known injections
-    # and set that as the reference. This ensures T=0 deviation is 0.
-    # This fixes "Basal Drift" issues where 7-day average != current reality.
+    # Calculate Reference Basal (Smart Hybrid Logic)
+    # 1. Intentional Dose (Standard): If user injected < 26h ago, trust that dose is correct.
+    #    Ref = Current Activity. Net = 0. (Eliminates Drift).
+    # 2. Forgotten Dose (Alert): If > 26h since last injection, assume they forgot.
+    #    Ref = Last Known Dose. Net = 0 - Ref = Negative. (Predicts Rise).
+    
     avg_basal = 0.0
     try:
         from app.services.math.basal import BasalModels
         
+        # 1. Calculate Real Activity at T=0
         current_activity = 0.0
         if basal_injections:
             for b_inj in basal_injections:
                 t_since = 0 - b_inj.time_offset_min
-                # Ensure params match ForecastBasalInjection fields
                 rate = BasalModels.get_activity(
                     t_since,
                     b_inj.duration_minutes or 1440,
@@ -686,9 +688,47 @@ async def get_current_forecast(
                 )
                 current_activity += rate
         
-        # Convert rate (U/min) to Daily Units (U/day) for the engine
-        avg_basal = current_activity * 1440.0
+        # 2. Check Freshness (Last 26h)
+        last_injection_time = None
+        last_dose_u = 0.0
         
+        # Use basal_rows (Official History) to find last injection
+        if basal_rows:
+            # defined in 3.3, sorted desc
+            last_entry = basal_rows[0] 
+            last_injection_time = last_entry.created_at
+            if last_injection_time.tzinfo is None:
+                last_injection_time = last_injection_time.replace(tzinfo=timezone.utc)
+            last_dose_u = last_entry.dose_u
+        
+        # Fallback: Check simple treatments if basal_rows empty (rare)
+        if not last_injection_time:
+             # scan basal_injections
+             pass 
+
+        is_recent_active = False
+        if last_injection_time:
+             hours_ago = (datetime.now(timezone.utc) - last_injection_time).total_seconds() / 3600.0
+             if hours_ago < 26:
+                 is_recent_active = True
+        
+        print(f"Basal Logic: Last={last_dose_u}U, {hours_ago if last_injection_time else 'N/A'}h ago. Recent={is_recent_active}")
+
+        if is_recent_active:
+             # INTENTIONAL MODE: Trust the current activity profile completely.
+             # This aligns the baseline to 0 drift.
+             avg_basal = current_activity * 1440.0
+        else:
+             # FORGOTTEN MODE: User misses dose.
+             # Reference = What they usually take (Last Known Dose).
+             # Activity = 0 (or tail).
+             # Result = Rise.
+             avg_basal = last_dose_u
+             
+             # Safety: If history is empty, default 0 (no prediction change)
+             if avg_basal == 0 and current_activity > 0:
+                 avg_basal = current_activity * 1440.0
+
     except Exception as e:
         print(f"Basal Ref Calc Error: {e}")
         avg_basal = 0.0
