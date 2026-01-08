@@ -59,15 +59,17 @@ def _smart_round(
     step: float,
     trend: str,
     max_change: float,
-    explain: list[str]
+    explain: list[str],
+    bg: Optional[float] = None  # Added BG for safety context
 ) -> float:
     """
-    Techne Rounding:
+    Techne Rounding with Safety Guardrails:
     - Rising (DoubleUp, SingleUp, FortyFiveUp) -> Ceil to step
     - Falling (DoubleDown, SingleDown, FortyFiveDown) -> Floor to step
     - Flat/None -> Nearest (Standard)
     
-    Subject to max_change safety limit.
+    Safety Override:
+    - If BG < 100, DISABLE 'Ceil' behavior. Enforce 'Floor' or 'Nearest'.
     """
     standard = round(value / step) * step
     
@@ -78,6 +80,11 @@ def _smart_round(
         mode = "up"
     elif t in ["doubledown", "singledown", "fortyfivedown"]:
         mode = "down"
+    
+    # Safety Override: Low BG prevents aggressive rounding up
+    if bg is not None and bg < 100 and mode == "up":
+        explain.append(f"   (Techne Safety) BG {bg:.0f} < 100: Ignorando redondeo hacia arriba.")
+        return standard
         
     if mode == "neutral":
         return standard
@@ -252,7 +259,7 @@ def _calculate_core(inp: CalculationInput) -> CalculationResult:
     
     # Techne Rounding for Upfront (if enabled and NOT alcohol)
     if inp.techne_enabled and not inp.alcohol_mode and inp.bg_trend:
-         final_upfront = _smart_round(final_upfront, inp.round_step, inp.bg_trend, inp.techne_max_step, explain)
+         final_upfront = _smart_round(final_upfront, inp.round_step, inp.bg_trend, inp.techne_max_step, explain, bg=inp.bg_mgdl)
     else:
          final_upfront = _round_step(final_upfront, inp.round_step)
          

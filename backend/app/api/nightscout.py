@@ -128,7 +128,7 @@ async def get_current_glucose_stateless(
         # But if body has empty url, raising HTTPException(400) is standard.
         raise HTTPException(status_code=400, detail="Missing Nightscout URL")
 
-    logger.debug(f"Fetching Nightscout glucose from: {config.url} (token hidden)")
+    logger.debug(f"Fetching Nightscout glucose from: {config.url.split('?')[0]} (sanitized)")
 
     try:
         client = NightscoutClient(base_url=config.url, token=config.token, timeout_seconds=10)

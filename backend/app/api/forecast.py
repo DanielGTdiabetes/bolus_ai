@@ -1161,6 +1161,30 @@ async def simulate_forecast(
 
         # Validate logic? (Pydantic does structure, Engine does math)
         response = ForecastEngine.calculate_forecast(payload)
+        
+        # --- Baseline Calculation (Ghost Line) ---
+        # We calculate what would happen WITHOUT the "Proposed" events (offset >= -5).
+        # This gives the user a visual comparison: "With Bolus" vs "Do Nothing".
+        try:
+            from copy import deepcopy
+            payload_base = deepcopy(payload)
+            
+            # Filter: Keep ONLY history (older than 5 mins ago)
+            # This removes the "Current/Proposed" bolus and carbs.
+            base_boluses = [b for b in payload_base.events.boluses if b.time_offset_min < -5]
+            base_carbs = [c for c in payload_base.events.carbs if c.time_offset_min < -5]
+             
+            # Only strictly necessary if we actually removed something
+            if len(base_boluses) != len(payload.events.boluses) or len(base_carbs) != len(payload.events.carbs):
+                 payload_base.events.boluses = base_boluses
+                 payload_base.events.carbs = base_carbs
+                 
+                 # Recalculate
+                 resp_base = ForecastEngine.calculate_forecast(payload_base)
+                 response.baseline_series = resp_base.series
+        except Exception as ex:
+            print(f"Baseline calc warning: {ex}")
+
         if not payload.events.boluses and not payload.events.carbs:
             response.quality = "low"
             response.warnings.append("Sin eventos históricos; pronóstico incompleto por falta de IOB/COB.")

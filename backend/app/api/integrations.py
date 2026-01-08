@@ -514,61 +514,96 @@ async def ingest_nutrition(
                 if force_now:
                     check_window_hours = 3.0 if count == 0 else 18.0
                 else:
-                    check_window_hours = 0.2
+                    check_window_hours = 0.5 
 
-                dedup_window_end = (item_ts + timedelta(minutes=10)).replace(tzinfo=None)
+                dedup_window_end = (item_ts + timedelta(minutes=15)).replace(tzinfo=None)
                 dedup_window_start = (item_ts - timedelta(hours=check_window_hours)).replace(tzinfo=None)
                 
                 stmt = select(Treatment).where(
                     Treatment.user_id == username,
                     Treatment.created_at >= dedup_window_start,
                     Treatment.created_at <= dedup_window_end,
-                    Treatment.carbs >= (t_carbs - 0.1),
-                    Treatment.carbs <= (t_carbs + 0.1)
+                    Treatment.carbs >= (t_carbs - 1.0), # Relaxed search window (Carbs match strict)
+                    Treatment.carbs <= (t_carbs + 1.0)
                 )
                 result = await session.execute(stmt)
                 candidates = result.scalars().all()
                 
                 is_duplicate = False
                 for c in candidates:
-                    diff_fat = abs(c.fat - t_fat)
-                    diff_prot = abs(c.protein - t_protein)
-                    if diff_fat < 0.1 and diff_prot < 0.1:
-                        if fiber_provided and incoming_fiber is not None:
-                            diff_fiber = abs((c.fiber or 0.0) - incoming_fiber)
-                            if diff_fiber >= 0.1:
-                                c.fiber = float(incoming_fiber)  # type: ignore[arg-type]
-                                session.add(c)
-                                await session.commit()
-                                saved_ids.append(c.id)
-                                logger.info(
-                                    "Updated fiber on existing nutrition entry %s (delta=%.2f)",
-                                    c.id,
-                                    diff_fiber,
-                                )
-                                is_duplicate = True
-                                break
+                    # Check if it's the same meal (Carbs very close)
+                    if abs(c.carbs - t_carbs) < 0.5:
+                        
+                        # ENRICHMENT CHECK:
+                        # If existing lacks Fat/Protein/Fiber and incoming HAS it, update it.
+                        # Or if incoming matches (duplicate).
+                        
+                        c_fat = c.fat or 0
+                        c_prot = c.protein or 0
+                        c_fib = c.fiber or 0
+                        
+                        # 1. Exact Match (Duplicate)
+                        if abs(c_fat - t_fat) < 0.5 and abs(c_prot - t_protein) < 0.5:
+                             # Check Fiber Update
+                             if fiber_provided and incoming_fiber is not None:
+                                 if should_update_fiber(float(c_fib), incoming_fiber):
+                                     c.fiber = float(incoming_fiber)
+                                     session.add(c)
+                                     await session.commit()
+                                     saved_ids.append(c.id)
+                                     logger.info(f"Updated fiber on duplicate: {c.id}")
+                             is_duplicate = True
+                             logger.info(f"Skipping exact duplicate {c.id}")
+                             break
+                        
+                        # 2. Enrichment (Existing is 'smaller' than incoming in terms of info)
+                        # We assume if Carbs match and time is close, it IS the same meal.
+                        # Especially if existing has 0 fat/prot and new has > 0.
+                        
+                        is_enrichment = False
+                        if t_fat > (c_fat + 0.5) or t_protein > (c_prot + 0.5):
+                             is_enrichment = True
+                        
+                        # If Enrichment, UPDATE the existing one
+                        if is_enrichment:
+                             c.fat = float(t_fat)
+                             c.protein = float(t_protein)
+                             if fiber_provided and incoming_fiber is not None:
+                                 c.fiber = float(incoming_fiber)
+                             
+                             c.notes = (c.notes or "") + " [Enriched]"
+                             session.add(c)
+                             await session.commit()
+                             saved_ids.append(c.id)
+                             logger.info(f"Enriched existing meal {c.id} with Fat/Prot/Fiber")
+                             is_duplicate = True
+                             break
 
-                        if should_update_fiber(c.fiber, incoming_fiber):
-                            c.fiber = float(incoming_fiber)  # type: ignore[arg-type]
-                            session.add(c)
-                            await session.commit()
-                            saved_ids.append(c.id)
-                            logger.info("Updated fiber on existing nutrition entry %s", c.id)
-                        is_duplicate = True
-                        break
+                        # 3. Fiber Only Enrichment
+                        if fiber_provided and incoming_fiber is not None and abs((c.fiber or 0) - incoming_fiber) > 0.1:
+                             c.fiber = float(incoming_fiber)
+                             session.add(c)
+                             await session.commit()
+                             saved_ids.append(c.id)
+                             logger.info(f"Enriched existing meal {c.id} with Fiber")
+                             is_duplicate = True
+                             break
+                             
                 
                 if is_duplicate:
-                    logger.info(f"Skipping duplicate meal {t_carbs}g from {ts_str} (ForceNow={force_now}, Win={check_window_hours}h)")
                     continue
                 
                 # New Treatment
                 tid = str(uuid.uuid4())
+                
+                # Ensure created_at is UTC Naive for DB
+                db_created_at = item_ts.astimezone(timezone.utc).replace(tzinfo=None)
+                
                 new_t = Treatment(
                     id=tid,
                     user_id=username,
                     event_type="Meal Bolus", 
-                    created_at=item_ts.replace(tzinfo=None), # Ensure naive for consistency
+                    created_at=db_created_at,
                     insulin=0.0,
                     carbs=t_carbs,
                     fat=t_fat,

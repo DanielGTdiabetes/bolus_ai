@@ -306,6 +306,7 @@ function CustomTooltip({ active, payload, label }) {
     if (active && payload && payload.length) {
         const bgItem = payload.find(p => p.dataKey === 'bg');
         const predItem = payload.find(p => p.dataKey === 'prediction');
+        const baseItem = payload.find(p => p.dataKey === 'baselinePrediction');
 
         // Prioritize actual BG, else show prediction
         const val = bgItem?.value ?? predItem?.value;
@@ -320,6 +321,11 @@ function CustomTooltip({ active, payload, label }) {
                 <div style={{ fontSize: '1.2rem', fontWeight: 800, color: isPred ? '#8b5cf6' : '#1e293b', lineHeight: 1, marginBottom: '8px' }}>
                     {Math.round(val || 0)} <span style={{ fontSize: '0.8rem', fontWeight: 600, color: '#94a3b8' }}>mg/dL</span>
                 </div>
+                {isPred && baseItem && baseItem.value != null && (
+                    <div style={{ fontSize: '0.8rem', color: '#94a3b8', borderTop: '1px solid #f1f5f9', paddingTop: '4px' }}>
+                        Sin bolo: <strong>{Math.round(baseItem.value)}</strong>
+                    </div>
+                )}
             </div>
         );
     }
