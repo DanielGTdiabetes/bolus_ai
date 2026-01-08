@@ -667,6 +667,87 @@ async def _process_text_input_internal(update: Update, context: ContextTypes.DEF
             await reply_text(update, context, "❌ Error procesando favorito.")
         return
 
+    # 0. Intercept Macro Edit (C F P)
+    editing_meal_id = context.user_data.get("editing_meal_request")
+    if editing_meal_id:
+        try:
+            parts = text.replace(",", ".").split()
+            if len(parts) < 1:
+                raise ValueError("Empty")
+            
+            c_val = float(parts[0])
+            f_val = float(parts[1]) if len(parts) > 1 else 0.0
+            p_val = float(parts[2]) if len(parts) > 2 else 0.0
+            
+            del context.user_data["editing_meal_request"]
+            
+            # Update Snapshot
+            req_id = editing_meal_id
+            snap = SNAPSHOT_STORAGE.get(req_id)
+            if snap and "rec" in snap:
+                snap["carbs"] = c_val
+                snap["fat"] = f_val
+                snap["protein"] = p_val
+                
+                # Recalculate Bolus
+                user_settings = await get_bot_user_settings()
+                old_rec = snap["rec"]
+                
+                # We need to rebuild the request with new macros
+                req_v2 = BolusRequestV2(
+                    carbs_g=c_val,
+                    fat_g=f_val,
+                    protein_g=p_val,
+                    meal_slot=old_rec.used_params.meal_slot or "lunch", # Fallback
+                    bg_mgdl=old_rec.glucose.mgdl,
+                    target_mgdl=user_settings.targets.mid
+                )
+                
+                new_rec = calculate_bolus_v2(
+                    request=req_v2,
+                    settings=user_settings,
+                    iob_u=old_rec.iob_u,
+                    glucose_info=old_rec.glucose
+                )
+                
+                snap["rec"] = new_rec
+                
+                # Construct updated summary message
+                rec_u = new_rec.total_u_final
+                lines = []
+                lines.append(f"🍽️ **Comida Actualizada**")
+                lines.append(f"Macros: C:{c_val} F:{f_val} P:{p_val}")
+                lines.append("")
+                lines.append(f"Resultado: **{rec_u} U**")
+                
+                if new_rec.explain:
+                    lines.append("")
+                    for ex in new_rec.explain:
+                        lines.append(f"• {ex}")
+                
+                lines.append("")
+                lines.append(f"¿Registrar {rec_u} U?")
+                
+                kb = [
+                    [
+                        InlineKeyboardButton(f"✅ Poner {rec_u} U", callback_data=f"accept|{req_id}"),
+                        InlineKeyboardButton("✏️ Editar Bolo", callback_data=f"edit_dose|{rec_u}|{req_id}"),
+                        InlineKeyboardButton("✏️ Nutrientes", callback_data=f"edit_macros|{req_id}")
+                    ],
+                    [
+                        InlineKeyboardButton("❌ Ignorar", callback_data=f"cancel|{req_id}")
+                    ]
+                ]
+                
+                await reply_text(update, context, "\n".join(lines), reply_markup=InlineKeyboardMarkup(kb), parse_mode="Markdown")
+                health.record_action("macro_edit_success", True)
+            else:
+                 await reply_text(update, context, "❌ Sesión caducada.")
+                 
+        except ValueError:
+            await reply_text(update, context, "⚠️ Formato incorrecto. Usa: `Carbos Grasas Proteinas` (ej: `50 20 15`) o solo `Carbos`.")
+        return
+
 
 
     if cmd in ["status", "estado"]:
@@ -2230,7 +2311,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         return
 
     # --- 1. ProActive / MFP Flow (Snapshot) ---
-    if data.startswith("accept") or data.startswith("cancel|") or data.startswith("edit_dose|") or data.startswith("set_slot|"):
+    if data.startswith("accept") or data.startswith("cancel|") or data.startswith("edit_dose|") or data.startswith("set_slot|") or data.startswith("edit_macros|"):
         # REMOVED: Early cancel interception that prevented DB cleanup.
         # Flow continues to _handle_snapshot_callback below.
              
