@@ -21,9 +21,6 @@ function GlucoseHero({ onRefresh }) {
     const [prediction, setPrediction] = useState(null);
     const [forecastError, setForecastError] = useState(null);
 
-    // Auto-refresh config (hook requires interval in ms or null)
-    useInterval(isAuthenticated() ? load : null, 60000);
-
     const load = async () => {
         // Don't fetch if not authenticated
         if (!isAuthenticated()) {
@@ -83,6 +80,10 @@ function GlucoseHero({ onRefresh }) {
             setLoading(false);
         }
     };
+
+    // Auto-refresh config (hook requires interval in ms or null)
+    useInterval(isAuthenticated() ? load : null, 60000);
+
 
     useEffect(() => {
         if (isAuthenticated()) {
@@ -193,8 +194,6 @@ function MetricsGrid({ onRefresh }) {
     const [iob, setIob] = useState({ val: null, status: 'ok', cob: null });
     const [lastBolus, setLastBolus] = useState(null);
 
-    useInterval(() => load(), 60000);
-
     const load = async () => {
         try {
             const config = getLocalNsConfig();
@@ -213,6 +212,9 @@ function MetricsGrid({ onRefresh }) {
 
         } catch (e) { console.warn("Metrics Error", e); }
     };
+
+    useInterval(() => load(), 60000);
+
 
     useEffect(() => { load(); }, [onRefresh]);
 
