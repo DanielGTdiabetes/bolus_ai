@@ -64,13 +64,17 @@ export function initRouter() {
     // Auth Handler
     // Auth Handler via Events (Decoupled)
     window.addEventListener('auth:logout', (event) => {
-        // Only redirect if not already there
-        if (state.token || state.user) {
-            state.token = null;
-            state.user = null;
-            redirectToLogin();
-            router(); // Re-render logic
-        }
+        // Force cleanup and redirect always
+        state.token = null;
+        state.user = null;
+        try {
+            localStorage.clear(); // Ensure clean slate
+            sessionStorage.clear();
+        } catch (e) { }
+
+        redirectToLogin();
+        // Force reload if needed to clear React state, but try router() first
+        router();
     });
 
     // Listen
