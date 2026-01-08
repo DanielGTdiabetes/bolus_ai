@@ -3,7 +3,7 @@ import { Header } from '../components/layout/Header';
 import { BottomNav } from '../components/layout/BottomNav';
 import { Card, Button } from '../components/ui/Atoms';
 import { fetchHealth, fetchAutosens, getLearningLogs, getSuggestions, getAnalysisSummary } from '../lib/api';
-import { navigate } from '../modules/core/router';
+import { navigate } from '../modules/core/navigation';
 
 export default function StatusPage() {
     const [loading, setLoading] = useState(true);

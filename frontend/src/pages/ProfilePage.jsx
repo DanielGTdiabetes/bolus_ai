@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Header } from '../components/layout/Header';
 import { changePassword, updateProfile, toggleSickMode } from '../lib/api';
 import { useStore } from '../hooks/useStore';
-import { navigate } from '../modules/core/router';
+import { navigate } from '../modules/core/navigation';
 import { Card, Button } from '../components/ui/Atoms';
 
 export default function ProfilePage() {

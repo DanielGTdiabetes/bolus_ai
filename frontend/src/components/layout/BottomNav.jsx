@@ -1,5 +1,5 @@
 import React from 'react';
-import { navigate } from '../../modules/core/router';
+import { navigate } from '../../modules/core/navigation';
 
 export function BottomNav({ activeTab = 'home' }) {
     const items = [

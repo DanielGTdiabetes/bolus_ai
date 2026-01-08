@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Header } from '../components/layout/Header';
 import { BottomNav } from '../components/layout/BottomNav';
 import { Card, Button } from '../components/ui/Atoms';
-import { navigate } from '../modules/core/router';
+import { navigate } from '../modules/core/navigation';
 
 export default function NotificationsPage() {
     const [alerts, setAlerts] = useState([]);

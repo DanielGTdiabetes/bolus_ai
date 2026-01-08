@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useStore } from '../../hooks/useStore';
-import { navigate } from '../../modules/core/router';
+import { navigate } from '../../modules/core/navigation';
 import { logout } from '../../lib/api';
 
 export function Header({ title = "Bolus AI", showBack = false, notificationActive = false, onNotificationClick }) {
