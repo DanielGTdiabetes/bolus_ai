@@ -241,7 +241,7 @@ class NutritionDraftService:
                  protein=new_p,
                  fiber=new_fib,
                  expires_at=expiry,
-                 expires_at=expiry,
+
                  status="active",
                  last_hash=json.dumps([dedup_id]) if dedup_id else None
              )
