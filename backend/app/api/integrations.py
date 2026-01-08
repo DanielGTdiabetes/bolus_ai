@@ -550,12 +550,33 @@ async def ingest_nutrition(
                 # DRAFT LOGIC END
 
                 if existing_strict:
-                     if should_update_fiber(existing_strict.fiber, incoming_fiber):
-                         existing_strict.fiber = float(incoming_fiber)  # type: ignore[arg-type]
+                     # Check for ANY meaningful change (Correction/Edit in Source)
+                     changes = []
+                     if abs(existing_strict.carbs - t_carbs) > 0.5:
+                         existing_strict.carbs = t_carbs
+                         changes.append("carbs")
+                     if abs((existing_strict.fat or 0) - t_fat) > 0.5:
+                         existing_strict.fat = t_fat
+                         changes.append("fat")
+                     if abs((existing_strict.protein or 0) - t_protein) > 0.5:
+                         existing_strict.protein = t_protein
+                         changes.append("protein")
+                     
+                     # Fiber Update
+                     if fiber_provided and incoming_fiber is not None:
+                         if should_update_fiber(existing_strict.fiber, incoming_fiber):
+                             existing_strict.fiber = float(incoming_fiber)
+                             changes.append("fiber")
+
+                     if changes:
+                         current_note = existing_strict.notes or ""
+                         if "[Updated]" not in current_note:
+                            existing_strict.notes = current_note + " [Updated]"
+                         
                          session.add(existing_strict)
                          await session.commit()
                          saved_ids.append(existing_strict.id)
-                         logger.info("Updated fiber on strict-duplicate nutrition entry %s", existing_strict.id)
+                         logger.info(f"Updated strict match {existing_strict.id}: {changes}")
                      else:
                          logger.info(f"Skipping import {date_key} - found exact match in history (ID: {existing_strict.id})")
                      continue
