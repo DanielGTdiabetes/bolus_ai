@@ -136,34 +136,15 @@ async def compute_iob_from_sources(
     
     ns_error = None
 
-    # 1. Fetch from Nightscout
+    # 1. Skip Fetch from Nightscout (Write-Only Mode for Treatments)
+    # User requested to NEVER read treatments from NS, only write.
+    # We rely exclusively on Local DB.
+    iob_source = "local_only"
+    treatments_status.status = "ok" # Local is the source of truth
+    treatments_status.fetched_at = now
+    
+    # We set ns_boluses to empty
     ns_boluses = []
-    if nightscout_client:
-        try:
-            iob_source = "nightscout+local"
-            hours = max(1, math.ceil(settings.iob.dia_hours))
-            treatments = await nightscout_client.get_recent_treatments(hours=hours, limit=1000)
-            ns_boluses = _boluses_from_treatments(treatments)
-            iob_status = "ok"
-            treatments_status.status = "ok"
-            treatments_status.fetched_at = now
-        except Exception as exc:
-            ns_error = str(exc)
-            if "Unauthorized" in ns_error:
-                iob_reason = "Nightscout no autorizado"
-            elif "Timeout" in ns_error:
-                iob_reason = "Nightscout timeout"
-            else:
-                 iob_reason = f"Error Nightscout: {ns_error}"
-            
-            logger.warning("Nightscout treatments unavailable", extra={"error": ns_error})
-            # Fallback to local only for source label if NS failed completely
-            iob_source = "local_db_fallback"
-            treatments_status.status = "error"
-            treatments_status.reason = iob_reason or ns_error
-            treatments_status.fetched_at = now
-    else:
-        treatments_status.status = "unavailable"
             
     # 1.5 Fetch Local DB (Active Records)
     # Using SQL directly to avoid circular imports or complex deps
@@ -304,37 +285,31 @@ async def compute_iob_from_sources(
                 iob_status = "unavailable"
                 warning_msg = f"IOB no disponible: {iob_reason} (sin datos locales)."
         elif not has_recent_local:
-            # Case B: Old data only + NS Error -> Unavailable/Stale
-            if cache_iob is not None:
-                iob_status = "stale"
-                warning_msg = f"IOB desactualizado: {iob_reason}. Sin datos recientes (<{settings.iob.dia_hours}h) en local."
-                treatments_status.status = "stale"
-            else:
-                iob_status = "unavailable"
-                warning_msg = f"IOB DESCONOCIDO: {iob_reason}. Sin datos recientes (<{settings.iob.dia_hours}h) en local."
+            # Case B: Old data only + NS Error ->
+            # Relaxed Logic: If we successfully queried the local DB (implied by execution reaching here without DB error),
+            # and found nothing recent, it likely means IOB is 0.
+            # We should only error if we specifically suspect a data gap (e.g. fresh install with no history).
+            # But generally, silence is 0.
+            
+            # Use Local Fallback
+            iob_status = "partial" # Mark as partial to indicate NS is missing, but value is valid (0)
+            warning_msg = f"Nightscout caído ({iob_reason}). Asumiendo 0 IOB por falta de datos recientes."
+            treatments_status.status = "error"
+            
         else:
             # Case C: Recent local data exists + NS Error -> Partial
             iob_status = "partial"
-            warning_msg = f"IOB parcial ({iob_reason}). Usando datos locales recientes."
+            warning_msg = f"Nightscout caído ({iob_reason}). Usando datos locales recientes."
             treatments_status.status = "error"
             
     elif not boluses:
-        if cache_iob is not None:
-            iob_status = "stale"
-            treatments_status.status = "stale"
-            warning_msg = warning_msg or "IOB desactualizado: sin tratamientos recientes."
-        elif treatments_status.status in ["unavailable", "error", "unknown"]:
-            iob_status = "unavailable"
-            warning_msg = warning_msg or "IOB no disponible: sin fuente de tratamientos."
-        else:
-            # Success fetching, but nothing found. Value is 0.
-            iob_status = "ok"
-            treatments_status.status = "ok" if treatments_status.status == "unknown" else treatments_status.status
-    else:
-        # Success and data found (or local only mode implies ok)
+        # Success fetching (Local), but nothing found. Value is 0.
         iob_status = "ok"
         treatments_status.status = "ok"
-        if iob_source == "unknown": iob_source = "local_only"
+    else:
+        # Success and data found
+        iob_status = "ok"
+        treatments_status.status = "ok"
     
     # 3. Compute
     total = 0.0
@@ -556,23 +531,11 @@ async def compute_cob_from_sources(
 
     entries.extend(local_events)
 
-    # 2. Fetch Nightscout
+    # 2. Skip Fetch Nightscout (Write-Only Mode)
     ns_entries = []
-    if nightscout_client:
-        try:
-            # 6 hours lookback for carbs
-            treatments = await nightscout_client.get_recent_treatments(hours=6, limit=1000)
-            ns_entries = _carbs_from_treatments(treatments)
-            source_status.status = "ok"
-            source_status.fetched_at = now
-        except Exception as exc:
-             ns_error = str(exc)
-             source_status.status = "error"
-             source_status.reason = ns_error
-             source_status.fetched_at = now
-             logger.warning("Nightscout treatments (for COB) unavailable", extra={"error": str(exc)})
-    else:
-        source_status.status = "unavailable"
+    source_status.status = "ok" 
+    source_status.fetched_at = now
+    source_status.source = "local_only"
     
     # 3. Merge DB (Extra + Query Treatments)
     if extra_entries:
@@ -673,7 +636,8 @@ async def compute_cob_from_sources(
     if unique_entries:
         cob_status = "ok" if source_status.status in ["ok", "unavailable"] else "partial"
     elif ns_error:
-        cob_status = "unavailable"
+        # Relaxed logic: If NS failed but we checked local and found nothing, assume 0 COB.
+        cob_status = "partial"
     else:
         cob_status = "ok"
 
