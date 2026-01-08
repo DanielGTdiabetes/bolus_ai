@@ -398,6 +398,7 @@ async def ingest_nutrition(
                 if t_carbs < 1 and t_fat < 1 and t_protein < 1 and t_fiber < 1: continue
 
                 # Parse Date with Force-Now Logic
+                force_now = False
                 try:
                     ts_str = meal["ts"]
                     now_utc = datetime.now(timezone.utc)
