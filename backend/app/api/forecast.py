@@ -665,43 +665,33 @@ async def get_current_forecast(
     # If the user wants snacks to be faster, they should set "snack" absorption lower 
     # and ensure snacks are logged in snack slots (or just accept meal absorption).
 
-    # Calculate Average Basal (Reference) for Absolute Model
+    # Calculate Reference Basal (Zero-Drift Logic)
+    # We calculate the CURRENT active basal rate from known injections
+    # and set that as the reference. This ensures T=0 deviation is 0.
+    # This fixes "Basal Drift" issues where 7-day average != current reality.
     avg_basal = 0.0
     try:
-        # We need "Daily Total", not just average injection size.
-        # Simple heuristic: Sum all doses in last 7 days and divide by 7.
-        b_cutoff = datetime.now(timezone.utc) - timedelta(days=7)
-        stmt_avg = (
-            select(BasalEntry.dose_u)
-            .where(BasalEntry.user_id == username)
-            .where(BasalEntry.created_at >= b_cutoff.replace(tzinfo=None))
-        )
-        res_avg = await session.execute(stmt_avg)
-        doses = res_avg.scalars().all()
-        if doses:
-            total_u = sum(doses)
-            # Days covered? 
-            # If user just started 2 days ago, dividing by 7 is wrong.
-            # Divide by (Now - First_Entry) days.
-            first_entry_stmt = (
-                 select(BasalEntry.created_at)
-                 .where(BasalEntry.user_id == username)
-                 .order_by(BasalEntry.created_at.asc())
-                 .limit(1)
-            )
-            first_res = await session.execute(first_entry_stmt)
-            first_dt = first_res.scalars().first()
-            
-            days_denom = 7.0
-            if first_dt:
-                 if first_dt.tzinfo is None: first_dt = first_dt.replace(tzinfo=timezone.utc)
-                 delta_days = (datetime.now(timezone.utc) - first_dt).total_seconds() / 86400.0
-                 days_denom = min(7.0, max(1.0, delta_days))
-            
-            avg_basal = total_u / days_denom
+        from app.services.math.basal import BasalModels
+        
+        current_activity = 0.0
+        if basal_injections:
+            for b_inj in basal_injections:
+                t_since = 0 - b_inj.time_offset_min
+                # Ensure params match ForecastBasalInjection fields
+                rate = BasalModels.get_activity(
+                    t_since,
+                    b_inj.duration_minutes or 1440,
+                    b_inj.type,
+                    b_inj.units
+                )
+                current_activity += rate
+        
+        # Convert rate (U/min) to Daily Units (U/day) for the engine
+        avg_basal = current_activity * 1440.0
+        
     except Exception as e:
-        print(f"Avg Basal Calc Error: {e}")
-        pass
+        print(f"Basal Ref Calc Error: {e}")
+        avg_basal = 0.0
 
     sim_params = SimulationParams(
         isf=curr_isf,
