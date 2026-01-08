@@ -15,6 +15,13 @@ logger = logging.getLogger(__name__)
 
 DRAFT_FILE = "nutrition_drafts.json"
 
+def _ensure_aware(dt: Optional[datetime]) -> Optional[datetime]:
+    if dt is None:
+        return None
+    if dt.tzinfo is None or dt.tzinfo.utcoffset(dt) is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt
+
 def _get_store_path() -> Path:
     settings = get_settings()
     return Path(settings.data.data_dir) / DRAFT_FILE
@@ -53,11 +60,13 @@ class NutritionDraftService:
             
         # Check expiry
         now = datetime.now(timezone.utc)
-        if draft_db.expires_at.tzinfo is None:
-             draft_db.expires_at = draft_db.expires_at.replace(tzinfo=timezone.utc)
-        
-        if draft_db.expires_at < now:
-             return None
+        draft_db.expires_at = _ensure_aware(draft_db.expires_at)
+
+        if draft_db.expires_at and draft_db.expires_at < now:
+            draft_db.status = "expired"
+            session.add(draft_db)
+            await session.commit()
+            return None
              
         # Convert to Pydantic for API consistency
         return NutritionDraft(
@@ -67,8 +76,8 @@ class NutritionDraftService:
             fat=draft_db.fat,
             protein=draft_db.protein,
             fiber=draft_db.fiber,
-            created_at=draft_db.created_at,
-            updated_at=draft_db.updated_at,
+            created_at=_ensure_aware(draft_db.created_at) or draft_db.created_at,
+            updated_at=_ensure_aware(draft_db.updated_at) or draft_db.updated_at,
             expires_at=draft_db.expires_at,
             status=draft_db.status,
             last_hash=draft_db.last_hash
@@ -213,10 +222,9 @@ class NutritionDraftService:
         
         # Check Expiry of existing
         if current_db:
-             if current_db.expires_at.tzinfo is None:
-                 current_db.expires_at = current_db.expires_at.replace(tzinfo=timezone.utc)
+             current_db.expires_at = _ensure_aware(current_db.expires_at)
 
-             if current_db.expires_at < now:
+             if current_db.expires_at and current_db.expires_at < now:
                 # Expired -> Overwrite/Reset by treating as not found or closing old?
                 # Let's reuse row or mark old expired and create new?
                 # Reuse is cleaner for ID stability if needed, but logic says "if expired, create new".
@@ -246,9 +254,9 @@ class NutritionDraftService:
                  fat=new_f,
                  protein=new_p,
                  fiber=new_fib,
-                 created_at=new_draft.created_at,
-                 updated_at=new_draft.updated_at,
-                 expires_at=new_draft.expires_at,
+                 created_at=_ensure_aware(new_draft.created_at) or new_draft.created_at,
+                 updated_at=_ensure_aware(new_draft.updated_at) or new_draft.updated_at,
+                 expires_at=_ensure_aware(new_draft.expires_at) or new_draft.expires_at,
                  status="active"
              ), "created"
 
@@ -282,8 +290,8 @@ class NutritionDraftService:
             fat=current_db.fat,
             protein=current_db.protein,
             fiber=current_db.fiber,
-            created_at=current_db.created_at,
-            updated_at=current_db.updated_at,
-            expires_at=current_db.expires_at,
+            created_at=_ensure_aware(current_db.created_at) or current_db.created_at,
+            updated_at=_ensure_aware(current_db.updated_at) or current_db.updated_at,
+            expires_at=_ensure_aware(current_db.expires_at) or current_db.expires_at,
             status="active",
         ), action

@@ -6,18 +6,35 @@ import { showToast } from '../ui/Toast';
 
 const LAST_SEEN_DRAFT_KEY = 'bolusai_last_seen_draft_v2';
 
+const safeStorageGet = (key) => {
+    try {
+        return localStorage.getItem(key);
+    } catch (error) {
+        console.warn("Draft storage unavailable", error);
+        return null;
+    }
+};
+
+const safeStorageSet = (key, value) => {
+    try {
+        localStorage.setItem(key, value);
+    } catch (error) {
+        console.warn("Draft storage unavailable", error);
+    }
+};
+
 export function DraftNotification() {
     const [currentDraft, setCurrentDraft] = useState(null);
     const [showModal, setShowModal] = useState(false);
     const [pollDelay, setPollDelay] = useState(5000);
     const [isVisible, setIsVisible] = useState(() => document.visibilityState === 'visible');
     const errorCountRef = useRef(0);
-    const lastSeenRef = useRef(localStorage.getItem(LAST_SEEN_DRAFT_KEY));
+    const lastSeenRef = useRef(safeStorageGet(LAST_SEEN_DRAFT_KEY));
 
     const markSeen = (draft) => {
         if (!draft?.id) return;
         const key = `${draft.id}|${draft.updated_at}`;
-        localStorage.setItem(LAST_SEEN_DRAFT_KEY, key);
+        safeStorageSet(LAST_SEEN_DRAFT_KEY, key);
         lastSeenRef.current = key;
     };
 
