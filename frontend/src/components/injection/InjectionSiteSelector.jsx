@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { getApiBase } from '../../lib/api';
+import { apiFetch, getStoredToken } from '../../lib/api';
 
 /**
  * ZONES DEFINITION CUSTOMIZED
@@ -21,16 +21,6 @@ const ZONES = {
     ]
 };
 
-// --- Helpers de sesión/API coherentes con el resto del proyecto ---
-const TOKEN_KEYS = ['bolusai_token', 'token']; // compat legacy
-function getToken() {
-    for (const k of TOKEN_KEYS) {
-        const v = localStorage.getItem(k);
-        if (v) return v;
-    }
-    return null;
-}
-
 function assetUrl(filename) {
     // Vite: BASE_URL funciona en root o subcarpeta
     const base = import.meta.env.BASE_URL || '/';
@@ -43,11 +33,11 @@ export function InjectionSiteSelector({ type, onSelect, selected, autoSelect = f
 
     const fetchState = async () => {
         try {
-            const token = getToken();
+            const token = getStoredToken();
             if (!token) throw new Error("No auth token");
 
-            const res = await fetch(`${getApiBase()}/api/injection/state?t=${Date.now()}`, {
-                headers: { "Authorization": `Bearer ${token}` }
+            const res = await apiFetch(`/api/injection/state?t=${Date.now()}`, {
+                method: "GET"
             });
 
             if (res.ok) {

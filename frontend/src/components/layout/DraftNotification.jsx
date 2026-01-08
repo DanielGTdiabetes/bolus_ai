@@ -1,7 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { getNutritionDraft, closeNutritionDraft, discardNutritionDraft, isAuthenticated } from '../../lib/api';
 import { Button } from '../ui/Atoms';
-import { useInterval } from '../../hooks/useInterval';
 import { showToast } from '../ui/Toast';
 
 const LAST_SEEN_DRAFT_KEY = 'bolusai_last_seen_draft_v2';
@@ -26,9 +25,7 @@ const safeStorageSet = (key, value) => {
 export function DraftNotification() {
     const [currentDraft, setCurrentDraft] = useState(null);
     const [showModal, setShowModal] = useState(false);
-    const [pollDelay, setPollDelay] = useState(5000);
     const [isVisible, setIsVisible] = useState(() => document.visibilityState === 'visible');
-    const errorCountRef = useRef(0);
     const lastSeenRef = useRef(safeStorageGet(LAST_SEEN_DRAFT_KEY));
 
     const markSeen = (draft) => {
@@ -45,8 +42,6 @@ export function DraftNotification() {
         }
         try {
             const payload = await getNutritionDraft();
-            errorCountRef.current = 0;
-            setPollDelay(5000);
 
             if (payload?.active && payload?.draft?.id) {
                 const nextDraft = payload.draft;
@@ -62,29 +57,41 @@ export function DraftNotification() {
             setCurrentDraft(null);
             setShowModal(false);
         } catch (error) {
-            errorCountRef.current += 1;
-            setPollDelay(errorCountRef.current >= 2 ? 30000 : 15000);
+            console.warn("Draft check failed", error);
         }
     };
 
-    // Only poll when visible AND authenticated
-    const shouldPoll = isVisible && isAuthenticated();
-
-    useInterval(() => {
-        if (shouldPoll) {
-            pollDraft();
-        }
-    }, shouldPoll ? pollDelay : null);
-
     useEffect(() => {
         const handleVisibility = () => setIsVisible(document.visibilityState === 'visible');
+        const handleHashChange = () => {
+            if (document.visibilityState === 'visible' && isAuthenticated()) {
+                pollDraft();
+            }
+        };
+        const handleLogout = () => {
+            setCurrentDraft(null);
+            setShowModal(false);
+        };
+
         document.addEventListener('visibilitychange', handleVisibility);
-        // Only do initial poll if authenticated
+        window.addEventListener('hashchange', handleHashChange);
+        window.addEventListener('auth:logout', handleLogout);
+
         if (isAuthenticated()) {
             pollDraft();
         }
-        return () => document.removeEventListener('visibilitychange', handleVisibility);
+        return () => {
+            document.removeEventListener('visibilitychange', handleVisibility);
+            window.removeEventListener('hashchange', handleHashChange);
+            window.removeEventListener('auth:logout', handleLogout);
+        };
     }, []);
+
+    useEffect(() => {
+        if (isVisible && isAuthenticated()) {
+            pollDraft();
+        }
+    }, [isVisible]);
 
     const handleDismiss = () => {
         if (currentDraft?.id) {

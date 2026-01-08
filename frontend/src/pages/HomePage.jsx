@@ -483,9 +483,9 @@ function NutritionDraftPanel() {
         }
     };
 
-    // Only poll when authenticated
-    useInterval(isAuthenticated() ? checkDraft : null, 10000);
-    useEffect(() => { if (isAuthenticated()) checkDraft(); }, []);
+    useEffect(() => {
+        if (isAuthenticated()) checkDraft();
+    }, []);
 
     const handleConfirm = async () => {
         // We do NOT close the draft here. We navigate to Bolus Page.

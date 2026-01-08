@@ -3,7 +3,7 @@ import { Header } from '../components/layout/Header';
 import { BottomNav } from '../components/layout/BottomNav';
 import { InjectionSiteSelector, saveInjectionSite } from '../components/injection/InjectionSiteSelector';
 import { Card } from '../components/ui/Atoms';
-import { getApiBase } from '../lib/api';
+import { apiFetch, getStoredToken } from '../lib/api';
 
 export default function BodyMapPage() {
     // We use isolated state because the InjectionSelector manages its own history read,
@@ -25,14 +25,10 @@ export default function BodyMapPage() {
     // Helper to sync with backend (fixes bot sync issue)
     const syncWithBackend = async (type, fullId) => {
         try {
-            const token = localStorage.getItem('bolusai_token'); // Correct key name
+            const token = getStoredToken();
             if (token) {
-                const res = await fetch(`${getApiBase()}/api/injection/manual?t=${Date.now()}`, {
+                const res = await apiFetch(`/api/injection/manual?t=${Date.now()}`, {
                     method: 'POST',
-                    headers: {
-                        "Authorization": `Bearer ${token}`,
-                        "Content-Type": "application/json"
-                    },
                     body: JSON.stringify({
                         insulin_type: type,
                         point_id: fullId

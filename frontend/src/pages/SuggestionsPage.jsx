@@ -4,7 +4,7 @@ import { BottomNav } from '../components/layout/BottomNav';
 import { Card, Button, Input } from '../components/ui/Atoms';
 import { getCalcParams, saveCalcParams } from '../modules/core/store';
 import {
-    getSuggestions, generateSuggestions, getEvaluations,
+    apiFetch, getSuggestions, generateSuggestions, getEvaluations,
     evaluateSuggestion, rejectSuggestion, acceptSuggestion
 } from '../lib/api';
 
@@ -285,13 +285,8 @@ function AcceptedView() {
     const handleDelete = async (id) => {
         if (!confirm("¿Seguro que quieres borrar esta sugerencia y su historial?")) return;
         try {
-            const token = localStorage.getItem('bolusai_token') || localStorage.getItem('token');
-            const res = await fetch(`/api/suggestions/${id}`, {
-                method: 'DELETE',
-                headers: {
-                    'Authorization': `Bearer ${token}`,
-                    'Content-Type': 'application/json'
-                }
+            const res = await apiFetch(`/api/suggestions/${id}`, {
+                method: 'DELETE'
             });
             if (res.ok) {
                 load();

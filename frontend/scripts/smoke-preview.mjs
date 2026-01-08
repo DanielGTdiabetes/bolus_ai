@@ -2,6 +2,24 @@ import { spawn } from 'node:child_process';
 
 const port = process.env.SMOKE_PORT || '4173';
 const host = process.env.SMOKE_HOST || '0.0.0.0';
+
+const runCommand = (command, args, options = {}) =>
+  new Promise((resolve, reject) => {
+    const proc = spawn(command, args, options);
+    proc.on('error', reject);
+    proc.on('exit', (code) => {
+      if (code === 0) resolve();
+      else reject(new Error(`${command} ${args.join(' ')} failed with code ${code}`));
+    });
+  });
+
+try {
+  await runCommand('npm', ['run', 'build'], { stdio: 'inherit' });
+} catch (error) {
+  console.error('Smoke build failed:', error.message);
+  process.exit(1);
+}
+
 const preview = spawn('npm', ['run', 'preview', '--', '--host', host, '--port', port], {
   stdio: ['ignore', 'pipe', 'pipe'],
   env: { ...process.env, BROWSER: 'none' }
