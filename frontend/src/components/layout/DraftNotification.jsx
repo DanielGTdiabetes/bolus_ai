@@ -29,6 +29,9 @@ export function DraftNotification() {
     const [isVisible, setIsVisible] = useState(() => document.visibilityState === 'visible');
     const [isEditing, setIsEditing] = useState(false);
     const [editCarbs, setEditCarbs] = useState("");
+    const [editFat, setEditFat] = useState("");
+    const [editProtein, setEditProtein] = useState("");
+    const [editFiber, setEditFiber] = useState("");
     const lastSeenRef = useRef(safeStorageGet(LAST_SEEN_DRAFT_KEY));
 
     const markSeen = (draft) => {
@@ -141,24 +144,37 @@ export function DraftNotification() {
 
     const startEditing = () => {
         setEditCarbs(String(Math.round(currentDraft?.carbs || 0)));
+        setEditFat(String(Math.round(currentDraft?.fat || 0)));
+        setEditProtein(String(Math.round(currentDraft?.protein || 0)));
+        setEditFiber(String(Math.round(currentDraft?.fiber || 0)));
         setIsEditing(true);
     };
 
     const saveEdit = async () => {
         if (!currentDraft?.id) return;
-        const val = parseFloat(editCarbs);
-        if (isNaN(val) || val < 0) {
-            showToast("Introduce un valor válido", "error");
+        const c = parseFloat(editCarbs) || 0;
+        const f = parseFloat(editFat) || 0;
+        const p = parseFloat(editProtein) || 0;
+        const fib = parseFloat(editFiber) || 0;
+
+        if (c < 0 || f < 0 || p < 0 || fib < 0) {
+            showToast("Introduce valores válidos", "error");
             return;
         }
 
         try {
-            await updateNutritionDraft(currentDraft.id, val);
-            // Updating will trigger poll next time or we can update local state
-            // But better to wait for poll or just Optimistic update
-            setCurrentDraft({ ...currentDraft, carbs: val, updated_at: new Date().toISOString() });
+            await updateNutritionDraft(currentDraft.id, { carbs: c, fat: f, protein: p, fiber: fib });
+            // Optimistic update
+            setCurrentDraft({
+                ...currentDraft,
+                carbs: c,
+                fat: f,
+                protein: p,
+                fiber: fib,
+                updated_at: new Date().toISOString()
+            });
             setIsEditing(false);
-            showToast("Carbohidratos actualizados", "success");
+            showToast("Nutrientes actualizados", "success");
 
             // Should we force re-poll?
             setTimeout(pollDraft, 500);
@@ -191,23 +207,17 @@ export function DraftNotification() {
                     <div className="draft-modal-macros">
                         <div className="draft-macro-col">
                             {isEditing ? (
-                                <div className="flex items-center gap-1">
-                                    <input
-                                        type="number"
-                                        className="w-16 p-1 border rounded text-center text-black"
-                                        value={editCarbs}
-                                        onChange={(e) => setEditCarbs(e.target.value)}
-                                        autoFocus
-                                    />
-                                    <div className="flex flex-col gap-1">
-                                        <button onClick={saveEdit} className="p-1 bg-green-500 text-white rounded hover:bg-green-600"><Check size={12} /></button>
-                                        <button onClick={() => setIsEditing(false)} className="p-1 bg-gray-400 text-white rounded hover:bg-gray-500"><X size={12} /></button>
-                                    </div>
-                                </div>
+                                <input
+                                    type="number"
+                                    className="w-16 p-1 border rounded text-center text-black"
+                                    value={editCarbs}
+                                    onChange={(e) => setEditCarbs(e.target.value)}
+                                    autoFocus
+                                />
                             ) : (
                                 <div className="flex items-center gap-2">
                                     <strong>{Math.round(macros.carbs)}g</strong>
-                                    <button onClick={startEditing} className="text-gray-400 hover:text-blue-500" title="Editar Canrbohidratos">
+                                    <button onClick={startEditing} className="text-gray-400 hover:text-blue-500" title="Editar">
                                         <Edit2 size={14} />
                                     </button>
                                 </div>
@@ -215,15 +225,48 @@ export function DraftNotification() {
                             <span>Carbs</span>
                         </div>
                         <div className="draft-macro-col">
-                            <strong>{Math.round(macros.fat)}g</strong>
+                            {isEditing ? (
+                                <input
+                                    type="number"
+                                    className="w-16 p-1 border rounded text-center text-black"
+                                    value={editFat}
+                                    onChange={(e) => setEditFat(e.target.value)}
+                                />
+                            ) : (
+                                <strong>{Math.round(macros.fat)}g</strong>
+                            )}
                             <span>Grasa</span>
                         </div>
                         <div className="draft-macro-col">
-                            <strong>{Math.round(macros.protein)}g</strong>
+                            {isEditing ? (
+                                <input
+                                    type="number"
+                                    className="w-16 p-1 border rounded text-center text-black"
+                                    value={editProtein}
+                                    onChange={(e) => setEditProtein(e.target.value)}
+                                />
+                            ) : (
+                                <strong>{Math.round(macros.protein)}g</strong>
+                            )}
                             <span>Prot</span>
                         </div>
                         <div className="draft-macro-col">
-                            <strong>{Math.round(macros.fiber)}g</strong>
+                            {isEditing ? (
+                                <div className="flex items-center gap-1">
+                                    <input
+                                        type="number"
+                                        className="w-16 p-1 border rounded text-center text-black"
+                                        value={editFiber}
+                                        onChange={(e) => setEditFiber(e.target.value)}
+                                    />
+                                    <div className="flex flex-col gap-1 ml-1">
+                                        <button onClick={saveEdit} className="p-1 bg-green-500 text-white rounded hover:bg-green-600"><Check size={12} /></button>
+                                        <button onClick={() => setIsEditing(false)} className="p-1 bg-gray-400 text-white rounded hover:bg-gray-500"><X size={12} /></button>
+                                    </div>
+                                </div>
+                            ) : (
+                                <strong>{Math.round(macros.fiber)}g</strong>
+                            )}
                             <span>Fibra</span>
                         </div>
                     </div>

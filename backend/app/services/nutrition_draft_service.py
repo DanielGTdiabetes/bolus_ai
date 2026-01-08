@@ -295,3 +295,55 @@ class NutritionDraftService:
             expires_at=_ensure_aware(current_db.expires_at) or current_db.expires_at,
             status="active",
         ), action
+
+    @staticmethod
+    async def overwrite_draft(user_id: str, draft_id: str, c: float, f: float, p: float, fib: float, session: Any) -> Tuple[Optional[NutritionDraft], str]:
+        """
+        Overwrites the macros of an existing active draft.
+        Returns (Draft, action_taken) or (None, error)
+        """
+        from app.models.draft_db import NutritionDraftDB
+        from sqlalchemy import select
+        
+        stmt = select(NutritionDraftDB).where(
+            NutritionDraftDB.user_id == user_id, 
+            NutritionDraftDB.id == draft_id,
+            NutritionDraftDB.status == "active"
+        )
+        res = await session.execute(stmt)
+        current_db = res.scalars().first()
+        
+        if not current_db:
+            return None, "not_found"
+
+        current_db.carbs = float(c)
+        current_db.fat = float(f)
+        current_db.protein = float(p)
+        current_db.fiber = float(fib)
+        current_db.updated_at = datetime.now(timezone.utc)
+        
+        # Extend expiry on edit? 
+        # Yes, give more time if user is interacting
+        try:
+            window_min = int(os.environ.get("NUTRITION_DRAFT_WINDOW_MIN", 30))
+        except:
+            window_min = 30
+        current_db.expires_at = datetime.now(timezone.utc) + timedelta(minutes=window_min)
+        
+        session.add(current_db)
+        await session.commit()
+        await session.refresh(current_db)
+        
+        return NutritionDraft(
+            id=current_db.id,
+            user_id=user_id,
+            carbs=current_db.carbs,
+            fat=current_db.fat,
+            protein=current_db.protein,
+            fiber=current_db.fiber,
+            created_at=_ensure_aware(current_db.created_at) or current_db.created_at,
+            updated_at=_ensure_aware(current_db.updated_at) or current_db.updated_at,
+            expires_at=_ensure_aware(current_db.expires_at) or current_db.expires_at,
+            status="active",
+        ), "updated_replace"
+

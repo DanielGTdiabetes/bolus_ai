@@ -937,7 +937,9 @@ export async function updateSettings(settings) {
 }
 
 export async function getNutritionDraft() {
-  const response = await apiFetch("/api/integrations/nutrition/draft");
+  const response = await apiFetch("/api/integrations/nutrition/draft", {
+    headers: { "Cache-Control": "no-cache" } // Explicitly prevent caching
+  });
   const data = await toJson(response);
   if (!response.ok) throw new Error(data.detail || "Error obteniendo draft");
   return data;
@@ -957,12 +959,12 @@ export async function discardNutritionDraft() {
   return data;
 }
 
-export async function updateNutritionDraft(id, carbs) {
-    const response = await apiFetch(`/api/integrations/nutrition/draft/${id}`, {
-        method: "PATCH",
-        body: JSON.stringify({ carbs })
-    });
-    const data = await toJson(response);
-    if (!response.ok) throw new Error(data.detail || "Error actualizando draft");
-    return data;
+export async function updateNutritionDraft(id, payload) {
+  const response = await apiFetch(`/api/integrations/nutrition/draft/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload)
+  });
+  const data = await toJson(response);
+  if (!response.ok) throw new Error(data.detail || "Error actualizando draft");
+  return data;
 }

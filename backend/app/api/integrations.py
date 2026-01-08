@@ -438,14 +438,43 @@ async def ingest_nutrition(
                 existing_strict = result_strict.scalars().first()
                 
                 # DRAFT LOGIC START
-                # Criteria: Recent (< 45 min) or Future/ForcedNow
+                # Criteria: Recent (< 45 min) or Future/ForcedNow OR Sticky (Active Draft exists)
                 is_recent_draft_candidate = False
+                
+                # Check for active draft to allow sticky ingestion (e.g. Dessert 1h later)
+                # This prevents creating a separate treatment if the user is still building the meal.
+                from app.services.nutrition_draft_service import NutritionDraftService
+                # We need to act carefully to not query DB in loop excessively if not needed,
+                # but for 5 items it's negligible.
+                # Ideally we fetch active_draft once outside loop.
+                # But let's do it here for safety.
+                # Or better: check window first.
+                
+                age_seconds = (now_utc - item_ts).total_seconds()
+
                 if force_now:
                     is_recent_draft_candidate = True
+                elif 0 <= age_seconds < 2700: # 45 min standard window
+                    is_recent_draft_candidate = True
                 else:
-                    age_seconds = (now_utc - item_ts).total_seconds()
-                    if 0 <= age_seconds < 2700: # 45 min
-                        is_recent_draft_candidate = True
+                    # Fallback: Sticky Draft?
+                    # If we are outside the 45m window (e.g. 50m, or stale export),
+                    # check if there is an OPEN draft that started recently.
+                    active_draft = await NutritionDraftService.get_draft(username, session)
+                    if active_draft:
+                         # If the item is newer than the draft creation (minus tolerance), merge it.
+                         d_start = active_draft.created_at
+                         if d_start.tzinfo is None: d_start = d_start.replace(tzinfo=timezone.utc)
+                         
+                         # If item is NOT older than the draft (with 1h allowance for pre-meal insulin/logging)
+                         # And item is NOT from yesterday (> 12h diff)
+                         diff_vs_draft = (item_ts - d_start).total_seconds()
+                         
+                         # Accept if item is after draft start (or up to 60m before)
+                         # And draft is still active.
+                         if diff_vs_draft > -3600 and abs(age_seconds) < 10800: # 3 hours max absolute age
+                             is_recent_draft_candidate = True
+                             logger.info(f"Sticky Draft Match: Item {ts_str} merged into active draft {active_draft.id}")
 
                 if is_recent_draft_candidate:
                     logger.info(f"Routing meal to Draft (Carbs={t_carbs}, Recency={force_now or age_seconds})")
@@ -611,6 +640,43 @@ async def get_nutrition_draft(
         "remaining_seconds": max(0, remaining_sec),
         "formatted_macros": draft.total_macros()
     }
+
+class DraftUpdatePayload(BaseModel):
+    carbs: float = 0
+    fat: float = 0
+    protein: float = 0
+    fiber: float = 0
+
+@router.patch("/nutrition/draft/{draft_id}", summary="Update active draft macros")
+async def update_nutrition_draft(
+    draft_id: str,
+    payload: DraftUpdatePayload,
+    user: CurrentUser = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db_session)
+):
+    from app.services.nutrition_draft_service import NutritionDraftService
+    
+    updated_draft, action = await NutritionDraftService.overwrite_draft(
+        user.username,
+        draft_id,
+        payload.carbs,
+        payload.fat,
+        payload.protein,
+        payload.fiber,
+        session
+    )
+    
+    if not updated_draft:
+        raise HTTPException(404, "Draft not found or expired")
+        
+    # Notify Bot
+    try:
+        from app.bot.service import on_draft_updated
+        await on_draft_updated(user.username, updated_draft, action)
+    except Exception as e:
+        logger.warning(f"Bot update failed: {e}")
+        
+    return {"success": True, "draft": updated_draft.dict()}
 
 @router.post("/nutrition/draft/close", summary="Confirm and close draft")
 async def close_nutrition_draft(
