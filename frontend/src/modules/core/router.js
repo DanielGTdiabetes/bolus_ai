@@ -1,5 +1,5 @@
 import { state } from './store.js';
-import { setUnauthorizedHandler, logout } from '../../lib/api.js';
+import { logout } from '../../lib/api.js';
 import { navigate, redirectToLogin } from './navigation.js';
 
 // Route Handlers (These will be set by main.js to avoid circular imports during refactor)
@@ -62,11 +62,15 @@ export function initRouter() {
     window.logout = logout; // Ensuring logout is globally available if used in HTML
 
     // Auth Handler
-    setUnauthorizedHandler(() => {
-        state.token = null;
-        state.user = null;
-        redirectToLogin();
-        router(); // Re-render logic
+    // Auth Handler via Events (Decoupled)
+    window.addEventListener('auth:logout', (event) => {
+        // Only redirect if not already there
+        if (state.token || state.user) {
+            state.token = null;
+            state.user = null;
+            redirectToLogin();
+            router(); // Re-render logic
+        }
     });
 
     // Listen

@@ -22,11 +22,7 @@ const USER_KEY = "bolusai_user";
 const NS_STORAGE_KEY = "bolusai_ns_config"; // Legacy (localStorage)
 const NS_SESSION_KEY = "bolusai_ns_config_session";
 
-let unauthorizedHandler = null;
-
-export function setUnauthorizedHandler(handler) {
-  unauthorizedHandler = handler;
-}
+// Unauthorized handler removed. API only emits events.
 
 // Helper: NS Config Local
 function migrateLegacyNsConfig() {
@@ -140,7 +136,6 @@ function notifyAuthLogout(reason: string) {
       console.warn("Failed to dispatch auth:logout event", error);
     }
   }
-  if (unauthorizedHandler) unauthorizedHandler();
 }
 
 export function resolveApiUrl(path: string) {

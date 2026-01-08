@@ -9,12 +9,10 @@ registerView('#/supplies', () => {
 
 // Register Routes
 // The Router in this project uses the full hash string as the key.
-import { setUnauthorizedHandler } from './lib/api';
+// Settings & Profile imported directly, all lazy via bridge!
+
 import { RESTAURANT_MODE_ENABLED } from './lib/featureFlags';
 
-setUnauthorizedHandler(() => {
-  window.location.hash = '#/login';
-});
 
 registerDefaultView(() => {
   import('./bridge.jsx').then(({ mountReactPage }) => mountReactPage('home'));
