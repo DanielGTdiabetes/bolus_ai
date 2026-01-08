@@ -127,28 +127,35 @@ export function MainGlucoseChart({ isLow, predictionData }) {
     // Allow empty chart if no data but loaded
     if (!chartData.length) return <div className="text-center text-xs text-gray-400 py-10">Sin datos de glucosa</div>;
 
-    // Recalculate max/min for domain
+    // Recalculate max/min for domain (Global: History + Prediction)
     const allValues = chartData.flatMap(d => [d.bg, d.prediction]).filter(v => v != null && !isNaN(v));
     const maxVal = allValues.length ? Math.max(...allValues) : 180;
     const minVal = allValues.length ? Math.min(...allValues) : 70;
 
-    // Gradient Thresholds
+    // Gradient Thresholds for the AREA (History Only)
+    // We must use the Max/Min of the BG data specifically, because the Gradient is applied to the BG Area shape.
+    // If we use Global max (e.g. 200 from prediction) but BG max is 112, offset 0.1 applies to 112, making it red!
+    const bgValues = chartData.map(d => d.bg).filter(v => v != null && !isNaN(v));
+    const maxBg = bgValues.length ? Math.max(...bgValues) : 180;
+    const minBg = bgValues.length ? Math.min(...bgValues) : 70;
+
     const HIGH = 180;
     const LOW = 70;
-    const range = maxVal - minVal;
+
+    // Calculate Gradient based on BG Range (The Area's bounding box)
+    const bgRange = maxBg - minBg;
     let offHigh = 0;
     let offLow = 1;
 
-    if (range > 0) {
-        if (maxVal > HIGH) offHigh = (maxVal - HIGH) / range;
-        if (minVal < LOW) offLow = (maxVal - LOW) / range;
+    if (bgRange > 0) {
+        if (maxBg > HIGH) offHigh = (maxBg - HIGH) / bgRange;
+        if (minBg < LOW) offLow = (maxBg - LOW) / bgRange;
     }
     offHigh = Math.min(Math.max(offHigh, 0), 1);
     offLow = Math.min(Math.max(offLow, 0), 1);
 
-    // FIX: If values are strictly within safe range, avoid gradient to prevent glitches
-    // This solves the issue of red dots appearing when the line is perfectly fine but gradient math is unstable
-    const isSafe = minVal >= LOW && maxVal <= HIGH;
+    // Color Logic: Safe if History is within limits
+    const isSafe = minBg >= LOW && maxBg <= HIGH;
     const strokeColor = isSafe ? '#3b82f6' : 'url(#splitColor)';
     const fillColor = isSafe ? 'rgba(59, 130, 246, 0.2)' : 'url(#splitFill)';
 
