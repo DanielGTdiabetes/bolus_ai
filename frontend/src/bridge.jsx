@@ -1,9 +1,9 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { ToastContainer } from './components/ui/Toast';
-
 import { RESTAURANT_MODE_ENABLED } from './lib/featureFlags';
 import { DraftNotification } from './components/layout/DraftNotification';
+import { ErrorBoundary } from './components/ui/ErrorBoundary';
 
 const PAGE_LOADERS = {
     favorites: () => import('./pages/FavoritesPage'),
@@ -37,13 +37,18 @@ if (RESTAURANT_MODE_ENABLED) {
 let reactRoot = null;
 let mountToken = 0;
 
-async function loadPageComponent(pageName) {
+async function loadPageComponent(pageName, retries = 1) {
     const loader = PAGE_LOADERS[pageName];
     if (!loader) return { Component: null, error: null };
     try {
         const module = await loader();
         return { Component: module.default, error: null };
     } catch (error) {
+        if (retries > 0) {
+            console.warn(`Retrying load for ${pageName}...`);
+            await new Promise(r => setTimeout(r, 500));
+            return loadPageComponent(pageName, retries - 1);
+        }
         return { Component: null, error };
     }
 }
@@ -70,54 +75,59 @@ export async function mountReactPage(pageName, containerId = 'app') {
     const container = document.getElementById(containerId);
     if (!container) return;
 
-    // Clear any vanilla content (innerHTML) EXCEPT if it's already our React root?
-    // Actually, vanilla router does app.innerHTML = '' before calling render.
-    // So container is empty.
+    // OPTIMIZATION: Check if we are mounting into the same container that already has React.
+    // If so, do NOT clear innerHTML = 'Loading'. Just Render.
+    // However, we must ensure we are the owners.
 
-    // Problem: If we keep creating roots, React warns.
-    // We should reuse root if possible. But vanilla router destroys the DOM node content.
-    // So the previous root is effectively detached/dead if we used 'innerHTML=""'.
+    // We only show spinner if we don't have a root or if the token is old (force refresh)
+    // But for spa navigation, we want instant feel.
 
-    // React 18: createRoot(container).
-    // If we call createRoot on a container that has been cleared by innerHTML="", it's fine, it's a new root.
-
-    // However, if we want to share the root persistence, we should probably have a dedicated
-    // <div id="react-root"></div> inside #app?
-    // Let's stick to simple: Mount new root. It's safe enough for page transitions.
-
-    container.innerHTML = '<div class="spinner">Cargando...</div>';
+    // Pre-load component BEFORE touching DOM if possible
     const { Component, error: loadError } = await loadPageComponent(pageName);
+
+    if (token !== mountToken) return; // Discard if another nav happened
+
     if (loadError) {
         console.error("React page load error:", loadError);
-        if (token !== mountToken) return;
+        container.innerHTML = ''; // Now we can clear
         renderPageFallback(container, pageName, loadError, containerId);
         return;
     }
-    if (token !== mountToken) return;
+
     if (!Component) {
+        container.innerHTML = '';
         renderPageFallback(container, pageName, new Error(`Componente '${pageName}' no encontrado`), containerId);
         return;
     }
 
     try {
-        if (reactRoot) {
-            reactRoot.unmount();
-            reactRoot = null;
+        // If root exists and container is still valid, reuse it
+        if (!reactRoot) {
+            container.innerHTML = ''; // Start clean
+            reactRoot = ReactDOM.createRoot(container);
+        } else {
+            // Check if container is the same? 
+            // In this architecture, container is usually always 'app'.
+            // But if vanilla router wiped it, reactRoot._internalRoot may be detached.
+
+            // Heuristic: If container is empty, our root is dead.
+            if (!container.hasChildNodes()) {
+                reactRoot = ReactDOM.createRoot(container);
+            }
         }
 
-        // Optional: clear container if unmount didn't fully clean up (React usually does)
-        container.innerHTML = '';
-
-        reactRoot = ReactDOM.createRoot(container);
         reactRoot.render(
             <React.StrictMode>
-                <Component />
-                <DraftNotification />
-                <ToastContainer />
+                <ErrorBoundary onRetry={() => mountReactPage(pageName, containerId)}>
+                    <Component />
+                    <DraftNotification />
+                    <ToastContainer />
+                </ErrorBoundary>
             </React.StrictMode>
         );
     } catch (e) {
         console.error("React Mount Error:", e);
         container.innerHTML = `<div class="error">React Crash: ${e.message}</div>`;
+        reactRoot = null;
     }
 }
