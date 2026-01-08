@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Header } from '../components/layout/Header';
 import { Button, Input, Card } from '../components/ui/Atoms';
-import { getApiBase, loginRequest, saveSession } from '../lib/api';
+import { loginRequest, saveSession } from '../lib/api';
 import { navigate } from '../modules/core/navigation';
 import { state } from '../modules/core/store';
 

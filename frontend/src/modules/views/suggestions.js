@@ -2,6 +2,7 @@ import { getCalcParams, saveCalcParams } from '../core/store.js';
 import { ensureAuthenticated } from '../core/router.js';
 import { renderHeader, renderBottomNav } from '../components/layout.js';
 import {
+    apiFetch,
     getSuggestions,
     generateSuggestions,
     getEvaluations,
@@ -240,16 +241,8 @@ export async function renderSuggestions() {
     window.handleDeleteHistory = async (id) => {
         if (!confirm("¿Borrar esta sugerencia del historial?")) return;
         try {
-            const token = localStorage.getItem('bolusai_token') || localStorage.getItem('token');
-            // Ensure we use the correct relative API path or absolute if needed. 
-            // Better to use the same hostname logic as the rest of the app.
-            // If we are serving from frontend, we likely proxy to backend.
-            const res = await fetch(`/api/suggestions/${id}`, {
-                method: 'DELETE',
-                headers: {
-                    'Authorization': `Bearer ${token}`,
-                    'Content-Type': 'application/json'
-                }
+            const res = await apiFetch(`/api/suggestions/${id}`, {
+                method: 'DELETE'
             });
 
             if (res.ok) {

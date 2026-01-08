@@ -1,40 +1,23 @@
+import { createApiFetch } from "./apiClientCore";
+
 function normalizeBaseUrl(value?: string | null) {
   return value ? String(value).replace(/\/$/, "") : null;
 }
 
-function guessRenderBackendBase(locationLike?: Location) {
-  if (!locationLike) return null;
-  const host = locationLike.hostname || "";
-
-  // Render has the frontend and backend on separate hosts.
-  // If we are on the public frontend host, force the backend host to avoid hitting the static server.
-  if (host === "bolus-ai.onrender.com") {
-    return "https://bolus-ai-1.onrender.com";
-  }
-
-  // Generic Render fallback: if we are on any other Render frontend but not the backend host, prefer the backend.
-  if (host.endsWith(".onrender.com") && !host.includes("bolus-ai-1")) {
-    return "https://bolus-ai-1.onrender.com";
-  }
-
-  return null;
-}
+const DEFAULT_API_BASE = "/api";
 
 export function getApiBase() {
   const envBase =
-    normalizeBaseUrl(import.meta.env.VITE_API_BASE_URL) ||
-    normalizeBaseUrl(import.meta.env.VITE_API_URL);
+    normalizeBaseUrl(import.meta.env?.VITE_API_BASE_URL) ||
+    normalizeBaseUrl(import.meta.env?.VITE_API_URL);
   if (envBase) return envBase;
 
-  const win = typeof window !== "undefined" ? window : undefined;
-  const renderBase = guessRenderBackendBase(win?.location);
-  if (renderBase) return renderBase;
-
-  return normalizeBaseUrl(win?.location?.origin) || "";
+  return DEFAULT_API_BASE;
 }
 
 const API_BASE = getApiBase();
-const TOKEN_KEY = "bolusai_token";
+const TOKEN_KEY = "auth_token";
+const LEGACY_TOKEN_KEYS = ["bolusai_token", "token"];
 const USER_KEY = "bolusai_user";
 const NS_STORAGE_KEY = "bolusai_ns_config"; // Legacy (localStorage)
 const NS_SESSION_KEY = "bolusai_ns_config_session";
@@ -95,7 +78,17 @@ export async function migrateNsSecretToBackend() {
 // ... rest of the file ... (I'll copy existing)
 
 export function getStoredToken() {
-  return localStorage.getItem(TOKEN_KEY);
+  const existing = localStorage.getItem(TOKEN_KEY);
+  if (existing) return existing;
+  for (const legacyKey of LEGACY_TOKEN_KEYS) {
+    const legacyToken = localStorage.getItem(legacyKey);
+    if (legacyToken) {
+      localStorage.setItem(TOKEN_KEY, legacyToken);
+      localStorage.removeItem(legacyKey);
+      return legacyToken;
+    }
+  }
+  return null;
 }
 
 export function getStoredUser() {
@@ -133,56 +126,42 @@ interface ApiOptions extends RequestInit {
   headers?: Record<string, string>;
 }
 
-export async function apiFetch(path: string, options: ApiOptions = {}) {
-  const headers: Record<string, string> = { Accept: "application/json", ...(options.headers || {}) };
-  if (options.body && !headers["Content-Type"]) {
-    // Only set JSON if not FormData (FormData usually handled by browser or specific heuristic)
-    // But here we rely on caller to NOT set content-type for FormData.
-    // If body is string, it's JSON.
-    if (typeof options.body === 'string') {
-      headers["Content-Type"] = "application/json";
-    }
-  }
+const PUBLIC_ENDPOINTS = ["/api/auth/login"];
 
-  const token = getStoredToken();
-  const hadToken = Boolean(token); // Track if we had a token at request time
-  if (token) {
-    headers.Authorization = `Bearer ${token}`;
-  }
-
-  let response;
-  try {
-    const fetchUrl = new URL(path, API_BASE || window.location.origin);
-    response = await fetch(fetchUrl, {
-      ...options,
-      headers,
-    });
-  } catch (error) {
-    console.error("Fetch Error:", error);
-    if (error instanceof TypeError && (error.message.includes("fetch") || error.message.includes("network") || error.message.includes("Network"))) {
-      throw new Error("No se pudo conectar con el servidor (Offline o bloqueado). Verifique su conexión.");
-    }
-    throw new Error("Error de conexión: " + error.message);
-  }
-
-  if (response.status === 401) {
-    // Only clear session and trigger handler if this request had a token attached.
-    // This prevents race conditions where old requests without tokens (made before login)
-    // clear the newly saved session token.
-    if (hadToken) {
-      clearSession();
-      if (unauthorizedHandler) unauthorizedHandler();
-    }
-    // Always throw consistent error message to avoid breaking UI handlers
-    throw new Error("Sesión caducada. Vuelve a iniciar sesión.");
-  }
-
-  if (response.status === 0) {
-    throw new Error("Error de red desconocido (Posible CORS o servidor caído).");
-  }
-
-  return response;
+function isPublicEndpoint(path: string) {
+  return PUBLIC_ENDPOINTS.some((endpoint) => path.startsWith(endpoint));
 }
+
+function notifyAuthLogout(reason: string) {
+  if (typeof window !== "undefined" && typeof window.dispatchEvent === "function") {
+    try {
+      window.dispatchEvent(new CustomEvent("auth:logout", { detail: { reason } }));
+    } catch (error) {
+      console.warn("Failed to dispatch auth:logout event", error);
+    }
+  }
+  if (unauthorizedHandler) unauthorizedHandler();
+}
+
+export function resolveApiUrl(path: string) {
+  if (path.startsWith("http://") || path.startsWith("https://")) return path;
+  const base = API_BASE || "";
+  if (typeof window === "undefined") return path;
+  if (!base) return new URL(path, window.location.origin).toString();
+  const baseUrl = base.startsWith("http") ? base : new URL(base, window.location.origin).toString();
+  return new URL(path, baseUrl).toString();
+}
+
+export const apiFetch = createApiFetch({
+  fetchImpl: fetch,
+  getToken: () => getStoredToken(),
+  clearToken: () => clearSession(),
+  onLogout: () => notifyAuthLogout("unauthorized"),
+  resolveUrl: resolveApiUrl,
+  isPublicEndpoint,
+  isDev: Boolean(import.meta.env?.DEV),
+  onMissingToken: () => notifyAuthLogout("missing_token"),
+});
 
 export async function loginRequest(username, password) {
   const response = await apiFetch("/api/auth/login", {
@@ -192,6 +171,9 @@ export async function loginRequest(username, password) {
   const data = await toJson(response);
   if (!response.ok) {
     throw new Error(data.detail || "Credenciales inválidas");
+  }
+  if (!data.access_token) {
+    throw new Error("Respuesta de login inválida (sin access_token).");
   }
   saveSession(data.access_token, data.user);
   return data;
@@ -255,6 +237,9 @@ export async function calculateBolus(payload) {
 }
 
 export async function fetchHealth() {
+  if (!getStoredToken()) {
+    throw new Error("Sesión caducada. Vuelve a iniciar sesión.");
+  }
   const response = await apiFetch("/api/health/full");
   const data = await toJson(response);
   if (!response.ok) {
@@ -403,7 +388,7 @@ export async function estimateCarbsFromImage(file: File, options: VisionOptions 
   const headers: Record<string, string> = { Accept: "application/json" };
   if (token) headers.Authorization = `Bearer ${token}`;
 
-  const response = await fetch(new URL("/api/vision/estimate", API_BASE || window.location.origin), {
+  const response = await fetch(resolveApiUrl("/api/vision/estimate"), {
     method: "POST",
     headers,
     body: formData,
@@ -555,7 +540,7 @@ export function logout() {
   } catch (e) {
     console.warn("NS session cleanup failed", e);
   }
-  if (unauthorizedHandler) unauthorizedHandler();
+  notifyAuthLogout("logout");
 }
 
 export async function createBasalEntry(payload) {
