@@ -447,11 +447,6 @@ async def ingest_nutrition(
                     logger.warning(f"Date parse soft-fail: {ts_str} -> {e}. Using NOW.")
                     item_ts = datetime.now(timezone.utc)
                     force_now = True
-                        
-                except Exception as e:
-                    logger.warning(f"Date parse soft-fail: {ts_str} -> {e}. Using NOW.")
-                    item_ts = datetime.now(timezone.utc)
-                    force_now = True
 
                 # 0. STRICT DEDUP CHECK (History-based)
                 # Check if we have already imported this specific external timestamp/ID.
