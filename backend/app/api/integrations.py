@@ -463,6 +463,10 @@ async def ingest_nutrition(
                         logger.info(f"Snapping future import time {ts_str} to NOW.")
                         item_ts = now_utc
                         force_now = True
+                    elif 1800 < diff < 14400: # Between 30m and 4h old
+                        logger.info(f"Snapping delayed/offset import time {ts_str} to NOW (Diff: {diff:.0f}s).")
+                        item_ts = now_utc
+                        force_now = True
                         
                 except Exception as e:
                     logger.warning(f"Date parse soft-fail: {ts_str} -> {e}. Using NOW.")
