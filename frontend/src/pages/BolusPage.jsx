@@ -1263,7 +1263,7 @@ export default function BolusPage() {
                     <ResultView
                         result={result}
                         slot={slot} // Pass slot for fallback
-                        settings={settings}
+                        settings={getCalcParams()}
                         usedParams={calcUsedParams}
                         onBack={() => {
                             setResult(null);
