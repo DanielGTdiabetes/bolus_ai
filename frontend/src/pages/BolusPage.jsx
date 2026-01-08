@@ -312,7 +312,7 @@ export default function BolusPage() {
                         carb_absorption_minutes: 180
                     },
                     events: {
-                        boluses: [], 
+                        boluses: [],
                         carbs: currentCarbs > 0 ? [{
                             time_offset_min: 0,
                             grams: currentCarbs,
@@ -1263,6 +1263,7 @@ export default function BolusPage() {
                     <ResultView
                         result={result}
                         slot={slot} // Pass slot for fallback
+                        settings={settings}
                         usedParams={calcUsedParams}
                         onBack={() => {
                             setResult(null);
@@ -1292,7 +1293,7 @@ export default function BolusPage() {
     );
 }
 
-function ResultView({ result, slot, usedParams, onBack, onSave, saving, currentCarbs, foodName, favorites, onFavoriteAdded, alcoholEnabled, onApplyAutosens, carbProfile, nsConfig }) {
+function ResultView({ result, slot, settings, usedParams, onBack, onSave, saving, currentCarbs, foodName, favorites, onFavoriteAdded, alcoholEnabled, onApplyAutosens, carbProfile, nsConfig }) {
     // Local state for edit before confirm
     const [finalDose, setFinalDose] = useState(result.upfront_u);
     const [injectionSite, setInjectionSite] = useState(null);
@@ -1446,7 +1447,8 @@ function ResultView({ result, slot, usedParams, onBack, onSave, saving, currentC
                     icr: icr,
                     dia_minutes: dia * 60,
                     insulin_peak_minutes: peak,
-                    carb_absorption_minutes: 150, // TUNED: Faster absorption (2.5h) to match Fiasp/Novo better and avoid fake dips
+                    // Use configured absorption for this slot if available, else default to 180
+                    carb_absorption_minutes: (settings?.absorption?.[slot] || 180),
                     insulin_model: insulinModel
                 },
                 events: events
