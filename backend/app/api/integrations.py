@@ -336,6 +336,8 @@ async def ingest_nutrition(
                 
         # Re-implementing the loop properly here to replace the broken block
         saved_ids = []
+        latest_draft = None
+        latest_draft_action = None
         
         if session:
             from app.models.treatment import Treatment
@@ -453,22 +455,9 @@ async def ingest_nutrition(
                         username, t_carbs, t_fat, t_protein, t_fiber, session
                     )
                     
-                    # Notify Bot
-                    try:
-                        from app.bot.service import on_draft_updated
-                        await on_draft_updated(username, draft, action)
-                    except ImportError:
-                        pass # Bot svc might not be fully ready or cyclic import
-                    except Exception as e:
-                        logger.error(f"Bot draft notify failed: {e}")
-                        
-                    # Explicit Early Return - Draft Handled
-                    return {
-                        "success": 1, 
-                        "message": f"Draft {action}", 
-                        "draft_status": draft.status,
-                        "ids": [f"draft_{username}"]
-                    }
+                    latest_draft = draft
+                    latest_draft_action = action
+                    continue
                 # DRAFT LOGIC END
 
                 if existing_strict:
@@ -559,35 +548,28 @@ async def ingest_nutrition(
                 
             await session.commit()
             
+            if latest_draft:
+                 try:
+                    from app.bot.service import on_draft_updated
+                    await on_draft_updated(username, latest_draft, latest_draft_action)
+                 except Exception as e:
+                    logger.error(f"Bot draft notify failed: {e}")
+                 
+                 return {
+                    "success": 1, 
+                    "message": f"Draft Updated (Buffered)", 
+                    "draft_status": latest_draft.status,
+                    "ids": [f"draft_{username}"]
+                 }
+
             if saved_ids:
                 logger.info(f"Ingested {len(saved_ids)} new meals from export.")
                 
-                # Trigger Bot Notification for the NEWEST meal (first one we saved)
-                # We iterate sorted_keys (newest first), so the first saved_id corresponds to the first successful iteration.
-                # However, we didn't track which carbs corresponded to which saved ID easily in the list above without a map.
-                # Simplified: Just grab the carbs from the FIRST iteration that worked.
-                # Actually, let's just use the loop values.
-                
-                # We need to re-find the carb amount for the newest saved meal. 
-                # Since we want to be fast and this is a async hook:
                 try:
                     from app.bot.service import on_new_meal_received
-                    # Finding the carb amount of the "primary" meal we just saved
-                    # We saved distinct meals. Let's notify the largest/newest? 
-                    # Let's just notify the very first one we saved (newest).
-                    
-                    # Re-loop to find what we saved? No, that's inefficient.
-                    # Better: Capture it inside the loop.
-                    # But since I can't edit the loop easily without a huge block...
-                    # I will assume the payload was singular or we just query the DB for the ID we just saved.
-                    
-                    # Or simpler:
                     first_id = saved_ids[0]
-                    # Fetch from session since it's in identity map
                     t_obj = await session.get(Treatment, first_id)
                     if t_obj and t_obj.carbs > 0:
-                        # Fire and forget (task)? or await? 
-                        # Await is fine, it shouldn't take too long.
                         await on_new_meal_received(t_obj.carbs, t_obj.fat or 0.0, t_obj.protein or 0.0, t_obj.fiber or 0.0, f"Importado ({username})", origin_id=first_id)
                         
                 except Exception as e:

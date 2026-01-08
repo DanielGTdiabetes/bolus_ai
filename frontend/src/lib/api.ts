@@ -956,3 +956,13 @@ export async function discardNutritionDraft() {
   if (!response.ok) throw new Error(data.detail || "Error descartando draft");
   return data;
 }
+
+export async function updateNutritionDraft(id, carbs) {
+    const response = await apiFetch(`/api/integrations/nutrition/draft/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ carbs })
+    });
+    const data = await toJson(response);
+    if (!response.ok) throw new Error(data.detail || "Error actualizando draft");
+    return data;
+}

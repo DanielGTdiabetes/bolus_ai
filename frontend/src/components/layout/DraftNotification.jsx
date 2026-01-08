@@ -1,7 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { getNutritionDraft, closeNutritionDraft, discardNutritionDraft, isAuthenticated } from '../../lib/api';
+import { getNutritionDraft, closeNutritionDraft, discardNutritionDraft, updateNutritionDraft, isAuthenticated } from '../../lib/api';
 import { Button } from '../ui/Atoms';
 import { showToast } from '../ui/Toast';
+import { Edit2, Check, X } from 'lucide-react';
 
 const LAST_SEEN_DRAFT_KEY = 'bolusai_last_seen_draft_v2';
 
@@ -26,6 +27,8 @@ export function DraftNotification() {
     const [currentDraft, setCurrentDraft] = useState(null);
     const [showModal, setShowModal] = useState(false);
     const [isVisible, setIsVisible] = useState(() => document.visibilityState === 'visible');
+    const [isEditing, setIsEditing] = useState(false);
+    const [editCarbs, setEditCarbs] = useState("");
     const lastSeenRef = useRef(safeStorageGet(LAST_SEEN_DRAFT_KEY));
 
     const markSeen = (draft) => {
@@ -36,7 +39,6 @@ export function DraftNotification() {
     };
 
     const pollDraft = async () => {
-        // Don't poll if user is not authenticated - prevents infinite 401 loop
         if (!isAuthenticated()) {
             return;
         }
@@ -45,6 +47,10 @@ export function DraftNotification() {
 
             if (payload?.active && payload?.draft?.id) {
                 const nextDraft = payload.draft;
+
+                // If ID is same but carbs changed, notify again?
+                // The key includes updated_at, so yes, it will show modal if time changed.
+
                 setCurrentDraft(nextDraft);
 
                 const currentKey = `${nextDraft.id}|${nextDraft.updated_at}`;
@@ -71,6 +77,7 @@ export function DraftNotification() {
         const handleLogout = () => {
             setCurrentDraft(null);
             setShowModal(false);
+            setIsEditing(false);
         };
 
         document.addEventListener('visibilitychange', handleVisibility);
@@ -80,10 +87,15 @@ export function DraftNotification() {
         if (isAuthenticated()) {
             pollDraft();
         }
+        const interval = setInterval(() => {
+            if (document.visibilityState === 'visible' && isAuthenticated()) pollDraft();
+        }, 30000); // Poll every 30s to catch mobile ingest updates
+
         return () => {
             document.removeEventListener('visibilitychange', handleVisibility);
             window.removeEventListener('hashchange', handleHashChange);
             window.removeEventListener('auth:logout', handleLogout);
+            clearInterval(interval);
         };
     }, []);
 
@@ -98,6 +110,7 @@ export function DraftNotification() {
             markSeen(currentDraft);
         }
         setShowModal(false);
+        setIsEditing(false);
     };
 
     const handleConfirm = async () => {
@@ -126,6 +139,35 @@ export function DraftNotification() {
         }
     };
 
+    const startEditing = () => {
+        setEditCarbs(String(Math.round(currentDraft?.carbs || 0)));
+        setIsEditing(true);
+    };
+
+    const saveEdit = async () => {
+        if (!currentDraft?.id) return;
+        const val = parseFloat(editCarbs);
+        if (isNaN(val) || val < 0) {
+            showToast("Introduce un valor válido", "error");
+            return;
+        }
+
+        try {
+            await updateNutritionDraft(currentDraft.id, val);
+            // Updating will trigger poll next time or we can update local state
+            // But better to wait for poll or just Optimistic update
+            setCurrentDraft({ ...currentDraft, carbs: val, updated_at: new Date().toISOString() });
+            setIsEditing(false);
+            showToast("Carbohidratos actualizados", "success");
+
+            // Should we force re-poll?
+            setTimeout(pollDraft, 500);
+
+        } catch (error) {
+            showToast(error.message || "Error guardando cambios", "error");
+        }
+    };
+
     if (!showModal || !currentDraft) return null;
 
     const macros = {
@@ -147,24 +189,44 @@ export function DraftNotification() {
                 <div className="draft-modal-body">
                     <p>Se detectó un borrador activo con los siguientes macros:</p>
                     <div className="draft-modal-macros">
-                        <div>
-                            <strong>{Math.round(macros.carbs)}g</strong>
+                        <div className="draft-macro-col">
+                            {isEditing ? (
+                                <div className="flex items-center gap-1">
+                                    <input
+                                        type="number"
+                                        className="w-16 p-1 border rounded text-center text-black"
+                                        value={editCarbs}
+                                        onChange={(e) => setEditCarbs(e.target.value)}
+                                        autoFocus
+                                    />
+                                    <div className="flex flex-col gap-1">
+                                        <button onClick={saveEdit} className="p-1 bg-green-500 text-white rounded hover:bg-green-600"><Check size={12} /></button>
+                                        <button onClick={() => setIsEditing(false)} className="p-1 bg-gray-400 text-white rounded hover:bg-gray-500"><X size={12} /></button>
+                                    </div>
+                                </div>
+                            ) : (
+                                <div className="flex items-center gap-2">
+                                    <strong>{Math.round(macros.carbs)}g</strong>
+                                    <button onClick={startEditing} className="text-gray-400 hover:text-blue-500" title="Editar Canrbohidratos">
+                                        <Edit2 size={14} />
+                                    </button>
+                                </div>
+                            )}
                             <span>Carbs</span>
                         </div>
-                        <div>
+                        <div className="draft-macro-col">
                             <strong>{Math.round(macros.fat)}g</strong>
                             <span>Grasa</span>
                         </div>
-                        <div>
+                        <div className="draft-macro-col">
                             <strong>{Math.round(macros.protein)}g</strong>
                             <span>Prot</span>
                         </div>
-                        <div>
+                        <div className="draft-macro-col">
                             <strong>{Math.round(macros.fiber)}g</strong>
                             <span>Fibra</span>
                         </div>
                     </div>
-                    <p className="draft-modal-note">El totalizador solo considera tratamientos confirmados.</p>
                 </div>
                 <div className="draft-modal-actions">
                     <Button onClick={handleDiscard} variant="ghost">
