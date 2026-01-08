@@ -11,7 +11,7 @@ import {
     getNightscoutSecretStatus, saveNightscoutSecret, testNightscout,
     fetchHealth, exportUserData, importUserData, fetchAutosens,
     getSettings, updateSettings, getLearningLogs, testDexcom,
-    fetchIngestLogs
+    fetchIngestLogs, getNutritionDraft, discardNutritionDraft
 } from '../lib/api';
 import { IsfAnalyzer } from '../components/settings/IsfAnalyzer';
 
@@ -1961,16 +1961,32 @@ function IngestLogsPanel() {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
 
+    const [draft, setDraft] = useState(null);
+
     const load = async () => {
         setLoading(true);
         setError(null);
         try {
-            const data = await fetchIngestLogs();
-            setLogs(data);
+            const [logsData, draftData] = await Promise.all([
+                fetchIngestLogs(),
+                getNutritionDraft().catch(e => ({ active: false }))
+            ]);
+            setLogs(logsData);
+            setDraft(draftData.active ? draftData.draft : null);
         } catch (e) {
             setError(e.message);
         } finally {
             setLoading(false);
+        }
+    };
+
+    const handleDiscardDraft = async () => {
+        if (!confirm("¿Descartar borrador actual?")) return;
+        try {
+            await discardNutritionDraft();
+            await load();
+        } catch (e) {
+            alert(e.message);
         }
     };
 
@@ -1997,17 +2013,60 @@ function IngestLogsPanel() {
                 Útil para depurar por qué no aparecen las comidas.
             </p>
 
-            {error && (
-                <div style={{ padding: '1rem', background: '#fee2e2', color: '#b91c1c', borderRadius: '8px' }}>
-                    Error: {error}
+            {draft && (
+                <div className="fade-in" style={{
+                    border: '2px solid #3b82f6',
+                    borderRadius: '8px',
+                    padding: '1rem',
+                    background: '#eff6ff',
+                    marginBottom: '1rem'
+                }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <h4 style={{ margin: 0, color: '#1e3a8a' }}>Borrador Activo</h4>
+                        <Button variant="danger" style={{ padding: '0.3rem 0.6rem', fontSize: '0.8rem' }} onClick={handleDiscardDraft}>
+                            🗑️ Descartar
+                        </Button>
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.5rem', marginTop: '0.8rem', textAlign: 'center' }}>
+                        <div style={{ background: '#fff', padding: '0.5rem', borderRadius: '6px' }}>
+                            <div style={{ fontSize: '0.75rem', color: '#64748b' }}>Carbs</div>
+                            <div style={{ fontWeight: 'bold', fontSize: '1.2rem', color: '#3b82f6' }}>{draft.carbs}</div>
+                        </div>
+                        <div style={{ background: '#fff', padding: '0.5rem', borderRadius: '6px' }}>
+                            <div style={{ fontSize: '0.75rem', color: '#64748b' }}>Grasas</div>
+                            <div style={{ fontWeight: 'bold', fontSize: '1.2rem', color: '#f59e0b' }}>{draft.fat}</div>
+                        </div>
+                        <div style={{ background: '#fff', padding: '0.5rem', borderRadius: '6px' }}>
+                            <div style={{ fontSize: '0.75rem', color: '#64748b' }}>Prot</div>
+                            <div style={{ fontWeight: 'bold', fontSize: '1.2rem', color: '#ef4444' }}>{draft.protein}</div>
+                        </div>
+                        <div style={{ background: '#fff', padding: '0.5rem', borderRadius: '6px' }}>
+                            <div style={{ fontSize: '0.75rem', color: '#64748b' }}>Fibra</div>
+                            <div style={{ fontWeight: 'bold', fontSize: '1.2rem', color: '#10b981' }}>{draft.fiber}</div>
+                        </div>
+                    </div>
+                    <div style={{ fontSize: '0.75rem', color: '#60a5fa', marginTop: '0.5rem', textAlign: 'right' }}>
+                        ID: {draft.id.substring(0, 8)}...
+                    </div>
                 </div>
-            )}
+            )
+            }
 
-            {!loading && logs.length === 0 && (
-                <div style={{ padding: '2rem', textAlign: 'center', color: '#64748b' }}>
-                    No hay registros disponibles.
-                </div>
-            )}
+            {
+                error && (
+                    <div style={{ padding: '1rem', background: '#fee2e2', color: '#b91c1c', borderRadius: '8px' }}>
+                        Error: {error}
+                    </div>
+                )
+            }
+
+            {
+                !loading && logs.length === 0 && (
+                    <div style={{ padding: '2rem', textAlign: 'center', color: '#64748b' }}>
+                        No hay registros disponibles.
+                    </div>
+                )
+            }
 
             <div className="stack" style={{ gap: '1rem' }}>
                 {logs.map((log, i) => (
