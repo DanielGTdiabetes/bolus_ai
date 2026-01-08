@@ -2147,13 +2147,13 @@ async def _handle_snapshot_callback(query, data: str) -> None:
                          img_bytes.name = f"inj_{safe_label}_{uuid.uuid4().hex[:6]}.png"
                          
                          # Use query.get_bot() since 'context' is not available in this helper scope
-                         await query.get_bot().send_photo(chat_id=query.effective_chat.id, photo=img_bytes)
+                         await query.get_bot().send_photo(chat_id=query.message.chat_id, photo=img_bytes)
                      else:
                          # Fallback to static
                          img_path = base_dir / site["image"]
                          logger.info(f"Fallback to static image: {img_path}")
                          if img_path.exists():
-                              await query.get_bot().send_photo(chat_id=query.effective_chat.id, photo=open(img_path, "rb"))
+                              await query.get_bot().send_photo(chat_id=query.message.chat_id, photo=open(img_path, "rb"))
                          else:
                               logger.error(f"Static image not found: {img_path}")
 
