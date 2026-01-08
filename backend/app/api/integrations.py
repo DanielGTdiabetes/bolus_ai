@@ -495,7 +495,7 @@ async def ingest_nutrition(
 
                 if force_now:
                     is_recent_draft_candidate = True
-                elif 0 <= age_seconds < 3600: # Widen to 60 min to be safe
+                elif 0 <= age_seconds < 21600: # Widen to 6 hours (allow delayed logging/imports to hit draft)
                     is_recent_draft_candidate = True
                 else:
                     # Fallback: Sticky Draft
