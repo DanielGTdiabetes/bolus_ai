@@ -2,7 +2,7 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { ToastContainer } from './components/ui/Toast';
 import { RESTAURANT_MODE_ENABLED } from './lib/featureFlags';
-import { DraftNotification } from './components/layout/DraftNotification';
+
 import { ErrorBoundary } from './components/ui/ErrorBoundary';
 
 const PAGE_LOADERS = {
@@ -120,7 +120,7 @@ export async function mountReactPage(pageName, containerId = 'app') {
             <React.StrictMode>
                 <ErrorBoundary onRetry={() => mountReactPage(pageName, containerId)}>
                     <Component />
-                    <DraftNotification />
+
                     <ToastContainer />
                 </ErrorBoundary>
             </React.StrictMode>

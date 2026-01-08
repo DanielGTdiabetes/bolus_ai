@@ -667,69 +667,7 @@ async def _process_text_input_internal(update: Update, context: ContextTypes.DEF
             await reply_text(update, context, "❌ Error procesando favorito.")
         return
 
-    # 0. Intercept Draft Edit
-    editing_draft_id = context.user_data.get("editing_draft_id")
-    if editing_draft_id:
-        try:
-            new_carbs = float(text.replace(",", "."))
-            del context.user_data["editing_draft_id"]
-            
-            # Update Draft in DB
-            from app.services.nutrition_draft_service import NutritionDraftService
-            try:
-                username = update.effective_user.username or "admin"
-                async with SessionLocal() as session:
-                    # We need a method to overwrite carbs.
-                    # update_draft is additive. We need a "set" method or just overwrite manually.
-                    # Let's do manual overwrite for simplicity here.
-                    from app.models.draft_db import NutritionDraftDB
-                    from sqlalchemy import select, update as sql_update
-                    
-                    # Update
-                    stmt = (
-                        sql_update(NutritionDraftDB)
-                        .where(NutritionDraftDB.id == editing_draft_id)
-                        .values(carbs=new_carbs, updated_at=datetime.now(timezone.utc))
-                    )
-                    await session.execute(stmt)
-                    await session.commit()
-                    
-                    # Fetch updated
-                    stmt_get = select(NutritionDraftDB).where(NutritionDraftDB.id == editing_draft_id)
-                    res = await session.execute(stmt_get)
-                    updated_db = res.scalars().first()
-                    
-                    if updated_db:
-                         # Notify again (Refresh view)
-                         draft_obj = await NutritionDraftService.get_draft(username, session) # Helper
-                         # Actually get_draft might return None if expired, but we just updated it.
-                         # Let's convert manually or re-fetch properly.
-                         # Just triggering on_draft_updated is easiest.
-                         from app.models.draft import NutritionDraft
-                         d_pydantic = NutritionDraft(
-                            id=updated_db.id,
-                            user_id=updated_db.user_id,
-                            carbs=updated_db.carbs,
-                            fat=updated_db.fat,
-                            protein=updated_db.protein,
-                            fiber=updated_db.fiber,
-                            created_at=updated_db.created_at,
-                            updated_at=updated_db.updated_at,
-                            expires_at=updated_db.expires_at,
-                            status=updated_db.status,
-                            last_hash=updated_db.last_hash
-                         )
-                         await on_draft_updated(username, d_pydantic, "updated_replace")
-                    
-            except Exception as e:
-                logger.error(f"Failed to update draft DB: {e}")
-                await reply_text(update, context, "❌ Error al actualizar borrador.")
-                
-            return
-        except ValueError:
-             await reply_text(update, context, "⚠️ Por favor, introduce un número válido para los hidratos.")
-             # Keep state
-             return
+
 
     if cmd in ["status", "estado"]:
         res = await tools.execute_tool("get_status_context", {})
@@ -1675,90 +1613,6 @@ async def _mark_update_handler(update: Update, context: ContextTypes.DEFAULT_TYP
 
 DRAFT_MSG_CACHE: Dict[int, int] = {}
 
-async def on_draft_updated(username: str, draft: Any, action: str) -> None:
-    """
-    Notifies user about an active draft update.
-    """
-    global _bot_app
-    if not _bot_app: return
-
-    # Resolve Chat ID
-    # Priority: 
-    # 1. Configured allowed ID (security)
-    # 2. Look up in settings (if we had a map)
-    # For now, default to single-user admin ID
-    chat_id = config.get_allowed_telegram_user_id()
-    
-    if not chat_id:
-        return
-
-    macros_txt = draft.total_macros()
-    # Map action to user friendly
-    action_map = {
-        "updated_add": "AÑADIDO",
-        "updated_replace": "CORREGIDO",
-        "created": "CREADO"
-    }
-    action_str = action_map.get(action, action.upper()).replace("_", " ")
-    
-    # Add timestamp to force content change (avoid MessageNotModified)
-    from app.utils.timezone import to_local
-    now_str = to_local(datetime.now(timezone.utc)).strftime("%H:%M:%S")
-    msg_txt = f"📝 **Comida en curso** ({now_str})\n\nActualizado: `{macros_txt}`\nEstado: **{action_str}**\n\nSigo esperando más datos..."
-    
-    # Inline Button to Close directly
-    kb = [
-        [
-            InlineKeyboardButton("✅ Confirmar Ahora", callback_data=f"draft_confirm|{username}|{draft.id}"),
-            InlineKeyboardButton("✏️ Editar", callback_data=f"draft_edit|{username}|{draft.id}")
-        ],
-        [
-            InlineKeyboardButton("❌ Descartar", callback_data=f"draft_discard|{username}|{draft.id}")
-        ]
-    ]
-    
-    markup = InlineKeyboardMarkup(kb)
-    sent_msg = None
-    
-    # Try Edit Existing
-    last_msg_id = DRAFT_MSG_CACHE.get(chat_id)
-    if last_msg_id:
-        try:
-            # Use bot.edit_message_text directly (not via wrapper which expects CallbackQuery)
-            await _bot_app.bot.edit_message_text(
-                chat_id=chat_id,
-                message_id=last_msg_id,
-                text=msg_txt,
-                reply_markup=markup,
-                parse_mode="Markdown"
-            )
-            logger.info(f"Draft message edited successfully (msg_id={last_msg_id})")
-            return # Edited successfully
-        except BadRequest as e:
-            if "Message is not modified" in str(e):
-                logger.info("Draft edit skipped (content identical)")
-                return
-            # If error (message deleted, too old), fall back to send new
-            logger.info(f"Draft edit failed ({e}), sending new.")
-            DRAFT_MSG_CACHE.pop(chat_id, None)
-        except Exception as e:
-            logger.info(f"Draft edit failed ({e}), sending new.")
-            DRAFT_MSG_CACHE.pop(chat_id, None)
-
-    # Send New
-    try:
-        sent_msg = await bot_send(
-            chat_id=chat_id,
-            text=msg_txt,
-            bot=_bot_app.bot,
-            reply_markup=markup,
-            log_context="draft_update",
-            parse_mode="Markdown"
-        )
-        if sent_msg:
-             DRAFT_MSG_CACHE[chat_id] = sent_msg.message_id
-    except Exception as e:
-        logger.error(f"Failed to send draft update: {e}")
 
 async def on_new_meal_received(carbs: float, fat: float, protein: float, fiber: float, source: str, origin_id: Optional[str] = None) -> None:
     """
@@ -1985,8 +1839,11 @@ async def on_new_meal_received(carbs: float, fat: float, protein: float, fiber: 
     keyboard = [
         [
             InlineKeyboardButton(f"✅ Poner {rec_u} U", callback_data=f"accept|{request_id}"),
-            InlineKeyboardButton("✏️ Cantidad", callback_data=f"edit_dose|{rec_u}|{request_id}"),
+            InlineKeyboardButton("✏️ Editar Bolo", callback_data=f"edit_dose|{rec_u}|{request_id}"),
             InlineKeyboardButton("❌ Ignorar", callback_data=f"cancel|{request_id}")
+        ],
+        [
+            InlineKeyboardButton(f"✏️ Editar Macros", callback_data=f"edit_macros|{request_id}")
         ],
         [
             InlineKeyboardButton("🌅 Desayuno", callback_data=f"set_slot|breakfast|{request_id}"),
@@ -2271,125 +2128,6 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     try: await query.answer()
     except: pass
 
-    # --- Draft Confirm ---
-    if data.startswith("draft_confirm|"):
-        try:
-            parts = data.split("|")
-            target_user = parts[1]
-            draft_id = parts[2] if len(parts) > 2 else None
-            from app.services.nutrition_draft_service import NutritionDraftService
-            
-            # Clear Cache for this chat as interaction ends or restarts
-            chat_id = query.message.chat.id
-            DRAFT_MSG_CACHE.pop(chat_id, None)
-
-            async with SessionLocal() as session:
-                 # Close Draft (DB)
-                 treatment, created, draft_closed = await NutritionDraftService.close_draft_to_treatment(
-                     target_user,
-                     session,
-                     draft_id=draft_id,
-                 )
-                 if treatment:
-                     treatment_payload = {
-                         "id": treatment.id,
-                         "carbs": treatment.carbs,
-                         "fat": treatment.fat,
-                         "protein": treatment.protein,
-                         "fiber": treatment.fiber,
-                         "notes": treatment.notes,
-                         "draft_id": treatment.draft_id,
-                     }
-                     if created:
-                         session.add(treatment)
-                     if created or draft_closed:
-                         await session.commit()
-                     logger.info(
-                         "draft_confirmed",
-                         extra={
-                             "draft_id": treatment_payload["draft_id"],
-                             "treatment_id": treatment_payload["id"],
-                             "is_newly_created": created,
-                         },
-                     )
-                     
-                     await edit_message_text_safe(
-                         query,
-                         f"✅ **Borrador Confirmado**\n{treatment_payload['notes']}",
-                     )
-                     
-                     # Handover to standard New Meal flow
-                     if created:
-                        await on_new_meal_received(
-                            treatment_payload["carbs"],
-                            treatment_payload["fat"],
-                            treatment_payload["protein"],
-                            treatment_payload["fiber"],
-                            "draft_confirm",
-                            origin_id=treatment_payload["id"],
-                        )
-                 else:
-                    await edit_message_text_safe(query, "❌ No hay borrador activo o ya expiró.")
-                
-        except Exception as e:
-            logger.error(f"Draft confirm error: {e}")
-            await edit_message_text_safe(query, f"Error al confirmar: {e}")
-        return
-
-    # --- Draft Discard ---
-    if data.startswith("draft_discard|"):
-        try:
-            parts = data.split("|")
-            target_user = parts[1]
-            draft_id = parts[2] if len(parts) > 2 else None
-            from app.services.nutrition_draft_service import NutritionDraftService
-            
-            # Clear Cache
-            chat_id = query.message.chat.id
-            DRAFT_MSG_CACHE.pop(chat_id, None)
-
-            async with SessionLocal() as session:
-                 await NutritionDraftService.discard_draft(target_user, session, draft_id=draft_id)
-                 await session.commit()
-                 await edit_message_text_safe(query, "🗑️ **Borrador Descartado**")
-        except Exception as e:
-            logger.error(f"Draft discard error: {e}")
-            await edit_message_text_safe(query, f"Error al descartar: {e}")
-        return
-
-    # --- Draft Edit ---
-    if data.startswith("draft_edit|"):
-        try:
-            parts = data.split("|")
-            target_user = parts[1]
-            draft_id = parts[2] if len(parts) > 2 else None
-            
-            # Switch to "Manual Calculation" flow which allows editing carbs.
-            # We can treat this as "I want to manually set the treatments carbs".
-            # Or simpler: Ask for new value and update draft.
-            
-            # Since we have "chat_bolus_edit_" flow (Vision/Manual), let's reuse the concept.
-            # But the simplest way for the user is: "Confirm this draft amount or change it?"
-            # If they click edit, we can just say "Send me the new amount".
-            # But handling that state is complex.
-            
-            # Better: Use the `edit_dose` style approach but for CARBS.
-            # Let's prompt usage of /bolo command or simply ask for text.
-            
-            # ACTUALLY: The easiest way to "Edit" is to confirm it but jump to Bolus Calculation screen 
-            # where you can edit the carbs in the confirmation card?
-            # No, user wants to fix the DRAFT value.
-            
-            # Let's prompt for text input (Simple State)
-            context.user_data["editing_draft_id"] = draft_id
-            await edit_message_text_safe(query, 
-                text=f"{query.message.text}\n\n✏️ **Editar Borrador**\nEscribe la cantidad correcta de hidratos (ej. 45):",
-                parse_mode="Markdown"
-            )
-        except Exception as e:
-            logger.error(f"Draft edit error: {e}")
-        return
-
     # --- Autosens Flow ---
     if data.startswith("autosens_confirm|"):
         # autosens_confirm|suggestion_id|new_isf|slot
@@ -2496,6 +2234,31 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         # REMOVED: Early cancel interception that prevented DB cleanup.
         # Flow continues to _handle_snapshot_callback below.
              
+        if data.startswith("edit_macros|"):
+            try:
+                # edit_macros|req_id
+                parts = data.split("|")
+                req_id = parts[1]
+                context.user_data["editing_meal_request"] = req_id
+                
+                # Fetch snapshot for current values display?
+                snap = SNAPSHOT_STORAGE.get(req_id)
+                current_info = ""
+                if snap:
+                     c = snap.get("carbs", 0)
+                     f = snap.get("fat", 0)
+                     p = snap.get("protein", 0)
+                     current_info = f"\n(Actual: C={c} F={f} P={p})"
+
+                await edit_message_text_safe(query, 
+                    text=f"{query.message.text}\n\n✏️ **Editar Nutrientes**{current_info}\nEscribe los nuevos valores en formato: `C F P`\nEjemplo: `50 20 15`",
+                    parse_mode="Markdown"
+                )
+                health.record_action(f"callback:edit_macros:{req_id}", True)
+            except Exception as e:
+                logger.error(f"Edit macros callback error: {e}")
+            return
+
         if data.startswith("edit_dose|"):
             try:
                 # edit_dose|current_u|req_id

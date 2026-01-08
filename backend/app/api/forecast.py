@@ -29,7 +29,7 @@ from app.services.dexcom_client import DexcomClient
 from app.services.store import DataStore
 from pathlib import Path
 from app.services.iob import compute_iob_from_sources, compute_cob_from_sources
-from app.services.nutrition_draft_service import NutritionDraftService
+
 from app.services.night_pattern import (
     LOCAL_TZ,
     NightPatternContext,
@@ -783,10 +783,7 @@ async def get_current_forecast(
     if settings.night_pattern.enabled:
         now_utc = datetime.now(timezone.utc)
         now_local = now_utc.astimezone(LOCAL_TZ)
-        try:
-            draft = await NutritionDraftService.get_draft(username, session)
-        except Exception:
-            draft = None
+        draft = None
 
         meal_recent = False
         bolus_recent = False

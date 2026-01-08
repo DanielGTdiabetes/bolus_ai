@@ -377,8 +377,6 @@ async def ingest_nutrition(
                 
         # Re-implementing the loop properly here to replace the broken block
         saved_ids = []
-        latest_draft = None
-        latest_draft_action = None
         
         if session:
             from app.models.treatment import Treatment
@@ -442,31 +440,12 @@ async def ingest_nutrition(
                             pass
                     
                     # Fallback NOW
-                    if item_ts is None:
-                        item_ts = now_utc
-
-                    # Check divergence
-                    diff = (now_utc - item_ts).total_seconds()
-
-                    # SNAP POLICY
-                    # 1. If date is > 24 hours away (past or future) -> IGNORE (History dump / stale export).
-                    # 2. If date is > 30 mins old but < 24h -> SNAP TO NOW (Timezone fix/Delay).
-                    # 3. If date is "future" (> 5 mins ahead) -> SNAP TO NOW.
-
-                    force_now = False
-
-                    if abs(diff) > 86400: # Older than 24 hours (in past) OR too far in the future
-                        logger.info(f"Skipping meal from {ts_str} (Diff: {abs(diff)/3600:.1f}h). Outside 24h window.")
-                        continue
-
-                    if diff < -300:
-                        logger.info(f"Snapping future import time {ts_str} to NOW.")
-                        item_ts = now_utc
-                        force_now = True
-                    elif 1800 < diff < 14400: # Between 30m and 4h old
-                        logger.info(f"Snapping delayed/offset import time {ts_str} to NOW (Diff: {diff:.0f}s).")
-                        item_ts = now_utc
-                        force_now = True
+                    item_ts = now_utc
+                        
+                except Exception as e:
+                    logger.warning(f"Date parse soft-fail: {ts_str} -> {e}. Using NOW.")
+                    item_ts = datetime.now(timezone.utc)
+                    force_now = True
                         
                 except Exception as e:
                     logger.warning(f"Date parse soft-fail: {ts_str} -> {e}. Using NOW.")
@@ -482,76 +461,7 @@ async def ingest_nutrition(
                 result_strict = await session.execute(stmt_strict)
                 existing_strict = result_strict.scalars().first()
                 
-                # DRAFT LOGIC START
-                # Criteria: Recent (< 45 min) or Future/ForcedNow OR Sticky (Active Draft exists)
-                is_recent_draft_candidate = False
-                
-                # Check for active draft to allow sticky ingestion (e.g. Dessert 1h later)
-                # This prevents creating a separate treatment if the user is still building the meal.
-                from app.services.nutrition_draft_service import NutritionDraftService
-                # We need to act carefully to not query DB in loop excessively if not needed,
-                # but for 5 items it's negligible.
-                # Ideally we fetch active_draft once outside loop.
-                # But let's do it here for safety.
-                # Or better: check window first.
-                
-                age_seconds = (now_utc - item_ts).total_seconds()
 
-                if force_now:
-                    is_recent_draft_candidate = True
-                elif 0 <= age_seconds < 21600: # Widen to 6 hours (allow delayed logging/imports to hit draft)
-                    is_recent_draft_candidate = True
-                else:
-                    # Fallback: Sticky Draft
-                    # Use a fresh check or rely on cached checking if we want performance.
-                    # Since we are in a loop, let's try to be efficient but safe.
-                    # Verify if we have an active draft for this user.
-                    
-                    # We need to reuse the session-bound service or query directly.
-                    # Since we are inside a loop, let's do a quick direct check or use the service.
-                    from app.services.nutrition_draft_service import NutritionDraftService
-                    active_draft = await NutritionDraftService.get_draft(username, session)
-                    
-                    if active_draft:
-                         # Relaxed check: logic says if we have an active draft, we probably want to attach to it
-                         # unless the new data is ridiculously old (yesterday).
-                         # 12-hour window seems safe for "same day corrections".
-                         
-                         d_start = active_draft.created_at
-                         if d_start.tzinfo is None: d_start = d_start.replace(tzinfo=timezone.utc)
-                         
-                         diff_vs_draft = (item_ts - d_start).total_seconds()
-                         
-                         # If item is not heavily in the past relative to draft (-2h)
-                         # And absolute age is reasonable (< 12h)
-                         if diff_vs_draft > -7200 and abs(age_seconds) < 43200:
-                             is_recent_draft_candidate = True
-                             logger.info(f"Sticky Draft Match: Item {ts_str} merged into active draft {active_draft.id}")
-
-                if is_recent_draft_candidate:
-                    logger.info(f"Routing meal to Draft (Carbs={t_carbs}, Recency={force_now or age_seconds})")
-                    from app.services.nutrition_draft_service import NutritionDraftService
-                    # Pass session now
-                    draft, action = await NutritionDraftService.update_draft(
-                        username, t_carbs, t_fat, t_protein, t_fiber, session,
-                        dedup_id=date_key
-                    )
-                    
-                    if action != "skipped_duplicate":
-                        latest_draft = draft
-                        latest_draft_action = action
-                    else:
-                        logger.info(f"Draft skipped duplicate: {date_key}")
-                        if latest_draft is None:
-                             # Keep reference to draft but denote no action if you want, 
-                             # but strictly we only want to notify if something changed.
-                             # If we have [A (new), B (dup)], A sets latest_draft. B has info logic.
-                             # If we have [A (dup)], latest_draft stays None?
-                             # Let's set it to allow return "Active Draft" info, but handle notification logic later.
-                             pass
-                             
-                    continue
-                # DRAFT LOGIC END
 
                 if existing_strict:
                      # Check for ANY meaningful change (Correction/Edit in Source)
@@ -582,30 +492,33 @@ async def ingest_nutrition(
                          prot_diff = t_protein - (existing_strict.protein or 0)
                          
                          if is_old_item and (carb_diff > 4.0 or fat_diff > 4.0 or prot_diff > 8.0):
-                             logger.info(f"Detected merged meal on old item {date_key}. Extracting delta C:{carb_diff:.1f} F:{fat_diff:.1f} P:{prot_diff:.1f} to Draft.")
+                             logger.info(f"Detected merged meal on old item {date_key}. Extracting delta C:{carb_diff:.1f} F:{fat_diff:.1f} P:{prot_diff:.1f} to New Treatment.")
                              
-                             # Create Draft with the DELTA
-                             from app.services.nutrition_draft_service import NutritionDraftService
-                             
+                             # Create Treatment with the DELTA
+                             ext_tid = str(uuid.uuid4())
                              delta_fiber = max(0, (incoming_fiber or 0) - (existing_strict.fiber or 0))
                              
-                             # We use the absolute delta values for the new draft
-                             draft, action = await NutritionDraftService.update_draft(
-                                 username, 
-                                 max(0, carb_diff), 
-                                 max(0, fat_diff), 
-                                 max(0, prot_diff), 
-                                 delta_fiber, 
-                                 session,
-                                 dedup_id=f"{date_key}_delta_{int(now_utc.timestamp())}" # Timestmap ensures uniqueness if added in stages
+                             delta_t = Treatment(
+                                id=ext_tid,
+                                user_id=username,
+                                event_type="Meal Bolus",
+                                created_at=now_utc.replace(tzinfo=None), # Use NOW for the extracted delta
+                                insulin=0.0,
+                                carbs=max(0, carb_diff),
+                                fat=max(0, fat_diff),
+                                protein=max(0, prot_diff),
+                                fiber=delta_fiber,
+                                notes=f"Extracted from {date_key} (Merged) #extracted",
+                                entered_by="webhook-extraction",
+                                is_uploaded=False
                              )
-                             if action != "skipped_duplicate":
-                                 latest_draft = draft
-                                 latest_draft_action = action
+                             session.add(delta_t)
+                             await session.commit()
                              
-                             # We still update the strict match in DB to keep history consistent with Source,
-                             # BUT we tag it differently so we know it was split.
+                             # Add to saved_ids so it triggers "New Meal Detected"
+                             saved_ids.append(ext_tid)
                              
+                             # We still update the strict match in DB to keep history consistent but mark it
                              current_note = existing_strict.notes or ""
                              if "[Extracted]" not in current_note:
                                 existing_strict.notes = current_note + " [Extracted]"
@@ -618,8 +531,6 @@ async def ingest_nutrition(
 
                              session.add(existing_strict)
                              await session.commit()
-                             # We don't append to saved_ids to avoid "New Meal" alert for the old ID.
-                             # The user will get the "Draft Updated" alert instead.
                              continue
 
                          current_note = existing_strict.notes or ""
@@ -754,41 +665,18 @@ async def ingest_nutrition(
                     first_id = saved_ids[0]
                     t_obj = await session.get(Treatment, first_id)
                     if t_obj and t_obj.carbs > 0:
-                        await on_new_meal_received(t_obj.carbs, t_obj.fat or 0.0, t_obj.protein or 0.0, t_obj.fiber or 0.0, f"Importado ({username})", origin_id=first_id)
+                        await on_new_meal_received(
+                            t_obj.carbs, 
+                            t_obj.fat or 0.0, 
+                            t_obj.protein or 0.0, 
+                            t_obj.fiber or 0.0, 
+                            f"Importado ({username})", 
+                            origin_id=first_id
+                        )
                         
                 except Exception as e:
                     logger.error(f"Failed to trigger bot notification: {e}")
 
-            if latest_draft and latest_draft_action:
-                 try:
-                    from app.bot.service import on_draft_updated
-                    await on_draft_updated(username, latest_draft, latest_draft_action)
-                 except Exception as e:
-                    logger.error(f"Bot draft notify failed: {e}")
-                 
-                 res = {
-                    "success": 1, 
-                    "message": f"Draft Updated (Extracted Delta)" if "_delta_" in str(latest_draft.items) else "Draft Updated (Buffered)", 
-                    "draft_status": latest_draft.status,
-                    "ids": [f"draft_{username}"]
-                 }
-                 log_entry["status"] = "success"
-                 log_entry["result"] = res
-                 append_log(log_entry)
-                 return res
-            elif latest_draft and not latest_draft_action:
-                 # Case where we only hit duplicates in draft
-                 res = {
-                     "success": 1,
-                     "message": "Draft Deduplicated (No Change)",
-                     "draft_status": "active", ## latest_draft.status might be unavailable if we didn't assign it
-                 }
-                 log_entry["status"] = "success" # Technically success even if no change
-                 log_entry["result"] = res
-                 append_log(log_entry)
-                 return res
-
-            if saved_ids:
                 res = {"success": 1, "ingested_count": len(saved_ids), "ids": saved_ids}
                 log_entry["status"] = "success"
                 log_entry["result"] = res
@@ -827,115 +715,6 @@ async def get_ingest_logs(
 
 # --- DRAFT ENDPOINTS ---
 
-@router.get("/nutrition/draft", summary="Get active nutrition draft")
-async def get_nutrition_draft(
-    user: CurrentUser = Depends(get_current_user), # Require Auth
-    session: AsyncSession = Depends(get_db_session)
-):
-    from app.services.nutrition_draft_service import NutritionDraftService
-    draft = await NutritionDraftService.get_draft(user.username, session) # user.username might be user_id
-    if not draft:
-        return {"active": False}
-    
-    # Calculate remaining time
-    now = datetime.now(timezone.utc)
-    remaining_sec = (draft.expires_at - now).total_seconds()
-    
-    return {
-        "active": True,
-        "draft": draft.dict(),
-        "remaining_seconds": max(0, remaining_sec),
-        "formatted_macros": draft.total_macros()
-    }
 
-class DraftUpdatePayload(BaseModel):
-    carbs: float = 0
-    fat: float = 0
-    protein: float = 0
-    fiber: float = 0
 
-@router.patch("/nutrition/draft/{draft_id}", summary="Update active draft macros")
-async def update_nutrition_draft(
-    draft_id: str,
-    payload: DraftUpdatePayload,
-    user: CurrentUser = Depends(get_current_user),
-    session: AsyncSession = Depends(get_db_session)
-):
-    from app.services.nutrition_draft_service import NutritionDraftService
-    
-    updated_draft, action = await NutritionDraftService.overwrite_draft(
-        user.username,
-        draft_id,
-        payload.carbs,
-        payload.fat,
-        payload.protein,
-        payload.fiber,
-        session
-    )
-    
-    if not updated_draft:
-        raise HTTPException(404, "Draft not found or expired")
-        
-    # Notify Bot
-    try:
-        from app.bot.service import on_draft_updated
-        await on_draft_updated(user.username, updated_draft, action)
-    except Exception as e:
-        logger.warning(f"Bot update failed: {e}")
-        
-    return {"success": True, "draft": updated_draft.dict()}
 
-@router.post("/nutrition/draft/close", summary="Confirm and close draft")
-async def close_nutrition_draft(
-    user: CurrentUser = Depends(get_current_user),
-    session: AsyncSession = Depends(get_db_session)
-):
-    from app.services.nutrition_draft_service import NutritionDraftService
-    
-    # 1. Close draft -> Treatment
-    treatment, created, draft_closed = await NutritionDraftService.close_draft_to_treatment(
-        user.username,
-        session,
-    )
-    if not treatment:
-        raise HTTPException(404, "No active draft")
-    
-    # 2. Save Treatment to DB
-    # close_draft_to_treatment added draft update to session but didn't commit for atomicity with treatment save.
-    # Treatment is not added to session yet.
-    try:
-        if created:
-            session.add(treatment)
-        if created or draft_closed:
-            await session.commit()
-    except Exception as e:
-        logger.error(f"Failed to save closed draft: {e}")
-        raise HTTPException(500, "Database save failed")
-        
-    # 3. Trigger Bot (New Meal)
-    carbs = treatment.carbs
-    fat = treatment.fat
-    protein = treatment.protein
-    fiber = treatment.fiber
-    notes = treatment.notes
-    treatment_id = treatment.id
-    try:
-        if created:
-            from app.bot.service import on_new_meal_received
-            await on_new_meal_received(
-                carbs, fat, protein, fiber,
-                notes, origin_id=treatment_id
-            )
-    except Exception as e:
-        logger.warning(f"Bot trigger failed: {e}")
-        
-    return {"success": True, "treatment_id": treatment_id}
-
-@router.post("/nutrition/draft/discard", summary="Discard draft")
-async def discard_nutrition_draft(
-    user: CurrentUser = Depends(get_current_user),
-    session: AsyncSession = Depends(get_db_session)
-):
-    from app.services.nutrition_draft_service import NutritionDraftService
-    await NutritionDraftService.discard_draft(user.username, session)
-    return {"success": True}
