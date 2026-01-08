@@ -573,6 +573,55 @@ async def ingest_nutrition(
                              changes.append("fiber")
 
                      if changes:
+                         # DETECT LARGE ADDITION (Merged Meal Pattern)
+                         # If Carbs/Fat/Prot increased significantly on an OLD item (> 6h ago), treat the DELTA as a NEW meal (Draft).
+                         # This catches things like "Avocados" (High Fat) added to an old Breakfast.
+                         is_old_item = (now_utc - item_ts).total_seconds() > 21600 # 6 hours
+                         carb_diff = t_carbs - existing_strict.carbs
+                         fat_diff = t_fat - (existing_strict.fat or 0)
+                         prot_diff = t_protein - (existing_strict.protein or 0)
+                         
+                         if is_old_item and (carb_diff > 4.0 or fat_diff > 4.0 or prot_diff > 8.0):
+                             logger.info(f"Detected merged meal on old item {date_key}. Extracting delta C:{carb_diff:.1f} F:{fat_diff:.1f} P:{prot_diff:.1f} to Draft.")
+                             
+                             # Create Draft with the DELTA
+                             from app.services.nutrition_draft_service import NutritionDraftService
+                             
+                             delta_fiber = max(0, (incoming_fiber or 0) - (existing_strict.fiber or 0))
+                             
+                             # We use the absolute delta values for the new draft
+                             draft, action = await NutritionDraftService.update_draft(
+                                 username, 
+                                 max(0, carb_diff), 
+                                 max(0, fat_diff), 
+                                 max(0, prot_diff), 
+                                 delta_fiber, 
+                                 session,
+                                 dedup_id=f"{date_key}_delta_{int(now_utc.timestamp())}" # Timestmap ensures uniqueness if added in stages
+                             )
+                             if action != "skipped_duplicate":
+                                 latest_draft = draft
+                                 latest_draft_action = action
+                             
+                             # We still update the strict match in DB to keep history consistent with Source,
+                             # BUT we tag it differently so we know it was split.
+                             
+                             current_note = existing_strict.notes or ""
+                             if "[Extracted]" not in current_note:
+                                existing_strict.notes = current_note + " [Extracted]"
+                             
+                             existing_strict.carbs = t_carbs
+                             existing_strict.fat = t_fat
+                             existing_strict.protein = t_protein
+                             if fiber_provided and incoming_fiber is not None:
+                                 existing_strict.fiber = float(incoming_fiber)
+
+                             session.add(existing_strict)
+                             await session.commit()
+                             # We don't append to saved_ids to avoid "New Meal" alert for the old ID.
+                             # The user will get the "Draft Updated" alert instead.
+                             continue
+
                          current_note = existing_strict.notes or ""
                          if "[Updated]" not in current_note:
                             existing_strict.notes = current_note + " [Updated]"
@@ -719,7 +768,7 @@ async def ingest_nutrition(
                  
                  res = {
                     "success": 1, 
-                    "message": f"Draft Updated (Buffered)", 
+                    "message": f"Draft Updated (Extracted Delta)" if "_delta_" in str(latest_draft.items) else "Draft Updated (Buffered)", 
                     "draft_status": latest_draft.status,
                     "ids": [f"draft_{username}"]
                  }
