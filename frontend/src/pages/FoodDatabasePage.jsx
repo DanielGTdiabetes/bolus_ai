@@ -4,7 +4,7 @@ import { BottomNav } from '../components/layout/BottomNav';
 import { Button } from '../components/ui/Atoms';
 import foodData from '../lib/foodData.json';
 import { state } from '../modules/core/store';
-import { navigate } from '../modules/core/router';
+import { navigate } from '../modules/core/navigation';
 import { getFavorites, saveFavorite, deleteFavorite } from '../lib/api';
 
 export default function FoodDatabasePage() {

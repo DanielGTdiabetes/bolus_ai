@@ -8,7 +8,7 @@ import {
 } from '../lib/api';
 import { analyzeMenuImage } from '../lib/restaurantApi';
 import { state } from '../modules/core/store';
-import { navigate } from '../modules/core/router';
+import { navigate } from '../modules/core/navigation';
 import { RESTAURANT_MODE_ENABLED } from '../lib/featureFlags';
 import { RestaurantSession } from '../components/restaurant/RestaurantSession';
 import { ScaleSection as ScaleControl } from '../components/scale/ScaleSection';

@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Card, Button } from '../ui/Atoms';
 import { connectScale, disconnectScale, tare, setOnData } from '../../lib/api';
 import { state } from '../../modules/core/store';
-import { navigate } from '../../modules/core/router';
+import { navigate } from '../../modules/core/navigation';
 
 export function ScaleSection({ onWeightUsed, onDataReceived }) {
     const [scale, setScale] = useState(state.scale || { connected: false, grams: 0, stable: true });

@@ -1,7 +1,7 @@
 import React from 'react';
 import { Header } from '../components/layout/Header';
 import { BottomNav } from '../components/layout/BottomNav';
-import { navigate } from '../modules/core/router';
+import { navigate } from '../modules/core/navigation';
 import { Card } from '../components/ui/Atoms';
 
 function MenuSection({ title, items }) {

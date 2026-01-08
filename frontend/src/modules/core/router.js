@@ -1,5 +1,6 @@
 import { state } from './store.js';
 import { setUnauthorizedHandler, logout } from '../../lib/api.js';
+import { navigate, redirectToLogin } from './navigation.js';
 
 // Route Handlers (These will be set by main.js to avoid circular imports during refactor)
 // Once all views are modularized, we can import them here or in a routes config.
@@ -13,20 +14,12 @@ export function registerDefaultView(handler) {
     viewRegistry['*'] = handler;
 }
 
-export function navigate(hash) {
-    window.location.hash = hash;
-}
-
 export function ensureAuthenticated() {
     if (!state.token) {
         navigate('#/login');
         return false;
     }
     return true;
-}
-
-export function redirectToLogin() {
-    navigate("#/login");
 }
 
 let routerInitialized = false;

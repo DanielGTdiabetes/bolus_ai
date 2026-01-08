@@ -15,7 +15,7 @@ import {
 import { showToast } from '../components/ui/Toast';
 import { MainGlucoseChart } from '../components/charts/MainGlucoseChart';
 import { startRestaurantSession } from '../lib/restaurantApi';
-import { navigate } from '../modules/core/router';
+import { navigate } from '../modules/core/navigation';
 import { useStore } from '../hooks/useStore';
 import { InjectionSiteSelector, saveInjectionSite, getSiteLabel } from '../components/injection/InjectionSiteSelector';
 import { buildHistoryFromSnapshot, shouldDegradeSimulation } from './bolusSimulationUtils';

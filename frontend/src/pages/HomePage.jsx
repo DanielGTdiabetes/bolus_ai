@@ -8,7 +8,7 @@ import {
     getNutritionDraft, closeNutritionDraft, discardNutritionDraft, isAuthenticated
 } from '../lib/api';
 import { formatTrend, formatNotes } from '../modules/core/utils';
-import { navigate } from '../modules/core/router';
+import { navigate } from '../modules/core/navigation';
 import { useStore } from '../hooks/useStore';
 import { getDualPlan, getDualPlanTiming } from '../modules/core/store';
 import { RESTAURANT_MODE_ENABLED } from '../lib/featureFlags';

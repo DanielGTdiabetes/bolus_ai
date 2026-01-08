@@ -39,9 +39,30 @@ let mountToken = 0;
 
 async function loadPageComponent(pageName) {
     const loader = PAGE_LOADERS[pageName];
-    if (!loader) return null;
-    const module = await loader();
-    return module.default;
+    if (!loader) return { Component: null, error: null };
+    try {
+        const module = await loader();
+        return { Component: module.default, error: null };
+    } catch (error) {
+        return { Component: null, error };
+    }
+}
+
+function renderPageFallback(container, pageName, error, containerId) {
+    const message = error?.message ? `${error.message}` : 'No se pudo cargar esta pantalla.';
+    container.innerHTML = `
+        <div class="error" style="padding: 1.5rem; text-align: center;">
+            <div style="font-size: 1.2rem; margin-bottom: 0.5rem;">⚠️ Error cargando ${pageName}</div>
+            <div style="color: #64748b; margin-bottom: 1rem;">${message}</div>
+            <button id="retry-react-page" style="background:#3b82f6;color:white;border:none;padding:0.6rem 1rem;border-radius:8px;cursor:pointer;">
+                Reintentar
+            </button>
+        </div>
+    `;
+    const retryButton = container.querySelector('#retry-react-page');
+    if (retryButton) {
+        retryButton.addEventListener('click', () => mountReactPage(pageName, containerId));
+    }
 }
 
 export async function mountReactPage(pageName, containerId = 'app') {
@@ -65,18 +86,16 @@ export async function mountReactPage(pageName, containerId = 'app') {
     // Let's stick to simple: Mount new root. It's safe enough for page transitions.
 
     container.innerHTML = '<div class="spinner">Cargando...</div>';
-    let Component = null;
-    try {
-        Component = await loadPageComponent(pageName);
-    } catch (error) {
-        console.error("React page load error:", error);
+    const { Component, error: loadError } = await loadPageComponent(pageName);
+    if (loadError) {
+        console.error("React page load error:", loadError);
         if (token !== mountToken) return;
-        container.innerHTML = `<div class="error">React Load Error: ${error.message}</div>`;
+        renderPageFallback(container, pageName, loadError, containerId);
         return;
     }
     if (token !== mountToken) return;
     if (!Component) {
-        container.innerHTML = `<div class="error">React Component '${pageName}' not found</div>`;
+        renderPageFallback(container, pageName, new Error(`Componente '${pageName}' no encontrado`), containerId);
         return;
     }
 
