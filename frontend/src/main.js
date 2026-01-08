@@ -9,7 +9,6 @@ registerView('#/supplies', () => {
 
 // Register Routes
 // The Router in this project uses the full hash string as the key.
-import './bridge.jsx'; // Ensure bridge is loaded for side effects or types if needed, though we import dynamically below.
 import { setUnauthorizedHandler } from './lib/api';
 import { RESTAURANT_MODE_ENABLED } from './lib/featureFlags';
 
