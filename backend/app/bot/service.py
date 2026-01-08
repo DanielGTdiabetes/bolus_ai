@@ -1701,7 +1701,9 @@ async def on_draft_updated(username: str, draft: Any, action: str) -> None:
     }
     action_str = action_map.get(action, action.upper()).replace("_", " ")
     
-    msg_txt = f"📝 **Comida en curso**\n\nActualizado: `{macros_txt}`\nEstado: **{action_str}**\n\nSigo esperando más datos..."
+    # Add timestamp to force content change (avoid MessageNotModified)
+    now_str = datetime.now(timezone.utc).strftime("%H:%M:%S")
+    msg_txt = f"📝 **Comida en curso** ({now_str})\n\nActualizado: `{macros_txt}`\nEstado: **{action_str}**\n\nSigo esperando más datos..."
     
     # Inline Button to Close directly
     kb = [

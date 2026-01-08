@@ -454,25 +454,32 @@ async def ingest_nutrition(
 
                 if force_now:
                     is_recent_draft_candidate = True
-                elif 0 <= age_seconds < 2700: # 45 min standard window
+                elif 0 <= age_seconds < 3600: # Widen to 60 min to be safe
                     is_recent_draft_candidate = True
                 else:
-                    # Fallback: Sticky Draft?
-                    # If we are outside the 45m window (e.g. 50m, or stale export),
-                    # check if there is an OPEN draft that started recently.
+                    # Fallback: Sticky Draft
+                    # Use a fresh check or rely on cached checking if we want performance.
+                    # Since we are in a loop, let's try to be efficient but safe.
+                    # Verify if we have an active draft for this user.
+                    
+                    # We need to reuse the session-bound service or query directly.
+                    # Since we are inside a loop, let's do a quick direct check or use the service.
+                    from app.services.nutrition_draft_service import NutritionDraftService
                     active_draft = await NutritionDraftService.get_draft(username, session)
+                    
                     if active_draft:
-                         # If the item is newer than the draft creation (minus tolerance), merge it.
+                         # Relaxed check: logic says if we have an active draft, we probably want to attach to it
+                         # unless the new data is ridiculously old (yesterday).
+                         # 12-hour window seems safe for "same day corrections".
+                         
                          d_start = active_draft.created_at
                          if d_start.tzinfo is None: d_start = d_start.replace(tzinfo=timezone.utc)
                          
-                         # If item is NOT older than the draft (with 1h allowance for pre-meal insulin/logging)
-                         # And item is NOT from yesterday (> 12h diff)
                          diff_vs_draft = (item_ts - d_start).total_seconds()
                          
-                         # Accept if item is after draft start (or up to 60m before)
-                         # And draft is still active.
-                         if diff_vs_draft > -3600 and abs(age_seconds) < 10800: # 3 hours max absolute age
+                         # If item is not heavily in the past relative to draft (-2h)
+                         # And absolute age is reasonable (< 12h)
+                         if diff_vs_draft > -7200 and abs(age_seconds) < 43200:
                              is_recent_draft_candidate = True
                              logger.info(f"Sticky Draft Match: Item {ts_str} merged into active draft {active_draft.id}")
 
