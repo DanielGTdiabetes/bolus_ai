@@ -10,7 +10,7 @@ from alembic import context
 # Import your models
 from app.core.db import Base
 # Import models to ensure they are registered
-from app.models import settings, treatment, suggestion, user_data, temp_mode, draft_db
+from app.models import settings, treatment, suggestion, user_data, temp_mode
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
