@@ -1107,6 +1107,11 @@ async def _handle_add_treatment_tool(update: Update, context: ContextTypes.DEFAU
         # Persistence
         notes += f" [{fiber_msg}]"
     
+    # F) Check for High Fiber / Dual Recommendation
+    fiber_dual_rec = False
+    if any("Valorar Bolo Dual" in x for x in rec.explain):
+        fiber_dual_rec = True
+    
     msg_text = "\n".join(lines)
 
     # 4. Save Snapshot
@@ -1131,19 +1136,34 @@ async def _handle_add_treatment_tool(update: Update, context: ContextTypes.DEFAU
 
     
     # Callback: "accept|{request_id}"
-    keyboard = [
-        [
-            InlineKeyboardButton(f"✅ Poner {rec.total_u_final} U", callback_data=f"accept|{request_id}"),
-            InlineKeyboardButton("✏️ Cantidad", callback_data=f"edit_dose|{rec.total_u_final}|{request_id}"),
-            InlineKeyboardButton("❌ Ignorar", callback_data=f"cancel|{request_id}")
-        ],
-        [
-            InlineKeyboardButton("🌅 Desayuno", callback_data=f"set_slot|breakfast|{request_id}"),
-            InlineKeyboardButton("🍕 Comida", callback_data=f"set_slot|lunch|{request_id}"),
-            InlineKeyboardButton("🍽️ Cena", callback_data=f"set_slot|dinner|{request_id}"),
-            InlineKeyboardButton("🥨 Snack", callback_data=f"set_slot|snack|{request_id}"),
-        ]
+    # Standard Buttons
+    row1 = [
+        InlineKeyboardButton(f"✅ Poner {rec.total_u_final} U", callback_data=f"accept|{request_id}"),
+        InlineKeyboardButton("✏️ Cantidad", callback_data=f"edit_dose|{rec.total_u_final}|{request_id}"),
+        InlineKeyboardButton("❌ Ignorar", callback_data=f"cancel|{request_id}")
     ]
+    
+    keyboard = [row1]
+
+    # Add Dual Bolus button if recommended
+    if fiber_dual_rec:
+        # Calculate 70/30 Split (Standard High Fiber start) or use user setting if available?
+        # User requested "Like Calculator". 
+        # Defaulting to 70/30 as safe start for High Fiber unless configured elsewhere.
+        total = rec.total_u_final
+        now_u = round(total * 0.7, 2)
+        later_u = round(total * 0.3, 2)
+        keyboard.insert(1, [
+             InlineKeyboardButton(f"✅ Dual ({now_u} + {later_u}e)", callback_data=f"accept_dual|{request_id}|{now_u}|{later_u}")
+        ])
+
+    keyboard.append([
+        InlineKeyboardButton("🌅 Desayuno", callback_data=f"set_slot|breakfast|{request_id}"),
+        InlineKeyboardButton("🍕 Comida", callback_data=f"set_slot|lunch|{request_id}"),
+        InlineKeyboardButton("🍽️ Cena", callback_data=f"set_slot|dinner|{request_id}"),
+        InlineKeyboardButton("🥨 Snack", callback_data=f"set_slot|snack|{request_id}"),
+    ])
+    
     reply_markup = InlineKeyboardMarkup(keyboard)
     
     logger.info(f"Bot creating inline keyboard for request_{request_id}")
@@ -1968,13 +1988,26 @@ async def btn_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 async def _handle_snapshot_callback(query, data: str) -> None:
     try:
         units_override = None
-        
+        dual_info = None
+
         if data.startswith("accept_manual|"):
             # accept_manual|units|uuid
             parts = data.split("|")
             units_override = float(parts[1])
             request_id = parts[2]
             is_accept = True
+            
+        elif data.startswith("accept_dual|"):
+            # accept_dual|request_id|now_u|later_u
+            parts = data.split("|")
+            request_id = parts[1]
+            now_u = float(parts[2])
+            later_u = float(parts[3])
+            
+            units_override = now_u + later_u
+            dual_info = f" (Dual: {now_u} + {later_u} ext)"
+            is_accept = True
+            
         elif "|" in data:
             action_prefix, request_id = data.split("|", 1)
             is_accept = (action_prefix == "accept" or action_prefix == "accept_manual")
@@ -2036,6 +2069,8 @@ async def _handle_snapshot_callback(query, data: str) -> None:
         notes = snapshot.get("notes", "Bolus Bot V2")
         if snapshot.get("source"):
              notes += f" ({snapshot['source']})"
+        if dual_info:
+             notes += dual_info
         
         fat = snapshot.get("fat", 0.0)
         protein = snapshot.get("protein", 0.0)
@@ -2055,6 +2090,7 @@ async def _handle_snapshot_callback(query, data: str) -> None:
             return
 
         success_msg = f"{base_text}\n\nRegistrado ✅ {units} U"
+        if dual_info: success_msg += dual_info
         if carbs > 0: success_msg += f" / {carbs} g"
         if fiber > 0: success_msg += f" (Fibra: {fiber} g)"
         
