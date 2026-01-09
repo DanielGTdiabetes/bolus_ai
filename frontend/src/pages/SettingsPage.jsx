@@ -1933,23 +1933,71 @@ function LabsPanel() {
             )}
             <div className="stack" style={{ gap: '0.5rem' }}>
                 {logs.map(log => (
-                    <div key={log.id} style={{
-                        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                        padding: '0.6rem', background: '#f8fafc', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '0.85rem'
-                    }}>
-                        <div>
-                            <div style={{ fontWeight: 600, color: '#334155' }}>{log.meal_name || "Comida"}</div>
-                            <div style={{ fontSize: '0.75rem', color: '#64748b' }}>{new Date(log.created_at).toLocaleString()}</div>
-                            <div style={{ color: '#475569', marginTop: '2px' }}>{log.suggestion}</div>
-                        </div>
+                    <React.Fragment key={log.id}>
                         <div style={{
-                            fontWeight: 700,
-                            color: (log.is_better || log.status === 'success') ? '#16a34a' : '#f59e0b',
-                            fontSize: '0.8rem'
+                            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                            padding: '0.6rem', background: '#f8fafc', border: '1px solid #e2e8f0', fontSize: '0.85rem',
+                            borderRadius: '6px',
+                            borderBottomLeftRadius: (log.applied_ratios || log.prediction_snapshot) ? 0 : '6px',
+                            borderBottomRightRadius: (log.applied_ratios || log.prediction_snapshot) ? 0 : '6px',
+                            marginBottom: (log.applied_ratios || log.prediction_snapshot) ? 0 : '0.5rem'
                         }}>
-                            {(log.is_better || log.status === 'success') ? "OK" : "Revisar"}
+                            <div>
+                                <div style={{ fontWeight: 600, color: '#334155' }}>{log.meal_name || "Comida"}</div>
+                                <div style={{ fontSize: '0.75rem', color: '#64748b' }}>{new Date(log.created_at).toLocaleString()}</div>
+                                <div style={{ color: '#475569', marginTop: '2px' }}>{log.suggestion}</div>
+                            </div>
+                            <div style={{
+                                fontWeight: 700,
+                                color: (log.is_better || log.status === 'success') ? '#16a34a' : '#f59e0b',
+                                fontSize: '0.8rem'
+                            }}>
+                                {(log.is_better || log.status === 'success') ? "OK" : "Revisar"}
+                            </div>
                         </div>
-                    </div>
+
+                        {/* Collapsible Details */}
+                        {(log.applied_ratios || log.prediction_snapshot) && (
+                            <details style={{ background: '#fff', border: '1px solid #e2e8f0', borderTop: 'none', borderRadius: '0 0 6px 6px', padding: '0.5rem', marginBottom: '0.5rem', fontSize: '0.8rem' }}>
+                                <summary style={{ cursor: 'pointer', color: '#64748b', fontWeight: 600 }}>
+                                    Ver Detalles del Cálculo
+                                </summary>
+
+                                <div style={{ padding: '0.5rem', marginTop: '0.5rem', background: '#f8fafc', borderRadius: '4px' }}>
+                                    {/* Ratios */}
+                                    {log.applied_ratios && (
+                                        <div style={{ marginBottom: '0.5rem' }}>
+                                            <strong style={{ color: '#475569', display: 'block', marginBottom: '2px' }}>Ratios Usados:</strong>
+                                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '4px', textAlign: 'center' }}>
+                                                <div style={{ background: '#e2e8f0', padding: '2px 4px', borderRadius: '3px' }}>
+                                                    ICR: <strong>{log.applied_ratios.icr}</strong>
+                                                </div>
+                                                <div style={{ background: '#e2e8f0', padding: '2px 4px', borderRadius: '3px' }}>
+                                                    ISF: <strong>{log.applied_ratios.isf}</strong>
+                                                </div>
+                                                <div style={{ background: '#e2e8f0', padding: '2px 4px', borderRadius: '3px' }}>
+                                                    Abs: <strong>{log.applied_ratios.absorption}</strong>m
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* Prediction Snapshot */}
+                                    {log.prediction_snapshot && (
+                                        <div>
+                                            <strong style={{ color: '#475569', display: 'block', marginBottom: '2px' }}>Predicción Original:</strong>
+                                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', fontSize: '0.75rem', color: '#334155' }}>
+                                                <span>Bolo Total: <strong>{log.prediction_snapshot.total_u} U</strong></span>
+                                                {log.prediction_snapshot.later_u > 0 && (
+                                                    <span>(Extend: {log.prediction_snapshot.later_u} U)</span>
+                                                )}
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            </details>
+                        )}
+                    </React.Fragment>
                 ))}
             </div>
         </div>
