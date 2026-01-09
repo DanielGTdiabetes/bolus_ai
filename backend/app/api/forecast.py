@@ -717,33 +717,26 @@ async def get_current_forecast(
         
         print(f"Basal Logic: Last={last_dose_u}U, {hours_ago if last_injection_time else 'N/A'}h ago. Recent={is_recent_active}")
 
-        if is_recent_active:
-             # INTENTIONAL MODE (Standard):
-             # We assume the user has taken their basal correctly as per their schedule.
-             # Therefore, the "Reference" (what is needed) is exactly equal to "Current Activity" (what they have).
-             # Net Basal Effect = 0.
-             avg_basal = current_activity * 1440.0
+        # LOGIC RESTORED (SMART HYBRID V3):
+        # We need to warn the user if they have truly FORGOTTEN the basal (0 activity),
+        # but NOT punish them if they just shifted the time or reduced the dose (Intentional).
+        
+        # Threshold: If you have less than 5% of your usual basal active, we assume it's missing.
+        # Otherwise, we assume whatever level you have is Intentional.
+        
+        threshold_u = last_dose_u * 0.05 # 5% (Very permissive)
+        daily_activity = current_activity * 1440.0
+        
+        if (daily_activity > threshold_u) or (last_dose_u == 0):
+             # Intentional Mode: You have some insulin, so we trust it's enough.
+             # Ref = Activity -> Net = 0.
+             avg_basal = daily_activity
         else:
-             # AMBIGUOUS / LATE MODE:
-             # The user hasn't injected in > 26h.
-             
-             # CRITICAL FIX: Even if late, defaulting to full "Last Dose" (e.g. 15U) causes massive artificial rise
-             # if the current activity has naturally decayed to 5U. It assumes you are MISSING 10U instantly.
-             # Realistically, basal drifts are slow.
-             
-             # Strategy:
-             # 1. If we have some activity (> 10% of last dose), assume "Titration/Split" and stick to Intentional Mode (Ref=Activity).
-             # 2. Only if activity is near ZERO do we raise the alarm (Ref=Last Dose) to show the rise.
-             
-             if current_activity * 1440.0 > (last_dose_u * 0.2):
-                 # Still have > 20% active. Assume intentional split or drift.
-                 # Don't panic.
-                 avg_basal = current_activity * 1440.0
-             else:
-                 # Very low activity. Likely missed dose.
-                 # Predict rise based on usual dose.
-                 avg_basal = last_dose_u
-                 if avg_basal == 0: avg_basal = 15.0 # Fallback default if no history
+             # Forgotten/Empty Mode: You have almost ZERO insulin.
+             # This is dangerous. We predict a rise based on what you *should* have.
+             # Ref = Usual Dose -> Net = Negative -> Rise.
+             avg_basal = last_dose_u
+             if avg_basal == 0: avg_basal = 15.0 # Fallback default
 
     except Exception as e:
         print(f"Basal Ref Calc Error: {e}")
