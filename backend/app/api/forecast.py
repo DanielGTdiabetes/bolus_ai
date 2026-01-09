@@ -781,29 +781,6 @@ async def get_current_forecast(
     response.slow_absorption_active = is_slow_absorption
     response.slow_absorption_reason = slow_reason
     
-    # --- DEBUG V2: COMPONENT BREAKDOWN ---
-    # Find components at T=120 (2 hours) to see who is pushing up
-    comp_2h = next((c for c in response.components if c.t_min == 120), None)
-    c_imb = ""
-    if comp_2h:
-        c_imb = (
-            f" @2h [Carb:+{comp_2h.carb_impact:.0f}, "
-            f"Ins:{comp_2h.insulin_impact:.0f}, "
-            f"Basal:{comp_2h.basal_impact:.0f}, "
-            f"Mom:{comp_2h.momentum_impact:.0f}]"
-        )
-
-    debug_carbs = sum(c.grams for c in payload.events.carbs)
-    diag_msg = (
-        f"DIAG: Carbs={debug_carbs:.0f}g | "
-        f"BasalRef={sim_params.basal_daily_units:.1f}U"
-        f"{c_imb}"
-    )
-    if response.warnings is None:
-        response.warnings = []
-    response.warnings.append(diag_msg)
-    # -------------------------------------
-
     # If we added future insulin, run a baseline simulation (without it) for comparison
     if future_insulin_u and future_insulin_u > 0:
         # Remove the last bolus (which is the future one we added)

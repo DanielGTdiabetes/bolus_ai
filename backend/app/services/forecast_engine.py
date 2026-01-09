@@ -476,12 +476,17 @@ class ForecastEngine:
         fat_protein = c.fat_g + c.protein_g
         
         # Rule B: Fats + Protein high => Slow
-        if fat_protein > 30: # Multi-hour delay sign
+        # REFINED: Experienced users report 30g is too low threshold for 6h absorption.
+        # We bump "Slow" (Long tail) to > 60g (Heavy meals).
+        # We keep "Med" (Standard 3-4h) for 20-60g.
+        
+        if fat_protein > 60: # Multi-hour delay sign (Heavy Pizza/Burger)
             profile = "slow"
             confidence = "high"
-            reasons.append(f"Grasas+Proteínas altas ({fat_protein}g)")
-        elif fat_protein > 15:
-            profile = "slow"
+            reasons.append(f"Grasas+Proteínas muy altas ({fat_protein}g)")
+        elif fat_protein > 20: 
+            # Changed from profile="slow" to "med" to avoid late-rise ghosts on normal meals
+            profile = "med"
             confidence = "medium"
             reasons.append(f"Grasas+Proteínas ({fat_protein}g)")
             
