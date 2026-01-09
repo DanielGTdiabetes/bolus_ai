@@ -196,11 +196,14 @@ async def get_shadow_logs(
     learning_logs = []
     for entry, outcome in learning_rows:
         created_at = outcome.evaluated_at or entry.created_at
-        meal_name = "Comida"
+        # Improve Meal Name formatting
+        meal_items_str = "Comida"
         if entry.items and isinstance(entry.items, list):
-            first_item = next((str(item).strip() for item in entry.items if str(item).strip()), None)
-            if first_item:
-                meal_name = first_item
+            # Filter out empty strings
+            valid_items = [str(x).strip() for x in entry.items if str(x).strip()]
+            if valid_items:
+                # Join them to give full context
+                meal_items_str = ", ".join(valid_items)
 
         summary, status, is_better = _format_learning_summary(outcome)
 
@@ -208,12 +211,17 @@ async def get_shadow_logs(
             "id": outcome.id,
             "user_id": entry.user_id,
             "created_at": created_at,
-            "meal_name": meal_name,
+            "meal_name": meal_items_str,
             "scenario": "Evaluación de aprendizaje",
             "suggestion": summary,
             "is_better": is_better,
             "improvement_pct": None,
             "status": status,
+            # Context for User Confidence
+            "meal_time": entry.created_at,
+            "carbs": entry.carbs_g,
+            "bolus_u": entry.bolus_u_total,
+            "bolus_kind": entry.bolus_kind,
         })
     
     # 2. Fetch "Learning Records" from JSON Store (The new Feedback system)
