@@ -80,6 +80,9 @@ class BolusRequestV2(BaseModel):
     last_bolus_minutes: Optional[int] = Field(default=None, description="Minutes since last insulin bolus (for safety checks)")
     alcohol: bool = Field(default=False, description="Modo Alcohol: Se asume tendencia a baja a largo plazo, suprime correcciones agresivas.")
     enable_autosens: bool = Field(default=True, description="Enable Autosens (Dynamic ISF/ICR)")
+    
+    # Strategy Override
+    strategy: Literal["auto", "normal"] = "auto" # Force "normal" to disable auto-splitting (Warsaw/Fiber)
 
     model_config = ConfigDict(populate_by_name=True, extra="ignore")
 

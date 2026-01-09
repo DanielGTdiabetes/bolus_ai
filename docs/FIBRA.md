@@ -409,8 +409,8 @@ Independientemente de la configuración de resta, si la fibra es muy alta, el si
 - **Condición**: `Fibra (g) >= Carbohidratos (g)`
 - **Acción**:
   1. **NO se resta nada**: Se utiliza el 100% de los carbohidratos para asegurar cobertura total a largo plazo.
-  2. **Bolo Dual Forzado**: Se divide la dosis automáticamente (50% Inmediato, 50% Extendido a 4 horas) para igualar la absorción extremadamente lenta.
-  3. **Explicación**: El sistema indica *"🥗 Fibra Alta: No se descuenta. Se fuerza perfil Dual."*
+  2. **Bolo Normal**: Se presenta la dosis completa. El usuario puede decidir activar manualmente el "Bolo Dual" si desea dividir la dosis para gestionar la digestión lenta.
+  3. **Explicación**: El sistema indica *"🥗 Fibra Alta: No se descuenta la fibra. (Recomendado: Valorar Bolo Dual)."*
 
 #### Lógica de Resta (Estándar)
 Si no se cumple la regla de Fibra Alta y el usuario tiene activada la resta:

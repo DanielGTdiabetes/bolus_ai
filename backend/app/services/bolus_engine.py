@@ -150,9 +150,10 @@ def _calculate_core(inp: CalculationInput) -> CalculationResult:
     is_high_fiber = False
 
     if inp.fiber_g >= inp.carbs_g and inp.carbs_g > 0:
-        # High Fiber Rule: No deduction, convert to Dual
-        is_high_fiber = True
-        explain.append(f"🥗 Fibra Alta ({inp.fiber_g}g >= {inp.carbs_g}g): No se descuenta la fibra. Se fuerza perfil Dual (50/50).")
+        # High Fiber Rule: No deduction.
+        # Modified: Do NOT auto-split. User must choose Dual manually if desired.
+        explain.append(f"🥗 Fibra Alta ({inp.fiber_g}g >= {inp.carbs_g}g): No se descuenta la fibra. (Recomendado: Valorar Bolo Dual).")
+        
     elif inp.use_fiber_deduction and inp.fiber_g > inp.fiber_threshold and inp.carbs_g > 0:
         deduction = inp.fiber_g * inp.fiber_factor
         eff_carbs = max(0.0, inp.carbs_g - deduction)
@@ -188,7 +189,9 @@ def _calculate_core(inp: CalculationInput) -> CalculationResult:
         if total_kcal > 50:
             fpu_count = total_kcal / 100.0
             
-            if total_kcal >= inp.warsaw_trigger:
+            # Check for Dual Mode (Auto Split)
+            # Only if strategy allows it. If 'normal', fallback to Simple
+            if total_kcal >= inp.warsaw_trigger and inp.strategy != "normal":
                 # --- AUTO DUAL MODE ---
                 factor = inp.warsaw_factor_dual
                 effective_fpu_carbs = fpu_count * 10.0 * factor
@@ -359,7 +362,8 @@ def calculate_bolus_v2(
         techne_enabled=settings.techne.enabled,
         techne_max_step=settings.techne.max_step_change,
         ignore_iob=request.ignore_iob,
-        alcohol_mode=request.alcohol
+        alcohol_mode=request.alcohol,
+        strategy=request.strategy
     )
     
     # 2. Call Core (Pure Math)

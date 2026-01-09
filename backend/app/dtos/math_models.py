@@ -55,6 +55,7 @@ class CalculationInput:
     techne_enabled: bool = False
     techne_max_step: float = 0.5
     ignore_iob: bool = False # Dessert mode
+    strategy: str = "auto" # "auto", "normal"
     
 @dataclass
 class CalculationResult:
