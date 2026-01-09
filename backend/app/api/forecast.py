@@ -775,6 +775,28 @@ async def get_current_forecast(
     response.slow_absorption_active = is_slow_absorption
     response.slow_absorption_reason = slow_reason
     
+    # --- DEBUG DIAGNOSTICS (Temporary) ---
+    debug_carbs = sum(c.grams for c in payload.events.carbs)
+    debug_ecarbs = sum(c.grams for c in payload.events.carbs if c.fat_g > 0 or c.protein_g > 0) # approximation of touched meals
+    
+    # Calculate Dev Slope for display
+    dev_state = "OFF"
+    if payload.momentum and payload.momentum.enabled:
+         # Re-calc slope just for display or extract from engine if possible?
+         # We will just show the input recent_bg_series len
+         dev_state = f"ON (pts={len(payload.recent_bg_series or [])})"
+
+    diag_msg = (
+        f"DIAG: Carbs={debug_carbs:.0f}g | "
+        f"BasalRef={sim_params.basal_daily_units:.1f}U | "
+        f"IOB_Peak={sim_params.insulin_peak_minutes}m | "
+        f"Momentum={dev_state}"
+    )
+    if response.warnings is None:
+        response.warnings = []
+    response.warnings.append(diag_msg)
+    # -------------------------------------
+    
     # If we added future insulin, run a baseline simulation (without it) for comparison
     if future_insulin_u and future_insulin_u > 0:
         # Remove the last bolus (which is the future one we added)
