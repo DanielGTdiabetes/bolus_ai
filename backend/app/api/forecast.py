@@ -460,18 +460,21 @@ async def get_current_forecast(
                 fiber_g=getattr(row, 'fiber', 0) or 0
             ))
 
-        warsaw_equiv = compute_warsaw_equivalent_carbs(
-            getattr(row, "fat", 0) or 0,
-            getattr(row, "protein", 0) or 0,
-            user_settings.warsaw if user_settings else None
-        )
-        if warsaw_equiv:
-            carbs.append(ForecastEventCarbs(
-                time_offset_min=int(offset),
-                grams=warsaw_equiv["grams"],
-                icr=evt_icr,
-                absorption_minutes=warsaw_equiv["absorption"]
-            ))
+        # Avoid double counting: ForecastEngine acts on fat/protein attached to the main carb event.
+        # Only add a separate Warsaw entry if there were NO carbs (so no main event to carry the macros).
+        if not (row.carbs and row.carbs > 0):
+            warsaw_equiv = compute_warsaw_equivalent_carbs(
+                getattr(row, "fat", 0) or 0,
+                getattr(row, "protein", 0) or 0,
+                user_settings.warsaw if user_settings else None
+            )
+            if warsaw_equiv:
+                carbs.append(ForecastEventCarbs(
+                    time_offset_min=int(offset),
+                    grams=warsaw_equiv["grams"],
+                    icr=evt_icr,
+                    absorption_minutes=warsaw_equiv["absorption"]
+                ))
 
 
 
