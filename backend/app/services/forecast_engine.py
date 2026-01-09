@@ -491,7 +491,11 @@ class ForecastEngine:
             reasons.append(f"Grasas+Proteínas ({fat_protein}g)")
             
         # Rule C: Fiber high => Slow/Medium modifier
-        if c.fiber_g > 10:
+        if c.fiber_g >= c.grams and c.grams > 0:
+            profile = "slow"
+            confidence = "high"
+            reasons.append(f"Fibra Alta ({c.fiber_g}g >= {c.grams}g) -> Absorción Lenta")
+        elif c.fiber_g > 10:
             profile = "slow"
             confidence = "high"
             reasons.append(f"Fibra muy alta ({c.fiber_g}g)")
