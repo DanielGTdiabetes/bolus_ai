@@ -718,19 +718,32 @@ async def get_current_forecast(
         print(f"Basal Logic: Last={last_dose_u}U, {hours_ago if last_injection_time else 'N/A'}h ago. Recent={is_recent_active}")
 
         if is_recent_active:
-             # INTENTIONAL MODE: Trust the current activity profile completely.
-             # This aligns the baseline to 0 drift.
+             # INTENTIONAL MODE (Standard):
+             # We assume the user has taken their basal correctly as per their schedule.
+             # Therefore, the "Reference" (what is needed) is exactly equal to "Current Activity" (what they have).
+             # Net Basal Effect = 0.
              avg_basal = current_activity * 1440.0
         else:
-             # FORGOTTEN MODE: User misses dose.
-             # Reference = What they usually take (Last Known Dose).
-             # Activity = 0 (or tail).
-             # Result = Rise.
-             avg_basal = last_dose_u
+             # AMBIGUOUS / LATE MODE:
+             # The user hasn't injected in > 26h.
              
-             # Safety: If history is empty, default 0 (no prediction change)
-             if avg_basal == 0 and current_activity > 0:
+             # CRITICAL FIX: Even if late, defaulting to full "Last Dose" (e.g. 15U) causes massive artificial rise
+             # if the current activity has naturally decayed to 5U. It assumes you are MISSING 10U instantly.
+             # Realistically, basal drifts are slow.
+             
+             # Strategy:
+             # 1. If we have some activity (> 10% of last dose), assume "Titration/Split" and stick to Intentional Mode (Ref=Activity).
+             # 2. Only if activity is near ZERO do we raise the alarm (Ref=Last Dose) to show the rise.
+             
+             if current_activity * 1440.0 > (last_dose_u * 0.2):
+                 # Still have > 20% active. Assume intentional split or drift.
+                 # Don't panic.
                  avg_basal = current_activity * 1440.0
+             else:
+                 # Very low activity. Likely missed dose.
+                 # Predict rise based on usual dose.
+                 avg_basal = last_dose_u
+                 if avg_basal == 0: avg_basal = 15.0 # Fallback default if no history
 
     except Exception as e:
         print(f"Basal Ref Calc Error: {e}")
@@ -774,28 +787,6 @@ async def get_current_forecast(
     response = ForecastEngine.calculate_forecast(payload)
     response.slow_absorption_active = is_slow_absorption
     response.slow_absorption_reason = slow_reason
-    
-    # --- DEBUG DIAGNOSTICS (Temporary) ---
-    debug_carbs = sum(c.grams for c in payload.events.carbs)
-    debug_ecarbs = sum(c.grams for c in payload.events.carbs if c.fat_g > 0 or c.protein_g > 0) # approximation of touched meals
-    
-    # Calculate Dev Slope for display
-    dev_state = "OFF"
-    if payload.momentum and payload.momentum.enabled:
-         # Re-calc slope just for display or extract from engine if possible?
-         # We will just show the input recent_bg_series len
-         dev_state = f"ON (pts={len(payload.recent_bg_series or [])})"
-
-    diag_msg = (
-        f"DIAG: Carbs={debug_carbs:.0f}g | "
-        f"BasalRef={sim_params.basal_daily_units:.1f}U | "
-        f"IOB_Peak={sim_params.insulin_peak_minutes}m | "
-        f"Momentum={dev_state}"
-    )
-    if response.warnings is None:
-        response.warnings = []
-    response.warnings.append(diag_msg)
-    # -------------------------------------
     
     # If we added future insulin, run a baseline simulation (without it) for comparison
     if future_insulin_u and future_insulin_u > 0:
