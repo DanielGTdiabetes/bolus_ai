@@ -276,33 +276,7 @@ export function MainGlucoseChart({ isLow, predictionData }) {
                         </text>
                     )}
 
-                    {/* Component Curves (Optional) */}
-                    {chartData.some(d => d.carbCurve) && (
-                        <Line
-                            yAxisId="bg"
-                            type="monotone"
-                            dataKey="carbCurve"
-                            stroke="#f59e0b" // Amber/Orange for Carbs
-                            strokeWidth={2}
-                            strokeDasharray="3 3"
-                            dot={false}
-                            animationDuration={500}
-                            name="Carbohidratos"
-                        />
-                    )}
-                    {chartData.some(d => d.insulinCurve) && (
-                        <Line
-                            yAxisId="bg"
-                            type="monotone"
-                            dataKey="insulinCurve"
-                            stroke="#06b6d4" // Cyan for Insulin
-                            strokeWidth={2}
-                            strokeDasharray="3 3"
-                            dot={false}
-                            animationDuration={500}
-                            name="Insulina"
-                        />
-                    )}
+
                 </ComposedChart>
             </ResponsiveContainer>
         </div>
