@@ -847,9 +847,7 @@ function CalcParamsPanel() {
 
                 {params.calculator?.subtract_fiber && (
                     <div className="stack" style={{ gap: '0.8rem', marginTop: '0.5rem' }}>
-                        <div style={{ margin: '0.5rem 0 0.5rem 0', fontSize: '0.8rem', color: '#701a75' }}>
-                            Si activado: <strong>Carbos - (Fibra * Factor)</strong> cuando Fibra {'>'} 5g.
-                        </div>
+                        Si activado: <strong>Carbos - (Fibra * Factor)</strong> si la Fibra supera el umbral configurado abajo.
 
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
                             <Input

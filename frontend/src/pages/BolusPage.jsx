@@ -469,6 +469,9 @@ export default function BolusPage() {
                 warsaw_safety_factor: mealParams.warsaw?.safety_factor,
                 warsaw_safety_factor_dual: mealParams.warsaw?.safety_factor_dual,
                 warsaw_trigger_threshold_kcal: mealParams.warsaw?.trigger_threshold_kcal,
+                use_fiber_deduction: mealParams.calculator?.subtract_fiber,
+                fiber_factor: mealParams.calculator?.fiber_factor,
+                fiber_threshold: mealParams.calculator?.fiber_threshold_g,
                 ignore_iob: dessertMode,
                 alcohol: alcoholEnabled,
                 exercise: {

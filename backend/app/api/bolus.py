@@ -145,7 +145,7 @@ async def calculate_bolus_stateless(
              payload.target_mgdl = slot_profile.target
 
     elif payload.cr_g_per_u:
-        from app.models.settings import MealFactors, CorrectionFactors, TargetRange, IOBConfig, NightscoutConfig, WarsawConfig
+        from app.models.settings import MealFactors, CorrectionFactors, TargetRange, IOBConfig, NightscoutConfig, WarsawConfig, CalculatorConfig
         
         # Apply single CR/ISF to ALL slots for safety/simplicity in this stateless request
         cr_val = payload.cr_g_per_u
@@ -175,6 +175,14 @@ async def calculate_bolus_stateless(
              warsaw_settings.safety_factor_dual = payload.warsaw_safety_factor_dual
         if payload.warsaw_trigger_threshold_kcal is not None:
              warsaw_settings.trigger_threshold_kcal = payload.warsaw_trigger_threshold_kcal
+
+        calc_config = CalculatorConfig()
+        if payload.use_fiber_deduction is not None:
+            calc_config.subtract_fiber = payload.use_fiber_deduction
+        if payload.fiber_factor is not None:
+            calc_config.fiber_factor = payload.fiber_factor
+        if payload.fiber_threshold is not None:
+            calc_config.fiber_threshold_g = payload.fiber_threshold
         
         user_settings = UserSettings(
             cr=cr_settings,
@@ -183,6 +191,7 @@ async def calculate_bolus_stateless(
             iob=iob_settings,
             nightscout=ns_settings,
             warsaw=warsaw_settings,
+            calculator=calc_config,
             max_bolus_u=payload.max_bolus_u or 10.0,
             max_correction_u=payload.max_correction_u or 5.0,
             round_step_u=payload.round_step_u or 0.05

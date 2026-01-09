@@ -59,6 +59,11 @@ class BolusRequestV2(BaseModel):
     max_bolus_u: Optional[float] = Field(default=None, gt=0)
     max_correction_u: Optional[float] = Field(default=None, gt=0)
 
+    # Fiber Config Overrides
+    use_fiber_deduction: Optional[bool] = Field(default=None)
+    fiber_factor: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    fiber_threshold: Optional[float] = Field(default=None, ge=0.0)
+
     # New flags
     exercise: ExerciseParams = Field(default_factory=ExerciseParams)
     slow_meal: SlowMealParams = Field(default_factory=SlowMealParams)

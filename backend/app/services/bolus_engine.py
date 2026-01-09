@@ -146,14 +146,28 @@ def _calculate_core(inp: CalculationInput) -> CalculationResult:
     
     # Fiber Deduction (Net Carbs)
     eff_carbs = inp.carbs_g
-    if inp.use_fiber_deduction and inp.fiber_g > inp.fiber_threshold and inp.carbs_g > 0:
-          deduction = inp.fiber_g * inp.fiber_factor
-          eff_carbs = max(0.0, inp.carbs_g - deduction)
-          explain.append(f"🥗 Fibra ({inp.fiber_g}g > {inp.fiber_threshold}g): Descontados {deduction:.1f}g ({int(inp.fiber_factor*100)}%). Carbos Netos: {eff_carbs:.1f}g")
+    fiber_extension_u = 0.0
+    is_high_fiber = False
+
+    if inp.fiber_g >= inp.carbs_g and inp.carbs_g > 0:
+        # High Fiber Rule: No deduction, convert to Dual
+        is_high_fiber = True
+        explain.append(f"🥗 Fibra Alta ({inp.fiber_g}g >= {inp.carbs_g}g): No se descuenta la fibra. Se fuerza perfil Dual (50/50).")
+    elif inp.use_fiber_deduction and inp.fiber_g > inp.fiber_threshold and inp.carbs_g > 0:
+        deduction = inp.fiber_g * inp.fiber_factor
+        eff_carbs = max(0.0, inp.carbs_g - deduction)
+        explain.append(f"🥗 Fibra ({inp.fiber_g}g > {inp.fiber_threshold}g): Descontados {deduction:.1f}g ({int(inp.fiber_factor*100)}%). Carbos Netos: {eff_carbs:.1f}g")
 
     if eff_carbs > 0:
         meal_u = eff_carbs / cr
-        explain.append(f"A) Comida: {eff_carbs:.1f}g / {cr:.1f} = {meal_u:.2f} U")
+        
+        if is_high_fiber:
+            # Split 50% to later
+            fiber_extension_u = meal_u * 0.5
+            meal_u -= fiber_extension_u
+            explain.append(f"A) Comida (Fibra Alta): {eff_carbs:.1f}g / {cr:.1f} = {meal_u:.2f} U (Inmediata) + {fiber_extension_u:.2f} U (Extendida)")
+        else:
+            explain.append(f"A) Comida: {eff_carbs:.1f}g / {cr:.1f} = {meal_u:.2f} U")
     else:
         explain.append("A) Comida: 0g")
 
@@ -237,9 +251,12 @@ def _calculate_core(inp: CalculationInput) -> CalculationResult:
         else:
             explain.append("C) IOB: 0 U")
         
-    later_base = warsaw_later_u
+    later_base = warsaw_later_u + fiber_extension_u
     if later_base > 0:
-        explain.append(f"   (Warsaw Dual): {later_base:.2f} U programadas para extensión.")
+        if warsaw_later_u > 0:
+            explain.append(f"   (Warsaw Dual): {warsaw_later_u:.2f} U programadas para extensión.")
+        if fiber_extension_u > 0:
+            explain.append(f"   (Fibra Dual): {fiber_extension_u:.2f} U programadas para extensión.")
 
     # --- 5. Exercise ---
     final_upfront = upfront_net
