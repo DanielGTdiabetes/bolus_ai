@@ -35,6 +35,12 @@ class MealEntry(Base):
     start_bg = Column(Float, nullable=True)
     start_trend = Column(String, nullable=True)
     start_iob = Column(Float, nullable=True)
+
+    # Validation & Replay Context
+    # Stores the full prediction JSON or summary at time of bolus
+    prediction_snapshot = Column(JSON().with_variant(JSONB, "postgresql"), nullable=True) 
+    # Stores the exact ICR/ISF/Abs used { "icr": 10, "isf": 100, "absorption": 180 ... }
+    applied_ratios = Column(JSON().with_variant(JSONB, "postgresql"), nullable=True)
     
     # Outcome relationship
     outcome = relationship("MealOutcome", back_populates="meal_entry", uselist=False, cascade="all, delete-orphan")

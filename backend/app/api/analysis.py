@@ -222,6 +222,8 @@ async def get_shadow_logs(
             "carbs": entry.carbs_g,
             "bolus_u": entry.bolus_u_total,
             "bolus_kind": entry.bolus_kind,
+            "applied_ratios": entry.applied_ratios,
+            "prediction_snapshot": entry.prediction_snapshot if entry.prediction_snapshot else None,
         })
     
     # 2. Fetch "Learning Records" from JSON Store (The new Feedback system)
