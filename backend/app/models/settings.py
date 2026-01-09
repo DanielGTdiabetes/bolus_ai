@@ -152,6 +152,13 @@ class WarsawConfig(BaseModel):
     safety_factor_dual: float = Field(default=0.2, ge=0.1, le=1.0, description="Factor para bolo dual (sobre umbral)")
 
 
+class DualBolusConfig(BaseModel):
+    enabled_default: bool = False
+    percent_now: int = Field(default=70, ge=10, le=90, description="Porcentaje inmediato (10-90)")
+    duration_minutes: int = Field(default=120, ge=15, le=480, description="Duración extensión (min)")
+    later_after_minutes: int = Field(default=120, ge=15, description="Recordatorio (opcional)")
+
+
 class AutosensConfig(BaseModel):
     enabled: bool = False
     min_ratio: float = 0.7
@@ -270,6 +277,7 @@ class UserSettings(BaseModel):
     techne: TechneRoundingConfig = Field(default_factory=TechneRoundingConfig)
     calculator: CalculatorConfig = Field(default_factory=CalculatorConfig)
     warsaw: WarsawConfig = Field(default_factory=WarsawConfig)
+    dual_bolus: DualBolusConfig = Field(default_factory=DualBolusConfig)
     vision: VisionConfig = Field(default_factory=VisionConfig)
     absorption: MealDuration = Field(default_factory=MealDuration)
     autosens: AutosensConfig = Field(default_factory=AutosensConfig)
@@ -383,6 +391,7 @@ class UserSettings(BaseModel):
             "insulin": self.insulin.model_dump(),
             "autosens": self.autosens.model_dump(),
             "warsaw": self.warsaw.model_dump(),
+            "dual_bolus": self.dual_bolus.model_dump(),
             "calculator": self.calculator.model_dump(),
             "dexcom": self.dexcom.model_dump(),
         }

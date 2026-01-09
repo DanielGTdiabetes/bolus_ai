@@ -474,6 +474,7 @@ function CalcParamsPanel() {
         warsaw: { enabled: true, trigger_threshold_kcal: 300, safety_factor: 0.1, safety_factor_dual: 0.2 },
         autosens: { enabled: true, min_ratio: 0.7, max_ratio: 1.2 },
         calculator: { subtract_fiber: false, fiber_factor: 0.5, fiber_threshold_g: 5.0 },
+        dual_bolus: { enabled_default: false, percent_now: 70, duration_minutes: 120, later_after_minutes: 120 },
         timezone: 'Europe/Madrid'
     };
 
@@ -493,7 +494,9 @@ function CalcParamsPanel() {
                 techne: { ...defaults.techne, ...(p.techne || {}) },
                 warsaw: { ...defaults.warsaw, ...(p.warsaw || {}) },
                 autosens: { ...defaults.autosens, ...(p.autosens || {}) },
-                calculator: { ...defaults.calculator, ...(p.calculator || {}) }
+                autosens: { ...defaults.autosens, ...(p.autosens || {}) },
+                calculator: { ...defaults.calculator, ...(p.calculator || {}) },
+                dual_bolus: { ...defaults.dual_bolus, ...(p.dual_bolus || {}) }
             };
             setParams(merged);
         }

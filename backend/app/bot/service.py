@@ -1147,14 +1147,26 @@ async def _handle_add_treatment_tool(update: Update, context: ContextTypes.DEFAU
 
     # Add Dual Bolus button if recommended
     if fiber_dual_rec:
-        # Calculate 70/30 Split (Standard High Fiber start) or use user setting if available?
-        # User requested "Like Calculator". 
-        # Defaulting to 70/30 as safe start for High Fiber unless configured elsewhere.
+        # Calculate Split based on User Settings
+        split_pct = 70 # Default
+        if user_settings.dual_bolus:
+            split_pct = user_settings.dual_bolus.percent_now
+            # Safety clamp
+            if split_pct < 10: split_pct = 10
+            if split_pct > 90: split_pct = 90
+            
+        fraction = split_pct / 100.0
+        
         total = rec.total_u_final
-        now_u = round(total * 0.7, 2)
-        later_u = round(total * 0.3, 2)
+        now_u = round(total * fraction, 2)
+        later_u = round(total * (1.0 - fraction), 2)
+        
+        # Ensure sum matches exactly or close enough (rounding errors usually negligible for UI)
+        # Re-adjust slightly logic:
+        # now_u = round(total * fraction / 0.05) * 0.05 ? No, stick to simple round
+        
         keyboard.insert(1, [
-             InlineKeyboardButton(f"✅ Dual ({now_u} + {later_u}e)", callback_data=f"accept_dual|{request_id}|{now_u}|{later_u}")
+             InlineKeyboardButton(f"✅ Dual ({split_pct}/{100-split_pct}) -> {now_u} + {later_u}e", callback_data=f"accept_dual|{request_id}|{now_u}|{later_u}")
         ])
 
     keyboard.append([

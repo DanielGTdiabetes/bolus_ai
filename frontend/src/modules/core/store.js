@@ -143,6 +143,18 @@ export function saveSettingsVersion(v) {
 }
 
 export function getSplitSettings() {
+    // 1. Try Backend/Global Params first (Single Source of Truth)
+    const params = getCalcParams();
+    if (params && params.dual_bolus) {
+        return {
+            enabled_default: params.dual_bolus.enabled_default ?? false,
+            percent_now: params.dual_bolus.percent_now ?? 70,
+            duration_min: params.dual_bolus.duration_minutes ?? 120,
+            later_after_min: params.dual_bolus.later_after_minutes ?? 120,
+            round_step_u: params.round_step_u || 0.5
+        };
+    }
+
     try {
         const raw = localStorage.getItem(SPLIT_SETTINGS_KEY);
         return raw ? JSON.parse(raw) : {
@@ -164,7 +176,22 @@ export function getSplitSettings() {
 }
 
 export function saveSplitSettings(settings) {
+    // Save Local (Legacy/Offline)
     localStorage.setItem(SPLIT_SETTINGS_KEY, JSON.stringify(settings));
+
+    // Save Backend (Migration)
+    const current = getCalcParams() || {};
+    const newParams = {
+        ...current,
+        dual_bolus: {
+            enabled_default: settings.enabled_default,
+            percent_now: settings.percent_now,
+            duration_minutes: settings.duration_min,
+            later_after_minutes: settings.later_after_min
+        }
+    };
+    // This triggers backend sync automatically via store listener
+    saveCalcParams(newParams);
 }
 
 export function getDefaultMealParams(calcParams) {
