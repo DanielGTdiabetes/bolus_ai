@@ -733,6 +733,7 @@ async def get_current_forecast(
         print(f"Basal Ref Calc Error: {e}")
         avg_basal = 0.0
 
+
     sim_params = SimulationParams(
         isf=curr_isf,
         icr=curr_icr, 
@@ -740,7 +741,11 @@ async def get_current_forecast(
         carb_absorption_minutes=curr_abs,
         insulin_peak_minutes=user_settings.iob.peak_minutes,
         insulin_model=user_settings.iob.curve,
-        basal_daily_units=avg_basal
+        basal_daily_units=avg_basal,
+        warsaw_factor_simple=user_settings.warsaw.safety_factor if user_settings.warsaw else 0.1,
+        warsaw_trigger=user_settings.warsaw.trigger_threshold_kcal if user_settings.warsaw else 500,
+        use_fiber_deduction=user_settings.calculator.subtract_fiber if user_settings.calculator else False,
+        fiber_factor=user_settings.calculator.fiber_factor if user_settings.calculator else 0.0
     )
     
     # Import locally if not at top, or ensure top imports are enough

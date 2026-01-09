@@ -208,12 +208,50 @@ class ForecastEngine:
                     chosen_confidence = profile_res["confidence"]
                     chosen_reasons = profile_res["reasons"]
 
-                params = CarbCurves.get_profile_params(profile_res["profile"])
-                rate = CarbCurves.biexponential_absorption(t_since_meal, params)
+                # --- PROTEIN/FAT IMPACT ---
+                # We need to account for the glucose-conversion of Protein and Fat (FPU).
+                # If we don't, the simulator sees massive insulin (dosed for F/P) vs tiny carbs -> False Hypo.
+                # Approx: 100kcal of F/P ~= 10g Carbs (Warsaw Method standard).
+                
+                effective_grams = c.grams
+                
+                # --- FIBER DEDUCTION ---
+                # Subtract fiber from "Fast" carbs if enabled
+                if req.params.use_fiber_deduction and c.fiber_g > 5.0 and effective_grams > 0:
+                    deduction = c.fiber_g * req.params.fiber_factor
+                    effective_grams = max(0.0, effective_grams - deduction)
+                    
+                    if chosen_profile == profile_res["profile"] and deduction > 0.5:
+                         chosen_reasons.append(f"-{deduction:.1f}g Fibra")
+
+                # Check if F/P data exists
+                if c.fat_g > 0 or c.protein_g > 0:
+                    kcal_from_fp = (c.fat_g * 9) + (c.protein_g * 4)
+                    # Only apply if significant (>50 kcal) to avoid noise
+                    if kcal_from_fp > 50:
+                        # Convert to equivalent grams (eCarbs) using Warsaw Setting
+                        # Formula: (Kcal / 100) * 10 * Factor
+                        # Factor 1.0 => 100kcal = 10g eCarbs.
+                        # Factor 0.5 => 100kcal = 5g eCarbs (Safety).
+                        
+                        w_factor = req.params.warsaw_factor_simple if req.params.warsaw_factor_simple > 0 else 0.1
+                        fpu_count = kcal_from_fp / 100.0
+                        fpu_grams = fpu_count * 10.0 * w_factor
+                        
+                        effective_grams += fpu_grams
+                        
+                        # Add a note to reasons if it is the primary meal
+                        if chosen_profile == profile_res["profile"] and "eCarbs" not in "".join(chosen_reasons):
+                            chosen_reasons.append(f"+{fpu_grams:.1f}g eCarbs (Warsaw x{w_factor})")
+
+                params_curve = CarbCurves.get_profile_params(profile_res["profile"])
+                rate = CarbCurves.biexponential_absorption(t_since_meal, params_curve)
                 
                 this_icr = c.icr if c.icr and c.icr > 0 else req.params.icr
                 this_cs = (req.params.isf / this_icr) if this_icr > 0 else 0.0
-                step_carb_impact_rate += rate * c.grams * this_cs
+                
+                # Apply rate to EFFECTIVE grams
+                step_carb_impact_rate += rate * effective_grams * this_cs
                 
             step_carb_rise = step_carb_impact_rate * dt
             accum_carb_impact += step_carb_rise
