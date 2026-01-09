@@ -94,7 +94,7 @@ async def run_async_migrations() -> None:
             poolclass=pool.NullPool,
         )
          with connectable.connect() as connection:
-            connection.run_callable(do_run_migrations)
+             do_run_migrations(connection)
          return
 
     
