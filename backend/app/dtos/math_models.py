@@ -38,6 +38,7 @@ class CalculationInput:
     # Rules
     use_fiber_deduction: bool = False
     fiber_factor: float = 0.5
+    fiber_threshold: float = 5.0
     
     # Safety User Settings (Limits)
     max_bolus_u: float = 15.0

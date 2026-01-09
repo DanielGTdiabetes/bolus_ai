@@ -217,7 +217,7 @@ class ForecastEngine:
                 
                 # --- FIBER DEDUCTION ---
                 # Subtract fiber from "Fast" carbs if enabled
-                if req.params.use_fiber_deduction and c.fiber_g > 5.0 and effective_grams > 0:
+                if req.params.use_fiber_deduction and c.fiber_g > req.params.fiber_threshold and effective_grams > 0:
                     deduction = c.fiber_g * req.params.fiber_factor
                     effective_grams = max(0.0, effective_grams - deduction)
                     

@@ -24,6 +24,7 @@ class SimulationParams(BaseModel):
     # Fiber Preferences
     use_fiber_deduction: bool = Field(False, description="Subtract fiber from total carbs")
     fiber_factor: float = Field(0.0, description="Multiplier for fiber deduction (e.g. 0.5 = subtract 50% of fiber)")
+    fiber_threshold: float = Field(5.0, description="Minimum fiber grams to trigger deduction")
     
 class ForecastEventBolus(BaseModel):
     time_offset_min: int = Field(0, description="Minutes from now (0=now, negative=past)")

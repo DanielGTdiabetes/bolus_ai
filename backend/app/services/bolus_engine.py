@@ -143,15 +143,13 @@ def _calculate_core(inp: CalculationInput) -> CalculationResult:
         
     # --- 2. Meal Bolus ---
     meal_u = 0.0
-    # --- 2. Meal Bolus ---
-    meal_u = 0.0
     
     # Fiber Deduction (Net Carbs)
     eff_carbs = inp.carbs_g
-    if inp.use_fiber_deduction and inp.fiber_g > 5.0 and inp.carbs_g > 0:
+    if inp.use_fiber_deduction and inp.fiber_g > inp.fiber_threshold and inp.carbs_g > 0:
           deduction = inp.fiber_g * inp.fiber_factor
           eff_carbs = max(0.0, inp.carbs_g - deduction)
-          explain.append(f"🥗 Fibra ({inp.fiber_g}g > 5g): Descontados {deduction:.1f}g ({int(inp.fiber_factor*100)}%). Carbos Netos: {eff_carbs:.1f}g")
+          explain.append(f"🥗 Fibra ({inp.fiber_g}g > {inp.fiber_threshold}g): Descontados {deduction:.1f}g ({int(inp.fiber_factor*100)}%). Carbos Netos: {eff_carbs:.1f}g")
 
     if eff_carbs > 0:
         meal_u = eff_carbs / cr
@@ -336,6 +334,7 @@ def calculate_bolus_v2(
         round_step=settings.round_step_u,
         use_fiber_deduction=settings.calculator.subtract_fiber,
         fiber_factor=settings.calculator.fiber_factor,
+        fiber_threshold=settings.calculator.fiber_threshold_g,
         warsaw_enabled=settings.warsaw.enabled,
         warsaw_factor_simple=request.warsaw_safety_factor or settings.warsaw.safety_factor,
         warsaw_factor_dual=request.warsaw_safety_factor_dual or settings.warsaw.safety_factor_dual,

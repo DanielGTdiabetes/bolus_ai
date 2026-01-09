@@ -473,7 +473,7 @@ function CalcParamsPanel() {
         techne: { enabled: false, max_step_change: 0.5, safety_iob_threshold: 1.5 },
         warsaw: { enabled: true, trigger_threshold_kcal: 300, safety_factor: 0.1, safety_factor_dual: 0.2 },
         autosens: { enabled: true, min_ratio: 0.7, max_ratio: 1.2 },
-        calculator: { subtract_fiber: false, fiber_factor: 0.5 },
+        calculator: { subtract_fiber: false, fiber_factor: 0.5, fiber_threshold_g: 5.0 },
         timezone: 'Europe/Madrid'
     };
 
@@ -551,6 +551,7 @@ function CalcParamsPanel() {
 
         if (clean.calculator) {
             clean.calculator.fiber_factor = p(clean.calculator.fiber_factor);
+            clean.calculator.fiber_threshold_g = p(clean.calculator.fiber_threshold_g);
         }
 
         saveCalcParams(clean);
@@ -864,6 +865,15 @@ function CalcParamsPanel() {
                                     setParams(prev => ({ ...prev, calculator: { ...prev.calculator, fiber_factor: val } }));
                                 }}
                                 onFocus={(e) => e.target.select()}
+                            />
+                            <Input
+                                label="Umbral (g) para Activar"
+                                type="number"
+                                placeholder="5.0"
+                                value={params.calculator.fiber_threshold_g ?? 5.0}
+                                onChange={e => {
+                                    setParams(prev => ({ ...prev, calculator: { ...prev.calculator, fiber_threshold_g: e.target.value } }));
+                                }}
                             />
                         </div>
                         <div style={{ fontSize: '0.75rem', color: '#a21caf' }}>

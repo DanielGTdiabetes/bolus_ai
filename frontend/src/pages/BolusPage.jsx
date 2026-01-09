@@ -309,7 +309,12 @@ export default function BolusPage() {
                         isf: slotParams.isf || 30,
                         icr: slotParams.icr || 10,
                         dia_minutes: (mealParams?.dia_hours || 4) * 60,
-                        carb_absorption_minutes: 180
+                        carb_absorption_minutes: 180,
+                        use_fiber_deduction: mealParams?.calculator?.subtract_fiber,
+                        fiber_factor: mealParams?.calculator?.fiber_factor,
+                        fiber_threshold: mealParams?.calculator?.fiber_threshold_g,
+                        warsaw_factor_simple: mealParams?.warsaw?.safety_factor,
+                        warsaw_trigger: mealParams?.warsaw?.trigger_threshold_kcal
                     },
                     events: {
                         boluses: [],
