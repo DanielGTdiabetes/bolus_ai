@@ -304,6 +304,46 @@ Define cómo la app gestiona la insulina necesaria para las grasas y proteínas.
 
 ---
 
+## 10. 🎯 CALIBRACIÓN AVANZADA DE LA PREDICCIÓN
+*(Para usuarios expertos que quieren afinar la "Bola de Cristal")*
+
+La gráfica de predicción (línea violeta) es el corazón de Bolus AI. Si notas que la predicción no coincide con la realidad, suele ser porque los **tiempos** configurados no coinciden con tu metabolismo real. Aquí tienes cómo ajustarlo.
+
+### A. Diagnóstico de la "Duración de Insulina" (DIA) 💉
+Este es el ajuste más importante y el error más común. Por defecto viene en **4 horas**.
+
+#### Síntoma: "El Falso Rebote"
+*   **Situación:** Te pusiste insulina hace 4 horas. Tu glucosa real (línea sólida) está bajando o estable y todo va bien.
+*   **Problema:** De repente, la gráfica de predicción (línea punteada) muestra que vas a empezar a **SUBIR** (rebotar) en la próxima hora, aunque tú sabes que no has comido nada nuevo.
+*   **Causa:** El sistema cree que tu insulina se ha terminado y ha dejado de hacer efecto ("se ha apagado el motor"), pero tu cuerpo aún tiene un poco de efecto residual. Como el sistema cree que ya no hay freno, cualquier pequeña digestión pendiente (proteínas, grasas) empuja la gráfica hacia arriba.
+
+#### Solución:
+1.  Ve a **Ajustes -> IOB / Insulina**.
+2.  Busca **"Duración de Insulina (DIA)"**.
+3.  **Súbelo**: Cambia de 4.0 a **4.5** o **5.0 horas**.
+4.  **Efecto:** Le dices al sistema que la insulina tiene una "cola larga". Eso "cubrirá" el final de la digestión y la gráfica de predicción se aplanará, eliminando el falso rebote.
+
+### B. Ajuste de Grasas y Proteínas (Warsaw) 🥓
+El sistema convierte automáticamente los chuletones, huevos y quesos en "glucosa lenta" para predecir subidas tardías.
+
+#### Cómo funciona la Clasificación:
+*   **Comida Ligera (< 20g Grasa+Prot):** Absorción rápida (2h).
+*   **Comida Media (20g - 60g Grasa+Prot):** Absorción media (3-4h). *La mayoría de platos de carne/pescado*.
+*   **Comida Pesada (> 60g Grasa+Prot):** Absorción lenta (6h+). *Pizzas, hamburguesas dobles, cocidos*.
+
+#### Síntoma: "El Pesimismo Eterno"
+*   **Problema:** Has comido un filete. Han pasado 4 horas y ya estás bien, pero la gráfica sigue diciendo que subirás hasta el infinito.
+*   **Causa:** El sistema ha clasificado tu comida como "Pesada" y cree que seguirá soltando glucosa durante 2 horas más.
+*   **Solución:** Confía en las actualizaciones automáticas del algoritmo (ya ajustado para ser menos agresivo), o revisa si has exagerado la cantidad de grasas en el registro.
+
+### C. Referencia de Basal (El "Modo Olvido") 📉
+El sistema vigila tu basal para saber si estás cubierto.
+
+*   **Si tienes basal activa (>5%):** El sistema confía en ti. Asume que tu basal es correcta (incluso si te pusiste un poco menos por deporte) y no altera la gráfica. **Predicción Neutra**.
+*   **Si NO tienes basal (0%):** El sistema detecta "Peligro". Asume que se te ha olvidado pincharte y predice una **SUBIDA** constante (deriva) para alertarte.
+
+---
+
 # 🌟 Ejemplos Prácticos de Uso
 
 ### 🏠 1. Comer en Casa (Día Normal)
