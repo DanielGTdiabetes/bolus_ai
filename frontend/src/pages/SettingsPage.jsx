@@ -499,8 +499,33 @@ function CalcParamsPanel() {
                 dual_bolus: { ...defaults.dual_bolus, ...(p.dual_bolus || {}) }
             };
             setParams(merged);
+        } else {
+            setParams(defaults); // Init if empty (don't save to backend yet)
         }
-        else setParams(defaults); // Init if empty (don't save to backend yet)
+
+        // Listen for external updates (e.g. sync from backend)
+        const handler = (e) => {
+            if (e.detail) {
+                console.log("Settings updated from store event");
+                // Merge to ensure we keep any local transient state if needed, 
+                // but usually sync overwrites.
+                // Deep merge logic similar to init
+                const p = e.detail;
+                const merged = {
+                    ...defaults,
+                    ...p,
+                    techne: { ...defaults.techne, ...(p.techne || {}) },
+                    warsaw: { ...defaults.warsaw, ...(p.warsaw || {}) },
+                    autosens: { ...defaults.autosens, ...(p.autosens || {}) },
+                    calculator: { ...defaults.calculator, ...(p.calculator || {}) },
+                    dual_bolus: { ...defaults.dual_bolus, ...(p.dual_bolus || {}) }
+                };
+                setParams(merged);
+            }
+        };
+
+        window.addEventListener('bolusai-settings-changed', handler);
+        return () => window.removeEventListener('bolusai-settings-changed', handler);
     }, []);
 
     const handleChange = (field, value, isSlot = false) => {

@@ -123,12 +123,10 @@ export function getCalcParams() {
 export function saveCalcParams(params, skipSync = false) {
     localStorage.setItem(CALC_PARAMS_KEY, JSON.stringify(params));
 
-    // Emit event for local components
-    if (!skipSync) {
-        window.dispatchEvent(new CustomEvent('bolusai-settings-changed', { detail: params }));
-    }
+    // Emit event for local components ALWAYS (so UI updates on sync)
+    window.dispatchEvent(new CustomEvent('bolusai-settings-changed', { detail: params }));
 
-    // Trigger backend sync
+    // Trigger backend sync (unless skipped)
     if (!skipSync && state.user) {
         triggerBackendSave(params);
     }
