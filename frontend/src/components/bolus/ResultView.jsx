@@ -203,7 +203,7 @@ export function ResultView({
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1rem' }}>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                                 <span style={{ fontSize: '0.85rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>
-                                    Pronóstico Metabólico {predictionData.slow_absorption_active ? '🐢' : ''}
+                                    Pronóstico Metabólico {predictionData?.slow_absorption_active ? '🐢' : ''}
                                 </span>
                                 {!simulating && predictionData?.absorption_profile_used && (
                                     <div style={{ fontSize: '0.75rem', color: '#94a3b8', display: 'flex', gap: '6px', alignItems: 'center' }}>
