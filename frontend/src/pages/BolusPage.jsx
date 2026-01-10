@@ -258,6 +258,15 @@ export default function BolusPage() {
                                         const valToSet = orphanCarbs._diffMode ? orphanCarbs._netCarbs : orphanCarbs.carbs;
                                         setCarbs((valToSet || 0).toFixed(1));
                                         setIsUsingOrphan(true);
+
+                                        // CRITICAL FIX: Transfer Orphan Macros to mealMeta for simulation
+                                        mealMetaRef.current = {
+                                            items: [{ name: "Importado (MFP/Externo)", carbs: valToSet, amount: 1 }],
+                                            fat: orphanCarbs.fat || 0,
+                                            protein: orphanCarbs.protein || 0,
+                                            fiber: orphanCarbs.fiber || 0
+                                        };
+
                                         if (orphanCarbs._diffMode) {
                                             const now = new Date();
                                             setDate(new Date(now.getTime() - (now.getTimezoneOffset() * 60000)).toISOString().slice(0, 16));
@@ -306,6 +315,14 @@ export default function BolusPage() {
                                 onSelect={(item) => {
                                     setFoodName(item.name);
                                     setCarbs(String(item.carbs));
+                                    // CRITICAL FIX: Transfer Macros to mealMeta for successful simulation
+                                    mealMetaRef.current = {
+                                        items: [{ name: item.name, carbs: item.carbs, amount: 1 }],
+                                        fat: item.fat || item.fat_g || 0,
+                                        protein: item.protein || item.protein_g || 0,
+                                        fiber: item.fiber || item.fiber_g || 0
+                                    };
+                                    // Trigger toast or visual feedback? No need, simulation will update.
                                 }}
                             />
                             {suggestedStrategy && (
@@ -510,6 +527,7 @@ export default function BolusPage() {
                         onSave={handleSaveClick}
                         saving={saving}
                         currentCarbs={carbs}
+                        mealMeta={mealMetaRef.current} // Pass macros for simulation
                         foodName={foodName}
                         favorites={favorites}
                         onFavoriteAdded={(newFav) => setFavorites(prev => [...prev, newFav])}

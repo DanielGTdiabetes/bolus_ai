@@ -26,7 +26,8 @@ export function ResultView({
     alcoholEnabled,
     onApplyAutosens,
     carbProfile,
-    nsConfig
+    nsConfig,
+    mealMeta
 }) {
     // Local state for edit before confirm
     const [finalDose, setFinalDose] = useState(result.upfront_u);
@@ -90,12 +91,13 @@ export function ResultView({
                     dessertMode: false, // Could be passed in props if needed
                     result,
                     nsConfig,
-                    settingsAbsorption: settings?.absorption
+                    settingsAbsorption: settings?.absorption,
+                    mealMeta // Pass fat/protein
                 });
             }
         }, 800);
         return () => clearTimeout(timer);
-    }, [finalDose, resolvedParams, currentCarbs, later, slot, carbProfile, result, nsConfig, settings, runSimulation]);
+    }, [finalDose, resolvedParams, currentCarbs, later, slot, carbProfile, result, nsConfig, settings, runSimulation, mealMeta]);
 
     const handleConfirm = async () => {
         if (saveFav && isNewFav && foodName) {

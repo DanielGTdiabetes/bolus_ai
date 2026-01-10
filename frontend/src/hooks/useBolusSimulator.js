@@ -17,7 +17,7 @@ export function useBolusSimulator() {
             doseNow, doseLater, carbsVal,
             params, slot, carbProfile,
             dessertMode, result, nsConfig,
-            settingsAbsorption
+            settingsAbsorption, mealMeta
         } = context;
 
         setSimulating(true);
@@ -66,7 +66,11 @@ export function useBolusSimulator() {
                 time_offset_min: 0,
                 grams: currentCarbs,
                 carb_profile: carbProfile,
-                is_dessert: dessertMode
+                is_dessert: dessertMode,
+                // Include Fat/Protein for Auto-Absorption Logic
+                fat_g: mealMeta?.fat || 0,
+                protein_g: mealMeta?.protein || 0,
+                fiber_g: mealMeta?.fiber || 0
             }] : [];
 
             let historyEvents = { boluses: [], carbs: [] };
