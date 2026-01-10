@@ -131,3 +131,4 @@ class ForecastResponse(BaseModel):
     slow_absorption_reason: Optional[str] = None # Reason for slow mode (e.g. Alcohol, Dual Bolus)
 
     prediction_meta: Optional[PredictionMeta] = None
+    meta: Optional[dict] = None

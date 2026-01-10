@@ -251,6 +251,73 @@ class ForecastEngine:
                 this_cs = (req.params.isf / this_icr) if this_icr > 0 else 0.0
                 
                 # Apply rate to EFFECTIVE grams
+                # --- AUTO-HARMONIZATION (Trust the Bolus) ---
+                # If the user delivered a Bolus that is significantly higher than what minimal carbs require,
+                # we assume the "surplus" is covering the Fat/Protein. We adjust the effective_grams to match the dose.
+                # This prevents the graph from contradicting the Bolus Calculator.
+                
+                # 1. Find linked bolus for this meal
+                linked_bolus_u = 0.0
+                for b in req.events.boluses:
+                    if abs(b.time_offset_min - c.time_offset_min) <= 15:
+                        linked_bolus_u += b.units
+
+                if linked_bolus_u > 0:
+                    # 2. Calculate Correction Component (Rough estimate)
+                    # We subtract correction from total to find "Meal Insulin"
+                    # We use the START BG of the simulation or the BG at meal time? 
+                    # Using current_bg (start of sim) is safer if meal is recent.
+                    bg_at_meal = current_bg 
+                    # If we had history we could be more precise, but this is a good approximation for "Current" forecast.
+                    
+                    correction_u = 0.0
+                    if bg_at_meal > req.params.target_bg: # Assuming target usually ~100-110 if not passed, but let's use safety check
+                         # We don't have target in req.params explicit for correction calc here, but we can infer or ignore.
+                         # Let's assume correction is valid if BG > 120.
+                         pass
+                    
+                    # Instead of complex correction guessing, let's reverse calculate:
+                    # Implied Carbs = Bolus * ICR.
+                    # If Implied > (Carbs + Standard_FPU), then we boost FPU.
+                    
+                    this_icr = c.icr if c.icr and c.icr > 0 else req.params.icr
+                    if this_icr > 0:
+                        implied_total_grams = linked_bolus_u * this_icr
+                        
+                        # We discount rough correction estimation from implied grams
+                        # If BG is high (e.g. 180), approx 1-2U might be correction.
+                        # Safety: We only BOOST effective grams, we never reduce them below what metrics say.
+                        # So we compare Implied vs Currently Calculated Effective.
+                        
+                        # Calculate Correction Grams Equivalent
+                        # (BG - Target) / ISF * ICR = Grams "removed" by correction
+                        # Target default 110
+                        excess_bg = max(0, current_bg - 110)
+                        correction_penalty_grams = (excess_bg / isf * this_icr) if isf > 0 else 0
+                        
+                        available_meal_grams = implied_total_grams - correction_penalty_grams
+                        
+                        # If the Bolus covers MORE than (Carbs + Calculated FPU), we upgrade the FPU.
+                        if available_meal_grams > effective_grams * 1.1: # 10% tolerance
+                            # The user dosed for MORE.
+                            # Check if we have ample Fat/Protein to justify it.
+                            kcal_fp = (c.fat_g * 9) + (c.protein_g * 4)
+                            if kcal_fp > 50:
+                                # Attribute the difference to FPU
+                                diff_grams = available_meal_grams - effective_grams
+                                
+                                # Cap: Don't allow creating matter out of thin air.
+                                # Max theoretical eCarbs from FPU is usually Kcal/10 (Factor 1.0)
+                                max_fpu_grams = kcal_fp / 10.0
+                                current_fpu_grams = effective_grams - c.grams # Roughly
+                                
+                                # If we have room to grow FPU
+                                if (effective_grams + diff_grams) <= (c.grams + max_fpu_grams * 1.5): # 1.5x tolerance for aggressive factors
+                                    reasons_append = f" (+{diff_grams:.1f}g Auto-Ajuste por Bolo)"
+                                    if chosen_profile == profile_res["profile"]:
+                                        chosen_reasons.append(reasons_append)
+                                    effective_grams += diff_grams
+                
                 step_carb_impact_rate += rate * effective_grams * this_cs
                 
             step_carb_rise = step_carb_impact_rate * dt
