@@ -3,6 +3,8 @@ import time
 from datetime import datetime, timezone, timedelta
 from typing import Dict, Any, Optional
 
+from app.utils.timezone import to_local
+
 from app.core.settings import get_settings
 from app.services.store import DataStore
 from app.services.nightscout_client import NightscoutClient
@@ -28,8 +30,12 @@ async def build_context(username: str, chat_id: int) -> Dict[str, Any]:
     Never fails completely; returns quality='degraded' if errors occur.
     """
     t0 = time.time()
+    # Use Local Time for AI Context so it understands "Now" relative to User
+    now_utc = datetime.now(timezone.utc)
+    now_local = to_local(now_utc)
+    
     ctx = {
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": now_local.isoformat(),
         "bg": None,
         "trend": None,
         "delta": None,

@@ -256,42 +256,20 @@ class ForecastEngine:
                 # we assume the "surplus" is covering the Fat/Protein. We adjust the effective_grams to match the dose.
                 # This prevents the graph from contradicting the Bolus Calculator.
                 
-                # 1. Find linked bolus for this meal
+                # 1. Find linked bolus for this meal (Widen to 60 min to handle pre-bolus/delays)
                 linked_bolus_u = 0.0
                 for b in req.events.boluses:
-                    if abs(b.time_offset_min - c.time_offset_min) <= 15:
+                    if abs(b.time_offset_min - c.time_offset_min) <= 60:
                         linked_bolus_u += b.units
 
                 if linked_bolus_u > 0:
                     # 2. Calculate Correction Component (Rough estimate)
-                    # We subtract correction from total to find "Meal Insulin"
-                    # We use the START BG of the simulation or the BG at meal time? 
-                    # Using current_bg (start of sim) is safer if meal is recent.
                     bg_at_meal = current_bg 
-                    # If we had history we could be more precise, but this is a good approximation for "Current" forecast.
-                    
-                    correction_u = 0.0
-                    if bg_at_meal > req.params.target_bg: # Assuming target usually ~100-110 if not passed, but let's use safety check
-                         # We don't have target in req.params explicit for correction calc here, but we can infer or ignore.
-                         # Let's assume correction is valid if BG > 120.
-                         pass
-                    
-                    # Instead of complex correction guessing, let's reverse calculate:
-                    # Implied Carbs = Bolus * ICR.
-                    # If Implied > (Carbs + Standard_FPU), then we boost FPU.
                     
                     this_icr = c.icr if c.icr and c.icr > 0 else req.params.icr
                     if this_icr > 0:
                         implied_total_grams = linked_bolus_u * this_icr
                         
-                        # We discount rough correction estimation from implied grams
-                        # If BG is high (e.g. 180), approx 1-2U might be correction.
-                        # Safety: We only BOOST effective grams, we never reduce them below what metrics say.
-                        # So we compare Implied vs Currently Calculated Effective.
-                        
-                        # Calculate Correction Grams Equivalent
-                        # (BG - Target) / ISF * ICR = Grams "removed" by correction
-                        # Target default 110 -> Now from params
                         target_val = req.params.target_bg
                         excess_bg = max(0, current_bg - target_val)
                         correction_penalty_grams = (excess_bg / isf * this_icr) if isf > 0 else 0
@@ -310,10 +288,10 @@ class ForecastEngine:
                                 # Cap: Don't allow creating matter out of thin air.
                                 # Max theoretical eCarbs from FPU is usually Kcal/10 (Factor 1.0)
                                 max_fpu_grams = kcal_fp / 10.0
-                                current_fpu_grams = effective_grams - c.grams # Roughly
                                 
                                 # If we have room to grow FPU
-                                if (effective_grams + diff_grams) <= (c.grams + max_fpu_grams * 1.5): # 1.5x tolerance for aggressive factors
+                                # Increase tolerance to 2.5x to allow for aggressive user factors (e.g. 1.0 on fats)
+                                if (effective_grams + diff_grams) <= (c.grams + max_fpu_grams * 2.5): 
                                     reasons_append = f" (+{diff_grams:.1f}g Auto-Ajuste por Bolo)"
                                     if chosen_profile == profile_res["profile"]:
                                         chosen_reasons.append(reasons_append)
