@@ -107,7 +107,8 @@ async def startup_event() -> None:
     # We await DB init to ensure tables exist before serving requests.
     try:
         logger.info("⏳ Waiting for Database...")
-        await create_tables()
+        # AUDIT FIX: Removed auto-creation in favor of Alembic migrations.
+        # await create_tables() 
         await init_auth_db()
         
         # Schema fixes

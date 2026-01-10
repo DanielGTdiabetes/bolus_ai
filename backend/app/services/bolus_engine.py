@@ -27,18 +27,17 @@ def calculate_exercise_reduction(minutes: int, intensity: str) -> float:
     if minutes <= 0:
         return 0.0
 
-    # Define points
-    table = {
-        "low": {60: 0.15, 120: 0.30},
-        "moderate": {60: 0.30, 120: 0.55},
-        "high": {60: 0.45, 120: 0.75},
-    }
-    
-    intens = intensity.lower()
-    if intens not in table:
+    from app.core.constants import EXERCISE_REDUCTION_TABLE
+    from app.models.enums import ExerciseIntensity
+
+    # Normalize intensity
+    try:
+        intens_enum = ExerciseIntensity(intensity.lower())
+        intens = intens_enum.value
+    except ValueError:
         intens = "moderate"
-    
-    points = table[intens]
+
+    points = EXERCISE_REDUCTION_TABLE.get(intens, EXERCISE_REDUCTION_TABLE["moderate"])
     
     val60 = points[60]
     val120 = points[120]
@@ -74,11 +73,23 @@ def _smart_round(
     standard = round(value / step) * step
     
     # Map Trend
-    t = trend.lower()
+    from app.models.enums import Trend
+    
+    t = trend 
+    # Handle Enum objects vs Strings
+    if hasattr(t, 'value'):
+        t_str = t.value
+    else:
+        t_str = str(t)
+        
     mode = "neutral"
-    if t in ["doubleup", "singleup", "fortyfiveup"]:
+    
+    up_trends = [Trend.DOUBLE_UP, Trend.SINGLE_UP, Trend.FORTY_FIVE_UP]
+    down_trends = [Trend.DOUBLE_DOWN, Trend.SINGLE_DOWN, Trend.FORTY_FIVE_DOWN]
+    
+    if any(ut.value.lower() == t_str.lower() for ut in up_trends):
         mode = "up"
-    elif t in ["doubledown", "singledown", "fortyfivedown"]:
+    elif any(dt.value.lower() == t_str.lower() for dt in down_trends):
         mode = "down"
     
     # Safety Override: Low BG prevents aggressive rounding up
