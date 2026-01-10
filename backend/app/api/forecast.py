@@ -320,24 +320,29 @@ async def get_current_forecast(
         isf = settings.cf.lunch
         absorption = settings.absorption.lunch
         
-        # Simple Logic (assuming User Time)
-        # Breakfast: 05:00 - 11:00
-        # Lunch: 11:00 - 17:00
-        # Dinner: 17:00 - 23:00 (or later)
+        # Use User Configured Schedule
+        # Schedule defines START hours. 
+        # e.g. Breakfast 5, Lunch 13, Dinner 20.
         
-        if 5 <= h < 11:
+        # Sort hours to handle crossover/ordering simply
+        s_bk = settings.schedule.breakfast_start_hour
+        s_ln = settings.schedule.lunch_start_hour
+        s_dn = settings.schedule.dinner_start_hour
+        
+        # Determine slot
+        if s_bk <= h < s_ln:
             icr = settings.cr.breakfast
             isf = settings.cf.breakfast
             absorption = settings.absorption.breakfast
-        elif 11 <= h < 17:
+        elif s_ln <= h < s_dn:
              icr = settings.cr.lunch
              isf = settings.cf.lunch
              absorption = settings.absorption.lunch
-        elif 17 <= h < 23:
-             icr = settings.cr.dinner
-             isf = settings.cf.dinner
-             absorption = settings.absorption.dinner
-        else:
+        elif h >= s_dn or h < s_bk:
+             # Dinner covers late night and early morning before breakfast
+             # Note: For strict "Snack" slots or "Night" slots we assume Dinner settings apply 
+             # unless we add explicit Night slot.
+             # If h < s_bk (e.g. 04:00), it's technically "Night" or "Late Dinner".
              icr = settings.cr.dinner
              isf = settings.cf.dinner
              absorption = settings.absorption.dinner 
