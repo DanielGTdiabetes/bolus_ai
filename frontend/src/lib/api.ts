@@ -975,3 +975,19 @@ export async function fetchIngestLogs() {
   if (!response.ok) throw new Error(data.detail || "Error fetching logs");
   return data;
 }
+
+export async function saveInjectionSite(insulinType, siteId) {
+  const response = await apiFetch(`/api/injection/site`, {
+    method: "POST",
+    body: JSON.stringify({ type: insulinType, site_id: siteId })
+  });
+  const data = await toJson(response);
+  if (!response.ok) throw new Error(data.detail || "Error saving site");
+  return data;
+}
+
+export function getSiteLabel(type, id) {
+  if (!id) return "";
+  // Basic formatting: "abdomen_right" -> "Abdomen Right"
+  return id.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+}

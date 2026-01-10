@@ -7,7 +7,7 @@ import { Button } from '../components/ui/Atoms';
 import { useOrphanDetection } from '../hooks/useOrphanDetection';
 import { useNutritionDraft } from '../hooks/useNutritionDraft';
 import { useBolusCalculator } from '../hooks/useBolusCalculator';
-import { useStore } from '../hooks/useStore';
+
 // Components
 import { ResultView } from '../components/bolus/ResultView';
 import { FoodSmartAutocomplete } from '../components/bolus/FoodSmartAutocomplete';
@@ -517,10 +517,8 @@ export default function BolusPage() {
                         carbProfile={carbProfile}
                         nsConfig={nsConfig}
                         onApplyAutosens={(ratio, reason) => {
-                            import('../modules/core/store').then(({ state }) => {
-                                state.autosens = { ratio, reason };
-                                handleCalculateClick({ useAutosens: true });
-                            });
+                            state.autosens = { ratio, reason };
+                            handleCalculateClick({ useAutosens: true });
                         }}
                     />
                 )}
