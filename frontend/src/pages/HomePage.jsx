@@ -49,6 +49,10 @@ function GlucoseHero({ onRefresh }) {
                     if (timing && typeof timing.remaining_min === 'number') {
                         params.append("future_insulin_u", activePlan.later_u_planned);
                         params.append("future_insulin_delay_min", Math.max(0, Math.round(timing.remaining_min)));
+                        // Pass duration if available to support square wave logic backend
+                        if (timing.duration_min) {
+                            params.append("future_insulin_duration_min", Math.round(timing.duration_min));
+                        }
                     }
                 }
 

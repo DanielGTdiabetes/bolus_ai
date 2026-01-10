@@ -4,6 +4,7 @@ import { BottomNav } from '../components/layout/BottomNav';
 import { MainGlucoseChart } from '../components/charts/MainGlucoseChart';
 import { apiFetch, toJson, getCurrentGlucose, getLocalNsConfig } from '../lib/api';
 import { useInterval } from '../hooks/useInterval';
+import { getDualPlan, getDualPlanTiming } from '../modules/core/store';
 
 export default function ForecastPage() {
     const [prediction, setPrediction] = useState(null);
@@ -15,8 +16,9 @@ export default function ForecastPage() {
         setLoading(true);
         setError(null);
         try {
+            const params = new URLSearchParams();
+
             // Attempt to get current BG to seed the forecast (avoid backend default mismatch)
-            let query = "";
             try {
                 const bgData = await getCurrentGlucose();
                 let bgVal = null;
@@ -31,12 +33,27 @@ export default function ForecastPage() {
                     }
                 }
 
-                if (bgVal) query = `?start_bg=${bgVal}`;
+                if (bgVal) params.append("start_bg", String(bgVal));
             } catch (bgErr) {
                 console.warn("Could not fetch local BG for forecast seed", bgErr);
             }
 
-            const res = await apiFetch("/api/forecast/current" + query);
+            // Inject Dual Bolus Plan if active
+            const activePlan = getDualPlan();
+            if (activePlan && activePlan.later_u_planned > 0) {
+                const timing = getDualPlanTiming(activePlan);
+                if (timing && typeof timing.remaining_min === 'number') {
+                    params.append("future_insulin_u", activePlan.later_u_planned);
+                    params.append("future_insulin_delay_min", Math.max(0, Math.round(timing.remaining_min)));
+                    // Pass duration if available
+                    if (timing.duration_min) {
+                        params.append("future_insulin_duration_min", Math.round(timing.duration_min));
+                    }
+                }
+            }
+
+            const qs = params.toString() ? "?" + params.toString() : "";
+            const res = await apiFetch("/api/forecast/current" + qs);
             if (!res.ok) throw new Error("Error cargando predicción");
             const data = await toJson(res);
             setPrediction(data);

@@ -52,7 +52,8 @@ async def get_current_forecast(
     settings: Settings = Depends(get_settings),
     start_bg_param: Optional[float] = Query(None, alias="start_bg", description="Override start BG if known by client"),
     future_insulin_u: Optional[float] = Query(None, description="Future planned insulin units (e.g. dual bolus remainder)"),
-    future_insulin_delay_min: Optional[int] = Query(0, description="Delay in minutes for future insulin")
+    future_insulin_delay_min: Optional[int] = Query(0, description="Delay in minutes for future insulin"),
+    future_insulin_duration_min: Optional[int] = Query(0, description="Duration in minutes for future insulin (square wave)")
 ):
     """
     Auto-generates a forecast based on:
@@ -573,7 +574,11 @@ async def get_current_forecast(
 
     # 3.5. Add Future Planned Insulin (Dual Bolus Remainder)
     if future_insulin_u and future_insulin_u > 0:
-        boluses.append(ForecastEventBolus(time_offset_min=future_insulin_delay_min, units=future_insulin_u))
+        boluses.append(ForecastEventBolus(
+            time_offset_min=future_insulin_delay_min, 
+            units=future_insulin_u,
+            duration_minutes=future_insulin_duration_min
+        ))
         
         # SMART ADJUSTMENT:
         # If there is a dual bolus active OR high fat/protein content, extend absorption.
@@ -597,8 +602,12 @@ async def get_current_forecast(
 
             # Case A: Dual Bolus Active (Future Insulin pending)
             if future_insulin_u and future_insulin_u > 0:
-                 if c.grams > 20 and c.time_offset_min > -60:
-                      c.absorption_minutes = max(getattr(c, 'absorption_minutes', 0), 360)
+                 if c.grams > 10 and c.time_offset_min > -240: # Extended window to 4h to catch the meal
+                      # If we are extending insulin, we MUST extend carbs to match kinetics.
+                      # Otherwise -> Hypo (Fast insulin vs Med Carbs) or Hyper (Late).
+                      # We align to the bolus duration if it's longer than standard
+                      target_abs = max(360, future_insulin_duration_min + 60) if future_insulin_duration_min > 0 else 360
+                      c.absorption_minutes = max(getattr(c, 'absorption_minutes', 0), target_abs)
             
             # Case B: High Fat/Protein detected (Warsaw Trigger)
             # If the meal triggered Warsaw logic, the main carbs should also be slow?
