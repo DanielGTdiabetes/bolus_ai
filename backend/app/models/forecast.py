@@ -26,6 +26,8 @@ class SimulationParams(BaseModel):
     fiber_factor: float = Field(0.0, description="Multiplier for fiber deduction (e.g. 0.5 = subtract 50% of fiber)")
     fiber_threshold: float = Field(5.0, description="Minimum fiber grams to trigger deduction")
     
+    target_bg: float = Field(100.0, description="User's target BG (mid) for correction calculations")
+    
 class ForecastEventBolus(BaseModel):
     time_offset_min: int = Field(0, description="Minutes from now (0=now, negative=past)")
     units: float

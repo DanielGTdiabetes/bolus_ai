@@ -291,8 +291,9 @@ class ForecastEngine:
                         
                         # Calculate Correction Grams Equivalent
                         # (BG - Target) / ISF * ICR = Grams "removed" by correction
-                        # Target default 110
-                        excess_bg = max(0, current_bg - 110)
+                        # Target default 110 -> Now from params
+                        target_val = req.params.target_bg
+                        excess_bg = max(0, current_bg - target_val)
                         correction_penalty_grams = (excess_bg / isf * this_icr) if isf > 0 else 0
                         
                         available_meal_grams = implied_total_grams - correction_penalty_grams
