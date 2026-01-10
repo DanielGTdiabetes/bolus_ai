@@ -120,11 +120,10 @@ class ForecastEngine:
         if req.momentum and req.momentum.enabled and momentum_slope != 0:
             deviation_slope = momentum_slope - model_slope_0
             
-            # Dampening: If deviation is huge (>1.5), cap it to avoid panic loops
-            # Reduced from 3.0 to 1.5 to prevent unrealistic spikes (User Report: Image 1/2)
-            if abs(deviation_slope) > 1.5:
-                 warnings.append(f"Desviación masiva detectada ({deviation_slope:.1f}), amortiguada (capped).")
-                 deviation_slope = 1.5 if deviation_slope > 0 else -1.5
+            # Dampening: Increase from 1.5 to 3.5 to trust real-world drift more (User reports)
+            if abs(deviation_slope) > 3.5:
+                 warnings.append(f"Desviación masiva detectada ({deviation_slope:.1f}), amortiguada.")
+                 deviation_slope = 3.5 if deviation_slope > 0 else -3.5
                  quality = "medium"
 
         # Increase momentum influence duration for smoother blending (~30 mins)
@@ -256,10 +255,10 @@ class ForecastEngine:
                 # we assume the "surplus" is covering the Fat/Protein. We adjust the effective_grams to match the dose.
                 # This prevents the graph from contradicting the Bolus Calculator.
                 
-                # 1. Find linked bolus for this meal (Widen to 60 min to handle pre-bolus/delays)
+                # 1. Find linked bolus for this meal (Widen to 90 min)
                 linked_bolus_u = 0.0
                 for b in req.events.boluses:
-                    if abs(b.time_offset_min - c.time_offset_min) <= 60:
+                    if abs(b.time_offset_min - c.time_offset_min) <= 90:
                         linked_bolus_u += b.units
 
                 if linked_bolus_u > 0:
@@ -290,16 +289,18 @@ class ForecastEngine:
                                 max_fpu_grams = kcal_fp / 10.0
                                 
                                 # If we have room to grow FPU
-                                # Increase tolerance to 2.5x to allow for aggressive user factors (e.g. 1.0 on fats)
-                                if (effective_grams + diff_grams) <= (c.grams + max_fpu_grams * 2.5): 
+                                # Increase tolerance to 5.0x to handle aggressive factor 1.0 logic
+                                if (effective_grams + diff_grams) <= (c.grams + max_fpu_grams * 5.0): 
                                     reasons_append = f" (+{diff_grams:.1f}g Auto-Ajuste por Bolo)"
                                     if chosen_profile == profile_res["profile"]:
                                         chosen_reasons.append(reasons_append)
                                     effective_grams += diff_grams
                                 else:
                                     # Overdose detected (Surplus > Capacity)
-                                    if available_meal_grams > (c.grams + max_fpu_grams * 2.0):
-                                         warnings.append("⚠️ Posible exceso de insulina: El bolo supera lo justificable por la comida.")
+                                    top_cap = c.grams + max_fpu_grams * 5.0
+                                    warning_msg = f"Auditoría: Bolo ({linked_bolus_u}U) excede capacidad de absorción ({top_cap:.0f}g est.)."
+                                    if warning_msg not in warnings:
+                                        warnings.append(warning_msg)
 
                 
                 step_carb_impact_rate += rate * effective_grams * this_cs
@@ -359,15 +360,15 @@ class ForecastEngine:
             linked_bolus_u = 0.0
             
             for c in req.events.carbs:
-                if c.grams >= 10:
+                if c.grams >= 2: # Lower to 2g
                     for b in req.events.boluses:
-                        if abs(b.time_offset_min - c.time_offset_min) <= 15:
+                        if abs(b.time_offset_min - c.time_offset_min) <= 90: # Widen to 90
                             is_linked_meal = True
                             linked_carbs += c.grams
                             linked_bolus_u += b.units
             
-            # If linked meal detected and we are in the early phase (decays over 90 mins)
-            if is_linked_meal and t < 90:
+            # If linked meal detected and we are in the early phase (decays over 120 mins)
+            if is_linked_meal and t < 120:
                 # Calculate physics-based drop
                 net_drop = abs(insulin_net) - carb_net
                 
@@ -380,7 +381,7 @@ class ForecastEngine:
                     is_low_risk = current_predicted_bg < 80
                     
                     # C) Reality is already dropping fast (momentum)
-                    is_fast_dropping = deviation_slope < -1.5
+                    is_fast_dropping = deviation_slope < -2.5
                     
                     if not (is_low_risk or is_fast_dropping):
                         # Apply decay damping factor (1.0 at 90m, ~0.6 at start)

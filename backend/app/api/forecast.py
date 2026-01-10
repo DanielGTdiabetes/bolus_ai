@@ -267,7 +267,7 @@ async def get_current_forecast(
                 # If we have two carb entries close in time, assume it's an update (e.g. 45 -> 60)
                 # We KEEP the one with higher carbs (assuming it's the accumulated total like MPF)
                 if not is_dup and r_ins == 0 and l_ins == 0:
-                     if dt_diff < 300: # Within 5 minutes
+                     if dt_diff < 1200: # Within 20 minutes
                          # It's a collision. We want to keep the one with MAX carbs.
                          # 'row' is the current candidate. 'last_row' is the one already in unique_rows[-1].
                          if r_carbs > l_carbs:
@@ -285,7 +285,7 @@ async def get_current_forecast(
                 # assume the bolus "covers" the carb entry and they are duplicates (user flow: Log -> Bolus).
                 # last_row = Carb Only, row = Bolus (Carbs+Insulin)
                 if not is_dup and l_ins == 0 and r_ins > 0 and r_carbs > 0:
-                    if dt_diff < 900: # 15 minutes window
+                    if dt_diff < 3600: # 60 minutes window
                          if abs(r_carbs - l_carbs) <= 10: # Allow 10g variances (e.g. estimation diffs)
                              # The Bolus entry (row) is the "Master" one. Remove the Carb-only entry.
                              unique_rows.pop()
@@ -296,7 +296,7 @@ async def get_current_forecast(
                 # Check 3b: Reverse Order (Bolus then Carb Entry, e.g. async sync)
                 # Ignore the redundant Carb entry.
                 if not is_dup and l_ins > 0 and l_carbs > 0 and r_ins == 0:
-                    if dt_diff < 900:
+                    if dt_diff < 3600:
                         if abs(r_carbs - l_carbs) <= 10:
                             is_dup = True 
             
@@ -478,7 +478,10 @@ async def get_current_forecast(
                     time_offset_min=int(offset),
                     grams=warsaw_equiv["grams"],
                     icr=evt_icr,
-                    absorption_minutes=warsaw_equiv["absorption"]
+                    absorption_minutes=warsaw_equiv["absorption"],
+                    fat_g=getattr(row, "fat", 0) or 0,
+                    protein_g=getattr(row, "protein", 0) or 0,
+                    fiber_g=getattr(row, "fiber", 0) or 0
                 ))
 
 
@@ -756,11 +759,11 @@ async def get_current_forecast(
         insulin_peak_minutes=user_settings.iob.peak_minutes,
         insulin_model=user_settings.iob.curve,
         basal_daily_units=avg_basal,
-        warsaw_factor_simple=user_settings.warsaw.safety_factor if user_settings.warsaw else 0.1,
-        warsaw_trigger=user_settings.warsaw.trigger_threshold_kcal if user_settings.warsaw else 500,
+        warsaw_factor_simple=user_settings.warsaw.safety_factor if user_settings.warsaw else 1.0, # Default to 1.0 for Trust logic
+        warsaw_trigger=user_settings.warsaw.trigger_threshold_kcal if user_settings.warsaw else 50,
         use_fiber_deduction=user_settings.calculator.subtract_fiber if user_settings.calculator else False,
         fiber_factor=user_settings.calculator.fiber_factor if user_settings.calculator else 0.0,
-        target_bg=float(user_settings.targets.mid) if (user_settings and user_settings.targets) else 100.0
+        target_bg=float(user_settings.targets.mid) if (user_settings and user_settings.targets) else 110.0
     )
     
     # Import locally if not at top, or ensure top imports are enough
