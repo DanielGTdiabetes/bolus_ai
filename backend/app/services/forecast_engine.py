@@ -317,6 +317,11 @@ class ForecastEngine:
                                     if chosen_profile == profile_res["profile"]:
                                         chosen_reasons.append(reasons_append)
                                     effective_grams += diff_grams
+                                else:
+                                    # Overdose detected (Surplus > Capacity)
+                                    if available_meal_grams > (c.grams + max_fpu_grams * 2.0):
+                                         warnings.append("⚠️ Posible exceso de insulina: El bolo supera lo justificable por la comida.")
+
                 
                 step_carb_impact_rate += rate * effective_grams * this_cs
                 
