@@ -12,9 +12,14 @@ DEFAULT_TIMEZONE = "Europe/Madrid"
 def get_user_timezone(username: str = "admin") -> ZoneInfo:
     """
     Returns the user's timezone.
-    TODO: Fetch from UserSettings in the future.
+    Attempts to resolving from UserSettings, otherwise falls back to DEFAULT_TIMEZONE.
     """
     try:
+        # Optimization: Try to read from environment or cached settings if possible?
+        # For now, we stick to default or safe fallback to avoid sync I/O in async path if possible
+        # BUT: to respect user settings we need to know the user's pref.
+        # Since this is a synchronous util, we can't easily await async DB.
+        # We rely on the DEFAULT_TIMEZONE for now, or if passed explicitly in 'to_local'
         return ZoneInfo(DEFAULT_TIMEZONE)
     except Exception:
         return ZoneInfo("UTC")

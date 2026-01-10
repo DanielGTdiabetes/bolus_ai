@@ -81,5 +81,9 @@ SI FALLA EL ACCESO A DATOS (Contexto degradado):
 """
 
 def get_system_prompt() -> str:
-    now = datetime.now().strftime("%H:%M")
+    from app.utils.timezone import to_local
+    from datetime import timezone
+    # Ensure we start with UTC aware time to avoid ambiguity with system local time
+    now_utc = datetime.now(timezone.utc)
+    now = to_local(now_utc).strftime("%H:%M")
     return f"HORA ACTUAL: {now}\n\n{COMMON_RULES}"

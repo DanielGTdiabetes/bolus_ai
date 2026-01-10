@@ -461,7 +461,8 @@ async def calculate_bolus(carbs: float, fat: float = 0.0, protein: float = 0.0, 
     else:
         # Infer from system local time using User Settings Schedule
         from app.utils.timezone import to_local
-        now_local = to_local(datetime.now())
+        # Use UTC aware time to ensure reliable conversion
+        now_local = to_local(datetime.now(timezone.utc))
         h = now_local.hour
         sch = user_settings.schedule
         
@@ -694,7 +695,7 @@ async def calculate_correction(target_bg: Optional[float] = None) -> CorrectionR
     
     # Infer slot for ISF
     from app.utils.timezone import to_local
-    now_local = to_local(datetime.now())
+    now_local = to_local(datetime.now(timezone.utc))
     h = now_local.hour
     sch = user_settings.schedule
     if sch.breakfast_start_hour <= h < sch.lunch_start_hour:
