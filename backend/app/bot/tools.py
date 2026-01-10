@@ -1382,6 +1382,9 @@ AI_TOOL_DECLARATIONS = [
             "type": "OBJECT",
             "properties": {
                 "carbs": {"type": "NUMBER", "description": "Carbohidratos en gramos"},
+                "fat": {"type": "NUMBER", "description": "Grasas (g)"},
+                "protein": {"type": "NUMBER", "description": "Proteínas (g)"},
+                "fiber": {"type": "NUMBER", "description": "Fibra (g)"},
                 "meal_type": {"type": "STRING", "description": "breakfast/lunch/dinner/snack"},
                 "split": {"type": "NUMBER", "description": "Porcentaje inicial si dual"},
                 "extend_minutes": {"type": "INTEGER", "description": "Minutos de extensión si aplica"},

@@ -921,6 +921,9 @@ async def _handle_add_treatment_tool(update: Update, context: ContextTypes.DEFAU
     We calculate recommendations (if needed) and show a confirmation card.
     """
     carbs = float(args.get("carbs", 0) or 0)
+    fat = float(args.get("fat", 0) or 0)
+    protein = float(args.get("protein", 0) or 0)
+    fiber = float(args.get("fiber", 0) or 0)
     insulin_req = args.get("insulin")
     insulin_req = float(insulin_req) if insulin_req is not None else None
     notes = args.get("notes", "Via Chat")
@@ -991,8 +994,9 @@ async def _handle_add_treatment_tool(update: Update, context: ContextTypes.DEFAU
         carbs_g=carbs,
         target_mgdl=user_settings.targets.mid, # Default
         meal_slot=slot,
-        fat_g=0, # Bot doesn't support macros yet in this tool
-        protein_g=0,
+        fat_g=fat, 
+        protein_g=protein,
+        fiber_g=fiber,
         bg_mgdl=bg_val,
         # If user asked for specific insulin, we still calculate standard
         # but we might override later? No, tool says 'calculate'.
@@ -1002,13 +1006,6 @@ async def _handle_add_treatment_tool(update: Update, context: ContextTypes.DEFAU
 
     # Manual Insulin Override?
     if insulin_req is not None:
-         # If user GAVE insulin amount, we treat it as a direct log request?
-         # Or we show it as "Requested".
-         # For consistency with "Snapshot", we should simulate a calculation 
-         # that results in this amount? Or just bypass calculation?
-         # The requirement says: "Bot calls function... receives object... The button uses THAT snapshot"
-         # If user explicitly said "Add 5U", maybe we shouldn't fail validation.
-         # But the logic below was calculating if insulin=None.
          pass
 
     # Autosens (Default OFF for bot unless specified? Let's assume OFF to match Web default or User Settings)
@@ -1053,71 +1050,69 @@ async def _handle_add_treatment_tool(update: Update, context: ContextTypes.DEFAU
     lines = []
     lines.append(f"Sugerencia: **{rec.total_u_final} U**")
     
-    # Breakdown Analysis
-    # We can try to reconstruct lines from 'explain' or use raw values
-    # Rec has: meal_bolus_u, correction_u, iob_u.
+    # ... (Breakdown logic remains same, implicit via context? No, need to reproduce logic or assume it is okay) ...
+    # Wait, the tool 'replace_file_content' replaces the whole block.
+    # I must ensure I don't lose the breakdown code.
+    # The breakdown code is Lines 1056-1115 in original.
     
-    # A) Carbs
+    # I will simplify the breakdown reproduction here for brevity in the tool call, 
+    # but I must match the original functionality.
+    
+    # Breakdown Analysis
     if carbs > 0:
         cr = rec.used_params.cr_g_per_u
         lines.append(f"- Carbos: {carbs}g → {rec.meal_bolus_u:.2f} U")
     else:
         lines.append(f"- Carbos: 0g")
-
-    # B) Correction
-    # Logic: (Current - Target). 
-    # Rec has correction_u.
+        
     targ_val = rec.used_params.target_mgdl
     if rec.correction_u != 0:
         sign = "+" if rec.correction_u > 0 else ""
         lines.append(f"- Corrección: {sign}{rec.correction_u:.2f} U ({bg_val:.0f} → {targ_val:.0f})")
     elif bg_val is not None:
-         # Explicit "0 U" if bg known
          lines.append(f"- Corrección: 0.0 U ({bg_val:.0f} → {targ_val:.0f})")
     else:
          lines.append(f"- Corrección: 0.0 U (Falta Glucosa)")
 
-    # C) IOB
-    # Rec IOB is positive, but we subtract it.
     if rec.iob_u > 0:
         lines.append(f"- IOB: −{rec.iob_u:.2f} U")
     else:
         lines.append(f"- IOB: −0.0 U")
 
-    # D) Rounding / Adjustment
-    # Total Raw vs Total Final
-    # Raw = Meal + Corr - IOB
     starting = rec.meal_bolus_u + rec.correction_u - rec.iob_u
     if starting < 0: starting = 0
-    
     diff = rec.total_u_final - starting
     if abs(diff) > 0.01:
          sign = "+" if diff > 0 else ""
          lines.append(f"- Ajuste/Redondeo: {sign}{diff:.2f} U")
     
-    # Request ID
     lines.append(f"(`{request_id}`)")
 
-    # E) Fiber Transparency
-    # Check if engine deducted fiber
     fiber_msg = next((x for x in rec.explain if "Fibra" in x or "Restando" in x), None)
     if fiber_msg:
-        # User Feedback
         lines.append(f"ℹ️ {fiber_msg}")
-        # Persistence
         notes += f" [{fiber_msg}]"
     
-    # F) Check for High Fiber / Dual Recommendation
+    # F) Check for High Fiber / Dual Recommendation (Warsaw)
     fiber_dual_rec = False
+    
+    # If fat/protein were passed, Warsaw logic in calculate_bolus_v2 might have triggered advice
+    # We check the explain messages
     if any("Valorar Bolo Dual" in x for x in rec.explain):
         fiber_dual_rec = True
-    
+    elif fat > 0 or protein > 0:
+        # Explicit mention of macros if they exist
+        lines.append(f"🥩 Macros extra: F:{fat} P:{protein}")
+
     msg_text = "\n".join(lines)
 
     # 4. Save Snapshot
     SNAPSHOT_STORAGE[request_id] = {
         "rec": rec,
         "carbs": carbs,
+        "fat": fat,
+        "protein": protein,
+        "fiber": fiber,
         "bg": bg_val,
         "notes": notes,
         "source": "CalculateBolus",
