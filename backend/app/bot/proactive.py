@@ -542,7 +542,8 @@ async def combo_followup(username: str = "admin", chat_id: Optional[int] = None)
          await _route({"reason_hint": "heuristic_no_treatment_id"})
          return
 
-    previous_record = next((e for e in events if e.get("treatment_id") == tid and e.get("type") == "combo_followup_record"), None)
+    # Search in reverse to find the latest status (handle snoozed correctly)
+    previous_record = next((e for e in reversed(events) if e.get("treatment_id") == tid and e.get("type") == "combo_followup_record"), None)
     
     if previous_record:
         status = previous_record.get("status")

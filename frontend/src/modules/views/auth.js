@@ -1,4 +1,4 @@
-import { state } from '../core/store.js';
+import { state, syncSettings } from '../core/store.js';
 import { navigate, ensureAuthenticated } from '../core/router.js';
 import { renderHeader } from '../components/layout.js';
 import { getApiBase, loginRequest, changePassword, saveSession } from '../../lib/api.js';
@@ -41,6 +41,9 @@ export function renderLogin() {
       const data = await loginRequest(username, password);
       state.token = data.access_token;
       state.user = data.user;
+
+      // Sync settings immediately
+      await syncSettings();
 
       // Save session if available
       if (typeof saveSession === 'function') {

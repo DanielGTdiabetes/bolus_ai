@@ -109,7 +109,10 @@ initRouter();
 // Trigger Initial Render
 document.addEventListener('DOMContentLoaded', async () => {
   // Check backend health (DB mode)
-  import('./modules/core/store.js').then(({ checkBackendHealth }) => checkBackendHealth());
+  import('./modules/core/store.js').then(({ checkBackendHealth, syncSettings }) => {
+    checkBackendHealth();
+    syncSettings();
+  });
 
   router();
 

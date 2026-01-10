@@ -500,7 +500,7 @@ function CalcParamsPanel() {
             };
             setParams(merged);
         }
-        else saveCalcParams(defaults); // Init if empty
+        else setParams(defaults); // Init if empty (don't save to backend yet)
     }, []);
 
     const handleChange = (field, value, isSlot = false) => {
