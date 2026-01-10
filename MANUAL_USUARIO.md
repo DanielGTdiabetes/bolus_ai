@@ -36,14 +36,12 @@ El centro de control diseñado para darte información crítica en 1 segundo.
 
 #### La Gráfica de Predicción (El "Futuro")
 Toca el número de glucosa o la pequeña curva debajo para ver el gráfico detallado.
-*   **Línea Punteada:** Representa tu glucosa prevista. El motor de simulación combina tu insulina activa, la comida pendiente de absorber y tu inercia actual.
-*   **Zona de Confianza:** El sistema muestra un indicador de **"Confianza: Alta/Media/Baja"** basado en la calidad de los datos (macros conocidos vs desconocidos).
-*   **Metadatos de Absorción:** Junto al gráfico verás qué curva se ha aplicado (⚡ Rápida, 🥗 Media, 🍕 Lenta) y por qué (ej: "Grasas + Proteínas altas").
-*   **Regla de Oro (Anti-Pánico) 🛡️:** El sistema incluye una protección inteligente. Si detecta una bajada rápida pero tienes una comida vinculada, suaviza la alerta para evitar que comas azúcar de más innecesariamente. Sin embargo, esta protección se desactiva instantáneamente si el riesgo de hipoglucemia es real (<80 mg/dL).
-*   **Datos Clave (Debajo de la gráfica):**
-    *   **Mínimo Estimado:** El valor más bajo previsto.
-    *   **Pico de Glucosa:** Cuándo y a qué valor llegará tu glucosa tras comer.
-    *   **Glucosa Final:** Dónde acabarás dentro de 4-6 horas.
+*   **Línea Punteada:** Representa tu glucosa prevista.
+*   **Inteligencia de Contraste (Trust the Bolus) 🧠:** La gráfica no es solo un dibujo; entiende lo que has hecho.
+    *   **Validación:** Si te has puesto un bolo mucho mayor que los hidratos (ej. para cubrir mucha proteína), la gráfica lo detecta y dice: *"Entendido, el sobrante es para la proteína (+Xg Auto-ajuste)"*. La curva se mostrará estable.
+    *   **Auditoría de Seguridad ⚠️:** Si te pasas de frenada y pones insulina que no cabe ni sumando proteínas ni grasas, la gráfica te avisará con un mensaje rojo: *"Posible exceso de insulina"* y mostrará la caída real prevista.
+*   **Precisión Horaria:** El simulador usa exactamente tus mismos ratios (ISF y CR) según el **Horario de Comidas** que tengas configurado, igual que la calculadora.
+*   **Datos Clave:** Mínimo Estimado, Pico de Glucosa y Glucosa Final.
 
 ### B. Métricas Clave
 Debajo de la glucosa verás 3 tarjetas:
@@ -271,36 +269,28 @@ Si no tienes Nightscout o quieres una conexión directa de respaldo:
 
 ---
 
-### D. Configuración Avanzada (Warsaw & Autosens)
+### D. Configuración Avanzada (Cálculo)
 Desde la pestaña "Cálculo" en Ajustes, puedes afinar el comportamiento automático.
 
-#### Método Warsaw (Grasas/Proteínas)
-Define cuándo y cuánto corregir por comidas grasas.
-*   **Umbral de Disparo (Kcal):** Mínimo de energía extra (grasa+proteína) para que la app sugiera bolo doble.
-    *   *Por defecto:* **300 kcal** (aprox. 33g de grasa). Esto evita avisos en desayunos sanos normales.
-*   **Factor de Seguridad:** Porcentaje de la grasa que se cubre con insulina.
-    *   *Por defecto:* **0.1 (10%)**. Un inicio muy conservador para evitar hipoglucemias tardías. Usuarios expertos pueden subirlo a 0.5 (50%) si su basal lo requiere.
+#### 1. Método Warsaw Adaptativo (Grasas/Proteínas) 🧠
+Define cómo la app gestiona la insulina necesaria para las grasas y proteínas.
 
----
-
-### D. Configuración Avanzada (Warsaw & Autosens)
-Desde la pestaña "Cálculo" en Ajustes, puedes afinar el comportamiento automático.
-
-#### Método Warsaw Adaptativo (Grasas/Proteínas) 🧠
-Define cómo la app gestiona la insulina necesaria para las grasas y proteínas. Ahora el sistema es inteligente y se adapta al tamaño de la comida.
-
-*   **Umbral de Disparo (Kcal):** Mínimo de energía grasa/proteica para considerar la comida "copiosa" y activar el Bolo Dual.
-    *   *Por defecto:* **300 kcal** o **500 kcal**.
-    *   **Bajo el umbral:** La insulina extra se suma al bolo inmediato (Bolo Simple) para no complicarte la vida en comidas normales.
-    *   **Sobre el umbral:** La app sugiere dividir la dosis (Bolo Dual) para evitar picos tardíos.
+*   **Umbral de Disparo (Kcal):** Mínimo de energía grasa/proteica para considerar la comida "copiosa".
+    *   *Por defecto:* **300-500 kcal**.
+    *   **Bajo el umbral:** Se suma al bolo inmediato (Bolo Simple) para no complicar el día a día.
+    *   **Sobre el umbral:** La app sugiere dividir la dosis (Bolo Dual / Extendido).
 
 *   **Factores de Seguridad (Intensidad):**
-    Puedes definir dos niveles de agresividad diferentes:
-    1.  **Factor Estándar (Bolo Simple):** Se usa para el día a día (pollo, pescado, huevos).
-        *   *Recomendado:* **0.1 (10%)**. Cubre solo un poco para mantener la línea plana sin riesgo.
-    2.  **Factor Dual (Bolo Copioso):** Se usa solo cuando se supera el umbral (hamburguesas, pizzas, asados).
-        *   *Recomendado:* **0.2 o 0.3 (20-30%)**. Al ser mucha grasa, se requiere más insulina para vencer la resistencia temporal.
+    *   **Factor Simple:** Para comidas normales (pollo, huevos). Defecto **0.1**.
+    *   **Factor Dual:** Para banquetes (pizzas, asados). Defecto **0.2-0.3**.
+    *   *Nota:* Si decides ponerte más insulina manualmente, la Gráfica de Predicción lo detectará y "subirá" este factor automáticamente para validarte.
 
+#### 2. Deducción de Fibra 🥗
+Para dietas ricas en fibra (que no se absorbe como glucosa).
+*   **Restar Fibra:** Si activas esto, la app restará la fibra de los hidratos totales.
+*   **Umbral Mínimo:** Solo resta si la comida tiene más de **5g** de fibra (para ignorar trazas).
+*   **Factor:** Generalmente se resta el **50%** o el **100%** de la fibra (Configurable).
+*   *Excepción:* Si hay tanta fibra como hidratos (ej. salvado puro), la app deja de restar y sugiere un perfil de absorción Lento.
 
 ---
 
