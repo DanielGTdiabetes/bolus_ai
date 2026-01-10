@@ -6,7 +6,8 @@ import {
     getSupplies,
     updateSupply,
     saveInjectionSite,
-    getSiteLabel
+    getSiteLabel,
+    saveActivePlan
 } from '../lib/api';
 import {
     getCalcParams,
@@ -289,6 +290,24 @@ export function useBolusCalculator() {
                     created_at_ts: Date.now()
                 };
                 saveDualPlan(state.lastBolusPlan);
+
+                // --- SYNC TO BOT ENDPOINT ---
+                try {
+                    // We need to map to ActivePlan Schema
+                    // result.plan usually has: { now_u, later_u_planned, later_after_min, extended_duration_min, total_recommended_u }
+                    await saveActivePlan({
+                        id: result.plan.plan_id || String(Date.now()),
+                        created_at_ts: Date.now(),
+                        upfront_u: finalInsulin,
+                        later_u_planned: result.later_u, // from result top level which is already calculated/overwritten
+                        later_after_min: result.duration_min, // usually same as duration
+                        extended_duration_min: result.duration_min,
+                        notes: `Origen: App (${foodName || 'Manual'})`,
+                        status: "pending"
+                    });
+                } catch (errPlan) {
+                    console.warn("Failed to sync plan to bot:", errPlan);
+                }
             }
 
             if (siteId && finalInsulin > 0) {

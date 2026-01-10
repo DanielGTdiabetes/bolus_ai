@@ -1327,3 +1327,87 @@ async def check_supplies_status(username: str = "admin", chat_id: Optional[int] 
             
     except Exception as e:
         logger.error(f"Supplies check failed: {e}")
+
+
+async def check_active_plans(username: str = "admin", chat_id: Optional[int] = None) -> None:
+    """
+    Checks for active bolus plans (Dual/Extended) that are due.
+    Source: active_plans.json (Generic DataStore)
+    """
+    # 1. Resolve Chat ID
+    final_chat_id = chat_id or await _get_chat_id()
+    if not final_chat_id: return
+    
+    # 2. Load Plans
+    global_settings = get_settings()
+    store = DataStore(Path(global_settings.data.data_dir))
+    
+    try:
+        data = store.load_json("active_plans.json")
+        # Structure: { "plans": [...] }
+        plans = data.get("plans", []) if data else []
+    except Exception:
+        return # File missing or corrupt
+        
+    if not plans: return
+        
+    now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+    dirty = False
+    
+    from app.bot.service import bot_send
+    
+    active_plans_kept = []
+    
+    for p in plans:
+        # Schema: { id, created_at_ts, upfront_u, later_u_planned, later_after_min, status, notes }
+        if p.get("status") != "pending":
+            continue
+            
+        created_at_ts = p.get("created_at_ts", 0)
+        delay_min = p.get("later_after_min", 0)
+        due_ts = created_at_ts + (delay_min * 60 * 1000)
+        
+        # Check if due (with 2 min buffer to allow processing)
+        if now_ms >= due_ts:
+            # IT IS TIME!
+            later_u = p.get("later_u_planned", 0)
+            notes = p.get("notes", "")
+            
+            # Send Notification
+            text = (
+                f"⏰ **Recordatorio de Bolo Dual**\n"
+                f"Han pasado {delay_min} min.\n"
+                f"Es hora de la segunda dosis: **{later_u} U**\n"
+                f"_{notes}_"
+            )
+            
+            keyboard = [
+                [
+                    InlineKeyboardButton(f"✅ Poner {later_u} U", callback_data=f"accept_manual|{later_u}|{p.get('id')}"),
+                    InlineKeyboardButton("❌ Cancelar", callback_data=f"cancel|{p.get('id')}")
+                ]
+            ]
+            
+            try:
+                await bot_send(
+                    chat_id=final_chat_id,
+                    text=text,
+                    bot=None,
+                    log_context="active_plan_reminder",
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+                
+                # Mark as notified/completed to avoid loop
+                dirty = True
+                continue # Do not add to kept list (Remove it)
+                
+            except Exception as e:
+                logger.error(f"Failed to send plan reminder: {e}")
+                # Keep it to retry? Or fail safe?
+                active_plans_kept.append(p)
+        else:
+            # Keep pending
+            active_plans_kept.append(p)
+            
+    if dirty:
+        store.save_json("active_plans.json", {"plans": active_plans_kept})

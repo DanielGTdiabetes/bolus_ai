@@ -991,3 +991,12 @@ export function getSiteLabel(type, id) {
   // Basic formatting: "abdomen_right" -> "Abdomen Right"
   return id.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
 }
+
+export async function saveActivePlan(plan) {
+  const response = await apiFetch("/api/bolus/active-plans", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(plan)
+  });
+  return toJson(response);
+}

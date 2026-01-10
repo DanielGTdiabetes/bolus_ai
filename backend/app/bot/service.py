@@ -2031,9 +2031,27 @@ async def _handle_snapshot_callback(query, data: str) -> None:
         
         if not snapshot:
             logger.warning(f"Snapshot missing for req={request_id}. Available count={len(SNAPSHOT_STORAGE)}")
-            health.record_action(f"callback:{'accept' if is_accept else 'cancel'}:{request_id}", False, "snapshot_missing")
-            await edit_message_text_safe(query, f"⚠️ Error: No encuentro el snapshot ({request_id}). Recalcula.")
-            return
+            
+            # --- Active Plan Recovery Logic ---
+            if is_accept and units_override is not None:
+                # Reconstruct minimal snapshot for "manual" acceptance (e.g. Active Plan Reminder)
+                snapshot = {
+                    "carbs": 0,
+                    "fat": 0, 
+                    "protein": 0,
+                    "fiber": 0,
+                    "notes": "Recordatorio",
+                    "source": "ActivePlan"
+                }
+                logger.info(f"Synthesized snapshot for manual accept: {units_override} U")
+            elif not is_accept:
+                # If cancelling a missing snapshot (likely Active Plan that wasn't stored in RAM), just confirm cancel
+                await edit_message_text_safe(query, "❌ Descartado.")
+                return
+            else:
+                health.record_action(f"callback:{'accept' if is_accept else 'cancel'}:{request_id}", False, "snapshot_missing")
+                await edit_message_text_safe(query, f"⚠️ Error: No encuentro el snapshot ({request_id}). Recalcula.")
+                return
 
         # --- Handle Cancellation (Ignorar) ---
         if not is_accept:

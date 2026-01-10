@@ -43,6 +43,63 @@ def _data_store(settings: Settings = Depends(get_settings)) -> DataStore:
 async def api_create_plan(payload: BolusPlanRequest):
     return create_plan(payload)
 
+# --- ACTIVE PLANS MANAGEMENT ---
+
+class ActivePlan(BaseModel):
+    id: str
+    created_at_ts: int
+    upfront_u: float
+    later_u_planned: float
+    later_after_min: int
+    extended_duration_min: Optional[int] = None
+    status: Literal["pending", "completed", "cancelled"] = "pending"
+    notes: Optional[str] = None
+
+class ActivePlansList(BaseModel):
+    plans: list[ActivePlan] = []
+
+@router.post("/active-plans", summary="Save an active plan for bot tracking")
+async def save_active_plan(
+    plan: ActivePlan,
+    store: DataStore = Depends(_data_store)
+):
+    # Load existing
+    try:
+        data = store.load_json("active_plans.json")
+        current_list = ActivePlansList(**data)
+    except:
+        current_list = ActivePlansList()
+    
+    # Add new
+    # Remove if exists (replace)
+    current_list.plans = [p for p in current_list.plans if p.id != plan.id]
+    current_list.plans.append(plan)
+    
+    store.save_json("active_plans.json", current_list.model_dump())
+    logger.info(f"Saved active plan {plan.id} for bot tracking")
+    return {"status": "ok"}
+
+@router.get("/active-plans", response_model=ActivePlansList)
+async def get_active_plans(store: DataStore = Depends(_data_store)):
+    try:
+        data = store.load_json("active_plans.json")
+        return ActivePlansList(**data)
+    except:
+        return ActivePlansList()
+
+@router.delete("/active-plans/{plan_id}")
+async def delete_active_plan(plan_id: str, store: DataStore = Depends(_data_store)):
+    try:
+        data = store.load_json("active_plans.json")
+        current_list = ActivePlansList(**data)
+        current_list.plans = [p for p in current_list.plans if p.id != plan_id]
+        store.save_json("active_plans.json", current_list.model_dump())
+    except:
+        pass
+    return {"status": "ok"}
+
+# -------------------------------
+
 @router.post("/recalc-second", response_model=RecalcSecondResponse, summary="Recalculate second tranche")
 async def api_recalc_second(
     payload: RecalcSecondRequest,

@@ -204,5 +204,11 @@ def setup_periodic_tasks():
         schedule_task(_run_isf_check, CronTrigger(hour=8, minute=0), "isf_check")
         jobs_state.refresh_next_run("isf_check")
 
+        async def _run_active_plans():
+            await jobs_state.run_job("active_plans_check", proactive.check_active_plans)
+
+        schedule_task(_run_active_plans, CronTrigger(minute='*/2'), "active_plans_check") # Check every 2 min
+        jobs_state.refresh_next_run("active_plans_check")
+
 
 
