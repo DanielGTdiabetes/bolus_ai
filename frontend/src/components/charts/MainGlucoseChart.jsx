@@ -302,18 +302,6 @@ export function MainGlucoseChart({ isLow, predictionData }) {
                     )}
                 </ComposedChart>
             </ResponsiveContainer>
-            {chartData.some(d => d.mlPrediction) && (
-                <div style={{ position: 'absolute', top: '5px', left: '50px', zIndex: 10 }}>
-                    <span className={`text-[9px] px-2 py-0.5 rounded-full border opacity-90 shadow-sm ${predictionData?.ml_ready
-                            ? "text-emerald-700 bg-emerald-100 border-emerald-200"
-                            : "text-gray-500 bg-gray-50 border-gray-200"
-                        }`}>
-                        {predictionData?.ml_ready
-                            ? "✨ IA Híbrida Activa"
-                            : "🤖 Modo Aprendizaje..."}
-                    </span>
-                </div>
-            )}
         </div>
     );
 }

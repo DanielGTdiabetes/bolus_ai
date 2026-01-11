@@ -184,6 +184,19 @@ function GlucoseHero({ onRefresh }) {
                     </div>
                 </div>
             )}
+            {/* ML Status Badge */}
+            {prediction && prediction.ml_series && prediction.ml_series.length > 0 && (
+                <div style={{ textAlign: 'center', marginTop: '0.4rem', marginBottom: '0.2rem' }}>
+                    <span style={{
+                        fontSize: '0.65rem', padding: '2px 8px', borderRadius: '12px', border: '1px solid',
+                        background: prediction.ml_ready ? '#dcfce7' : '#f9fafb',
+                        color: prediction.ml_ready ? '#15803d' : '#6b7280',
+                        borderColor: prediction.ml_ready ? '#bbf7d0' : '#e5e7eb'
+                    }}>
+                        {prediction.ml_ready ? "✨ IA Híbrida Activa" : "🤖 Modo Aprendizaje..."}
+                    </span>
+                </div>
+            )}
 
             <div
                 style={{ textAlign: 'center', marginTop: '0.5rem', fontSize: '0.75rem', color: '#94a3b8', textDecoration: 'underline', cursor: 'pointer', padding: '10px' }}
