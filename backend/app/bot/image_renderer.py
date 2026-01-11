@@ -30,16 +30,26 @@ def generate_injection_image(site_id: str, assets_dir: Path) -> io.BytesIO:
     
     logger.info(f"[ImageRenderer] Generating image for site_id='{site_id}'")
     
-    # Parse ID: "abd_r_top:1" -> zone="abd_r_top", point=1
-    if ":" in site_id:
+    # Parse ID: 
+    # Logic 1: Rapid (Abdomen) -> "abd_r_top:1"
+    # Logic 2: Basal (Legs) -> "leg_left" (No points)
+    
+    if "abd_" in site_id and ":" in site_id:
         zone_id, point_str = site_id.split(":")
         try:
             point = int(point_str)
         except:
             point = 1
     else:
-        zone_id = site_id
-        point = 1
+        # For Basal or simple zones, ignore points (always 1)
+        # Even if site_id contains ":" (e.g. legacy), strip it?
+        # Actually frontend is sending "leg_left:1" sometimes? 
+        # ZONES.basal has count:1, so it usually sends "zone:1" in fullId.
+        if ":" in site_id:
+             zone_id = site_id.split(":")[0]
+        else:
+             zone_id = site_id
+        point = 1 # Basal always 1 in current map
     
     logger.info(f"[ImageRenderer] Parsed: zone_id='{zone_id}', point={point}")
 
