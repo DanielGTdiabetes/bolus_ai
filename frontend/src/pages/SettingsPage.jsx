@@ -2009,7 +2009,17 @@ function LabsPanel() {
                             type="checkbox"
                             checked={inner?.learning?.auto_apply_safe ?? false}
                             onChange={e => {
-                                if (e.target.checked && !window.confirm("⚠️ ¿Seguro? Esto permitirá a la IA modificar dosis. Requiere supervisión.")) return;
+                                if (e.target.checked) {
+                                    if (mlStatus.percent_complete < 100) {
+                                        alert("⛔ Datos insuficientes. Necesitas llegar al 100% de recolección para activar la autonomía.");
+                                        e.preventDefault();
+                                        return;
+                                    }
+                                    if (!window.confirm("⚠️ ¿Seguro? Esto permitirá a la IA modificar dosis. Requiere supervisión.")) {
+                                        e.preventDefault();
+                                        return;
+                                    }
+                                }
                                 handleUpdateAutonomy(e.target.checked);
                             }}
                         />
