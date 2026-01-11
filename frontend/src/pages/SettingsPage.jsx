@@ -1978,6 +1978,23 @@ function LabsPanel() {
                             Recolectando datos cada 5 min...
                         </div>
                     )}
+
+                    {/* Validation Metrics */}
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.8rem', marginTop: '1rem', paddingTop: '1rem', borderTop: '1px dashed #bbf7d0' }}>
+                        <div style={{ background: 'rgba(255,255,255,0.6)', padding: '0.6rem', borderRadius: '8px', textAlign: 'center' }}>
+                            <div style={{ fontSize: '0.7rem', color: '#15803d', fontWeight: 600, marginBottom: '2px', textTransform: 'uppercase' }}>Acierto (30m)</div>
+                            <div style={{ fontSize: '1.1rem', fontWeight: 800, color: '#166534' }}>
+                                {mlStatus.accuracy != null ? `${mlStatus.accuracy}%` : <span style={{ fontSize: '0.9rem', opacity: 0.6 }}>--</span>}
+                            </div>
+                        </div>
+                        <div style={{ background: 'rgba(255,255,255,0.6)', padding: '0.6rem', borderRadius: '8px', textAlign: 'center' }}>
+                            <div style={{ fontSize: '0.7rem', color: '#15803d', fontWeight: 600, marginBottom: '2px', textTransform: 'uppercase' }}>Desviación</div>
+                            <div style={{ fontSize: '1.1rem', fontWeight: 800, color: '#166534' }}>
+                                {mlStatus.mae != null ? `±${mlStatus.mae}` : <span style={{ fontSize: '0.9rem', opacity: 0.6 }}>--</span>}
+                            </div>
+                            <div style={{ fontSize: '0.6rem', color: '#166534' }}>mg/dL</div>
+                        </div>
+                    </div>
                 </div>
             )}
 

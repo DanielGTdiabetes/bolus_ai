@@ -97,7 +97,9 @@ async def get_ml_status(
         "data_points": count,
         "percent_complete": percent,
         "target_points": target_points,
-        "days_collected": round(count * 5 / 60 / 24, 1) # 5 min interval
+        "days_collected": round(count * 5 / 60 / 24, 1), # 5 min interval
+        "accuracy": None, # Placeholder: Will be calculated from validation set
+        "mae": None # Placeholder: Mean Absolute Error
     }
 
 @router.post("/import", response_model=ImportResponse)
