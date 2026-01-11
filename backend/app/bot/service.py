@@ -1447,6 +1447,13 @@ async def run_glucose_monitor_job() -> None:
 
     try:
         await proactive.trend_alert(trigger="auto")
+        
+        # [ML] Data Collection Step
+        try:
+             await _collect_ml_data()
+        except Exception as ml_e:
+             logger.warning(f"ML collection failed: {ml_e}")
+
         health.record_action("job:glucose_monitor", True)
     except Exception as exc:
         logger.error("Glucose monitor job failed: %s", exc)
@@ -2845,3 +2852,23 @@ async def _handle_voice_callback(update: Update, context: ContextTypes.DEFAULT_T
         except Exception as e:
             logger.error(f"Voice confirm processing error: {e}")
             await reply_text(update, context, f"Error procesando voz: {e}")
+
+async def _collect_ml_data():
+    try:
+        from app.bot.tools import get_status_context
+        status = await get_status_context('admin')
+        if hasattr(status, 'type') and status.type == 'tool_error':
+            return
+            
+        async with SessionLocal() as session:
+             from sqlalchemy import text
+             now_ts = datetime.now(timezone.utc)
+             minute = (now_ts.minute // 5) * 5
+             bucket_ts = now_ts.replace(minute=minute, second=0, microsecond=0)
+             
+             stmt = text('INSERT INTO ml_training_data (feature_time, user_id, sgv, trend, iob, cob, basal_rate, activity_score, notes) VALUES (:ts, :uid, :sgv, :trend, :iob, :cob, :bs, :act, :note) ON CONFLICT (feature_time) DO NOTHING')
+             
+             await session.execute(stmt, {'ts': bucket_ts, 'uid': 'admin', 'sgv': status.bg_mgdl, 'trend': str(status.direction or ''), 'iob': status.iob_u, 'cob': status.cob_g, 'bs': 0.0, 'act': 0.0, 'note': 'auto'})
+             await session.commit()
+    except Exception:
+        pass

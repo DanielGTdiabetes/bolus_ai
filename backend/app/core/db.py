@@ -212,6 +212,21 @@ async def migrate_schema(conn):
             )
         """))
 
+        # 11. ml_training_data (LSTM/Transformer Dataset)
+        await conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS ml_training_data (
+                feature_time TIMESTAMP PRIMARY KEY,  -- 5 min bucketing
+                user_id VARCHAR NOT NULL,
+                sgv FLOAT,
+                trend VARCHAR,
+                iob FLOAT,
+                cob FLOAT,
+                basal_rate FLOAT,
+                activity_score FLOAT,  -- Placeholder for steps/hr
+                notes TEXT
+            )
+        """))
+
         
         # Commit changes if using a connection that requires it (begin() usually handles this, but let's be safe)
         await conn.commit()
