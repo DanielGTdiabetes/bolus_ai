@@ -20,22 +20,44 @@ COORDS = {
     "leg_right":   {"file": "body_legs.png", "x": 85, "y": 60},
 }
 
-def generate_injection_image(site_id: str, assets_dir: Path, mode: str = "selected", secondary_site_id: str = None) -> io.BytesIO:
+def generate_injection_image(site_id: str = None, assets_dir: Path = None, mode: str = "selected", secondary_site_id: str = None, next_site_id: str = None, last_site_id: str = None) -> io.BytesIO:
     """
-    Loads generic body image and overlays targets.
-    Primary 'site_id' is the main focus (Next).
-    Secondary 'secondary_site_id' is optional (Last).
+    Generates body image with overlays.
     
-    Modes:
-    - 'next_last_combined': site_id=Next(Green), secondary=Last(Red)
-    - 'selected': site_id=Blue (Single)
-    - 'recommended': site_id=Green (Single)
-    - 'last': site_id=Red (Single)
+    Arguments:
+    - next_site_id: The Next Point (green).
+    - last_site_id: The Last/Previous Point (red).
+    - site_id: Legacy/Generic primary ID (blue if mode='selected').
+    
+    If next_site_id/last_site_id are provided, they take precedence over 'site_id' for the combined view.
     """
     import logging
     logger = logging.getLogger(__name__)
+
+    # Logic:
+    # 1. If we have next_site_id OR last_site_id, we use Combined Mode behavior.
+    # 2. Else we fall back to site_id and mode (selected/recommended/last).
     
-    logger.info(f"[ImageRenderer] Generating image for site='{site_id}', sec='{secondary_site_id}', mode='{mode}'")
+    # Resolve explicit args
+    p_next = next_site_id
+    p_last = last_site_id
+    
+    # Fallback to legacy args if explicit ones missing
+    if not p_next and not p_last and site_id:
+        if mode == "next_last_combined":
+             p_next = site_id
+             p_last = secondary_site_id
+             # IMPLICIT ASSUMPTION: site_id is Next(Green), secondary is Last(Red)
+             # This was the source of confusion. We will remove this implicit logic by prioritizing explicitly named args.
+        elif mode == "recommended":
+             p_next = site_id
+        elif mode == "last":
+             p_last = site_id
+        else:
+             # Default generic (Blue)
+             pass
+
+    logger.info(f"[ImageRenderer] Gen Next='{p_next}' Last='{p_last}' (Legacy: site='{site_id}' mode='{mode}')")
 
     # Helper to resolve coords
     def resolve_coords(s_id: str):
@@ -82,20 +104,22 @@ def generate_injection_image(site_id: str, assets_dir: Path, mode: str = "select
         
         return None
 
-    # Resolve Primary
-    primary = resolve_coords(site_id)
-    if not primary:
-        logger.warning(f"Primary site {site_id} not found coords")
-        return None
-
-    # Resolve Secondary
-    secondary = resolve_coords(secondary_site_id)
+    coords_next = resolve_coords(p_next)
+    coords_last = resolve_coords(p_last)
+    coords_generic = resolve_coords(site_id) if not p_next and not p_last else None
     
-    # Check Compatibility
-    img_file = primary["file"]
-    if secondary and secondary["file"] != img_file:
-        logger.warning("Primary and Secondary on different body parts. Skipping secondary.")
-        secondary = None
+    # Determine base image
+    # Prioritize Next, then Last, then Generic
+    main_ref = coords_next or coords_last or coords_generic
+    if not main_ref:
+        logger.warning(f"No valid coords found for any site. {p_next}|{p_last}|{site_id}")
+        return None
+        
+    img_file = main_ref["file"]
+    
+    # Verify compatibility (skip if different body part)
+    if coords_next and coords_next["file"] != img_file: coords_next = None
+    if coords_last and coords_last["file"] != img_file: coords_last = None
     
     img_path = assets_dir / img_file
     if not img_path.exists():
@@ -107,7 +131,7 @@ def generate_injection_image(site_id: str, assets_dir: Path, mode: str = "select
             im = im.convert("RGBA")
             w, h = im.size
             
-            # Crop to square if needed
+            # Crop to square
             if w != h:
                 new_size = min(w, h)
                 left = (w - new_size) / 2
@@ -138,7 +162,6 @@ def generate_injection_image(site_id: str, assets_dir: Path, mode: str = "select
                 # Number
                 if coords["point"] is not None:
                      text_val = str(coords["point"])
-                     # Centering rough approx
                      draw.text((cx-3, cy-5), text_val, fill=(0,0,0,255))
 
             # Define Colors
@@ -148,20 +171,17 @@ def generate_injection_image(site_id: str, assets_dir: Path, mode: str = "select
             c_green_str = (22, 163, 74)
             c_red_fill = (248, 113, 113, 140)
             c_red_str = (220, 38, 38)
-
-            # Draw Secondary (Last) first (Red)
-            if secondary:
-                draw_point(secondary, c_red_fill, c_red_str)
-                
-            # Draw Primary (Next)
-            if mode == "next_last_combined":
-                 draw_point(primary, c_green_fill, c_green_str)
-            elif mode == "recommended":
-                 draw_point(primary, c_green_fill, c_green_str)
-            elif mode == "last":
-                 draw_point(primary, c_red_fill, c_red_str)
-            else: # selected
-                 draw_point(primary, c_blue_fill, c_blue_str)
+            
+            # Draw Process:
+            if p_next or p_last:
+                # Combined Mode
+                if coords_last:
+                    draw_point(coords_last, c_red_fill, c_red_str) # Last = Red
+                if coords_next:
+                    draw_point(coords_next, c_green_fill, c_green_str) # Next = Green
+            else:
+                # Generic Mode (Blue)
+                draw_point(coords_generic, c_blue_fill, c_blue_str)
 
             # Draw L/R Labels
             try:
@@ -176,7 +196,9 @@ def generate_injection_image(site_id: str, assets_dir: Path, mode: str = "select
             
             import uuid
             nonce = uuid.uuid4().hex[:6]
-            bio.name = f"injection_{site_id}_{nonce}.png"
+            # Use safe ID for filename
+            clean_id = (p_next or p_last or site_id or "unknown").replace(":", "_")
+            bio.name = f"injection_{clean_id}_{nonce}.png"
             return bio
 
     except Exception as e:

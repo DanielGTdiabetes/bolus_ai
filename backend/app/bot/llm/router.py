@@ -266,6 +266,16 @@ async def handle_text(username: str, chat_id: int, user_text: str, context_data:
                      last_site_id = getattr(tool_res, "id", None)
                      last_secondary_site_id = getattr(tool_res, "secondary_id", None)
                      last_secondary_site_name = getattr(tool_res, "secondary_name", None)
+                     
+                     # FIX: Ensure Primary Site passed to Renderer is always "Next" (Green) 
+                     # If tool was get_last_injection_site, Primary is Last (Red). We must SWAP.
+                     if tool_name == "get_last_injection_site" and last_secondary_site_id:
+                         # Swap
+                         temp_id = last_site_id
+                         last_site_id = last_secondary_site_id
+                         last_secondary_site_id = temp_id
+                         logger.info("[Router] Swapped Last/Next for visualization consistency.")
+
                      logger.info(f"[Router] Captured site from InjectionSiteResult: id={last_site_id}, sec={last_secondary_site_id}")
                 else:
                      logger.warning(f"[Router] Tool {tool_name} returned result but no image/injection_site found. Result type: {type(tool_res)}, attrs: {dir(tool_res)}")

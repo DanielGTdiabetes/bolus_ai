@@ -897,10 +897,18 @@ async def _process_text_input_internal(update: Update, context: ContextTypes.DEF
              
              # Smart Mode Selection: If we have secondary (Last), we combine.
              s_id = getattr(bot_reply, "secondary_site_id", None)
-             mode = "next_last_combined" if s_id else "selected"
              
-             # We assume Router returned primary=Next, secondary=Last (standard tool output)
-             img_bytes = generate_injection_image(bot_reply.site_id, assets, mode=mode, secondary_site_id=s_id)
+             # Convention enforced by Router: 
+             # site_id = NEXT (Green)
+             # secondary_site_id = LAST (Red)
+             
+             img_bytes = generate_injection_image(
+                 site_id=bot_reply.site_id, 
+                 assets_dir=assets, 
+                 mode="next_last_combined" if s_id else "selected",
+                 next_site_id=bot_reply.site_id,
+                 last_site_id=s_id
+             )
              if img_bytes:
                  await context.bot.send_photo(chat_id=update.effective_chat.id, photo=img_bytes)
         except Exception as e:
