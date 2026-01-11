@@ -1503,7 +1503,7 @@ AI_TOOL_DECLARATIONS = [
     },
     {
         "name": "get_injection_site",
-        "description": "Consultar cuál es el SIGUIENTE punto de inyección recomendado (Toca inyectar aquí). NO avanza la rotación, solo sugiere. Devuelve imagen.",
+        "description": "Devuelve el SIGUIENTE punto exacto sugerido (Verde) y el ANTERIOR (Rojo). Usa ESTA información exacta, no inventes puntos.",
         "parameters": {
             "type": "OBJECT",
             "properties": {

@@ -26,6 +26,7 @@ class BotReply:
     pending_action: Optional[Dict[str, Any]] = None
     image_path: Optional[str] = None
     site_id: Optional[str] = None
+    secondary_site_id: Optional[str] = None
 
 
 def _is_admin(user_id: int) -> bool:
@@ -205,8 +206,10 @@ async def handle_text(username: str, chat_id: int, user_text: str, context_data:
     # Track execution for UI
     last_bolus_result = None
     last_bolus_args = {}
+    last_bolus_args = {}
     last_image_path = None
     last_site_id = None
+    last_secondary_site_id = None
 
 
     try:
@@ -254,11 +257,16 @@ async def handle_text(username: str, chat_id: int, user_text: str, context_data:
                      if isinstance(site, dict):
                           last_image_path = site.get("image")
                           last_site_id = site.get("id")
-                          logger.info(f"[Router] Captured site from injection_site dict: id={last_site_id}, image={last_image_path}")
+                          # Handle secondary if present in nested dict (add_treatment usually doesn't have it yet, but good to check)
+                          last_secondary_site_id = site.get("secondary_id")
+                          last_secondary_site_name = site.get("secondary_name")
+                          logger.info(f"[Router] Captured site from injection_site dict: id={last_site_id}, sec={last_secondary_site_id}")
                 elif hasattr(tool_res, "image") and tool_res.image:
                      last_image_path = tool_res.image
                      last_site_id = getattr(tool_res, "id", None)
-                     logger.info(f"[Router] Captured site from InjectionSiteResult: id={last_site_id}, image={last_image_path}")
+                     last_secondary_site_id = getattr(tool_res, "secondary_id", None)
+                     last_secondary_site_name = getattr(tool_res, "secondary_name", None)
+                     logger.info(f"[Router] Captured site from InjectionSiteResult: id={last_site_id}, sec={last_secondary_site_id}")
                 else:
                      logger.warning(f"[Router] Tool {tool_name} returned result but no image/injection_site found. Result type: {type(tool_res)}, attrs: {dir(tool_res)}")
 
@@ -340,7 +348,7 @@ async def handle_text(username: str, chat_id: int, user_text: str, context_data:
     memory.add(chat_id, "user", user_text)
     memory.add(chat_id, "assistant", reply_text)
     
-    return BotReply(reply_text, final_buttons, image_path=last_image_path, site_id=last_site_id)
+    return BotReply(reply_text, final_buttons, image_path=last_image_path, site_id=last_site_id, secondary_site_id=last_secondary_site_id)
 
 
 async def handle_event(username: str, chat_id: int, event_type: str, payload: Dict[str, Any]) -> Optional[BotReply]:
