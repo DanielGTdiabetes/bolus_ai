@@ -350,7 +350,8 @@ async def _exec_tool(update: Update, context: ContextTypes.DEFAULT_TYPE, name: s
                          if not assets.exists():
                              assets = Path(os.getcwd()) / "app" / "static" / "assets"
                          
-                         img_bytes = generate_injection_image(target_id, assets)
+                         mode = "recommended" if name == "get_injection_site" else "last"
+                         img_bytes = generate_injection_image(target_id, assets, mode=mode)
                          if img_bytes:
                              await context.bot.send_photo(chat_id=update.effective_chat.id, photo=img_bytes)
                  except Exception as img_err:

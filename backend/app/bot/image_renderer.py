@@ -20,15 +20,16 @@ COORDS = {
     "leg_right":   {"file": "body_legs.png", "x": 85, "y": 60},
 }
 
-def generate_injection_image(site_id: str, assets_dir: Path) -> io.BytesIO:
+def generate_injection_image(site_id: str, assets_dir: Path, mode: str = "selected") -> io.BytesIO:
     """
     Loads generic body image and overlays a target on the specific site.
     Returns bytes ready for Telegram.
+    mode: 'selected' (blue), 'recommended' (green), 'last' (red)
     """
     import logging
     logger = logging.getLogger(__name__)
     
-    logger.info(f"[ImageRenderer] Generating image for site_id='{site_id}'")
+    logger.info(f"[ImageRenderer] Generating image for site_id='{site_id}' mode='{mode}'")
     
     # Parse ID: 
     # Logic 1: Rapid (Abdomen) -> "abd_r_top:1"
@@ -42,9 +43,6 @@ def generate_injection_image(site_id: str, assets_dir: Path) -> io.BytesIO:
             point = 1
     else:
         # For Basal or simple zones, ignore points (always 1)
-        # Even if site_id contains ":" (e.g. legacy), strip it?
-        # Actually frontend is sending "leg_left:1" sometimes? 
-        # ZONES.basal has count:1, so it usually sends "zone:1" in fullId.
         if ":" in site_id:
              zone_id = site_id.split(":")[0]
         else:
@@ -59,9 +57,6 @@ def generate_injection_image(site_id: str, assets_dir: Path) -> io.BytesIO:
     found = False
 
     # Abdomen Logic (Dynamic mapping to match Frontend)
-    # Frontend displays the image in a square container with object-fit: cover, without
-    # any manual head cropping. We replicate that exact transform here: compute the point
-    # over the original image using percentages, then center-crop to a square.
     if "abd_" in zone_id:
         img_file = "body_abdomen.png"
         found = True
@@ -109,12 +104,6 @@ def generate_injection_image(site_id: str, assets_dir: Path) -> io.BytesIO:
             im = im.convert("RGBA")
             w, h = im.size
             
-            # Mimic Frontend 'object-fit: cover' in a square container
-            # The frontend displays the image as a square (300x300), centered.
-            # If the source image is landscape, the sides are cropped.
-            # If portrait, top/bottom cropped.
-            # We must crop to a square CENTER to match the coordinate percentages (which are relative to the square view).
-            
             if w != h:
                 new_size = min(w, h)
                 left = (w - new_size) / 2
@@ -130,19 +119,33 @@ def generate_injection_image(site_id: str, assets_dir: Path) -> io.BytesIO:
             cx = (cx_pct / 100.0) * w
             cy = (cy_pct / 100.0) * h
             
-            # Style: Green target circle (Matching Frontend style roughly)
+            # Style Config
+            # Default Blue (Selected)
+            fill_color = (37, 99, 235, 120) # Blue-600 with alpha
+            stroke_color = (30, 64, 175)    # Blue-800
+            
+            if mode == "recommended":
+                # Green (Tailwind Green-400ish)
+                fill_color = (74, 222, 128, 140) 
+                stroke_color = (22, 163, 74)     
+            elif mode == "last":
+                # Red (Tailwind Red-400ish)
+                fill_color = (248, 113, 113, 140)
+                stroke_color = (220, 38, 38)
+
+            # Style: Target circle
             msg_scale = w / 300.0 # Scale radius if image is huge
             r = 15 * msg_scale
             w_line = max(1, int(2 * msg_scale))
             
-            # Outer fading ring (simulated)
-            draw.ellipse((cx - r, cy - r, cx + r, cy + r), fill=(37, 99, 235, 100), outline=(30, 64, 175), width=w_line)
+            # Outer fading ring
+            draw.ellipse((cx - r, cy - r, cx + r, cy + r), fill=fill_color, outline=stroke_color, width=w_line)
             
             # Inner dot
             r_inner = 5 * msg_scale
             draw.ellipse((cx - r_inner, cy - r_inner, cx + r_inner, cy + r_inner), fill=(255, 255, 255, 255))
             
-            # Draw Point Number (Sync verification)
+            # Draw Point Number
             try:
                 # Simple text drawing (default font)
                 text = str(point)
