@@ -129,3 +129,34 @@ async def ensure_treatment_columns(engine: AsyncEngine):
         except Exception as e:
             await conn.rollback()
             logger.warning(f"Failed to ensure unique draft_id index: {e}")
+
+async def ensure_ml_schema(engine: AsyncEngine):
+    """
+    Ensures the ml_training_data table exists for the LSTM/Transformer model.
+    """
+    if not engine:
+        return
+
+    logger.info("Checking ML training data schema...")
+    async with engine.connect() as conn:
+        try:
+            await conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS ml_training_data (
+                    feature_time TIMESTAMP NOT NULL,
+                    user_id VARCHAR NOT NULL,
+                    sgv FLOAT,
+                    trend VARCHAR,
+                    iob FLOAT,
+                    cob FLOAT,
+                    basal_rate FLOAT,
+                    activity_score FLOAT,
+                    notes TEXT,
+                    PRIMARY KEY (feature_time, user_id)
+                )
+            """))
+            await conn.commit()
+            logger.info("✅ ML training data table ensured.")
+        except Exception as e:
+            await conn.rollback()
+            logger.error(f"❌ Failed to ensure ML schema: {e}")
+

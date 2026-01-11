@@ -112,9 +112,11 @@ async def startup_event() -> None:
         await init_auth_db()
         
         # Schema fixes
-        from app.core.migration import ensure_basal_schema, ensure_treatment_columns
+        from app.core.migration import ensure_basal_schema, ensure_treatment_columns, ensure_ml_schema
         await ensure_basal_schema(get_engine())
         await ensure_treatment_columns(get_engine())
+        await ensure_ml_schema(get_engine())
+
 
         # Verify critical tables
         from sqlalchemy import text

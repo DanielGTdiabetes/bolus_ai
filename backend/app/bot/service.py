@@ -2875,7 +2875,8 @@ async def _collect_ml_data():
              bucket_ts = now_ts.replace(minute=minute, second=0, microsecond=0)
              
              stmt = text('INSERT INTO ml_training_data (feature_time, user_id, sgv, trend, iob, cob, basal_rate, activity_score, notes) '
-                        'VALUES (:ts, :uid, :sgv, :trend, :iob, :cob, :bs, :act, :note) ON CONFLICT (feature_time) DO NOTHING')
+                        'VALUES (:ts, :uid, :sgv, :trend, :iob, :cob, :bs, :act, :note) ON CONFLICT (feature_time, user_id) DO NOTHING')
+
 
              
              await session.execute(stmt, {
