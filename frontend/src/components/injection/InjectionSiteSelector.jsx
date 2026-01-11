@@ -186,8 +186,8 @@ function AbdomenImageVisual({ selected, recommended, lastUsed, onPointClick }) {
         const dist = offsets[pointNum - 1];
 
         let x = 50;
-        if (zoneId.includes('_l_')) x = 50 - dist;
-        if (zoneId.includes('_r_')) x = 50 + dist;
+        if (zoneId.includes('_l_')) x = 50 + dist;
+        if (zoneId.includes('_r_')) x = 50 - dist;
 
         return { x, y };
     };
@@ -202,8 +202,8 @@ function AbdomenImageVisual({ selected, recommended, lastUsed, onPointClick }) {
             />
 
             <svg viewBox="0 0 100 100" style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%' }}>
-                <text x="5" y="10" fontSize="4" fill="#94a3b8" fontWeight="bold">IZQ</text>
-                <text x="95" y="10" fontSize="4" fill="#94a3b8" fontWeight="bold" textAnchor="end">DER</text>
+                <text x="95" y="10" fontSize="4" fill="#94a3b8" fontWeight="bold" textAnchor="end">IZQ</text>
+                <text x="5" y="10" fontSize="4" fill="#94a3b8" fontWeight="bold">DER</text>
 
                 {ZONES.rapid.map(zone => (
                     Array.from({ length: zone.count }).map((_, i) => {
