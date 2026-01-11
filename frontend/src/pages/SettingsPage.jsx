@@ -24,16 +24,16 @@ export default function SettingsPage() {
             <Header title="Ajustes" showBack={true} />
             <main className="page" style={{ paddingBottom: '80px' }}>
                 <Card>
-                    <div className="tabs" style={{ display: 'flex', borderBottom: '1px solid #e2e8f0', marginBottom: '1rem', overflowX: 'auto' }}>
+                    <div className="tabs" style={{ display: 'flex', borderBottom: '1px solid #e2e8f0', marginBottom: '1rem', overflowX: 'auto', whiteSpace: 'nowrap', gap: '0.5rem', paddingBottom: '4px' }}>
                         <TabButton label="Nightscout" active={activeTab === 'ns'} onClick={() => setActiveTab('ns')} />
                         <TabButton label="Dexcom" active={activeTab === 'dexcom'} onClick={() => setActiveTab('dexcom')} />
                         <TabButton label="Cálculo" active={activeTab === 'calc'} onClick={() => setActiveTab('calc')} />
                         <TabButton label="IA / Visión" active={activeTab === 'vision'} onClick={() => setActiveTab('vision')} />
                         <TabButton label="Análisis" active={activeTab === 'analysis'} onClick={() => setActiveTab('analysis')} />
+                        <TabButton label="Aprendizaje (ML)" active={activeTab === 'labs'} onClick={() => setActiveTab('labs')} />
                         <TabButton label="Datos" active={activeTab === 'data'} onClick={() => setActiveTab('data')} />
-                        <TabButton label="Aprendizaje" active={activeTab === 'labs'} onClick={() => setActiveTab('labs')} />
                         <TabButton label="Bot" active={activeTab === 'bot'} onClick={() => setActiveTab('bot')} />
-                        <TabButton label="Logs Ingesta" active={activeTab === 'logs'} onClick={() => setActiveTab('logs')} />
+                        <TabButton label="Logs" active={activeTab === 'logs'} onClick={() => setActiveTab('logs')} />
                     </div>
 
                     {activeTab === 'ns' && <NightscoutPanel />}
@@ -63,14 +63,15 @@ function TabButton({ label, active, onClick }) {
         <button
             onClick={onClick}
             style={{
-                flex: 1,
-                padding: '0.75rem',
+                padding: '0.75rem 1rem',
                 background: 'none',
                 border: 'none',
                 borderBottom: active ? '2px solid var(--primary)' : '2px solid transparent',
                 fontWeight: active ? 700 : 400,
                 color: active ? 'var(--primary)' : 'var(--text-muted)',
-                cursor: 'pointer'
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+                flexShrink: 0
             }}
         >
             {label}
