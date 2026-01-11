@@ -70,9 +70,9 @@ def generate_injection_image(site_id: str, assets_dir: Path) -> io.BytesIO:
         dist = offsets[idx]
         
         if "_l_" in zone_id:
-            cx_pct = 50 - dist
+            cx_pct = 50 + dist # Mirrored: Left ID acts as Right Side
         else: # "_r_"
-            cx_pct = 50 + dist
+            cx_pct = 50 - dist # Mirrored: Right ID acts as Left Side
         
         logger.info(f"[ImageRenderer] Abdomen: row={'top' if '_top' in zone_id else 'mid' if '_mid' in zone_id else 'bot'}, side={'left' if '_l_' in zone_id else 'right'}, point={point}, offset_idx={idx}, dist={dist}")
             
@@ -140,11 +140,11 @@ def generate_injection_image(site_id: str, assets_dir: Path) -> io.BytesIO:
                 # Just draw it in black in the center
                 draw.text((cx-3, cy-5), text, fill=(0,0,0,255))
                 
-                # Draw Orientation Labels (IZQ / DER)
-                # Left side (5% W)
-                draw.text((w*0.05, h*0.05), "IZQ", fill=(100,100,100,128))
-                # Right side (90% W)
-                draw.text((w*0.90, h*0.05), "DER", fill=(100,100,100,128))
+                # Draw Orientation Labels (IZQ / DER) - MIRRORED
+                # Left side (5% W) -> Show DER (Right) because it's a mirror
+                draw.text((w*0.05, h*0.05), "DER", fill=(100,100,100,128))
+                # Right side (90% W) -> Show IZQ (Left)
+                draw.text((w*0.90, h*0.05), "IZQ", fill=(100,100,100,128))
             except Exception:
                 pass # Font issues fallback
             
