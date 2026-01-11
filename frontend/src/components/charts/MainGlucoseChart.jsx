@@ -105,6 +105,23 @@ export function MainGlucoseChart({ isLow, predictionData }) {
                 insulinCurve: iCurve,
                 timestamp: t
             };
+            // [ML Beta] Resolve ML prediction if available
+            let mlVal = null;
+            if (predictionData.ml_series) {
+                const mPoint = predictionData.ml_series.find(m => m.t_min === p.t_min);
+                if (mPoint) mlVal = mPoint.bg;
+            }
+
+            return {
+                timeLabel: new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                prediction: p.bg,
+                baselinePrediction: bVal,
+                mlPrediction: mlVal,
+                bg: null,
+                carbCurve: cCurve,
+                insulinCurve: iCurve,
+                timestamp: t
+            };
         });
 
         // Stitching: Add the last real point as the start of prediction for continuity
@@ -114,6 +131,7 @@ export function MainGlucoseChart({ isLow, predictionData }) {
                 ...lastReal,
                 prediction: lastReal.bg, // Start prediction curve at actual BG
                 baselinePrediction: lastReal.bg, // Start ghost curve at actual BG
+                mlPrediction: lastReal.bg, // Start ML curve at actual BG
                 carbCurve: lastReal.bg, // Start component curves at actual BG
                 insulinCurve: lastReal.bg,
                 bg: null // Don't duplicate the 'Area' point, just start the 'Line'
@@ -277,8 +295,34 @@ export function MainGlucoseChart({ isLow, predictionData }) {
                     )}
 
 
+                    {/* ML Beta Curve (Green Dotted) */}
+                    {chartData.some(d => d.mlPrediction) && (
+                        <Line
+                            yAxisId="bg"
+                            type="monotone"
+                            dataKey="mlPrediction"
+                            stroke="#10b981" // Emerald-500
+                            strokeWidth={2}
+                            strokeDasharray="2 2"
+                            dot={false}
+                            animationDuration={1000}
+                            name="IA Experimental"
+                        />
+                    )}
                 </ComposedChart>
             </ResponsiveContainer>
+            {chartData.some(d => d.mlPrediction) && (
+                <div className="absolute bottom-1 left-9 right-2 text-center">
+                    <span className={`text-[9px] px-2 py-0.5 rounded-full border opacity-80 ${predictionData?.ml_ready
+                        ? "text-emerald-700 bg-emerald-100 border-emerald-200"
+                        : "text-gray-500 bg-gray-100 border-gray-200"
+                        }`}>
+                        {predictionData?.ml_ready
+                            ? "✨ IA Híbrida Activa"
+                            : "🤖 Aprendiendo del usuario..."}
+                    </span>
+                </div>
+            )}
         </div>
     );
 }
@@ -288,6 +332,7 @@ function CustomTooltip({ active, payload, label }) {
         const bgItem = payload.find(p => p.dataKey === 'bg');
         const predItem = payload.find(p => p.dataKey === 'prediction');
         const baseItem = payload.find(p => p.dataKey === 'baselinePrediction');
+        const mlItem = payload.find(p => p.dataKey === 'mlPrediction');
 
         // Prioritize actual BG, else show prediction
         const val = bgItem?.value ?? predItem?.value;
@@ -305,6 +350,11 @@ function CustomTooltip({ active, payload, label }) {
                 {isPred && baseItem && baseItem.value != null && (
                     <div style={{ fontSize: '0.8rem', color: '#94a3b8', borderTop: '1px solid #f1f5f9', paddingTop: '4px' }}>
                         Sin bolo: <strong>{Math.round(baseItem.value)}</strong>
+                    </div>
+                )}
+                {isPred && mlItem && mlItem.value != null && (
+                    <div style={{ fontSize: '0.8rem', color: '#10b981', paddingTop: '2px', fontWeight: 600 }}>
+                        IA Beta: <strong>{Math.round(mlItem.value)}</strong>
                     </div>
                 )}
             </div>

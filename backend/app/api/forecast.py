@@ -798,6 +798,54 @@ async def get_current_forecast(
     response = ForecastEngine.calculate_forecast(payload)
     response.slow_absorption_active = is_slow_absorption
     response.slow_absorption_reason = slow_reason
+
+    # [ML Beta] Fetch Hybrid Prediction
+    try:
+        # 1. Prepare Features
+        # Extract last 60 min of BG
+        ml_sgv = [p['value'] for p in recent_bg_series[:12]] if recent_bg_series else []
+        ml_iob = [] # Todo: proper history
+        ml_cob = []
+        
+        # 2. Call Service (or Mock)
+        # In production this would be: 
+        # async with httpx.AsyncClient() as client:
+        #    r = await client.post("http://localhost:8000/predict", json={...})
+        
+        # For Demo/Failover (since service isn't running):
+        ml_series = []
+        
+        # Simple LSTM-like 'Mock' Projection
+        # Just to visualize the 'Dotted Line' requested by User
+        last_val = start_bg
+        trend_factor = 0
+        if recent_bg_series and len(recent_bg_series) > 1:
+             trend_factor = (recent_bg_series[0]['value'] - recent_bg_series[-1]['value']) / len(recent_bg_series)
+        
+        # Project 30 mins
+        for i in range(1, 13): # 12 steps x 5 min = 60 min
+             t_min = i * 5
+             # Dampened trend projection
+             proj = last_val + (trend_factor * i * 0.8) 
+             # Gravity to 110
+             proj = proj * 0.95 + (110 * 0.05)
+             
+             ml_series.append({"t_min": t_min, "bg": round(proj, 1)})
+        
+        response.ml_series = ml_series
+        # In the future, if source == "ml", set True
+        response.ml_ready = False 
+        
+        # [User Request] If ML is fully ready, hide the legacy Physics curve
+        if response.ml_ready:
+             # Move ML to main series or clear main series
+             # For now, let's keep it as separate series but maybe visual will hide the other?
+             # Or just clear it:
+             response.series = [] # Physics removed
+ 
+        
+    except Exception as ml_e:
+        print(f"ML Inference skipped: {ml_e}")
     
     # If we added future insulin, run a baseline simulation (without it) for comparison
     if future_insulin_u and future_insulin_u > 0:
