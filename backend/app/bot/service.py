@@ -2872,7 +2872,7 @@ async def _collect_ml_data():
              from sqlalchemy import text
              now_ts = datetime.now(timezone.utc)
              minute = (now_ts.minute // 5) * 5
-             bucket_ts = now_ts.replace(minute=minute, second=0, microsecond=0)
+             bucket_ts = now_ts.replace(minute=minute, second=0, microsecond=0).replace(tzinfo=None)
              
              stmt = text('INSERT INTO ml_training_data (feature_time, user_id, sgv, trend, iob, cob, basal_rate, activity_score, notes) '
                         'VALUES (:ts, :uid, :sgv, :trend, :iob, :cob, :bs, :act, :note) ON CONFLICT (feature_time, user_id) DO NOTHING')
