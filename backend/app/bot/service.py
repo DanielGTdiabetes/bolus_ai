@@ -2858,6 +2858,7 @@ async def _collect_ml_data():
         from app.bot.tools import get_status_context
         from app.bot.user_settings_resolver import resolve_bot_user_settings
         
+        # 1. Resolve which user we are collecting for
         user_settings, resolved_user = await resolve_bot_user_settings()
         
         status = await get_status_context(username=resolved_user, user_settings=user_settings)
@@ -2875,6 +2876,7 @@ async def _collect_ml_data():
              
              stmt = text('INSERT INTO ml_training_data (feature_time, user_id, sgv, trend, iob, cob, basal_rate, activity_score, notes) '
                         'VALUES (:ts, :uid, :sgv, :trend, :iob, :cob, :bs, :act, :note) ON CONFLICT (feature_time) DO NOTHING')
+
              
              await session.execute(stmt, {
                  'ts': bucket_ts, 
@@ -2888,6 +2890,9 @@ async def _collect_ml_data():
                  'note': 'auto'
              })
              await session.commit()
+             logger.debug(f"ML data point collected for {resolved_user} at {bucket_ts}")
     except Exception as e:
         logger.warning(f"ML collection failed: {e}")
+
+
 

@@ -215,7 +215,7 @@ async def migrate_schema(conn):
         # 11. ml_training_data (LSTM/Transformer Dataset)
         await conn.execute(text("""
             CREATE TABLE IF NOT EXISTS ml_training_data (
-                feature_time TIMESTAMP PRIMARY KEY,  -- 5 min bucketing
+                feature_time TIMESTAMP NOT NULL,  -- 5 min bucketing
                 user_id VARCHAR NOT NULL,
                 sgv FLOAT,
                 trend VARCHAR,
@@ -223,9 +223,18 @@ async def migrate_schema(conn):
                 cob FLOAT,
                 basal_rate FLOAT,
                 activity_score FLOAT,  -- Placeholder for steps/hr
-                notes TEXT
+                notes TEXT,
+                PRIMARY KEY (feature_time, user_id)
             )
         """))
+        
+        # Ensure migration for existing tables that only have feature_time as PK
+        try:
+             await conn.execute(text("ALTER TABLE ml_training_data DROP CONSTRAINT IF EXISTS ml_training_data_pkey CASCADE"))
+             await conn.execute(text("ALTER TABLE ml_training_data ADD PRIMARY KEY (feature_time, user_id)"))
+        except Exception:
+             pass
+
 
         
         # Commit changes if using a connection that requires it (begin() usually handles this, but let's be safe)

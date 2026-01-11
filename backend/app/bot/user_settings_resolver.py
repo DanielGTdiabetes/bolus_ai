@@ -33,24 +33,38 @@ def _is_default_like(settings: UserSettings) -> bool:
 async def _load_settings_for_user(user_id: str, session: AsyncSession) -> Optional[UserSettings]:
     """Fetch and hydrate settings for a specific user (DB + NS secrets)."""
     res = await svc_settings.get_user_settings_service(user_id, session)
-    if not res or not res.get("settings"):
-        return None
+    
+    if res and res.get("settings"):
+        payload = deepcopy(res["settings"])
+    else:
+        # If no DB settings found, check if this user exists in any capacity 
+        # (e.g. has NS secrets or is a known fallback)
+        payload = UserSettings.default().model_dump()
 
-    payload = deepcopy(res["settings"])
+    # Hydrate with Nightscout Secrets (The true source for URLs)
     try:
         ns_secret = await svc_ns_secrets.get_ns_config(session, user_id)
         if ns_secret:
             payload.setdefault("nightscout", {})
             payload["nightscout"]["url"] = ns_secret.url
             payload["nightscout"]["token"] = ns_secret.api_secret
+            payload["nightscout"]["enabled"] = ns_secret.enabled
+        elif not res:
+            # If no settings AND no secrets, this user is truly unknown to DB
+            return None
     except Exception as exc:  # noqa: BLE001
         logger.warning("Bot resolver: failed to overlay NS secrets for %s: %s", user_id, exc)
 
     try:
-        return UserSettings.migrate(payload)
+        settings_obj = UserSettings.migrate(payload)
+        # Force bot enabled if using default/fallback logic to ensure jobs run
+        if not res and not settings_obj.bot.enabled:
+             settings_obj.bot.enabled = True
+        return settings_obj
     except Exception as exc:  # noqa: BLE001
         logger.error("Bot resolver: invalid settings for %s: %s", user_id, exc)
         return None
+
 
 
 from app.bot.context_vars import bot_user_context
