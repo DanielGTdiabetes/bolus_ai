@@ -405,7 +405,7 @@ Cenaste pizza o comida grasa hace 3 horas. Te pusiste tu bolo normal. Todo iba b
     
     **⚠️ Reglas de Seguridad Automáticas:**
     *   **Bloqueo de Tiempo:** Si te has pinchado hace menos de **75 min**, el sistema **NO** te dejará ponerte micro-bolos. (Te dirá: *"⛔ Espera, bolo reciente"*).
-    *   **Alcohol:** Si marcas modo Alcohol, la dosis sugerida se reduce a la **mitad** (50%) para evitar bajones peligrosos de madrugada.
+    *   **Alcohol:** Si marcas modo Alcohol, se desactiva el redondeo al alza y el sistema es más conservador.
     *   **Redondeo Seguro:** La dosis siempre se redondeará al paso de tu bolígrafo (ej. 0.5 o 1.0) para que sea real y accionable.
 
 ---
