@@ -977,9 +977,9 @@ export async function fetchIngestLogs() {
 }
 
 export async function saveInjectionSite(insulinType, siteId) {
-  const response = await apiFetch(`/api/injection/site`, {
+  const response = await apiFetch(`/api/injection/manual`, {
     method: "POST",
-    body: JSON.stringify({ type: insulinType, site_id: siteId })
+    body: JSON.stringify({ insulin_type: insulinType, point_id: siteId })
   });
   const data = await toJson(response);
   if (!response.ok) throw new Error(data.detail || "Error saving site");

@@ -5,9 +5,10 @@ import { Card, Button, Input } from '../components/ui/Atoms';
 import {
     createBasalEntry, createBasalCheckin, runNightScan,
     getBasalAdvice, getBasalTimeline, evaluateBasalChange,
-    getLocalNsConfig, getSupplies, updateSupply
+    getLocalNsConfig, getSupplies, updateSupply,
+    saveInjectionSite
 } from '../lib/api';
-import { InjectionSiteSelector, saveInjectionSite } from '../components/injection/InjectionSiteSelector';
+import { InjectionSiteSelector } from '../components/injection/InjectionSiteSelector';
 
 import { BasalGlucoseChart } from '../components/charts/BasalGlucoseChart';
 
