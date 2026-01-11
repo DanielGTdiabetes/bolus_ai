@@ -1854,11 +1854,25 @@ function SchedulePanel({ settings, onChange }) {
 function LabsPanel() {
     const [response, setResponse] = useState(null);
     const [logs, setLogs] = useState([]);
+    const [mlStatus, setMlStatus] = useState(null);
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
         const loadData = async () => {
             try {
+                // Fetch ML Status
+                const token = localStorage.getItem('bolusai_token');
+                let st = null;
+                if (token) {
+                    try {
+                        const r = await fetch('/api/settings/ml-status', {
+                            headers: { 'Authorization': `Bearer ${token}` }
+                        });
+                        if (r.ok) st = await r.json();
+                    } catch (err) { console.warn(err); }
+                }
+                setMlStatus(st);
+
                 const [s, l] = await Promise.all([
                     getSettings(),
                     getLearningLogs(5)
@@ -1933,6 +1947,39 @@ function LabsPanel() {
             <p className="text-muted text-sm" style={{ marginBottom: '1.5rem' }}>
                 Funciones de aprendizaje automático y control de autonomía. El sistema registra resultados para mejorar sugerencias.
             </p>
+
+            {mlStatus && (
+                <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', padding: '1rem', borderRadius: '12px', marginBottom: '1.5rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                        <span style={{ fontWeight: 600, color: '#166534' }}>Progreso de Aprendizaje ML</span>
+                        <span style={{ fontSize: '0.9rem', fontWeight: 700, color: '#15803d' }}>{mlStatus.percent_complete}%</span>
+                    </div>
+
+                    <div style={{ width: '100%', height: '10px', background: '#dcfce7', borderRadius: '5px', overflow: 'hidden' }}>
+                        <div style={{
+                            width: `${mlStatus.percent_complete}%`,
+                            height: '100%',
+                            background: 'linear-gradient(90deg, #22c55e 0%, #16a34a 100%)',
+                            transition: 'width 0.5s ease'
+                        }} />
+                    </div>
+
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '0.8rem', fontSize: '0.8rem', color: '#166534' }}>
+                        <div>📊 <strong>{mlStatus.data_points}</strong> / {mlStatus.target_points} puntos</div>
+                        <div>⏱️ <strong>{mlStatus.days_collected}</strong> días</div>
+                    </div>
+
+                    {mlStatus.percent_complete >= 100 ? (
+                        <div style={{ marginTop: '0.8rem', fontSize: '0.85rem', color: '#15803d', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            ✨ ¡Datos suficientes! El modelo está listo para entrenar.
+                        </div>
+                    ) : (
+                        <div style={{ marginTop: '0.8rem', fontSize: '0.8rem', color: '#4ade80' }}>
+                            Recolectando datos cada 5 min...
+                        </div>
+                    )}
+                </div>
+            )}
 
             <div style={{ padding: '1rem', background: '#fff7ed', borderRadius: '8px', border: '1px solid #fed7aa', marginBottom: '1rem' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>

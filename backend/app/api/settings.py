@@ -69,6 +69,37 @@ async def update_settings(
             ).model_dump(mode='json')
         )
 
+@router.get("/ml-status")
+async def get_ml_status(
+    username: str = Depends(auth_required),
+    db: AsyncSession = Depends(get_db_session)
+):
+    # Count training data points
+    from sqlalchemy import text
+    try:
+        # Simple count query
+        result = await db.execute(text("SELECT COUNT(*) FROM ml_training_data WHERE username = :u"), {"u": username})
+        count = result.scalar() or 0
+    except Exception:
+        count = 0
+    
+    # Target: 5000 points (approx 17 days of continuous 5-min data) for initial training
+    target_points = 5000
+    
+    # Calculate progress
+    percent = min(100, int((count / target_points) * 100))
+    
+    # Hardcoded status check for now, later linked to real model state
+    # If ML service deployment was automated, we'd check that too
+    
+    return {
+        "status": "learning" if percent < 100 else "ready",
+        "data_points": count,
+        "percent_complete": percent,
+        "target_points": target_points,
+        "days_collected": round(count * 5 / 60 / 24, 1) # 5 min interval
+    }
+
 @router.post("/import", response_model=ImportResponse)
 async def import_settings(
     payload: ImportRequest,
