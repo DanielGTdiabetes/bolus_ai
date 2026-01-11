@@ -116,6 +116,24 @@ class InjectionManager:
         if ":" not in site_id:
              site_id = f"{site_id}:1"
         
+        # Enforce Limits (Sanity Check)
+        try:
+            z_id, p_str = site_id.split(":")
+            p_val = int(p_str)
+            # Find Zone config
+            valid_zones = ZONES.get(key, [])
+            tgt_zone = next((z for z in valid_zones if z["id"] == z_id), None)
+            
+            if tgt_zone:
+                max_p = tgt_zone["count"]
+                if p_val > max_p:
+                    logger.warning(f"[InjectionManager] Point {p_val} exceeds max {max_p} for {z_id}. Clamping.")
+                    site_id = f"{z_id}:{max_p}"
+                elif p_val < 1:
+                    site_id = f"{z_id}:1"
+        except Exception as e:
+            logger.error(f"Error validating site limits: {e}")
+        
         old_id = state.get(key, {}).get("last_used_id", "unknown")
         
         if key not in state: state[key] = {}
@@ -160,6 +178,9 @@ class InjectionManager:
             current_zone = zone_list[idx]
             
             # Logic: If point < count, increment point. Else next zone.
+            # Logic: If point < count, increment point. Else next zone.
+            # CRITICAL FIX for Basal: If count is 1 (Basal), we never increment point, just zone.
+            # Even if incoming point is somehow < 1 (impossible in valid state), we treat as full.
             if point < current_zone["count"]:
                 return f"{zone_id}:{point + 1}"
             else:
