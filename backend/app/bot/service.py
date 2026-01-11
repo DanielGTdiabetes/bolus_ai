@@ -2139,8 +2139,24 @@ async def _handle_snapshot_callback(query, data: str) -> None:
         fiber = snapshot.get("fiber", 0.0)
         origin_id = snapshot.get("origin_id")
         
+        # Duration Extraction
+        duration = 0
+        if "rec" in snapshot and hasattr(snapshot["rec"], "duration_min"):
+             duration = snapshot["rec"].duration_min or 0
+        elif "duration_min" in snapshot:
+             duration = snapshot["duration_min"] or 0
+        
         # Execute Action
-        add_args = {"insulin": units, "carbs": carbs, "fat": fat, "protein": protein, "fiber": fiber, "notes": notes, "replace_id": origin_id}
+        add_args = {
+             "insulin": units, 
+             "carbs": carbs, 
+             "fat": fat, 
+             "protein": protein, 
+             "fiber": fiber, 
+             "notes": notes, 
+             "replace_id": origin_id, 
+             "duration": duration
+        }
         result = await tools.add_treatment(add_args)
         
         base_text = query.message.text if query.message else ""

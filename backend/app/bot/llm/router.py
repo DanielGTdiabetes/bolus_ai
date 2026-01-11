@@ -327,9 +327,21 @@ async def handle_text(username: str, chat_id: int, user_text: str, context_data:
         if last_bolus_result and last_bolus_result.units > 0:
             import uuid
             req_id = str(uuid.uuid4())[:8]
+            
+            # Label Logic
+            label = f"✅ Poner {last_bolus_result.units} U"
+            
+            kind = getattr(last_bolus_result, "kind", "normal")
+            upfront = getattr(last_bolus_result, "upfront_u", 0)
+            later = getattr(last_bolus_result, "later_u", 0)
+            duration = getattr(last_bolus_result, "duration_min", 0)
+
+            if kind in ["dual", "extended"]:
+                label = f"✅ Dual: {upfront} + {later}e U"
+
             final_buttons = [
                 [
-                    InlineKeyboardButton(f"✅ Poner {last_bolus_result.units} U", callback_data=f"accept|{req_id}"),
+                    InlineKeyboardButton(label, callback_data=f"accept|{req_id}"),
                     InlineKeyboardButton("❌ Cancelar", callback_data=f"cancel|{req_id}")
                 ]
             ]
@@ -343,7 +355,13 @@ async def handle_text(username: str, chat_id: int, user_text: str, context_data:
                 "units": last_bolus_result.units,
                 "carbs": carbs,
                 "notes": "AI Suggestion",
-                "timestamp": 0 # filled safely by service
+                "timestamp": 0, # filled safely by service
+                
+                # Split Data
+                "kind": kind,
+                "upfront_u": upfront,
+                "later_u": later,
+                "duration_min": duration
             }
             return BotReply(reply_text, final_buttons, pending_action=pending_action_data)
 

@@ -243,17 +243,13 @@ class ForecastEngine:
                         if chosen_profile == profile_res["profile"] and "eCarbs" not in "".join(chosen_reasons):
                             chosen_reasons.append(f"+{fpu_grams:.1f}g eCarbs (Warsaw x{w_factor})")
 
-                params_curve = CarbCurves.get_profile_params(profile_res["profile"])
-                rate = CarbCurves.biexponential_absorption(t_since_meal, params_curve)
-                
-                this_icr = c.icr if c.icr and c.icr > 0 else req.params.icr
-                this_cs = (req.params.isf / this_icr) if this_icr > 0 else 0.0
-                
-                # Apply rate to EFFECTIVE grams
                 # --- AUTO-HARMONIZATION (Trust the Bolus) ---
                 # If the user delivered a Bolus that is significantly higher than what minimal carbs require,
                 # we assume the "surplus" is covering the Fat/Protein. We adjust the effective_grams to match the dose.
                 # This prevents the graph from contradicting the Bolus Calculator.
+                
+                this_icr = c.icr if c.icr and c.icr > 0 else req.params.icr
+                this_cs = (req.params.isf / this_icr) if this_icr > 0 else 0.0
                 
                 # 1. Find linked bolus for this meal (Widen to 90 min)
                 linked_bolus_u = 0.0
@@ -280,7 +276,9 @@ class ForecastEngine:
                             # The user dosed for MORE.
                             # Check if we have ample Fat/Protein to justify it.
                             kcal_fp = (c.fat_g * 9) + (c.protein_g * 4)
-                            if kcal_fp > 50:
+                            # ALWAYS allow harmonization if F/P exists, even if small, up to a generous cap.
+                            # We trust the bolus over the heuristics if F/P provides a material basis.
+                            if kcal_fp > 10: # Relaxed from 50
                                 # Attribute the difference to FPU
                                 diff_grams = available_meal_grams - effective_grams
                                 
@@ -290,18 +288,32 @@ class ForecastEngine:
                                 
                                 # If we have room to grow FPU
                                 # Increase tolerance to 5.0x to handle aggressive factor 1.0 logic
-                                if (effective_grams + diff_grams) <= (c.grams + max_fpu_grams * 5.0): 
+                                if (effective_grams + diff_grams) <= (c.grams + max_fpu_grams * 6.0): 
                                     reasons_append = f" (+{diff_grams:.1f}g Auto-Ajuste por Bolo)"
                                     if chosen_profile == profile_res["profile"]:
                                         chosen_reasons.append(reasons_append)
                                     effective_grams += diff_grams
+                                    
+                                    # TIMING ADJUSTMENT:
+                                    # If we harmonized significantly against a bolus, and profile is SLOW,
+                                    # it creates a "False Hypo" because standard bolus is Fast.
+                                    # We assume user knows what they are doing (Simple Bolus) -> accelerate curve.
+                                    if profile_res["profile"] == "slow":
+                                         profile_res["profile"] = "med"
+                                         chosen_profile = "med"
+                                         if chosen_profile == profile_res["profile"]:
+                                              chosen_reasons.append(" (Acerelado por Bolo)")
+
                                 else:
                                     # Overdose detected (Surplus > Capacity)
-                                    top_cap = c.grams + max_fpu_grams * 5.0
+                                    top_cap = c.grams + max_fpu_grams * 6.0
                                     warning_msg = f"Auditoría: Bolo ({linked_bolus_u}U) excede capacidad de absorción ({top_cap:.0f}g est.)."
                                     if warning_msg not in warnings:
                                         warnings.append(warning_msg)
 
+                # Calculate Rate with FINAL profile and grams
+                params_curve = CarbCurves.get_profile_params(profile_res["profile"])
+                rate = CarbCurves.biexponential_absorption(t_since_meal, params_curve)
                 
                 step_carb_impact_rate += rate * effective_grams * this_cs
                 

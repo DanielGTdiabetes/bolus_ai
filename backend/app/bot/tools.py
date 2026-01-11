@@ -76,6 +76,12 @@ class BolusResult(BaseModel):
     confidence: str = "high"
     quality: str = "ok"
     recommended_site: Optional[Dict[str, Any]] = None
+    
+    # Dual/Extended Bolus Support
+    kind: str = "normal" 
+    upfront_u: Optional[float] = None
+    later_u: Optional[float] = None
+    duration_min: Optional[int] = None
 
 
 class CorrectionResult(BaseModel):
@@ -121,6 +127,7 @@ class AddTreatmentRequest(BaseModel):
     notes: Optional[str] = None
     replace_id: Optional[str] = None
     event_type: Optional[str] = None
+    duration: Optional[float] = None
 
 
 class AddTreatmentResult(BaseModel):
@@ -666,7 +673,17 @@ async def calculate_bolus(carbs: float, fat: float = 0.0, protein: float = 0.0, 
     except Exception as e:
         logger.warning(f"DB Rotation preview failed: {e}")
 
-    return BolusResult(units=rec.total_u, explanation=explain, confidence="high", quality="data-driven", recommended_site=preview_site)
+    return BolusResult(
+        units=rec.total_u, 
+        explanation=explain, 
+        confidence="high", 
+        quality="data-driven", 
+        recommended_site=preview_site,
+        kind=rec.kind,
+        upfront_u=rec.upfront_u,
+        later_u=rec.later_u,
+        duration_min=rec.duration_min
+    )
 
 
 async def calculate_correction(target_bg: Optional[float] = None) -> CorrectionResult | ToolError:
@@ -1096,6 +1113,7 @@ async def add_treatment(tool_input: dict[str, Any]) -> AddTreatmentResult | Tool
                 created_at=datetime.now(timezone.utc),
                 store=store,
                 session=session,
+                duration=float(payload.duration or 0),
             )
     except Exception as exc:  # pragma: no cover - unexpected runtime errors
         logger.exception("add_treatment execution failed")
