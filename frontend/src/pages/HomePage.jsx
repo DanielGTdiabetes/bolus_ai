@@ -10,7 +10,7 @@ import {
 import { formatTrend, formatNotes } from '../modules/core/utils';
 import { navigate } from '../modules/core/navigation';
 import { useStore } from '../hooks/useStore';
-import { getDualPlan, getDualPlanTiming } from '../modules/core/store';
+import { getDualPlan, getDualPlanTiming, syncSettings } from '../modules/core/store';
 import { RESTAURANT_MODE_ENABLED } from '../lib/featureFlags';
 
 import { MainGlucoseChart } from '../components/charts/MainGlucoseChart';
@@ -92,6 +92,7 @@ function GlucoseHero({ onRefresh }) {
     useEffect(() => {
         if (isAuthenticated()) {
             load();
+            syncSettings(); // Ensure settings are up-to-date on mount (e.g. after login)
         }
     }, [onRefresh]);
 
