@@ -118,7 +118,14 @@ Existen dos formas de gestionar las grasas:
 *   **Duración:** Cuánto tiempo.
 *   **Efecto:** Reduce la dosis (ej. -20% o -50%) para evitar la hipoglucemia durante el deporte.
 
-#### 🧙 3. Estrategia de IOB ("Mago" vs "Loop")
+#### 🍷 3. Modo Alcohol
+*Seguridad para cuando bebes alcohol (cañas, vino, copas).*
+*   **¿Qué hace?**
+    *   **Bolo Dual (Si está activo):** Fuerza automáticamente la duración de la segunda parte a **4 horas (240 min)**. Esto adapta la insulina a la digestión lenta que provoca el alcohol y evita hipoglucemias tempranas.
+    *   **Techne (Redondeo Inteligente):** Se **desactiva**. El sistema será más conservador y no redondeará hacia arriba aunque tu glucosa esté subiendo, para evitar excesos.
+    *   **Dosis Total:** **NO reduce la cantidad** total de insulina automáticamente (a diferencia del deporte). Si quieres ponerte menos, debes bajar los hidratos manualmente.
+
+#### 🧙 4. Estrategia de IOB ("Mago" vs "Loop")
 La app gestiona la insulina activa de dos formas (configurable):
 1.  **Modo Loop (Estándar):** Resta TODA la IOB del cálculo total. Es lo más seguro.
 2.  **Modo Mago (Postres):** Si comes un postre, no resta la insulina de la comida anterior (porque esa insulina está ocupada con la comida anterior). Solo resta si te vas a corregir una glucosa alta.
