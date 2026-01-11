@@ -184,7 +184,7 @@ async def resolve_bot_user_settings(preferred_username: Optional[str] = None) ->
                 logger.info("Bot resolver falling back to default-like settings for '%s'", user_id)
                 return default_like_fallback
     except Exception as exc:  # noqa: BLE001
-        logger.warning("Bot resolver: DB lookup failed: %s", exc)
+        logger.warning(f"Bot resolver: DB lookup failed ({exc}). Continuing to file store fallback.")
 
     # 3) File store fallback (legacy/offline)
     store = DataStore(Path(settings.data.data_dir))
