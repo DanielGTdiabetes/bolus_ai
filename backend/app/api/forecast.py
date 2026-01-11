@@ -817,18 +817,28 @@ async def get_current_forecast(
         
         # Simple LSTM-like 'Mock' Projection
         # Just to visualize the 'Dotted Line' requested by User
+        if start_bg is None:
+             raise ValueError("Insufficient Data for ML (No Start BG)")
+             
         last_val = start_bg
         trend_factor = 0
         if recent_bg_series and len(recent_bg_series) > 1:
-             trend_factor = (recent_bg_series[0]['value'] - recent_bg_series[-1]['value']) / len(recent_bg_series)
+             # Calculate trend (mg/dL per step)
+             try:
+                 v0 = recent_bg_series[0].get('value')
+                 vN = recent_bg_series[-1].get('value')
+                 if v0 is not None and vN is not None:
+                     trend_factor = (v0 - vN) / len(recent_bg_series)
+             except:
+                 pass
         
-        # Project 30 mins
+        # Project 30 mins (Mock Curve)
         for i in range(1, 13): # 12 steps x 5 min = 60 min
              t_min = i * 5
-             # Dampened trend projection
+             
+             # Mock ML Logic: Dampened trend projection + Regression to mean (110)
              proj = last_val + (trend_factor * i * 0.8) 
-             # Gravity to 110
-             proj = proj * 0.95 + (110 * 0.05)
+             proj = proj * 0.95 + (110.0 * 0.05)
              
              ml_series.append({"t_min": t_min, "bg": round(proj, 1)})
         

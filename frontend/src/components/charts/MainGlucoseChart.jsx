@@ -96,15 +96,6 @@ export function MainGlucoseChart({ isLow, predictionData }) {
                 if (bPoint) bVal = bPoint.bg;
             }
 
-            return {
-                timeLabel: new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-                prediction: p.bg,
-                baselinePrediction: bVal,
-                bg: null,
-                carbCurve: cCurve,
-                insulinCurve: iCurve,
-                timestamp: t
-            };
             // [ML Beta] Resolve ML prediction if available
             let mlVal = null;
             if (predictionData.ml_series) {
