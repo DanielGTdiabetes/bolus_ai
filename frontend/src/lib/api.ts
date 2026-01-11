@@ -731,6 +731,14 @@ export async function getSettings() {
   return data;
 }
 
+export async function getMlStatus() {
+  const response = await apiFetch("/api/settings/ml-status");
+  const data = await toJson(response);
+  if (!response.ok) throw new Error(data.detail || "Error obteniendo estado ML");
+  return data;
+}
+
+
 export async function putSettings(settings, version) {
   const response = await apiFetch("/api/settings/", {
     method: "PUT",

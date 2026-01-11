@@ -78,7 +78,7 @@ async def get_ml_status(
     from sqlalchemy import text
     try:
         # Simple count query
-        result = await db.execute(text("SELECT COUNT(*) FROM ml_training_data WHERE username = :u"), {"u": username})
+        result = await db.execute(text("SELECT COUNT(*) FROM ml_training_data WHERE user_id = :u"), {"u": username})
         count = result.scalar() or 0
     except Exception:
         count = 0

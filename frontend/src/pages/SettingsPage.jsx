@@ -11,7 +11,8 @@ import {
     getNightscoutSecretStatus, saveNightscoutSecret, testNightscout,
     fetchHealth, exportUserData, importUserData, fetchAutosens,
     getSettings, updateSettings, getLearningLogs, testDexcom,
-    fetchIngestLogs, getNutritionDraft, discardNutritionDraft
+    fetchIngestLogs, getNutritionDraft, discardNutritionDraft,
+    getMlStatus
 } from '../lib/api';
 import { IsfAnalyzer } from '../components/settings/IsfAnalyzer';
 
@@ -1857,31 +1858,22 @@ function LabsPanel() {
     const [logs, setLogs] = useState([]);
     const [mlStatus, setMlStatus] = useState(null);
     const [loading, setLoading] = useState(true);
+    const [error, setError] = useState(null);
 
     useEffect(() => {
         const loadData = async () => {
             try {
-                // Fetch ML Status
-                const token = localStorage.getItem('bolusai_token');
-                let st = null;
-                if (token) {
-                    try {
-                        const r = await fetch('/api/settings/ml-status', {
-                            headers: { 'Authorization': `Bearer ${token}` }
-                        });
-                        if (r.ok) st = await r.json();
-                    } catch (err) { console.warn(err); }
-                }
-                setMlStatus(st);
-
-                const [s, l] = await Promise.all([
+                const [s, l, ml] = await Promise.all([
                     getSettings(),
-                    getLearningLogs(5)
+                    getLearningLogs(5),
+                    getMlStatus()
                 ]);
                 setResponse(s || {});
                 setLogs(l || []);
+                setMlStatus(ml);
             } catch (e) {
-                console.error(e);
+                console.error("Error loading Labs data:", e);
+                setError(e.message);
             } finally {
                 setLoading(false);
             }
@@ -1944,6 +1936,11 @@ function LabsPanel() {
 
     return (
         <div className="stack">
+            {error && (
+                <div style={{ padding: '0.8rem', background: '#fee2e2', color: '#b91c1c', borderRadius: '8px', marginBottom: '1rem', fontSize: '0.85rem' }}>
+                    ⚠️ Error de conexión con la IA: {error}
+                </div>
+            )}
             <h3 style={{ marginTop: 0 }}>Aprendizaje y Autonomía</h3>
             <p className="text-muted text-sm" style={{ marginBottom: '1.5rem' }}>
                 Funciones de aprendizaje automático y control de autonomía. El sistema registra resultados para mejorar sugerencias.
