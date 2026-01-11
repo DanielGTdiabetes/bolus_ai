@@ -150,8 +150,9 @@ class InjectionSiteResult(BaseModel):
     name: str
     emoji: str
     image: Optional[str] = None
-
-
+    secondary_id: Optional[str] = None
+    secondary_name: Optional[str] = None
+    
     quality: str = "ok"
 
 
@@ -934,17 +935,21 @@ async def get_injection_site(tool_input: dict[str, Any]) -> InjectionSiteResult 
         
         mgr = AsyncInjectionManager("admin")
         
-        # Get NEXT site
-        site_meta = await mgr.get_next_site(kind)
+        # Get NEXT site (Target)
+        next_site = await mgr.get_next_site(kind)
+        # Get LAST site (Context)
+        last_site = await mgr.get_last_site(kind)
         
         # Debug logging for sync issues
-        logger.info(f"[Bot] get_injection_site: plan={plan}, next_site={site_meta['id']}")
+        logger.info(f"[Bot] get_injection_site: plan={plan}, next_site={next_site['id']}")
         
         return InjectionSiteResult(
-            id=site_meta["id"],
-            name=site_meta["name"],
-            emoji=site_meta["emoji"],
-            image=site_meta["image"]
+            id=next_site["id"],
+            name=next_site["name"],
+            emoji=next_site["emoji"],
+            image=next_site["image"],
+            secondary_id=last_site["id"] if last_site else None,
+            secondary_name=last_site["name"] if last_site else "Ninguno"
         )
     except Exception as e:
         logger.error(f"Error getting injection site: {e}")
@@ -998,19 +1003,23 @@ async def get_last_injection_site(tool_input: dict[str, Any]) -> InjectionSiteRe
         mgr = AsyncInjectionManager("admin")
         
         # Get LAST site
-        site_meta = await mgr.get_last_site(kind)
+        last_site = await mgr.get_last_site(kind)
+        # Get NEXT site (Context)
+        next_site = await mgr.get_next_site(kind)
         
         # Debug logging for sync issues
-        logger.info(f"[Bot] get_last_injection_site: plan={plan}, last_site={site_meta.get('id') if site_meta else 'None'}")
+        logger.info(f"[Bot] get_last_injection_site: plan={plan}, last_site={last_site.get('id') if last_site else 'None'}")
         
-        if not site_meta:
+        if not last_site:
              return ToolError(type="not_found", message="No hay registros de inyecciones previas en DB.")
 
         return InjectionSiteResult(
-            id=site_meta["id"],
-            name=site_meta["name"],
-            emoji=site_meta["emoji"],
-            image=site_meta["image"]
+            id=last_site["id"],
+            name=last_site["name"],
+            emoji=last_site["emoji"],
+            image=last_site["image"],
+            secondary_id=next_site["id"],
+            secondary_name=next_site["name"]
         )
     except Exception as e:
         logger.error(f"Error getting last injection site: {e}")

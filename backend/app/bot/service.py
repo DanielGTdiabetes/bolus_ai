@@ -337,25 +337,48 @@ async def _exec_tool(update: Update, context: ContextTypes.DEFAULT_TYPE, name: s
         elif name == "get_nightscout_stats":
              text = f"📊 **Stats ({args.get('range_hours')}h)**\nAvg: {res.avg_bg} | TIR: {res.tir_pct}%"
         elif name in ["get_injection_site", "get_last_injection_site"]:
-             label = "Zona Recomendada" if name == "get_injection_site" else "Última Zona Usada"
-             text = f"📍 **{label}:** {res.name} {res.emoji}"
+             # Determine Context: Next vs Last
+             is_next_tool = (name == "get_injection_site")
+             
+             next_name = res.name if is_next_tool else getattr(res, "secondary_name", "???")
+             last_name = getattr(res, "secondary_name", "Ninguno") if is_next_tool else res.name
+             
+             text = (
+                 f"📍 **Rotación de Inyección**\n"
+                 f"🟢 **Toca:** {next_name}\n"
+                 f"🔴 **Anterior:** {last_name}"
+             )
+
              # Send Image if available
-             if res.image:
+             target_id = getattr(res, "id", None)
+             sec_id = getattr(res, "secondary_id", None)
+             
+             if target_id:
                  try:
-                     # Use site_id if available to generate dynamic image
-                     target_id = getattr(res, "id", None)
-                     if target_id:
-                         assets = Path(get_settings().data.static_dir or "app/static") / "assets"
-                         # Fix path if needed (Docker/Local discrepancy)
-                         if not assets.exists():
-                             assets = Path(os.getcwd()) / "app" / "static" / "assets"
-                         
-                         mode = "recommended" if name == "get_injection_site" else "last"
-                         img_bytes = generate_injection_image(target_id, assets, mode=mode)
-                         if img_bytes:
-                             await context.bot.send_photo(chat_id=update.effective_chat.id, photo=img_bytes)
+                     assets = Path(get_settings().data.static_dir or "app/static") / "assets"
+                     if not assets.exists():
+                         assets = Path(os.getcwd()) / "app" / "static" / "assets"
+                     
+                     # Determine Mode and Arguments based on Renderer expectations (Primary=Green/Next, Secondary=Red/Last)
+                     # If combined, we want mode 'next_last_combined'
+                     is_combined = bool(sec_id)
+                     mode = "next_last_combined" if is_combined else ("recommended" if is_next_tool else "last")
+                     
+                     # Map IDs to Renderer (Primary=Next, Secondary=Last)
+                     # get_injection_site returns id=Next, sec=Last. NO SWAP needed.
+                     # get_last_injection_site returns id=Last, sec=Next. SWAP needed.
+                     
+                     p_id = target_id
+                     s_id = sec_id
+                     if not is_next_tool and is_combined:
+                         p_id = sec_id
+                         s_id = target_id
+                     
+                     img_bytes = generate_injection_image(p_id, assets, mode=mode, secondary_site_id=s_id)
+                     if img_bytes:
+                         await context.bot.send_photo(chat_id=update.effective_chat.id, photo=img_bytes)
                  except Exception as img_err:
-                     logger.error(f"Failed to send injection image ({res.image}): {img_err}", exc_info=True)
+                     logger.error(f"Failed to send injection image ({target_id}): {img_err}", exc_info=True)
 
         await reply_text(update, context, text)
         health.record_action(f"tool:{name}", True)

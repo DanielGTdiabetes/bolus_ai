@@ -246,27 +246,38 @@ class AsyncInjectionManager:
 
     # --- Copied Helpers (Stateless) ---
     def _calc_next(self, kind: str, current_id: str) -> str:
-        # Same logic as original
+        # Same logic as original but with logging
         if not current_id: return ZONES[kind][0]["id"] + ":1"
         try:
             zone_id, point_str = current_id.split(":")
             point = int(point_str)
             zone_id = zone_id.strip()
+            
             zone_list = ZONES[kind]
             idx = -1
             for i, z in enumerate(zone_list):
                 if z["id"] == zone_id:
                     idx = i
                     break
+            
             if idx == -1: return ZONES[kind][0]["id"] + ":1"
+            
             current_zone = zone_list[idx]
-            if point < current_zone["count"]:
-                return f"{zone_id}:{point + 1}"
+            count = current_zone["count"]
+            
+            # Logic: If point < count, increment point. Else next zone.
+            if point < count:
+                next_pt = point + 1
+                logger.debug(f"[Rotation] In zone {zone_id}: {point} < {count}. Next: {next_pt}")
+                return f"{zone_id}:{next_pt}"
             else:
                 next_idx = (idx + 1) % len(zone_list)
-                return f"{zone_list[next_idx]['id']}:1"
-        except:
-             return ZONES[kind][0]["id"] + ":1"
+                next_zone = zone_list[next_idx]
+                logger.debug(f"[Rotation] In zone {zone_id}: {point} >= {count}. Rotating to {next_zone['id']}")
+                return f"{next_zone['id']}:1"
+        except Exception as e:
+            logger.error(f"[Rotation] Calc error for {current_id}: {e}")
+            return ZONES[kind][0]["id"] + ":1"
 
     def _get_site_from_id(self, kind: str, full_id: str) -> Dict[str, Any]:
         # Same logic as original
