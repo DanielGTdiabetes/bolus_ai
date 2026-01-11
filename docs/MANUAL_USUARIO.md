@@ -10,7 +10,9 @@ La aplicación se organiza en 5 secciones principales accesibles desde la barra 
 
 ### 1. 🏠 Inicio (Dashboard)
 Es el centro de control. Aquí puedes ver:
-- **Glucosa en tiempo real**: Valor actual, flecha de tendencia y una **Gráfica Avanzada** que superpone tu curva de glucosa con los bolos de insulina (azul) y carbohidratos (naranja) para ver el efecto post-prandial.
+- **Glucosa en tiempo real**: Valor actual, flecha de tendencia y una **Gráfica Avanzada** que incluye:
+    - 🔵 **Predicción Estándar (Línea Sólida)**: Basada en la física de tus bolos y carbohidratos activos.
+    - 🟢 **Predicción IA (Línea Punteada)**: Una proyección experimental basada en Inteligencia Artificial. **⚠️ IMPORTANTE: Esta línea es solo informativa. NO debe usarse para calcular dosis ni tomar decisiones médicas.**
 - **Feedback Visual (Toasts)**: Las confirmaciones de acciones aparecen como burbujas suaves en la parte inferior, mejorando la experiencia frente a las alertas antiguas.
 - **Insulina Activa (IOB)**: Cuánta insulina queda trabajando en tu cuerpo.
 - **Acciones Rápidas**: Acceso directo a Mis Platos, calculadora, báscula y alimentos.
@@ -220,3 +222,6 @@ Gestionar una cena larga con entrantes, grasas y alcohol es el escenario más di
 
 ## 14. ⚠️ Descargo de Responsabilidad Médico
 Esta aplicación es una **herramienta de apoyo** a la decisión. Los cálculos son estimaciones basadas en algoritmos matemáticos y no deben sustituir el criterio clínico. **Verifica siempre los datos antes de administrarte insulina.**
+
+**Sobre la Inteligencia Artificial (IA):**
+La predicción de glucosa marcada como "IA", "ML" o "Híbrida" se encuentra en fase experimental. Aunque utiliza tecnología avanzada (LSTM/Transformer), puede tener errores o "alucinaciones" (predicciones falsas). **Nunca bases un tratamiento de insulina en la línea punteada verde.** Utiliza únicamente la calculadora de bolos estándar y tu glucómetro/sensor oficial.
