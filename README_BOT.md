@@ -9,7 +9,7 @@
 - Voz (opcional):
   - `ENABLE_TELEGRAM_VOICE=true`
   - `GEMINI_API_KEY` (obligatoria para voz, puede reutilizarse con `GOOGLE_API_KEY`)
-  - `GEMINI_TRANSCRIBE_MODEL` (opcional, default `gemini-1.5-flash`)
+  - `GEMINI_TRANSCRIBE_MODEL` (opcional, default `gemini-2.0-flash-exp` - *Experimental, puede cambiar*)
   - `MAX_VOICE_SECONDS` (default 45)
   - `MAX_VOICE_MB` (default 10)
 
@@ -65,6 +65,15 @@ Respuesta de ejemplo:
 - `add_treatment` (registro manual, siempre con confirmación)
 - `check_supplies_stock` (consultar inventario agujas/sensores)
 - `update_supply_quantity` (actualizar stock manualmente)
+- `get_injection_site` (Consulta SIGUIENTE punto. Param opcional: `plan`='rapid'|'basal'. Devuelve imagen VERDE).
+- `get_last_injection_site` (Consulta ÚLTIMO punto usado. Param opcional: `plan`. Devuelve imagen ROJA).
+- `set_injection_site` (Ajuste manual del sitio actual).
+
+## Rotación de Inyecciones
+El bot incluye gestión visual automatizada de la rotación de sitios de inyección.
+- **Rápida (Abdomen):** 3 puntos por zona.
+- **Basal (Piernas/Glúteos):** 1 punto por zona (siempre "Punto 1").
+- **Imágenes:** El bot genera imágenes dinámicas mostrando el punto exacto con un círculo de color (Verde=Siguiente, Rojo=Pasado, Azul=Selección Manual).
 
 ## Troubleshooting
 - **No responde** (checklist):
