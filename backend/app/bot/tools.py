@@ -1497,7 +1497,9 @@ AI_TOOL_DECLARATIONS = [
         "description": "Consultar cuál es el SIGUIENTE punto de inyección recomendado (Toca inyectar aquí). NO avanza la rotación, solo sugiere. Devuelve imagen.",
         "parameters": {
             "type": "OBJECT",
-            "properties": {},
+            "properties": {
+                "plan": {"type": "STRING", "enum": ["rapid", "basal"], "description": "Tipo de insulina"}
+            },
         },
     },
     {
