@@ -553,19 +553,19 @@ function NutritionDraftPanel() {
 
             <div style={{ display: 'flex', gap: '10px', marginBottom: '1rem' }}>
                 <div style={{ flex: 1, textAlign: 'center', background: '#fff', borderRadius: '8px', padding: '0.5rem' }}>
-                    <div style={{ fontSize: '1.2rem', fontWeight: 'bold', color: '#059669' }}>{Math.round(macros.carbs)}</div>
+                    <div style={{ fontSize: '1.2rem', fontWeight: 'bold', color: '#059669' }}>{Number(macros.carbs).toFixed(1).replace(/\.0$/, '')}</div>
                     <div style={{ fontSize: '0.7rem', color: '#6b7280' }}>Carbs</div>
                 </div>
                 <div style={{ flex: 1, textAlign: 'center', background: '#fff', borderRadius: '8px', padding: '0.5rem' }}>
-                    <div style={{ fontSize: '1.2rem', fontWeight: 'bold', color: '#059669' }}>{Math.round(macros.fat)}</div>
+                    <div style={{ fontSize: '1.2rem', fontWeight: 'bold', color: '#059669' }}>{Number(macros.fat).toFixed(1).replace(/\.0$/, '')}</div>
                     <div style={{ fontSize: '0.7rem', color: '#6b7280' }}>Grasa</div>
                 </div>
                 <div style={{ flex: 1, textAlign: 'center', background: '#fff', borderRadius: '8px', padding: '0.5rem' }}>
-                    <div style={{ fontSize: '1.2rem', fontWeight: 'bold', color: '#059669' }}>{Math.round(macros.protein)}</div>
+                    <div style={{ fontSize: '1.2rem', fontWeight: 'bold', color: '#059669' }}>{Number(macros.protein).toFixed(1).replace(/\.0$/, '')}</div>
                     <div style={{ fontSize: '0.7rem', color: '#6b7280' }}>Prot</div>
                 </div>
                 <div style={{ flex: 1, textAlign: 'center', background: '#fff', borderRadius: '8px', padding: '0.5rem' }}>
-                    <div style={{ fontSize: '1.2rem', fontWeight: 'bold', color: '#059669' }}>{Math.round(macros.fiber)}</div>
+                    <div style={{ fontSize: '1.2rem', fontWeight: 'bold', color: '#059669' }}>{Number(macros.fiber).toFixed(1).replace(/\.0$/, '')}</div>
                     <div style={{ fontSize: '0.7rem', color: '#6b7280' }}>Fibra</div>
                 </div>
             </div>
