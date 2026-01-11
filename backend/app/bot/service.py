@@ -2856,19 +2856,38 @@ async def _handle_voice_callback(update: Update, context: ContextTypes.DEFAULT_T
 async def _collect_ml_data():
     try:
         from app.bot.tools import get_status_context
-        status = await get_status_context('admin')
+        from app.bot.user_settings_resolver import resolve_bot_user_settings
+        
+        user_settings, resolved_user = await resolve_bot_user_settings()
+        
+        status = await get_status_context(username=resolved_user, user_settings=user_settings)
         if hasattr(status, 'type') and status.type == 'tool_error':
             return
             
+        if not status.bg_mgdl:
+            return
+
         async with SessionLocal() as session:
              from sqlalchemy import text
              now_ts = datetime.now(timezone.utc)
              minute = (now_ts.minute // 5) * 5
              bucket_ts = now_ts.replace(minute=minute, second=0, microsecond=0)
              
-             stmt = text('INSERT INTO ml_training_data (feature_time, user_id, sgv, trend, iob, cob, basal_rate, activity_score, notes) VALUES (:ts, :uid, :sgv, :trend, :iob, :cob, :bs, :act, :note) ON CONFLICT (feature_time) DO NOTHING')
+             stmt = text('INSERT INTO ml_training_data (feature_time, user_id, sgv, trend, iob, cob, basal_rate, activity_score, notes) '
+                        'VALUES (:ts, :uid, :sgv, :trend, :iob, :cob, :bs, :act, :note) ON CONFLICT (feature_time) DO NOTHING')
              
-             await session.execute(stmt, {'ts': bucket_ts, 'uid': 'admin', 'sgv': status.bg_mgdl, 'trend': str(status.direction or ''), 'iob': status.iob_u, 'cob': status.cob_g, 'bs': 0.0, 'act': 0.0, 'note': 'auto'})
+             await session.execute(stmt, {
+                 'ts': bucket_ts, 
+                 'uid': resolved_user, 
+                 'sgv': status.bg_mgdl, 
+                 'trend': str(status.direction or ''), 
+                 'iob': status.iob_u or 0.0, 
+                 'cob': status.cob_g or 0.0, 
+                 'bs': 0.0, 
+                 'act': 0.0, 
+                 'note': 'auto'
+             })
              await session.commit()
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"ML collection failed: {e}")
+
