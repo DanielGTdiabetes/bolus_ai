@@ -339,8 +339,8 @@ def calculate_bolus_v2(
     
     # 1. Adapt Input to Pure DTO (The Bridge)
     meal_slot = request.meal_slot
-    cr_base = getattr(settings.cr, meal_slot, 10.0)
-    isf_base = getattr(settings.cf, meal_slot, 30.0)
+    cr_base = request.cr_g_per_u or getattr(settings.cr, meal_slot, 10.0)
+    isf_base = request.isf_mgdl_per_u or getattr(settings.cf, meal_slot, 30.0)
     target = request.target_mgdl or settings.targets.mid
     
     inp = CalculationInput(
