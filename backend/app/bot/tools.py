@@ -1231,32 +1231,35 @@ async def add_treatment(tool_input: dict[str, Any]) -> AddTreatmentResult | Tool
             # Rotate Injection Site (if confirmed via Telegram and not just "logged")
             # Usually adding treatment via bot means "I just did it" -> rotate
             rotation_site = None
-            try:
-                from app.services.async_injection_manager import AsyncInjectionManager
+            if insulin > 0:
+                try:
+                    from app.services.async_injection_manager import AsyncInjectionManager
 
-                mgr = AsyncInjectionManager("admin")  # Simplify user resolution
+                    mgr = AsyncInjectionManager("admin")  # Simplify user resolution
 
-                check_str = (notes or "") + (payload.event_type or "")
-                # Detect basal/bolus. "basal" in notes or "Basal" in event type?
-                # event_type usually "Meal Bolus" or "Correction Bolus".
-                plan = "basal" if "basal" in check_str.lower() else "bolus"
+                    check_str = (notes or "") + (payload.event_type or "")
+                    # Detect basal/bolus. "basal" in notes or "Basal" in event type?
+                    # event_type usually "Meal Bolus" or "Correction Bolus".
+                    plan = "basal" if "basal" in check_str.lower() else "bolus"
 
-                manual_site_id = tool_input.get("injection_site_id")
-                if manual_site_id:
-                    # Manual override logic
-                    await mgr.set_current_site(plan, manual_site_id)
-                    # Fetch details
-                    rotation_site = (
-                        mgr._get_site_from_id(plan, manual_site_id)
-                        if ":" in manual_site_id
-                        else mgr._get_site_from_id(plan, manual_site_id + ":1")
-                    )
-                else:
-                    # Automatic Rotation
-                    rotation_site = await mgr.rotate_site(plan)
+                    manual_site_id = tool_input.get("injection_site_id")
+                    if manual_site_id:
+                        # Manual override logic
+                        await mgr.set_current_site(plan, manual_site_id)
+                        # Fetch details
+                        rotation_site = (
+                            mgr._get_site_from_id(plan, manual_site_id)
+                            if ":" in manual_site_id
+                            else mgr._get_site_from_id(plan, manual_site_id + ":1")
+                        )
+                    else:
+                        # Automatic Rotation
+                        rotation_site = await mgr.rotate_site(plan)
 
-            except Exception as e:
-                logger.warning(f"DB Rotation failed: {e}")
+                except Exception as e:
+                    logger.warning(f"DB Rotation failed: {e}")
+            else:
+                logger.info("Skipping rotation: Insulin is 0")
         except Exception as e:
             logger.warning(f"Post-treatment logic failed: {e}")
 
