@@ -38,6 +38,8 @@ from app.bot.user_settings_resolver import resolve_bot_user_settings
 from app.services.restaurant_db import RestaurantDBService
 from app.models.user_data import FavoriteFood, SupplyItem
 from app.api.user_data import SupplyRead, SupplyUpdate
+from app.services import basal_repo
+from app.services import basal_repo
 
 logger = logging.getLogger(__name__)
 
@@ -190,6 +192,13 @@ class SupplyCheckResult(BaseModel):
     items: List[Dict[str, Any]]
     low_stock_warnings: List[str] = []
     quality: str = "ok"
+
+
+class RegisterBasalResult(BaseModel):
+    ok: bool
+    dose_u: float
+    effective_date: str
+    error: Optional[str] = None
 
 
 
@@ -1745,6 +1754,47 @@ async def end_restaurant_session(session_id: str, outcome_score: int = None) -> 
         return RestaurantSessionResult(ok=False, status="error", error=str(e))
 
 
+async def register_basal(args: Dict[str, Any]) -> RegisterBasalResult | ToolError:
+    try:
+        dose = float(args.get("dose_u", 0))
+        date_iso = args.get("date_iso")
+        
+        user_id = "admin" # Default
+        try:
+             async with SessionLocal() as session:
+                  user_id = await _resolve_user_id(session)
+        except: pass
+
+        effective_date = None
+        if date_iso:
+             try:
+                 effective_date = datetime.fromisoformat(date_iso).date()
+             except:
+                 pass
+        
+        if not effective_date:
+             effective_date = datetime.now(timezone.utc).date()
+
+        await basal_repo.upsert_basal_dose(user_id, dose, effective_date)
+        
+        # Decrement Needle Stock if applicable (Silent effort)
+        try:
+             async with SessionLocal() as session:
+                 from app.services.supplies_service import SuppliesService
+                 # Assuming 1 needle
+                 await SuppliesService.decrement_stock(user_id, "supplies_needles", 1, session)
+        except: pass
+
+        return RegisterBasalResult(
+            ok=True, 
+            dose_u=dose, 
+            effective_date=effective_date.isoformat()
+        )
+    except Exception as e:
+        logger.error(f"Failed to register basal: {e}")
+        return ToolError(type="runtime_error", message=str(e))
+
+
 # Map tool names to callables
 async def execute_tool(name: str, args: Dict[str, Any]) -> Any:
     try:
@@ -1817,6 +1867,8 @@ async def execute_tool(name: str, args: Dict[str, Any]) -> Any:
              # Fallback if no mapping needed or unknown
              args["item_key"] = key
              return await update_supply_quantity(args)
+        if name == "register_basal":
+             return await register_basal(args)
     except ValidationError as exc:
         return ToolError(type="validation_error", message=str(exc))
     except Exception as exc:  # pragma: no cover

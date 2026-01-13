@@ -265,6 +265,14 @@ def _build_tools() -> list[ToolDef]:
             permission=Permission.user_write,
         ),
         ToolDef(
+            name="register_basal",
+            description="Registrar dosis de insulina basal (larga duración).",
+            input_schema={"type": "object", "properties": {"dose_u": {"type": "number"}, "date_iso": {"type": "string"}}},
+            output_schema={"type": "object", "properties": {"ok": {"type": "boolean"}, "effective_date": {"type": "string"}}},
+            fn=bot_tools.register_basal,
+            permission=Permission.user_write,
+        ),
+        ToolDef(
             name="save_favorite_food",
             description="Guardar comida en favoritos con perfil nutricional.",
             input_schema={"type": "object", "properties": {"name": {"type": "string"}, "carbs": {"type": "number"}, "fat": {"type": "number"}, "protein": {"type": "number"}, "notes": {"type": "string"}}},
