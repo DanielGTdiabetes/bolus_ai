@@ -8,6 +8,25 @@ Esta carpeta contiene todo lo necesario para migrar tu Bolus AI desde la nube (R
 - **Coste Cero:** Aprovechas el hardware que ya tienes encendido.
 - **Privacidad:** Tus datos médicos están en tu casa.
 
+## 🛡️ ¿Es seguro? (Evaluación de Riesgos)
+
+**Respuesta corta: SÍ, es totalmente seguro.**
+
+Muchos usuarios tienen miedo de "romper" lo que ya funciona en la nube al tocar el NAS. Aquí te explico por qué **NO hay peligro**:
+
+1. **Aislamiento Total:**
+    El NAS crea su propia base de datos vacía (Postgres Local). **No toca ni se conecta** a tu base de datos de Neon (Render) durante la instalación. Son dos mundos separados.
+
+2. **Render sigue vivo:**
+    Mientras instalas y pruebas en el NAS, tu app de Render sigue funcionando felizmente. No se "apaga" ni se entera de que estás configurando otro servidor.
+
+3. **El "Script de Sincronización" es unidireccional:**
+    El script `sync_to_cloud.py` que hemos creado solo envía datos **DESDE el NAS HACIA Neon**. Nunca borra datos de tu NAS basándose en la nube.
+    - *Riesgo:* Si lo configuras mal, podrías escribir datos basura en Neon.
+    - *Solución:* Neon tiene "Point-in-Time Recovery" (puedes deshacer cambios de los últimos días) y además hemos puesto protecciones en el script.
+
+**En resumen:** En el peor de los casos, si el NAS explota o no arranca, simplemente lo apagas y sigues usando Render como si nada hubiera pasado.
+
 ## Pasos para Instalar en el NAS
 
 ### 1. Preparar el NAS
