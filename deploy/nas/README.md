@@ -33,21 +33,32 @@ NIGHTSCOUT_API_SECRET=tu_api_token
 OPENAI_API_KEY=sk-proj-...
 ```
 
-### 3. Despliegue con Portainer (Recomendado)
+### 3. Despliegue con Portainer (Método Recomendado: GitOps)
 
-Si usas Portainer en tu NAS, es aún más fácil:
+La forma más profesional y limpia. Si actualizas algo en GitHub, tu NAS lo baja solo.
 
-1. Entra a Portainer y ve a la sección **Stacks**.
-2. Pulsa en **Add stack**.
-3. Nombre: `bolus_stack` (o el que quieras).
-4. En el editor **Web editor**, pega el contenido del archivo `docker-compose.yml` de esta carpeta.
-   - *Nota:* Como la ruta `build: ../../` no funciona directamente en el editor web de Portainer si no clonas el repo git, te recomiendo cambiar la línea `build: ...` por `image: ghcr.io/tu-usuario/bolus_ai:latest` si tienes imagen, o mejor aún:
-   - **Opción Pro:** Conecta el Stack a tu **Repositorio GitHub** (pestaña 'Repository' en Portainer).
-     - Repo URL: `https://github.com/usuario/bolus_ai`
-     - Path: `deploy/nas/docker-compose.yml`
-     - Automatic Updates: ON.
-5. En la sección **Environment variables** (abajo del todo), añade tus claves una a una (`POSTGRES_PASSWORD`, `TELEGRAM_BOT_TOKEN`, etc.) o carga el archivo `.env`.
-6. Pulsa **Deploy the stack**.
+1. Entra a Portainer -> **Stacks** -> **Add stack**.
+2. Selecciona la opción **Repository** (pestaña superior).
+3. Rellena los datos:
+   - **Name**: `bolus_stack`
+   - **Repository URL**: `https://github.com/DanielGTdiabetes/bolus_ai` (o tu URL)
+   - **Compose path**: `deploy/nas/docker-compose.yml` (⚠️ Ruta exacta dentro del repo)
+   - **Automatic Updates**: Actívalo si quieres que se actualice solo al hacer push.
+4. En **Environment variables**, añade tus secretos manualmente (Portainer no lee tu .env local):
+
+   ```
+   POSTGRES_USER=admin
+   POSTGRES_PASSWORD=...
+   TELEGRAM_BOT_TOKEN=...
+   NIGHTSCOUT_URL=...
+   DATABASE_URL=postgresql://admin:CLAVE_DEL_NAS@db:5432/bolus_ai
+   # Para Emergencia y Sync:
+   CLOUD_DATABASE_URL=postgresql+asyncpg://...@neon.tech/...
+   ```
+
+5. Pulsa **Deploy the stack**.
+
+¡Listo! El script de sincronización `sync_to_cloud.py` ya estará dentro del contenedor listo para usarse.
 
 ### 4. Migrar tus Datos (Neon -> NAS)
 

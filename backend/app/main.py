@@ -99,7 +99,7 @@ async def startup_event() -> None:
     # Ensure models are loaded before creating tables
     import app.models 
 
-    from app.core.db import init_db, create_tables, get_engine
+    from app.core.db import init_db, create_tables, get_engine, switch_to_cloud_if_needed
     from app.services.auth_repo import init_auth_db
     init_db()
     
@@ -107,6 +107,10 @@ async def startup_event() -> None:
     # We await DB init to ensure tables exist before serving requests.
     try:
         logger.info("⏳ Waiting for Database...")
+        
+        # Emergency Switch Check (Primary vs Cloud)
+        await switch_to_cloud_if_needed()
+
         # AUDIT FIX: Removed auto-creation in favor of Alembic migrations.
         # await create_tables() 
         await init_auth_db()

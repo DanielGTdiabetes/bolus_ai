@@ -24,6 +24,44 @@ _in_memory_store = {
     "isf_runs": [],
 }
 
+
+def _build_engine(url: str):
+    """Helper to create AsyncEngine with proper asyncpg settings."""
+    if "asyncpg" in url:
+        u = make_url(url)
+        q = dict(u.query)
+        connect_args = {}
+        
+        if "sslmode" in q:
+            mode = q.pop("sslmode")
+            if mode == "require" or mode == "verify-full":
+                connect_args["ssl"] = "require"
+            elif mode == "disable":
+                # Explicitly disable SSL if user asked for it
+                connect_args["ssl"] = False
+            # else: default (often 'allow' or 'prefer' which asyncpg treats variously, usually no ssl arg)
+        
+        if "channel_binding" in q:
+            q.pop("channel_binding")
+            
+        u = u._replace(query=q)
+        return create_async_engine(
+            u, 
+            connect_args=connect_args, 
+            echo=False, 
+            pool_pre_ping=True,
+            pool_size=20,
+            max_overflow=20
+        )
+    else:
+        return create_async_engine(
+            url, 
+            echo=False, 
+            pool_pre_ping=True,
+            pool_size=20,
+            max_overflow=20
+        )
+
 def init_db():
     settings = get_settings()
     url = settings.database.url
@@ -35,43 +73,7 @@ def init_db():
         safe_url = url.split('@')[-1] if '@' in url else '...'
         logger.info(f"Connecting to database: {safe_url}")
         
-        # Handle asyncpg sslmode/channel_binding issues
-        if "asyncpg" in url:
-            u = make_url(url)
-            q = dict(u.query)
-            connect_args = {}
-            
-            # Extract sslmode -> connect_args['ssl']
-            if "sslmode" in q:
-                mode = q.pop("sslmode")
-                if mode == "require" or mode == "verify-full":
-                    connect_args["ssl"] = "require"
-                elif mode == "disable":
-                    connect_args["ssl"] = False
-                # defaulting to leaving it out if unknown, or passing it? 
-                # asyncpg mostly wants 'require' or boolean.
-            
-            # Remove channel_binding (often unsupported kwarg for asyncpg via SA)
-            if "channel_binding" in q:
-                q.pop("channel_binding")
-                
-            u = u._replace(query=q)
-            _async_engine = create_async_engine(
-                u, 
-                connect_args=connect_args, 
-                echo=False, 
-                pool_pre_ping=True,
-                pool_size=20,
-                max_overflow=20
-            )
-        else:
-            _async_engine = create_async_engine(
-                url, 
-                echo=False, 
-                pool_pre_ping=True,
-                pool_size=20,
-                max_overflow=20
-            )
+        _async_engine = _build_engine(url)
 
         _async_session_factory = async_sessionmaker(
             _async_engine,
@@ -93,6 +95,55 @@ def init_db():
             raise RuntimeError(msg)
             
         logger.warning("DATABASE_URL not set. Using in-memory (dict) storage. Data will be lost on restart.")
+
+async def switch_to_cloud_if_needed():
+    """
+    Emergency Switch:
+    Checks if Primary DB is reachable. If not, and Cloud DB is configured, switches traffic.
+    """
+    global _async_engine, _async_session_factory
+    
+    if not _async_engine:
+        return
+
+    try:
+        async with _async_engine.connect() as conn:
+            await conn.execute(text("SELECT 1"))
+        # Primary OK
+        return
+    except Exception as e:
+        logger.warning(f"⚠️ Primary Database Unreachable: {e}")
+    
+    # Primary Failed. Check Cloud Config.
+    settings = get_settings()
+    cloud_url = settings.database.cloud_url
+    
+    if cloud_url:
+        logger.warning("🚨 EMERGENCY MODE: Switching to Cloud Database (Neon)...")
+        try:
+            # Create new engine for Cloud
+            cloud_engine = _build_engine(cloud_url)
+            
+            # Test Cloud Connectivity
+            async with cloud_engine.connect() as conn:
+                await conn.execute(text("SELECT 1"))
+            
+            # Switch Global Poiner
+            _async_engine = cloud_engine
+            # Re-bind session factory
+            _async_session_factory = async_sessionmaker(
+                _async_engine,
+                expire_on_commit=False,
+                class_=AsyncSession,
+            )
+            logger.info("✅ Successfully switched to Cloud Database.")
+        except Exception as ex:
+            logger.critical(f"❌ Emergency Switch FAILED. Cloud also unreachable: {ex}")
+            # Raise original error to stop startup if both fail
+            raise ex
+    else:
+        logger.error("❌ No Emergency Backup (Cloud DB) configured. Cannot switch.")
+        # Let startup continue to fail naturally or raise logic here
 
 def get_engine():
     return _async_engine

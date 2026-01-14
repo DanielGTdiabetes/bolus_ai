@@ -68,8 +68,9 @@ class VisionConfig(BaseModel):
 
 class DatabaseConfig(BaseModel):
     url: Optional[str] = Field(default=None, validate_default=True)
+    cloud_url: Optional[str] = Field(default=None)
 
-    @field_validator("url")
+    @field_validator("url", "cloud_url")
     def _validate_url(cls, v: Optional[str]) -> Optional[str]:
         if v and v.startswith("postgres://"):
             return v.replace("postgres://", "postgresql+asyncpg://")
@@ -224,6 +225,10 @@ def _load_env() -> dict[str, Any]:
     db_url = os.environ.get("DATABASE_URL")
     if db_url:
         env_config.setdefault("database", {})["url"] = db_url
+
+    cloud_db_url = os.environ.get("CLOUD_DATABASE_URL")
+    if cloud_db_url:
+        env_config.setdefault("database", {})["cloud_url"] = cloud_db_url
 
     # Dexcom Env
     dex_user = os.environ.get("DEXCOM_USERNAME")

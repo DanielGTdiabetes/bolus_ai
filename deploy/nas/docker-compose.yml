@@ -28,7 +28,7 @@ services:
     # Construir usando el Dockerfile de la raíz del proyecto
     build:
       context: ../../
-      dockerfile: Dockerfile
+      dockerfile: backend/Dockerfile
     container_name: bolus_app
     restart: always
     depends_on:
@@ -51,6 +51,8 @@ services:
     volumes:
       # Persistencia de archivos locales (backups jsonl, logs, etc)
       - ./app_data:/app/data
+      # Script de Sincronización
+      - ./sync_to_cloud.py:/app/sync_to_cloud.py
     ports:
       - "8000:8000"
     networks:
