@@ -1,4 +1,3 @@
-
 import os
 import sys
 import logging
@@ -17,6 +16,7 @@ CLOUD_DB_URL = os.getenv("CLOUD_DATABASE_URL") # User must set this in NAS .env
 
 # Sync Policy: Keep last N days active in cloud
 SYNC_DAYS = 30
+LOCK_FILE = "sync.lock"
 
 TABLES_TO_SYNC = [
     # Table Name, Date Column (None if full sync needed), ID Column
@@ -32,16 +32,65 @@ TABLES_TO_SYNC = [
     ("favorite_foods", None, "id"),
 ]
 
+async def get_table_columns(conn, table_name):
+    """Retorna un set con los nombres de las columnas de una tabla."""
+    query = text("SELECT column_name FROM information_schema.columns WHERE table_name = :table AND table_schema = 'public'")
+    result = await conn.execute(query, {"table": table_name})
+    return {row[0] for row in result.fetchall()}
+
+async def cleanup_old_data(cloud_conn, table_name, date_col):
+    """Elimina datos antiguos en Neon para mantener la ventana de tiempo."""
+    if not date_col:
+        return 0
+    
+    logger.info(f"  -> Cleaning old data in {table_name} (older than {SYNC_DAYS} days)...")
+    cleanup_sql = text(f"""
+        DELETE FROM {table_name} 
+        WHERE {date_col} < NOW() - INTERVAL '{SYNC_DAYS} days'
+    """)
+    result = await cloud_conn.execute(cleanup_sql)
+    await cloud_conn.commit()
+    deleted_count = result.rowcount
+    if deleted_count > 0:
+        logger.info(f"  -> Deleted {deleted_count} old rows from Cloud.")
+    return deleted_count
+
 async def sync_table(local_conn, cloud_conn, table_name, date_col, id_col):
     logger.info(f"Syncing table: {table_name}...")
     
-    # 1. Select Data from Local
+    # 0. Safety: Get intersecting columns to avoid schema mismatch
+    local_cols = await get_table_columns(local_conn, table_name)
+    cloud_cols = await get_table_columns(cloud_conn, table_name)
+    
+    if not local_cols:
+        logger.warning(f"  -> Table {table_name} does not exist locally. Skipping.")
+        return
+    if not cloud_cols:
+        logger.warning(f"  -> Table {table_name} does not exist in Cloud. Skipping.")
+        return
+
+    common_cols = local_cols.intersection(cloud_cols)
+    if not common_cols:
+        logger.error(f"  -> No common columns for {table_name}. Skipping.")
+        return
+        
+    # Ensure ID col is present
+    if id_col not in common_cols:
+        logger.error(f"  -> ID column {id_col} missing in common columns. Skipping.")
+        return
+
+    # 1. Cleanup Old Data in Cloud
+    await cleanup_old_data(cloud_conn, table_name, date_col)
+
+    # 2. Select Data from Local (Explicit columns)
+    cols_list = ", ".join(list(common_cols))
+    
     if date_col:
         cutoff = datetime.utcnow() - timedelta(days=SYNC_DAYS)
-        query = text(f"SELECT * FROM {table_name} WHERE {date_col} >= :cutoff")
+        query = text(f"SELECT {cols_list} FROM {table_name} WHERE {date_col} >= :cutoff")
         result = await local_conn.execute(query, {"cutoff": cutoff})
     else:
-        query = text(f"SELECT * FROM {table_name}")
+        query = text(f"SELECT {cols_list} FROM {table_name}")
         result = await local_conn.execute(query)
     
     rows = result.fetchall()
@@ -51,35 +100,29 @@ async def sync_table(local_conn, cloud_conn, table_name, date_col, id_col):
 
     logger.info(f"  -> Found {len(rows)} rows locally.")
 
-    # 2. Insert to Cloud (Upsert)
-    # We construct a dynamic INSERT ON CONFLICT statement
-    # This assumes both DBs have same schema.
-    
-    keys = result.keys()
-    cols = ", ".join(keys)
-    vals_placeholders = ", ".join([f":{k}" for k in keys])
+    # 3. Insert to Cloud (Upsert) using ONLY common columns
+    vals_placeholders = ", ".join([f":{k}" for k in common_cols])
     
     # Update clause for Upsert
-    update_clause = ", ".join([f"{k} = EXCLUDED.{k}" for k in keys if k != id_col])
+    update_clause = ", ".join([f"{k} = EXCLUDED.{k}" for k in common_cols if k != id_col])
     
     if not update_clause:
-        # If table has only ID column (rare), do nothing on conflict
         sql = f"""
-            INSERT INTO {table_name} ({cols}) VALUES ({vals_placeholders})
+            INSERT INTO {table_name} ({cols_list}) VALUES ({vals_placeholders})
             ON CONFLICT ({id_col}) DO NOTHING
         """
     else:
         sql = f"""
-            INSERT INTO {table_name} ({cols}) VALUES ({vals_placeholders})
+            INSERT INTO {table_name} ({cols_list}) VALUES ({vals_placeholders})
             ON CONFLICT ({id_col}) DO UPDATE SET {update_clause}
         """
 
     # Batch execution
     count = 0
     try:
-        # Convert rows to dicts for parameter binding
-        # row._mapping gives dict access in SQLAlchemy 1.4+
-        data = [dict(row._mapping) for row in rows]
+        # data = [dict(row._mapping) for row in rows] # _mapping for sqlalchemy 1.4+
+        # Explicit dict creation ensuring only common keys are passed (safety double check)
+        data = [{k: getattr(row, k) for k in common_cols} for row in rows]
         
         await cloud_conn.execute(text(sql), data)
         await cloud_conn.commit()
@@ -96,15 +139,31 @@ async def main():
         logger.error("Missing DATABASE_URL or CLOUD_DATABASE_URL environment variables.")
         return
 
-    # Create Engines
-    # Ensure we use async drivers (postgresql+asyncpg)
-    local_url = LOCAL_DB_URL.replace("postgresql://", "postgresql+asyncpg://") if "asyncpg" not in LOCAL_DB_URL else LOCAL_DB_URL
-    cloud_url = CLOUD_DB_URL.replace("postgresql://", "postgresql+asyncpg://") if "asyncpg" not in CLOUD_DB_URL else CLOUD_DB_URL
+    # Lock Mechanism
+    if os.path.exists(LOCK_FILE):
+        # Check lock file age (optional safety: if > 1 hour, ignore?)
+        try:
+            mtime = os.path.getmtime(LOCK_FILE)
+            if datetime.now().timestamp() - mtime > 3600:
+                logger.warning("Found stale lock file (>1h). Removing and continuing.")
+                os.remove(LOCK_FILE)
+            else:
+                logger.warning("Sync already running (lock file exists). Exiting.")
+                return
+        except OSError:
+            pass
 
-    local_eng = create_async_engine(local_url, echo=False)
-    cloud_eng = create_async_engine(cloud_url, echo=False)
+    with open(LOCK_FILE, 'w') as f:
+        f.write(str(datetime.now()))
 
     try:
+        # Create Engines
+        local_url = LOCAL_DB_URL.replace("postgresql://", "postgresql+asyncpg://") if "asyncpg" not in LOCAL_DB_URL else LOCAL_DB_URL
+        cloud_url = CLOUD_DB_URL.replace("postgresql://", "postgresql+asyncpg://") if "asyncpg" not in CLOUD_DB_URL else CLOUD_DB_URL
+
+        local_eng = create_async_engine(local_url, echo=False)
+        cloud_eng = create_async_engine(cloud_url, echo=False)
+
         async with local_eng.connect() as l_conn, cloud_eng.connect() as c_conn:
             logger.info("Connected to both Local and Cloud DBs.")
             
@@ -118,8 +177,10 @@ async def main():
     except Exception as e:
         logger.critical(f"Global Sync Error: {e}")
     finally:
-        await local_eng.dispose()
-        await cloud_eng.dispose()
+        if 'local_eng' in locals(): await local_eng.dispose()
+        if 'cloud_eng' in locals(): await cloud_eng.dispose()
+        if os.path.exists(LOCK_FILE):
+            os.remove(LOCK_FILE)
 
 if __name__ == "__main__":
     if sys.platform == 'win32':
