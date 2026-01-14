@@ -44,15 +44,24 @@ La forma más profesional y limpia. Si actualizas algo en GitHub, tu NAS lo baja
    - **Repository URL**: `https://github.com/DanielGTdiabetes/bolus_ai` (o tu URL)
    - **Compose path**: `deploy/nas/docker-compose.yml` (⚠️ Ruta exacta dentro del repo)
    - **Automatic Updates**: Actívalo si quieres que se actualice solo al hacer push.
-4. En **Environment variables**, añade tus secretos manualmente (Portainer no lee tu .env local):
+4. En **Environment variables**, añade tus secretos manualmente.
 
-   ```
+   ⚠️ **MUY IMPORTANTE (Persistencia de Datos):**
+   Como Portainer descarga el código en una carpeta temporal, debes decirle dónde guardar `postgres_data` para no perder la base de datos si reinicias el stack.
+
+   Añade estas variables apuntando a carpetas reales de tu NAS:
+
+   ```bash
+   # Rutas ABSOLUTAS en tu NAS donde guardarás los datos
+   DB_DATA_PATH=/volume1/docker/bolus_ai/db_data
+   APP_DATA_PATH=/volume1/docker/bolus_ai/app_data
+
+   # Tus credenciales
    POSTGRES_USER=admin
    POSTGRES_PASSWORD=...
    TELEGRAM_BOT_TOKEN=...
    NIGHTSCOUT_URL=...
    DATABASE_URL=postgresql://admin:CLAVE_DEL_NAS@db:5432/bolus_ai
-   # Para Emergencia y Sync:
    CLOUD_DATABASE_URL=postgresql+asyncpg://...@neon.tech/...
    ```
 
