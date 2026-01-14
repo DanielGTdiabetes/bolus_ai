@@ -90,8 +90,11 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER:-admin}:${POSTGRES_PASSWORD:-ChangeMePlease}@db:5432/bolus_ai
       # Conexión Nube (Neon) - OBLIGATORIA
       CLOUD_DATABASE_URL: ${CLOUD_DATABASE_URL}
-      # Activar modo bucle infinito
+      # Activar modo bucle (El servicio corre)
       SYNC_LOOP: "1"
+      # Por defecto APAGADO ("0") para seguridad. Cambiar a "1" para activar.
+      SYNC_ENABLED: "${SYNC_ENABLED:-0}"
+      # Cada cuánto ejecutar (Segundos). 86400 = 24h. 3600 = 1h.
       SYNC_INTERVAL_SECONDS: "${SYNC_INTERVAL_SECONDS:-86400}"
       PYTHONUNBUFFERED: "1"
     volumes:

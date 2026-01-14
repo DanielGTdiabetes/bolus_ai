@@ -209,24 +209,32 @@ async def run_sync_once():
             os.remove(LOCK_FILE)
 
 async def main():
-    # If SYNC_LOOP is True, run continuously
+    # If SYNC_LOOP is True, run continuously (Service Mode)
     loop_mode = os.getenv("SYNC_LOOP", "0") == "1"
     
     if loop_mode:
-        logger.info("🔄 Starting Sync Service in LOOP Mode (every 24h by default)")
+        logger.info("🔄 Starting Sync Service in LOOP Mode")
         while True:
-            logger.info("⏰ Waking up for scheduled sync...")
-            try:
-                await run_sync_once()
-            except Exception as e:
-                logger.error(f"💥 Crash in sync loop: {e}")
+            # Check if enabled (Default: False/0)
+            # This allows the container to run but stay idle by default
+            is_enabled = os.getenv("SYNC_ENABLED", "0") == "1"
             
-            # Sleep 24 hours (86400 seconds) or configure via env
+            if is_enabled:
+                logger.info("⏰ Sync Enabled. Starting execution...")
+                try:
+                    await run_sync_once()
+                except Exception as e:
+                    logger.error(f"💥 Crash in sync loop: {e}")
+            else:
+                logger.info("⏸️ Sync is DISABLED (SYNC_ENABLED=0). Idle...")
+            
+            # Sleep 
             sleep_sec = int(os.getenv("SYNC_INTERVAL_SECONDS", "86400"))
             logger.info(f"💤 Sleeping for {sleep_sec} seconds...")
             await asyncio.sleep(sleep_sec)
     else:
-        # Run once and exit (for manual cron or terminal run)
+        # Run once and exit (Cron/Manual Mode)
+        # Always run if manually invoked, regardless of SYNC_ENABLED
         await run_sync_once()
 
 if __name__ == "__main__":

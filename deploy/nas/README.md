@@ -108,6 +108,10 @@ La forma más profesional y limpia. Si actualizas algo en GitHub, tu NAS lo baja
    
    # (Opcional) Para Modo Emergencia (La URL de Neon que usabas antes)
    CLOUD_DATABASE_URL=postgresql+asyncpg://...@neon.tech/...
+   
+   # (Opcional) Sincronización Automática (Por defecto APAGADO "0")
+   # Pon "1" para activar el volcado diario de datos a Neon.
+   SYNC_ENABLED=0
    ```
 
 5. Pulsa **Deploy the stack**.
@@ -186,24 +190,21 @@ Si no quieres instalar la app de Tailscale:
 
 ## 6. Respaldo Automático en Nube (Cold Standby)
 
-Si quieres dormir tranquilo al 100%, puedes configurar que tu NAS envíe una copia de tus datos recientes (30 días) a tu base de datos antigua de Neon (Render) cada noche. Así, si tu NAS explota, puedes encender Render y seguir como si nada.
+Si quieres dormir tranquilo al 100%, hemos incluido un "sidecar" (servicio acompañante) que puede copiar tus datos recientes (30 días) a tu base de datos antigua de Neon cada noche.
 
-### Pasos
+El servicio `bolus_sync` ya está instalado pero **viene APAGADO por defecto** para tu seguridad.
 
-1. **Edita el archivo .env** del NAS y añade la conexión a Neon:
+### Cómo activarlo
 
-   ```bash
-   CLOUD_DATABASE_URL=postgresql://usuario:pass@ep-neon.../neondb
-   ```
+Simplemente cambia la variable de entorno en Portainer:
 
-2. **Programar Tarea (Cron):**
-   Configura una tarea programada en tu NAS (Task Scheduler en Synology/Asustor) para que se ejecute cada noche (ej: 04:00 AM) con este comando:
+```bash
+SYNC_ENABLED=1
+```
 
-   ```bash
-   docker exec bolus_app python /app/deploy/nas/sync_to_cloud.py
-   ```
+Y redeploya el stack. El servicio se despertará cada 24h, comprobará si hay datos nuevos y los subirá a la nube a modo de copia de seguridad.
 
-¡Hecho! Tu NAS trabajará para ti en casa, y Neon será tu seguro de vida en la nube.
+*(Próximamente: Podrás controlar esto directamente desde los Ajustes de la App)*
 
 ## 7. Preguntas Frecuentes (FAQ)
 
