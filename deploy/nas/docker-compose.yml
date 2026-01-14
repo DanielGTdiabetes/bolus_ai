@@ -69,7 +69,9 @@ services:
       - ${APP_DATA_PATH:-./app_data}:/app/data
       # Script de Sincronización (siempre desde el repo)
       - ./sync_to_cloud.py:/app/sync_to_cloud.py
-    ports: # Puerto externo configurable (Por defecto 8000)
+    ports:
+      # Puerto externo configurable (Por defecto 8000)
+      - "${APP_PORT:-8000}:8000"
     networks:
       - bolus_net
 
