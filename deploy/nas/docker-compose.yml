@@ -1,0 +1,61 @@
+version: '3.8'
+
+services:
+  # 1. Base de Datos Postgres (Contenedor Principal)
+  db:
+    image: postgres:15-alpine
+    container_name: bolus_db
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-admin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ChangeMePlease}
+      POSTGRES_DB: bolus_ai
+    volumes:
+      # Persistencia de datos en el NAS (carpeta ./postgres_data del NAS)
+      - ./postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    networks:
+      - bolus_net
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U admin -d bolus_ai" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # 2. Tu Aplicación Bolus AI (Bot + Backend)
+  app:
+    # Construir usando el Dockerfile de la raíz del proyecto
+    build:
+      context: ../../
+      dockerfile: Dockerfile
+    container_name: bolus_app
+    restart: always
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      # Conexión interna a la BD del NAS (usamos el nombre del servicio 'db')
+      DATABASE_URL: postgresql://${POSTGRES_USER:-admin}:${POSTGRES_PASSWORD:-ChangeMePlease}@db:5432/bolus_ai
+
+      # Variables Esenciales (Copiadas de tu .env actual)
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+      ALLOWED_TELEGRAM_USER_ID: ${ALLOWED_TELEGRAM_USER_ID}
+      NIGHTSCOUT_URL: ${NIGHTSCOUT_URL}
+      NIGHTSCOUT_API_SECRET: ${NIGHTSCOUT_API_SECRET}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+
+      # Configuración recomendada
+      PYTHONUNBUFFERED: "1"
+      LOG_LEVEL: "INFO"
+    volumes:
+      # Persistencia de archivos locales (backups jsonl, logs, etc)
+      - ./app_data:/app/data
+    ports:
+      - "8000:8000"
+    networks:
+      - bolus_net
+
+networks:
+  bolus_net:
+    driver: bridge
