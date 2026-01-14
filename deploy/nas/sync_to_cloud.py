@@ -149,7 +149,12 @@ async def sync_table(local_conn, cloud_conn, table_name, date_col, id_col):
     elapsed = time.monotonic() - start_time
     logger.info(f"  -> Successfully synced {count} rows to Cloud in {elapsed:.2f}s.")
 
-async def main():
+async def run_sync_once():
+    """Logic of a single sync run, extracted from main."""
+    LOCK_FILE = "sync.lock" # Define scope or use global constant
+    
+    # Check enviroment again if needed, or pass args. 
+    # Logic copied from original main
     if not LOCAL_DB_URL or not CLOUD_DB_URL:
         logger.error("Missing DATABASE_URL or CLOUD_DATABASE_URL environment variables.")
         return
@@ -160,7 +165,6 @@ async def main():
     
     # Lock Mechanism
     if os.path.exists(LOCK_FILE):
-        # Check lock file age
         try:
             mtime = os.path.getmtime(LOCK_FILE)
             age = datetime.now().timestamp() - mtime
@@ -168,7 +172,7 @@ async def main():
                 logger.warning(f"Found stale lock file (>{LOCK_TTL_SECONDS/3600}h). Removing and continuing.")
                 os.remove(LOCK_FILE)
             else:
-                logger.warning("Sync already running (lock file exists). Exiting.")
+                logger.warning("Sync already running (lock file exists). Skipping this run.")
                 return
         except OSError:
             pass
@@ -203,6 +207,27 @@ async def main():
         if 'cloud_eng' in locals(): await cloud_eng.dispose()
         if os.path.exists(LOCK_FILE):
             os.remove(LOCK_FILE)
+
+async def main():
+    # If SYNC_LOOP is True, run continuously
+    loop_mode = os.getenv("SYNC_LOOP", "0") == "1"
+    
+    if loop_mode:
+        logger.info("🔄 Starting Sync Service in LOOP Mode (every 24h by default)")
+        while True:
+            logger.info("⏰ Waking up for scheduled sync...")
+            try:
+                await run_sync_once()
+            except Exception as e:
+                logger.error(f"💥 Crash in sync loop: {e}")
+            
+            # Sleep 24 hours (86400 seconds) or configure via env
+            sleep_sec = int(os.getenv("SYNC_INTERVAL_SECONDS", "86400"))
+            logger.info(f"💤 Sleeping for {sleep_sec} seconds...")
+            await asyncio.sleep(sleep_sec)
+    else:
+        # Run once and exit (for manual cron or terminal run)
+        await run_sync_once()
 
 if __name__ == "__main__":
     if sys.platform == 'win32':
