@@ -19,6 +19,7 @@ DRY_RUN = os.getenv("SYNC_DRY_RUN", "0") == "1"
 # Sync Policy: Keep last N days active in cloud
 SYNC_DAYS = 30
 LOCK_FILE = "sync.lock"
+LOCK_TTL_SECONDS = 3600
 
 TABLES_TO_SYNC = [
     # Table Name, Date Column (None if full sync needed), ID Column
@@ -159,11 +160,12 @@ async def main():
     
     # Lock Mechanism
     if os.path.exists(LOCK_FILE):
-        # Check lock file age (optional safety: if > 1 hour, ignore?)
+        # Check lock file age
         try:
             mtime = os.path.getmtime(LOCK_FILE)
-            if datetime.now().timestamp() - mtime > 3600:
-                logger.warning("Found stale lock file (>1h). Removing and continuing.")
+            age = datetime.now().timestamp() - mtime
+            if age > LOCK_TTL_SECONDS:
+                logger.warning(f"Found stale lock file (>{LOCK_TTL_SECONDS/3600}h). Removing and continuing.")
                 os.remove(LOCK_FILE)
             else:
                 logger.warning("Sync already running (lock file exists). Exiting.")
@@ -191,6 +193,8 @@ async def main():
                     await sync_table(l_conn, c_conn, t_name, d_col, id_col)
                 except Exception as e:
                     logger.error(f"Error processing table {t_name}: {e}")
+        
+        logger.info("=== SYNC FINISHED SUCCESSFULLY ===")
                     
     except Exception as e:
         logger.critical(f"Global Sync Error: {e}")
