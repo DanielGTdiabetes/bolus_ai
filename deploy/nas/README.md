@@ -105,13 +105,14 @@ Abre tu navegador y escribe la IP de tu NAS y el puerto 8000:
 
 Al estar en tu casa, no es accesible desde internet por defecto. Tienes dos opciones para entrar desde tu iPhone (usando tu navegador compatible con Bluetooth):
 
-**Opción A: Tailscale (Gratis y Segura - Recomendada)**
+#### Opción A: Tailscale (Gratis y Segura - Recomendada)
 
 1. **En el NAS:** Instala "Tailscale" desde el **App Central** de Asustor.
 2. **En el iPhone:** Instala la App de Tailscale y actívala (interruptor ON).
 3. **Navegación:** Ahora, abre tu navegador Bluetooth (ej. Bluefy) y entra a la IP del NAS (`http://192.168.1.XX:8000`) como si estuvieras en casa. Tailscale hace el puente invisible por debajo.
 
-**Opción B: Cloudflare Tunnel (Sin instalar nada en el iPhone)**
+#### Opción B: Cloudflare Tunnel (Sin instalar nada en el iPhone)
+
 Si no quieres instalar la app de Tailscale:
 
 1. Configura un **Cloudflare Tunnel** en el NAS.
