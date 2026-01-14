@@ -204,7 +204,7 @@ SYNC_ENABLED=1
 
 Y redeploya el stack. El servicio se despertará cada 24h, comprobará si hay datos nuevos y los subirá a la nube a modo de copia de seguridad.
 
-*(Próximamente: Podrás controlar esto directamente desde los Ajustes de la App)*
+> **Nota:** Próximamente podrás controlar esto directamente desde los Ajustes de la App.
 
 ## 7. Preguntas Frecuentes (FAQ)
 
@@ -228,3 +228,25 @@ Todo ocurre **dentro** de un contenedor aislado. Tu NAS ni se entera de que tien
 - Si configuraste `DB_DATA_PATH` apuntando a una carpeta de tu NAS (como indicamos en el paso 3): **Tus datos están seguros**. Puedes borrar y reinstalar los contenedores mil veces.
 - Si no pusiste nada: Se guardan en un volumen interno de Docker que podría borrarse si haces una limpieza profunda.
 **Recomendación:** Usa siempre rutas fijas (`/volume1/docker/bolus_ai/...`).
+
+## 8. Próximos Pasos (Roadmap: Panel de Control)
+
+Actualmente, el servicio de sincronización se controla mediante variables de entorno (`SYNC_ENABLED=0/1`). El objetivo final es integrar esto en la interfaz de usuario.
+
+### Plan de Desarrollo Pendiente
+
+1. **Base de Datos (`backend`)**:
+    - Crear una tabla `system_settings` para guardar configuraciones globales (no por usuario).
+    - Campos: `key` (ej: "sync_enabled"), `value` ("true"), `updated_at`.
+
+2. **API (`backend`)**:
+    - Crear endpoints `GET /api/settings/sync` y `POST /api/settings/sync` para leer y modificar el estado.
+
+3. **Script Inteligente (`deploy/nas/sync_to_cloud.py`)**:
+    - Modificar el bucle `main()` para que, en lugar de mirar `os.getenv("SYNC_ENABLED")`, haga una consulta a la base de datos local: `SELECT value FROM system_settings WHERE key='sync_enabled'`.
+    - Esto permitirá cambiar el comportamiento en tiempo real sin reiniciar el contenedor.
+
+4. **Frontend (`frontend`)**:
+    - Crear un nuevo componente en la página de Ajustes (`SettingsPage.jsx`).
+    - Añadir un "Toggle Switch" para "Copia de Seguridad en Nube".
+    - Mostrar el estado de la última sincronización.
