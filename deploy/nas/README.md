@@ -159,3 +159,26 @@ Si quieres dormir tranquilo al 100%, puedes configurar que tu NAS envíe una cop
    ```
 
 ¡Hecho! Tu NAS trabajará para ti en casa, y Neon será tu seguro de vida en la nube.
+
+## 7. Preguntas Frecuentes (FAQ)
+
+### ¿Necesito instalar Postgres o SQLite en mi NAS?
+
+**NO.** Rotundamente no.
+Esa es la magia de Docker. En el archivo `docker-compose.yml` verás esto:
+
+```yaml
+  db:
+    image: postgres:15-alpine
+```
+
+Esto le dice a tu NAS: *"Descarga un servidor Postgres oficial, arráncalo y conéctalo a mi app"*.
+Todo ocurre **dentro** de un contenedor aislado. Tu NAS ni se entera de que tiene Postgres instalado. Lo único que necesitas tener instalado es **Docker** (que viene con Portainer).
+
+### ¿Si borro el Stack en Portainer pierdo mis datos?
+
+**Depende.**
+
+- Si configuraste `DB_DATA_PATH` apuntando a una carpeta de tu NAS (como indicamos en el paso 3): **Tus datos están seguros**. Puedes borrar y reinstalar los contenedores mil veces.
+- Si no pusiste nada: Se guardan en un volumen interno de Docker que podría borrarse si haces una limpieza profunda.
+**Recomendación:** Usa siempre rutas fijas (`/volume1/docker/bolus_ai/...`).
