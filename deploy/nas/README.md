@@ -103,8 +103,17 @@ Abre tu navegador y escribe la IP de tu NAS y el puerto 8000:
 
 ### Desde la Calle (4G / 5G)
 
-Al estar en tu casa, no es accesible desde internet por defecto (por seguridad). Para entrar desde el iPhone:
+Al estar en tu casa, no es accesible desde internet por defecto. Tienes dos opciones para entrar desde tu iPhone (usando tu navegador compatible con Bluetooth):
 
-1. **Recomendado:** Instala **Tailscale** (es una App) en tu NAS y en tu móvil. Es una VPN gratis y automática.
-2. **Avanzado:** Usa **Cloudflare Tunnel** si quieres un dominio propio `https://misalud.com`.
-3. **No recomendado:** Abrir puertos en el router (es peligroso para tu seguridad).
+**Opción A: Tailscale (Gratis y Segura - Recomendada)**
+
+1. **En el NAS:** Instala "Tailscale" desde el **App Central** de Asustor.
+2. **En el iPhone:** Instala la App de Tailscale y actívala (interruptor ON).
+3. **Navegación:** Ahora, abre tu navegador Bluetooth (ej. Bluefy) y entra a la IP del NAS (`http://192.168.1.XX:8000`) como si estuvieras en casa. Tailscale hace el puente invisible por debajo.
+
+**Opción B: Cloudflare Tunnel (Sin instalar nada en el iPhone)**
+Si no quieres instalar la app de Tailscale:
+
+1. Configura un **Cloudflare Tunnel** en el NAS.
+2. Tendrás una web real (ej: `https://mi-glucosa.com`).
+3. Podrás entrar desde tu navegador sin activar nada antes. Requiere comprar un dominio (~10€/año).
