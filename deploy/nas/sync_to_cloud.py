@@ -2,6 +2,7 @@ import os
 import sys
 import logging
 import asyncio
+import time
 from datetime import datetime, timedelta
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
@@ -13,6 +14,7 @@ logger = logging.getLogger(__name__)
 # Config
 LOCAL_DB_URL = os.getenv("DATABASE_URL")
 CLOUD_DB_URL = os.getenv("CLOUD_DATABASE_URL") # User must set this in NAS .env
+DRY_RUN = os.getenv("SYNC_DRY_RUN", "0") == "1"
 
 # Sync Policy: Keep last N days active in cloud
 SYNC_DAYS = 30
@@ -44,6 +46,10 @@ async def cleanup_old_data(cloud_conn, table_name, date_col):
         return 0
     
     logger.info(f"  -> Cleaning old data in {table_name} (older than {SYNC_DAYS} days)...")
+    if DRY_RUN:
+        logger.info("  -> [DRY RUN] Would execute DELETE query.")
+        return 0
+
     cleanup_sql = text(f"""
         DELETE FROM {table_name} 
         WHERE {date_col} < NOW() - INTERVAL '{SYNC_DAYS} days'
@@ -57,6 +63,7 @@ async def cleanup_old_data(cloud_conn, table_name, date_col):
 
 async def sync_table(local_conn, cloud_conn, table_name, date_col, id_col):
     logger.info(f"Syncing table: {table_name}...")
+    start_time = time.monotonic()
     
     # 0. Safety: Get intersecting columns to avoid schema mismatch
     local_cols = await get_table_columns(local_conn, table_name)
@@ -69,7 +76,8 @@ async def sync_table(local_conn, cloud_conn, table_name, date_col, id_col):
         logger.warning(f"  -> Table {table_name} does not exist in Cloud. Skipping.")
         return
 
-    common_cols = local_cols.intersection(cloud_cols)
+    # Deterministic column order for hygiene and logging consistency
+    common_cols = sorted(list(local_cols.intersection(cloud_cols)))
     if not common_cols:
         logger.error(f"  -> No common columns for {table_name}. Skipping.")
         return
@@ -83,7 +91,7 @@ async def sync_table(local_conn, cloud_conn, table_name, date_col, id_col):
     await cleanup_old_data(cloud_conn, table_name, date_col)
 
     # 2. Select Data from Local (Explicit columns)
-    cols_list = ", ".join(list(common_cols))
+    cols_list = ", ".join(common_cols)
     
     if date_col:
         cutoff = datetime.utcnow() - timedelta(days=SYNC_DAYS)
@@ -99,6 +107,12 @@ async def sync_table(local_conn, cloud_conn, table_name, date_col, id_col):
         return
 
     logger.info(f"  -> Found {len(rows)} rows locally.")
+
+    if DRY_RUN:
+        logger.info(f"  -> [DRY RUN] Would insert/upsert {len(rows)} rows into Cloud.")
+        elapsed = time.monotonic() - start_time
+        logger.info(f"  -> Finished {table_name} in {elapsed:.2f}s (Dry Run)")
+        return
 
     # 3. Insert to Cloud (Upsert) using ONLY common columns
     vals_placeholders = ", ".join([f":{k}" for k in common_cols])
@@ -120,7 +134,6 @@ async def sync_table(local_conn, cloud_conn, table_name, date_col, id_col):
     # Batch execution
     count = 0
     try:
-        # data = [dict(row._mapping) for row in rows] # _mapping for sqlalchemy 1.4+
         # Explicit dict creation ensuring only common keys are passed (safety double check)
         data = [{k: getattr(row, k) for k in common_cols} for row in rows]
         
@@ -132,13 +145,18 @@ async def sync_table(local_conn, cloud_conn, table_name, date_col, id_col):
         await cloud_conn.rollback()
         return
 
-    logger.info(f"  -> Successfully synced {count} rows to Cloud.")
+    elapsed = time.monotonic() - start_time
+    logger.info(f"  -> Successfully synced {count} rows to Cloud in {elapsed:.2f}s.")
 
 async def main():
     if not LOCAL_DB_URL or not CLOUD_DB_URL:
         logger.error("Missing DATABASE_URL or CLOUD_DATABASE_URL environment variables.")
         return
 
+    if DRY_RUN:
+        logger.info("=== STARTING SYNC IN DRY-RUN MODE ===")
+        logger.info("No changes will be made to the Cloud DB.")
+    
     # Lock Mechanism
     if os.path.exists(LOCK_FILE):
         # Check lock file age (optional safety: if > 1 hour, ignore?)
