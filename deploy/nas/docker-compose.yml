@@ -28,7 +28,7 @@ services:
     # Construir usando el Dockerfile de la raíz del proyecto
     build:
       context: ../../
-      dockerfile: backend/Dockerfile
+      dockerfile: deploy/nas/Dockerfile
     container_name: bolus_app
     restart: always
     depends_on:
@@ -41,9 +41,22 @@ services:
       # Variables Esenciales (Copiadas de tu .env actual)
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
       ALLOWED_TELEGRAM_USER_ID: ${ALLOWED_TELEGRAM_USER_ID}
-      NIGHTSCOUT_URL: ${NIGHTSCOUT_URL}
-      NIGHTSCOUT_API_SECRET: ${NIGHTSCOUT_API_SECRET}
+      # NIGHTSCOUT_URL: ${NIGHTSCOUT_URL}       # Opcional: Si ya lo configuras en la App
+      # NIGHTSCOUT_API_SECRET: ${NIGHTSCOUT_API_SECRET} # Opcional
       OPENAI_API_KEY: ${OPENAI_API_KEY}
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY}
+
+      # Configuración de IA y Bot (Copiadas de Render)
+      VISION_PROVIDER: ${VISION_PROVIDER:-openai}
+      GEMINI_MODEL: ${GEMINI_MODEL}
+      ENABLE_TELEGRAM_BOT: ${ENABLE_TELEGRAM_BOT:-true}
+      TELEGRAM_DEFAULT_CHAT_ID: ${TELEGRAM_DEFAULT_CHAT_ID}
+      TELEGRAM_WEBHOOK_SECRET: ${TELEGRAM_WEBHOOK_SECRET}
+      NUTRITION_INGEST_KEY: ${NUTRITION_INGEST_KEY}
+
+      # Seguridad (Claves internas)
+      JWT_SECRET: ${JWT_SECRET:-supersecret_jwt_changeme_please_12345}
+      APP_SECRET_KEY: ${APP_SECRET_KEY:-supersecret_app_key_changeme_please_12345}
 
       # URL de la Nube para Modo Emergencia y Sync (Opcional)
       CLOUD_DATABASE_URL: ${CLOUD_DATABASE_URL}
@@ -57,7 +70,8 @@ services:
       # Script de Sincronización (siempre desde el repo)
       - ./sync_to_cloud.py:/app/sync_to_cloud.py
     ports:
-      - "8000:8000"
+      # Puerto externo configurable (Por defecto 8000)
+      - "${APP_PORT:-8000}:8000"
     networks:
       - bolus_net
 

@@ -52,16 +52,42 @@ La forma más profesional y limpia. Si actualizas algo en GitHub, tu NAS lo baja
    Añade estas variables apuntando a carpetas reales de tu NAS:
 
    ```bash
-   # Rutas ABSOLUTAS en tu NAS donde guardarás los datos
+   # Rutas ABSOLUTAS en tu NAS (OBLIGATORIO)
    DB_DATA_PATH=/volume1/docker/bolus_ai/db_data
    APP_DATA_PATH=/volume1/docker/bolus_ai/app_data
+   
+   # Puerto Web (Opcional, por defecto 8000)
+   # Si el 8000 está ocupado, cámbialo aquí (ej: 8085)
+   APP_PORT=8000
 
-   # Tus credenciales
-   POSTGRES_USER=admin
-   POSTGRES_PASSWORD=...
+   # --- Variables que debes COPIAR de Render ---
    TELEGRAM_BOT_TOKEN=...
-   NIGHTSCOUT_URL=...
-   DATABASE_URL=postgresql://admin:CLAVE_DEL_NAS@db:5432/bolus_ai
+   ALLOWED_TELEGRAM_USER_ID=...
+   
+   # Frontend / URLs Públicas
+   # En el NAS, esta es la URL pública si usas Tunnel o tu IP local.
+   RENDER_EXTERNAL_URL=http://tu-nas-ip:8000
+   
+   # IA y Configuración (Copia solo las que uses)
+   OPENAI_API_KEY=...
+   GOOGLE_API_KEY=...
+   VISION_PROVIDER=...
+   GEMINI_MODEL=...
+   TELEGRAM_DEFAULT_CHAT_ID=...
+   TELEGRAM_WEBHOOK_SECRET=...
+   NUTRITION_INGEST_KEY=...
+   
+   # Claves de Seguridad (míralas en Render o crea nuevas largas)
+   JWT_SECRET=...
+   APP_SECRET_KEY=...
+
+   # --- Variables NUEVAS para el NAS ---
+   POSTGRES_USER=admin
+   POSTGRES_PASSWORD=tu_password_segura
+   # Esta URL es interna, cópiala tal cual cambiando la contraseña:
+   DATABASE_URL=postgresql://admin:tu_password_segura@db:5432/bolus_ai
+   
+   # (Opcional) Para Modo Emergencia (La URL de Neon que usabas antes)
    CLOUD_DATABASE_URL=postgresql+asyncpg://...@neon.tech/...
    ```
 
