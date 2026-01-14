@@ -117,3 +117,24 @@ Si no quieres instalar la app de Tailscale:
 1. Configura un **Cloudflare Tunnel** en el NAS.
 2. Tendrás una web real (ej: `https://mi-glucosa.com`).
 3. Podrás entrar desde tu navegador sin activar nada antes. Requiere comprar un dominio (~10€/año).
+
+## 6. Respaldo Automático en Nube (Cold Standby)
+
+Si quieres dormir tranquilo al 100%, puedes configurar que tu NAS envíe una copia de tus datos recientes (30 días) a tu base de datos antigua de Neon (Render) cada noche. Así, si tu NAS explota, puedes encender Render y seguir como si nada.
+
+### Pasos
+
+1. **Edita el archivo .env** del NAS y añade la conexión a Neon:
+
+   ```bash
+   CLOUD_DATABASE_URL=postgresql://usuario:pass@ep-neon.../neondb
+   ```
+
+2. **Programar Tarea (Cron):**
+   Configura una tarea programada en tu NAS (Task Scheduler en Synology/Asustor) para que se ejecute cada noche (ej: 04:00 AM) con este comando:
+
+   ```bash
+   docker exec bolus_app python /app/deploy/nas/sync_to_cloud.py
+   ```
+
+¡Hecho! Tu NAS trabajará para ti en casa, y Neon será tu seguro de vida en la nube.
