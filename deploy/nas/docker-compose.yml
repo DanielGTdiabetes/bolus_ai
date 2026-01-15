@@ -3,7 +3,7 @@ version: '3.8'
 services:
   # 1. Base de Datos Postgres (Contenedor Principal)
   db:
-    image: postgres:15-alpine
+    image: postgres:17-alpine
     container_name: bolus_db
     restart: always
     environment:
