@@ -3,7 +3,7 @@ version: '3.8'
 services:
   # 1. Base de Datos Postgres (Contenedor Principal)
   db:
-    image: postgres:17-alpine
+    image: postgres:15-alpine
     container_name: bolus_db
     restart: always
     environment:
@@ -11,8 +11,9 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ChangeMePlease}
       POSTGRES_DB: bolus_ai
     volumes:
-      # Persistencia de datos: Usa ruta absoluta en NAS o local por defecto
-      - ${DB_DATA_PATH:-./postgres_data}:/var/lib/postgresql/data
+      # USAR VOLUMEN INTERNO PARA EVITAR ERRORES (Cambio de estrategia)
+      - postgres_local_data:/var/lib/postgresql/data
+      # - ${DB_DATA_PATH:-./postgres_data}:/var/lib/postgresql/data
     ports:
       - "5432:5432"
     networks:
@@ -108,3 +109,6 @@ services:
 networks:
   bolus_net:
     driver: bridge
+
+volumes:
+  postgres_local_data:
