@@ -89,7 +89,7 @@ services:
 
   # 3. Servicio de Sincronización Automática (Sidecar)
   sync:
-    image: bolus_app
+    # image: bolus_app
     build:
       context: ../../
       dockerfile: deploy/nas/Dockerfile
