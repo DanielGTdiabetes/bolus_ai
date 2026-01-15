@@ -18,7 +18,7 @@ services:
     networks:
       - bolus_net
     healthcheck:
-      test: [ "CMD-SHELL", "pg_isready -U $POSTGRES_USER -d $POSTGRES_DB" ]
+      test: [ "CMD-SHELL", "pg_isready -h 127.0.0.1 -U ${POSTGRES_USER:-admin} -d ${POSTGRES_DB:-bolus_ai} || exit 1" ]
       interval: 10s
       timeout: 5s
       retries: 10
