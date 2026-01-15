@@ -25,6 +25,14 @@ services:
       retries: 10
       start_period: 120s
 
+  # Herramienta temporal para migrar datos (v17 -> v15)
+  migrator:
+    image: postgres:17-alpine
+    container_name: bolus_migrator
+    command: tail -f /dev/null
+    networks:
+      - bolus_net
+
   # 2. Tu Aplicación Bolus AI (Bot + Backend)
   app:
     # Construir usando el Dockerfile de la raíz del proyecto
