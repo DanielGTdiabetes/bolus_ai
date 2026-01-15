@@ -33,6 +33,7 @@ Muchos usuarios tienen miedo de "romper" lo que ya funciona en la nube al tocar 
 
 1. Accede a tu NAS (vía SSH o Portainer).
 2. Crea una carpeta para el proyecto, por ejemplo: `/volume1/docker/bolus_ai`.
+3. Dentro de esa carpeta, crea dos carpetas vacías llamadas `db_data` y `app_data` para asegurar la persistencia.
 3. Sube el contenido de **esta carpeta** (`docker-compose.yml`) y el archivo `.env` con tus claves.
 
 ### 2. Configurar Variables (.env)
