@@ -36,7 +36,7 @@ services:
   # 2. Tu Aplicación Bolus AI (Bot + Backend)
   app:
     # Construir usando el Dockerfile de la raíz del proyecto
-    image: bolus_app
+    # image: bolus_app
     build:
       context: ../../
       dockerfile: deploy/nas/Dockerfile
@@ -88,7 +88,7 @@ services:
 
   # 3. Servicio de Sincronización Automática (Sidecar)
   sync:
-    image: bolus_app
+    # image: bolus_app
     container_name: bolus_sync
     restart: always
     depends_on:
