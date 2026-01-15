@@ -42,8 +42,6 @@ services:
       dockerfile: deploy/nas/Dockerfile
     container_name: bolus_app
     restart: always
-    # MODO DEBUG: Mantener vivo para investigar error
-    command: tail -f /dev/null
 
     depends_on:
       db:
