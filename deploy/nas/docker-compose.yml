@@ -36,7 +36,7 @@ services:
   # 2. Tu Aplicación Bolus AI (Bot + Backend)
   app:
     # Construir usando el Dockerfile de la raíz del proyecto
-    image: bolus_app
+    # image: bolus_app
     build:
       context: ../../
       dockerfile: deploy/nas/Dockerfile
