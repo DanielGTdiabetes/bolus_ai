@@ -15,6 +15,8 @@ COPY frontend/ .
 # so we don't need absolute URLs.
 ENV VITE_API_BASE_URL="" 
 ENV VITE_RESTAURANT_MODE_ENABLED="false"
+# Force Cache Invalidations
+ENV BUILD_DATE="2026-01-16-FIX-V3"
 
 RUN npm run build
 

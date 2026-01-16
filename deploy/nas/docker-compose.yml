@@ -40,9 +40,7 @@ services:
     build:
       context: ../../
       dockerfile: deploy/nas/Dockerfile
-    # CAMBIO DE NOMBRE PARA FORZAR BUILD NUEVO (16/01)
-    image: bolus_app_v2
-    container_name: bolus_app_v2
+    container_name: bolus_app
     restart: always
 
     depends_on:
