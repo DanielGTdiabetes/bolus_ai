@@ -40,6 +40,9 @@ services:
     build:
       context: ../../
       dockerfile: deploy/nas/Dockerfile
+      args:
+        BUILD_DATE: ${BUILD_DATE:-2026-01-16-FIX-V4-FORCE}
+        FORCE_REBUILD: ${FORCE_REBUILD:-nas}
     container_name: bolus_app
     restart: always
 
@@ -97,6 +100,9 @@ services:
     build:
       context: ../../
       dockerfile: deploy/nas/Dockerfile
+      args:
+        BUILD_DATE: ${BUILD_DATE:-2026-01-16-FIX-V4-FORCE}
+        FORCE_REBUILD: ${FORCE_REBUILD:-nas}
     container_name: bolus_sync
     restart: always
     depends_on:

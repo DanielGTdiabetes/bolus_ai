@@ -15,8 +15,10 @@ COPY frontend/ .
 # so we don't need absolute URLs.
 ENV VITE_API_BASE_URL="" 
 ENV VITE_RESTAURANT_MODE_ENABLED="false"
-# Force Cache Invalidations
-ENV BUILD_DATE="2026-01-16-FIX-V4-FORCE"
+ARG BUILD_DATE="2026-01-16-FIX-V4-FORCE"
+ARG FORCE_REBUILD=""
+ENV BUILD_DATE="${BUILD_DATE}"
+RUN echo "Frontend build cache buster: ${BUILD_DATE} ${FORCE_REBUILD}"
 
 RUN npm run build
 

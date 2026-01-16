@@ -123,6 +123,17 @@ La forma más profesional y limpia. Si actualizas algo en GitHub, tu NAS lo baja
 
 ¡Listo! El script de sincronización `sync_to_cloud.py` ya estará dentro del contenedor listo para usarse.
 
+> **Nota si ves menús faltantes o rutas antiguas (ej. "Alimentos" abre la calculadora):**
+> Forza una reconstrucción completa del frontend. En Portainer, añade o cambia estas variables
+> y redeploya el stack para romper la caché de build:
+>
+> ```bash
+> BUILD_DATE=2026-01-16-FIX-V4-FORCE-2
+> FORCE_REBUILD=nas-2
+> ```
+>
+> Luego recarga con limpieza dura del navegador (Ctrl+Shift+R o borrar caché).
+
 ### 4. Migrar tus Datos (Neon -> NAS)
 
 Tienes dos formas de hacerlo. El método visual suele ser el más fácil desde Windows.
