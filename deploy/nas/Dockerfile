@@ -47,6 +47,6 @@ RUN mkdir -p /app/data
 
 # Startup Script
 RUN echo '#!/bin/bash\n\
-    python -m app.main' > /app/start.sh && chmod +x /app/start.sh
+    uvicorn app.main:app --host 0.0.0.0 --port 8000' > /app/start.sh && chmod +x /app/start.sh
 
 CMD ["./start.sh"]

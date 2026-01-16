@@ -45,7 +45,7 @@ services:
 
     depends_on:
       db:
-        condition: service_healthy
+        condition: service_started
     environment:
       # Conexión interna a la BD del NAS (usamos el nombre del servicio 'db')
       DATABASE_URL: postgresql://${POSTGRES_USER:-admin}:${POSTGRES_PASSWORD:-ChangeMePlease}@db:5432/bolus_ai
@@ -99,7 +99,7 @@ services:
       app:
         condition: service_started
       db:
-        condition: service_healthy
+        condition: service_started
     environment:
       # Conexión Local (NAS)
       DATABASE_URL: postgresql://${POSTGRES_USER:-admin}:${POSTGRES_PASSWORD:-ChangeMePlease}@db:5432/bolus_ai
