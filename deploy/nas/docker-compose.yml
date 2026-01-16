@@ -8,22 +8,28 @@ services:
     env_file:
       - .env
     environment:
-      # Database Connection (Internal NAS DB)
-      DATABASE_URL: postgresql://bolus_user:bolus_password@db:5432/bolus_db
+      # Database Connection provided by .env (DATABASE_URL)
+      DATABASE_URL: ${DATABASE_URL}
 
       # App Config
       CONFIG_PATH: /app/config/config.json
-      JWT_SECRET: ${JWT_SECRET:-please-change-this-secret-in-env-file}
+      JWT_SECRET: ${JWT_SECRET}
       DATA_DIR: /app/backend/data
 
       # Nightscout & Other Integrations
       NIGHTSCOUT_URL: ${NIGHTSCOUT_URL}
       NIGHTSCOUT_API_SECRET: ${NIGHTSCOUT_API_SECRET}
+
+      # Secrets
+      APP_SECRET_KEY: ${APP_SECRET_KEY}
+
+      # Variables for Frontend/Nginx if needed (Internal)
+      PORT: 8000
     volumes:
-      # Persist Application Data
-      - backend_data:/app/backend/data
+      # Persist Application Data (Maps to NAS folder defined in .env)
+      - ${APP_DATA_PATH:-backend_data}:/app/backend/data
     ports:
-      - "8000:8000"
+      - "${APP_PORT:-8000}:8000"
     depends_on:
       - db
     restart: unless-stopped
@@ -32,17 +38,18 @@ services:
   db:
     image: postgres:16-alpine
     environment:
-      POSTGRES_USER: bolus_user
-      POSTGRES_PASSWORD: bolus_password
-      POSTGRES_DB: bolus_db
+      POSTGRES_USER: ${POSTGRES_USER:-admin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
+      POSTGRES_DB: ${POSTGRES_DB:-bolus_ai}
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      # Maps to NAS folder defined in .env
+      - ${DB_DATA_PATH:-postgres_data}:/var/lib/postgresql/data
     ports:
-      # Expose if you need to connect from outside (e.g. pgAdmin)
-      - "5432:5432"
+      # User requested DB_PORT (e.g. 5433) maps to internal 5432
+      - "${DB_PORT:-5432}:5432"
     restart: unless-stopped
     healthcheck:
-      test: [ "CMD-SHELL", "pg_isready -U bolus_user -d bolus_db" ]
+      test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-admin} -d ${POSTGRES_DB:-bolus_ai}" ]
       interval: 5s
       timeout: 5s
       retries: 5
