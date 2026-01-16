@@ -40,7 +40,9 @@ services:
     build:
       context: ../../
       dockerfile: deploy/nas/Dockerfile
-    container_name: bolus_app
+    # CAMBIO DE NOMBRE PARA FORZAR BUILD NUEVO (16/01)
+    image: bolus_app_v2
+    container_name: bolus_app_v2
     restart: always
 
     depends_on:
@@ -76,6 +78,10 @@ services:
       # Configuración recomendada
       PYTHONUNBUFFERED: "1"
       LOG_LEVEL: "INFO"
+
+      # Forzar reconstrucción de capa (frontend) cambiando este valor
+      FORCE_REBUILD: "2026-01-16-v2"
+
     volumes:
       # Persistencia de archivos: Usa ruta absoluta en NAS
       - ${APP_DATA_PATH:-./app_data}:/app/data
