@@ -1,26 +1,73 @@
-import logging
-import os
-from pathlib import Path
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # --- Startup ---
+    data_dir = Path(settings.data.data_dir)
+    data_dir.mkdir(parents=True, exist_ok=True)
+    logger.info("Using data directory: %s", data_dir)
+    
+    # Audit H8: Validate Critical Secrets
+    if not settings.security.jwt_secret or len(settings.security.jwt_secret) < 16:
+         logger.warning("CRITICAL: JWT_SECRET is missing or too short! Encrypted data will be inaccessible or insecure.")
+    
+    import os
+    app_secret = os.environ.get("APP_SECRET_KEY")
+    if not app_secret or len(app_secret) < 10:
+         logger.warning("CRITICAL: APP_SECRET_KEY (for Nightscout encryption) is missing or too short!")
 
-from fastapi import FastAPI, Response, Request
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+    # Ensure models are loaded before creating tables
+    import app.models 
 
-from app.api import api_router
-from app.bot import webhook as bot_webhook
-from app.bot import service as bot_service
-from app.core.logging import configure_logging
-from app.core.settings import get_settings
+    from app.core.db import init_db, get_engine, switch_to_cloud_if_needed
+    from app.services.auth_repo import init_auth_db
+    init_db()
+    
+    # --- Critical Initialization (Sync) ---
+    try:
+        logger.info("⏳ Waiting for Database...")
+        
+        # Emergency Switch Check
+        await switch_to_cloud_if_needed()
 
-configure_logging()
-settings = get_settings()
-logger = logging.getLogger(__name__)
+        await init_auth_db()
+        
+        # Schema fixes
+        from app.core.migration import ensure_basal_schema, ensure_treatment_columns, ensure_ml_schema
+        await ensure_basal_schema(get_engine())
+        await ensure_treatment_columns(get_engine())
+        await ensure_ml_schema(get_engine())
 
-app = FastAPI(title="Bolus AI", version="0.1.0")
+        # Verify critical tables
+        from sqlalchemy import text
+        try:
+             async with get_engine().connect() as conn:
+                 await conn.execute(text("SELECT 1 FROM nutrition_drafts LIMIT 1"))
+             logger.info("✅ Table 'nutrition_drafts' verification successful.")
+        except Exception as e:
+             logger.critical(f"❌ Table 'nutrition_drafts' MISSING or inaccessible: {e}")
+        
+        logger.info("✅ Database ready.")
+    except Exception as e:
+        logger.critical(f"❌ Critical DB Init Error: {e}", exc_info=True)
+        # We re-raise to crash the container if DB is unusable, 
+        # but the log above ensures we see WHY before it dies.
+        raise e
 
+    # --- Background Jobs (Non-Critical) ---
+    import asyncio
+    asyncio.create_task(_background_startup_jobs())
+
+    yield
+    
+    # --- Shutdown ---
+    await bot_service.shutdown()
+
+
+app = FastAPI(title="Bolus AI", version="0.1.0", lifespan=lifespan)
+
+# ... CORS ...
 
 def _collect_cors_origins() -> list[str]:
+    # ... (Keep existing implementation)
     default_origins = [
         "https://bolus-ai.onrender.com",
         "https://bolus-ai-1.onrender.com",
@@ -73,73 +120,6 @@ async def catch_exceptions_middleware(request: Request, call_next):
         return Response(content=f"Internal Server Error: {str(e)}", status_code=500)
 
 
-@app.on_event("startup")
-async def startup_event() -> None:
-    data_dir = Path(settings.data.data_dir)
-    data_dir.mkdir(parents=True, exist_ok=True)
-    logger.info("Using data directory: %s", data_dir)
-    
-    
-    # Audit H8: Validate Secret Key (JWT + App Secret)
-    # If key is missing, crypto will fail at runtime. Better to fail early.
-    if not settings.security.jwt_secret or len(settings.security.jwt_secret) < 16:
-         logger.warning("CRITICAL: JWT_SECRET is missing or too short! Encrypted data will be inaccessible or insecure.")
-         # if os.environ.get("ENV") == "production":
-         #    raise RuntimeError("JWT_SECRET missing in production")
-    
-    import os
-    app_secret = os.environ.get("APP_SECRET_KEY")
-    if not app_secret or len(app_secret) < 10:
-         logger.warning("CRITICAL: APP_SECRET_KEY (for Nightscout encryption) is missing or too short!")
-         # if os.environ.get("ENV") == "production":
-         #   raise RuntimeError("APP_SECRET_KEY missing/weak in production")
-
-    # Ensure models are loaded before creating tables
-    
-    # Ensure models are loaded before creating tables
-    import app.models 
-
-    from app.core.db import init_db, create_tables, get_engine, switch_to_cloud_if_needed
-    from app.services.auth_repo import init_auth_db
-    init_db()
-    
-    # --- Critical Initialization (Sync) ---
-    # We await DB init to ensure tables exist before serving requests.
-    try:
-        logger.info("⏳ Waiting for Database...")
-        
-        # Emergency Switch Check (Primary vs Cloud)
-        await switch_to_cloud_if_needed()
-
-        # AUDIT FIX: Removed auto-creation in favor of Alembic migrations.
-        # await create_tables() 
-        await init_auth_db()
-        
-        # Schema fixes
-        from app.core.migration import ensure_basal_schema, ensure_treatment_columns, ensure_ml_schema
-        await ensure_basal_schema(get_engine())
-        await ensure_treatment_columns(get_engine())
-        await ensure_ml_schema(get_engine())
-
-
-        # Verify critical tables
-        from sqlalchemy import text
-        try:
-             async with get_engine().connect() as conn:
-                 await conn.execute(text("SELECT 1 FROM nutrition_drafts LIMIT 1"))
-             logger.info("✅ Table 'nutrition_drafts' verification successful.")
-        except Exception as e:
-             logger.critical(f"❌ Table 'nutrition_drafts' MISSING or inaccessible: {e}")
-        
-        logger.info("✅ Database ready.")
-    except Exception as e:
-        logger.critical(f"❌ Critical DB Init Error: {e}")
-        raise e
-
-    # --- Background Jobs (Non-Critical) ---
-    import asyncio
-    asyncio.create_task(_background_startup_jobs())
-
 async def _background_startup_jobs():
     logger.info("🚀 Starting background jobs...")
     try:
@@ -161,19 +141,13 @@ async def _background_startup_jobs():
             logger.error(f"Failed to setup background jobs: {e}")
             
         # Initialize Telegram Bot (Sidecar)
+        # We add a slight delay to allow the server to fully start before bot polling
+        await asyncio.sleep(2) 
         await bot_service.initialize()
         
         logger.info("✅ Background initialization complete.")
     except Exception as e:
         logger.error(f"❌ Background initialization FAILED: {e}", exc_info=True)
-
-@app.on_event("shutdown")
-async def shutdown_event() -> None:
-    # Shutdown Telegram Bot
-    await bot_service.shutdown()
-    
-    # placeholder for cleanup hooks
-    return None
 
 
 @app.get("/api/health/bot", include_in_schema=False)
@@ -182,35 +156,23 @@ async def bot_health():
     return bot_health_state.to_dict()
 
 # --- Static Files / Frontend Serving ---
-# Serve the built frontend from app/static (populated during build)
 static_dir = Path(__file__).parent / "static"
 
 if static_dir.exists():
-    # 1. Serve assets with long cache (Vite handles hashing)
-    #    Mount at /assets
     app.mount("/assets", StaticFiles(directory=static_dir / "assets"), name="assets")
 
-    # 2. Catch-all to serve index.html for SPA (and favicon, etc if present)
     @app.get("/{full_path:path}", include_in_schema=False)
     async def serve_spa(full_path: str):
-        # Use simple logic: if file exists and is not index.html, serve it.
-        # Otherwise serve index.html (SPA routing).
-        
-        # Note: /api routes are handled earlier by app.include_router
-        
         possible_file = static_dir / full_path
         if full_path != "" and possible_file.exists() and possible_file.is_file():
             return FileResponse(possible_file)
 
-        # Fallback to index.html
         response = FileResponse(static_dir / "index.html")
-        # Prevent caching of index.html to ensure updates are seen immediately
         response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, proxy-revalidate"
         response.headers["Pragma"] = "no-cache"
         response.headers["Expires"] = "0"
         return response
 else:
-    # Fallback for when running backend only (dev mode without build)
     @app.get("/", include_in_schema=False)
     def root():
         return {"message": "Bolus AI Backend Running (Frontend not built/static dir missing)"}
