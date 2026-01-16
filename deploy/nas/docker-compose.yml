@@ -49,13 +49,15 @@ services:
     ports:
       - "${APP_PORT:-8000}:8000"
     depends_on:
-      db:
-        condition: service_healthy
+      - db
+      # db:
+      #   condition: service_healthy
     restart: unless-stopped
 
   # Local Database for NAS
   db:
-    image: postgres:16-alpine
+    image: postgres:16
+    # image: postgres:16-alpine
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-admin}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
