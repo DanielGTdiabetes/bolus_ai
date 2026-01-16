@@ -31,7 +31,7 @@ echo "Restoring $BACKUP_FILE to Neon..."
 # Use Docker to run psql so we don't need it on host
 docker run --rm -i \
     -e PGPASSWORD=unused \
-    postgres:16-alpine \
+    postgres:15-alpine \
     psql "$NEON_DB_URL" < "$BACKUP_FILE"
 
 if [ $? -eq 0 ]; then

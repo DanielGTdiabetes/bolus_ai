@@ -19,7 +19,7 @@ echo "1. Dumping data from Neon (using temporary postgres container)..."
 # We run a temporary container to perform the dump, mounting the current directory to save the file
 docker run --rm \
     -v "$(pwd):/tmp_dump" \
-    postgres:16-alpine \
+    postgres:15-alpine \
     pg_dump "$NEON_DB_URL" --no-owner --no-acl --clean --if-exists -f "/tmp_dump/$DUMP_FILE"
 
 if [ ! -f "$DUMP_FILE" ]; then
