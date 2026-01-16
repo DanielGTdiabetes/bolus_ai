@@ -37,24 +37,49 @@ echo "✅ Dump successful: $DUMP_FILE ($FILE_SIZE bytes)"
 echo "   Sanity Check: First 5 lines of dump:"
 head -n 5 "$DUMP_FILE"
 
-echo "2. Copying dump to NAS Database Container ($CONTAINER_NAME)..."
-# Verify container exists
-if ! docker ps | grep -q "$CONTAINER_NAME"; then
-    echo "❌ Error: Container '$CONTAINER_NAME' is not running."
-    exit 1
-fi
-
-docker cp "$DUMP_FILE" "$CONTAINER_NAME":/tmp/"$DUMP_FILE"
-
-echo "3. Restoring data to Local NAS Database..."
-docker exec -i "$CONTAINER_NAME" psql -U "$LOCAL_DB_USER" -d "$LOCAL_DB_NAME" -f /tmp/"$DUMP_FILE"
-
-if [ $? -eq 0 ]; then
-    echo "✅ Migration Complete! Data is now in your local NAS."
-    echo "🧹 Cleaning up..."
-    rm "$DUMP_FILE"
-    docker exec "$CONTAINER_NAME" rm /tmp/"$DUMP_FILE"
+if [ -n "$TARGET_DB_URL" ]; then
+    echo "🌍 Remote Mode: Restoring to $TARGET_DB_URL"
+    # Run psql from a local container connecting to remote NAS
+    docker run --rm -i \
+        -e PGPASSWORD=unused \
+        postgres:15-alpine \
+        psql "$TARGET_DB_URL" < "$DUMP_FILE"
+        
+    if [ $? -eq 0 ]; then
+        echo "✅ Remote Migration Complete!"
+    else
+        echo "❌ Remote Restore failed."
+        exit 1
+    fi
 else
-    echo "❌ Restore failed."
-    exit 1
+    echo "NO_REMOTE_URL_FOUND"
+    echo "🏠 Local Mode: Restoring via docker exec (must be running on NAS)"
+    # Verify container exists
+    if ! docker ps | grep -q "$CONTAINER_NAME"; then
+        echo "❌ Error: Container '$CONTAINER_NAME' is not running locally."
+        echo "   If you are running this from your PC targeting the NAS, please set TARGET_DB_URL."
+        echo "   Example: export TARGET_DB_URL='postgresql://admin:YOUR_PASSWORD@192.168.0.110:5433/bolus_ai'"
+        exit 1
+    fi
+
+    echo "2. Copying dump to NAS Database Container ($CONTAINER_NAME)..."
+    docker cp "$DUMP_FILE" "$CONTAINER_NAME":/tmp/"$DUMP_FILE"
+
+    echo "3. Restoring data to Local NAS Database..."
+    docker exec -i "$CONTAINER_NAME" psql -U "$LOCAL_DB_USER" -d "$LOCAL_DB_NAME" -f /tmp/"$DUMP_FILE"
+    
+    # Check result
+    if [ $? -eq 0 ]; then
+        echo "✅ Migration Complete! Data is now in your local NAS."
+    else
+        echo "❌ Restore failed."
+        exit 1
+    fi
+    
+    # Cleanup internal file
+    docker exec "$CONTAINER_NAME" rm /tmp/"$DUMP_FILE"
 fi
+
+echo "🧹 Cleaning up local dump..."
+rm "$DUMP_FILE"
+
