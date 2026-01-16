@@ -133,28 +133,31 @@ Tienes dos formas de hacerlo. El método visual suele ser el más fácil desde W
 4. Ahora, clic derecho en la base de datos del NAS -> **Tools** -> **Restore**. Selecciona el archivo que acabas de bajar.
 5. ¡Listo! Tus datos se copiarán automáticamente.
 
-#### Método B: Vía Consola y Archivo
+#### Método B: Vía Consola (Directo con `bolus_migrator`)
 
-1. **Paso 1: Conseguir el archivo (En tu PC)**
-   Desde tu ordenador, usa DBeaver o la terminal para descargar tus datos de Neon a un archivo `backup.sql`.
+*Utiliza este método si tienes problemas de versiones (ej. Neon usa Postgres v16/v17 y el NAS v15). Hemos incluido un contenedor especial (`bolus_migrator`) con herramientas actualizadas para hacer el puente.*
 
-   ```powershell
-   pg_dump "postgres://usuario:pass@ep-neon.../neondb" > backup.sql
+1. **Entra a la Consola**: En Portainer, busca el contenedor `bolus_migrator` -> Icono **Console** (>_) -> Connect.
+2. **Ejecuta el Comando Puente**: Copia y pega este comando (editándolo con tus datos). Esto conecta a Neon, chupa los datos y los inyecta directamente en tu NAS mediante una "tubería" (pipe), sin crear archivos intermedios.
+
+   ```bash
+   # Sintaxis: pg_dump "URL_ORIGEN_NEON" | psql "URL_DESTINO_LOCAL"
+   
+   pg_dump "postgres://usuario:pass@ep-neon.../neondb" | psql "postgresql://admin:tu_password_segura@db:5432/bolus_ai"
    ```
 
-2. **Paso 2: Subir al NAS**
-   Sube ese archivo `backup.sql` a la carpeta de tu NAS donde has puesto el `docker-compose.yml`. Al estar en la misma carpeta que el volumen, el Docker podrá "verlo".
+   - **Origen (Neon)**: Cópiala de tu dashboard de Neon (Connection String).
+   - **Destino (NAS)**: Es la URL interna. Solo cambia `admin` y `tu_password_segura` por lo que pusiste en tu `.env`. Mantén `@db:5432/bolus_ai` tal cual.
 
-3. **Paso 3: Importar (Desde Portainer)**
-   Ahora que el archivo está en el NAS:
-   - Ve a tu contenedor `bolus_db` en Portainer -> Icono **Console** (>_) -> Connect.
-   - Ejecuta este comando mágico:
+3. ¡Listo! Verás pasar muchas líneas de SQL y terminará.
 
-     ```bash
-     psql -U admin -d bolus_ai < /var/lib/postgresql/data/backup.sql
-     ```
+#### Método C: Vía Archivo (Clásico)
 
-     *(Nota: `/var/lib/postgresql/data` es la ruta interna donde el contenedor ve los archivos de tu carpeta del NAS).*
+Si prefieres subir un archivo `backup.sql` manual:
+1. Sube el archivo a la carpeta del NAS donde está el `docker-compose.yml`.
+2. Desde la consola de `bolus_migrator` (que ve tus archivos en `/var/lib/postgresql/data` si has montado el volumen, OJO: en este container por defecto NO está montado el volumen de datos para seguridad, así que se recomienda el **Método B** o **A**).
+   
+   *Nota: Si realmente necesitas usar archivos, es mejor usar el Método A (DBeaver) o configurar un volumen temporal.*
 
 ## Notas Importantes
 
