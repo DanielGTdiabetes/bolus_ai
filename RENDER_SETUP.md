@@ -3,9 +3,11 @@
 Esta guía explica cómo desplegar **Bolus AI** en Render de forma sencilla, incluso si no tienes conocimientos técnicos.
 
 ## 1. Preparación del Repositorio
+
 Asegúrate de tener el código en un repositorio de **GitHub** o **GitLab**. Render se conectará a este repositorio para descargar y ejecutar la aplicación.
 
 ## 2. Crear el Servicio Web (Backend + Frontend)
+
 Bolus AI está configurado para ejecutarse como un único servicio que sirve tanto el servidor (API) como la interfaz visual.
 
 1. Inicia sesión en [Render.com](https://render.com/).
@@ -28,6 +30,7 @@ Bolus AI está configurado para ejecutarse como un único servicio que sirve tan
 > Esto evita que gastes tus 500 minutos gratuitos con pequeños cambios de desarrollo.
 
 ## 3. Variables de Entorno (Environment Variables)
+
 Estas son las "instrucciones" secretas que necesita la app para funcionar. En Render, ve a la pestaña **Environment** y añade las siguientes:
 
 | Variable | Valor / Instrucción | Importante |
@@ -44,6 +47,7 @@ Estas son las "instrucciones" secretas que necesita la app para funcionar. En Re
 | `NIGHTSCOUT_URL` | URL de tu Nightscout | **Opcional** (ej. `https://mi-ns.herokuapp.com`). |
 
 ## 4. Persistencia de Datos (Disco)
+
 Si usas el plan **Starter**, debes añadir un disco para que tus usuarios, configuraciones e historial no se borren.
 
 1. Ve a la pestaña **Disk**.
@@ -53,13 +57,23 @@ Si usas el plan **Starter**, debes añadir un disco para que tus usuarios, confi
    - **Mount Path**: `/var/data`
    - **Size**: `1 GB` (es más que suficiente).
 
-## 5. ¡Listo!
+## 5. ¡Listo
+
 Haz clic en **Create Web Service**. Render tardará unos minutos en construir la aplicación. Una vez termine, te dará una URL (ej. `https://bolus-ai-xxxx.onrender.com`).
 
 ---
 
 ### 💡 Tips Adicionales
+
 - **Acceso Inicial**: El usuario por defecto es `admin` y la contraseña es `admin123`. El sistema te pedirá cambiarla al entrar por primera vez.
 - **Bot de Telegram**: ¿Quieres activar la IA por voz y fotos? 👉 **[Consulta la Guía de Telegram](./docs/TELEGRAM_SETUP.md)**.
 - **Nightscout**: No es obligatorio poner la URL en las variables de entorno; puedes configurarlo después directamente desde la pantalla de ajustes dentro de la aplicación.
 - **Análisis de Fotos**: Se recomienda usar **Google Gemini** por ser más rápido y tener un plan gratuito generoso. Consigue tu clave en [Google AI Studio](https://aistudio.google.com/).
+
+## 6. Historial de Despliegues Estables
+
+Aquí guardamos referencias a versiones que sabemos que funcionan perfectamente en Render, por si fuera necesario hacer un "Rollback" (volver atrás) en caso de emergencia.
+
+| Fecha | Commit | Descripción |
+| :--- | :--- | :--- |
+| **16/01/2026** | `7f139e0` | **Versión Estable.** Funciona correctamente antes de la migración al NAS. Usar esta si hay fallos críticos. |
