@@ -1,0 +1,16 @@
+# Ignore local dependencies and builds
+**/node_modules
+**/dist
+**/.git
+**/.vscode
+**/.idea
+**/__pycache__
+**/*.pyc
+**/*.log
+.env
+.env.local
+.DS_Store
+
+# Ignore local data directories to ensure clean build
+backend/data
+backend/var
