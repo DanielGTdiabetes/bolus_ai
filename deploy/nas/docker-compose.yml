@@ -15,7 +15,7 @@ services:
       - postgres_local_data:/var/lib/postgresql/data
       # - ${DB_DATA_PATH:-./postgres_data}:/var/lib/postgresql/data
     ports:
-      - "5432:5432"
+      - "${DB_PORT:-5432}:5432"
     networks:
       - bolus_net
     healthcheck:

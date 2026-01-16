@@ -113,6 +113,10 @@ La forma más profesional y limpia. Si actualizas algo en GitHub, tu NAS lo baja
    # (Opcional) Sincronización Automática (Por defecto APAGADO "0")
    # Pon "1" para activar el volcado diario de datos a Neon.
    SYNC_ENABLED=0
+
+   # (Opcional) Puerto de la Base de Datos
+   # Cámbialo si el 5432 te da error "Address already in use"
+   DB_PORT=5433
    ```
 
 5. Pulsa **Deploy the stack**.
