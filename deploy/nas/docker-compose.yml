@@ -5,8 +5,8 @@ services:
     build:
       context: ../..
       dockerfile: deploy/nas/Dockerfile
-    env_file:
-      - .env
+    # env_file:    <-- REMOVED because Portainer injects variables, and the file doesn't exist in git
+    #   - .env
     environment:
       # Database Connection provided by .env (DATABASE_URL)
       DATABASE_URL: ${DATABASE_URL}
@@ -15,13 +15,31 @@ services:
       CONFIG_PATH: /app/config/config.json
       JWT_SECRET: ${JWT_SECRET}
       DATA_DIR: /app/backend/data
-
-      # Nightscout & Other Integrations
-      NIGHTSCOUT_URL: ${NIGHTSCOUT_URL}
-      NIGHTSCOUT_API_SECRET: ${NIGHTSCOUT_API_SECRET}
+      RENDER_EXTERNAL_URL: ${RENDER_EXTERNAL_URL}
+      FRONTEND_ORIGIN: ${RENDER_EXTERNAL_URL}
 
       # Secrets
       APP_SECRET_KEY: ${APP_SECRET_KEY}
+
+      # Nightscout
+      NIGHTSCOUT_URL: ${NIGHTSCOUT_URL}
+      NIGHTSCOUT_API_SECRET: ${NIGHTSCOUT_API_SECRET}
+
+      # Telegram
+      ENABLE_TELEGRAM_BOT: ${ENABLE_TELEGRAM_BOT}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+      TELEGRAM_DEFAULT_CHAT_ID: ${TELEGRAM_DEFAULT_CHAT_ID}
+      TELEGRAM_WEBHOOK_SECRET: ${TELEGRAM_WEBHOOK_SECRET}
+      ALLOWED_TELEGRAM_USER_ID: ${ALLOWED_TELEGRAM_USER_ID}
+
+      # AI / Google
+      VISION_PROVIDER: ${VISION_PROVIDER}
+      GEMINI_MODEL: ${GEMINI_MODEL}
+      GEMINI_MODEL_PRO: ${GEMINI_MODEL_PRO}
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY}
+
+      # Integrations
+      NUTRITION_INGEST_KEY: ${NUTRITION_INGEST_KEY}
 
       # Variables for Frontend/Nginx if needed (Internal)
       PORT: 8000
