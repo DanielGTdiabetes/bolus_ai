@@ -28,7 +28,7 @@ export default function SettingsPage() {
                     <div className="tabs" style={{ display: 'flex', borderBottom: '1px solid #e2e8f0', marginBottom: '1rem', overflowX: 'auto', whiteSpace: 'nowrap', gap: '0.5rem', paddingBottom: '4px' }}>
                         <TabButton label="Nightscout" active={activeTab === 'ns'} onClick={() => setActiveTab('ns')} />
                         <TabButton label="Dexcom" active={activeTab === 'dexcom'} onClick={() => setActiveTab('dexcom')} />
-                        <TabButton label="Cálculo" active={activeTab === 'calc'} onClick={() => setActiveTab('calc')} />
+                        <TabButton label="CÁLCULO V3" active={activeTab === 'calc'} onClick={() => setActiveTab('calc')} />
                         <TabButton label="IA / Visión" active={activeTab === 'vision'} onClick={() => setActiveTab('vision')} />
                         <TabButton label="Análisis" active={activeTab === 'analysis'} onClick={() => setActiveTab('analysis')} />
                         <TabButton label="Aprendizaje (ML)" active={activeTab === 'labs'} onClick={() => setActiveTab('labs')} />
