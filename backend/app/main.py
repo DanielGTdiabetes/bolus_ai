@@ -1,3 +1,24 @@
+import logging
+import os
+from pathlib import Path
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI, Response, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
+
+from app.api import api_router
+from app.bot import webhook as bot_webhook
+from app.bot import service as bot_service
+from app.core.logging import configure_logging
+from app.core.settings import get_settings
+
+configure_logging()
+settings = get_settings()
+logger = logging.getLogger(__name__)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # --- Startup ---
