@@ -63,8 +63,8 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
       POSTGRES_DB: ${POSTGRES_DB:-bolus_ai}
     volumes:
-      # Maps to NAS folder defined in .env
-      - ${DB_DATA_PATH:-postgres_data}:/var/lib/postgresql/data
+      # Maps to NAS folder defined in .env (Forces new v17 folder to avoid conflicts)
+      - ${DB_DATA_PATH:-postgres_data}_v17:/var/lib/postgresql/data
     ports:
       # User requested DB_PORT (e.g. 5433) maps to internal 5432
       - "${DB_PORT:-5432}:5432"

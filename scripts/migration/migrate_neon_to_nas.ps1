@@ -16,7 +16,7 @@ param (
 )
 
 # Configuration
-$ContainerImage = "postgres:15-alpine"
+$ContainerImage = "postgres:17-alpine"
 $Date = Get-Date -Format "yyyyMMdd"
 $DumpFile = "neon_backup_$Date.sql"
 $DumpPath = Join-Path $PWD $DumpFile
@@ -81,7 +81,8 @@ try {
         
     if ($LASTEXITCODE -eq 0) {
         Write-Host "✅ Migration Complete! Data is now in your local NAS." -ForegroundColor Green
-    } else {
+    }
+    else {
         Write-Error "❌ Restore failed (Exit Code: $LASTEXITCODE)."
         exit 1
     }

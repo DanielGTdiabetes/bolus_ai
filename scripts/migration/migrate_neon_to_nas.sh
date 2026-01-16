@@ -42,7 +42,7 @@ if [ -n "$TARGET_DB_URL" ]; then
     # Run psql from a local container connecting to remote NAS
     docker run --rm -i \
         -e PGPASSWORD=unused \
-        postgres:15-alpine \
+        postgres:17-alpine \
         psql "$TARGET_DB_URL" < "$DUMP_FILE"
         
     if [ $? -eq 0 ]; then
