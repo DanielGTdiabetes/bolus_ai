@@ -1549,12 +1549,32 @@ async def initialize() -> None:
         logger.warning(f"Timezone System Check: FAILED ({e}). specific time features might be affected.")
 
     if mode == BotMode.DISABLED:
-        return
+        # Special Case: Emergency Mode needs Bot App initialized for SENDING alerts,
+        # perfectly matching "Monitor" role.
+        if reason == "emergency_mode_send_only":
+            logger.info("⚠️ Bot in SEND-ONLY mode (Emergency/Monitor). Not starting Polling/Webhook.")
+            # Verify token exists
+            if not config.get_telegram_bot_token():
+                return
+            # Allow proceeding to create app, but skip start logic later
+        else:
+            return
 
     _bot_app = create_bot_app()
     if not _bot_app:
         health.set_mode(BotMode.ERROR, reason)
         health.set_error("No TELEGRAM_BOT_TOKEN")
+        return
+
+    # If send-only, we initialize but DO NOT start polling/webhook
+    if reason == "emergency_mode_send_only":
+        await _bot_app.initialize()
+        # await _bot_app.start() # Start usually starts the scheduler/updater tasks.
+        # For just sending, initialize might be enough? 
+        # 'bot.send_message' usually requires 'start' if using Updater? 
+        # python-telegram-bot v20: 'bot' is independent of updater. 
+        # But 'ExtBot' uses the app context. 
+        # Let's do initialize only.
         return
 
     # Track updates for both webhook and polling modes
