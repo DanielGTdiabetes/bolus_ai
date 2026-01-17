@@ -217,17 +217,27 @@ def decide_bot_mode() -> Tuple[BotMode, str]:
 
     public_url = config.get_public_bot_url()
     
-    # HYBRID FIX:
-    # NAS usually runs via Polling (no direct incoming SSL port).
-    # Render runs via Webhook.
-    # We distinguish them by checking the 'RENDER' env var (automatically set by Render.com).
+    # HYBRID ARCHITECTURE LOGIC:
+    # 1. Detect Environment
     is_render = os.environ.get("RENDER") is not None
-    
-    if public_url and is_render:
-        return BotMode.WEBHOOK, "public_url_present_on_cloud"
+    settings = get_settings()
 
-    # On NAS (or if no URL), we force Polling to ensure we get updates.
-    # The 'Guardian' will ensure we don't fight with an old Webhook.
+    # 2. Render (Cloud) Behavior
+    if is_render:
+        # If Cloud is in Standby (Emergency Mode OFF), it must NOT register webhook.
+        # It stays in "Send Only" mode to allow outgoing alerts but no incoming.
+        if not settings.emergency_mode:
+             return BotMode.DISABLED, "emergency_mode_send_only"
+        
+        # If Emergency Mode ON, it becomes the Active bot (Webhook)
+        if public_url:
+             return BotMode.WEBHOOK, "cloud_emergency_active"
+        else:
+             return BotMode.POLLING, "cloud_emergency_no_url"
+
+    # 3. NAS (On-Prem) Behavior
+    # NAS always runs logic via Polling (unless disabled explicitly).
+    # It ignores public_url presence because that URL points to Cloud/Nginx, not directly to NAS usually.
     return BotMode.POLLING, "forced_polling_on_prem"
 
 
