@@ -93,3 +93,18 @@ Esto asegura que el NAS siempre tenga prioridad y "robe" el control del bot si R
 | **Recuperación**| ✅ Reiniciando... | ✅ Contiene datos Emerg.| 💤 Volver a Standby | 🛑 **Bloqueado** (Safety Valve) |
 
 **Nota para Recuperación:** Tras un periodo de emergencia, deberás sincronizar manualmente los datos nuevos desde Neon al NAS antes de reactivar los backups automáticos.
+
+---
+
+## 6. Resolución de Problemas Comunes
+
+### Error de Conexión al entrar en Render
+Si al intentar entrar en la URL de Render ves un error de "Sesión caducada" o "Error de conexión":
+1.  **Cierre de Sesión:** Es normal. Al cambiar de dominio (de DuckDNS a Render), el navegador no tiene tu sesión guardada.
+2.  **Solución:** Ve directamente a `https://TU-APP.onrender.com/login` e inicia sesión de nuevo.
+3.  **CORS:** Asegúrate de que la variable `RENDER_EXTERNAL_URL` en Render coincide exactamente con la URL que usas en el navegador.
+
+### El Bot no responde en Render
+En modo emergencia, el bot de Render está configurado como **"Send-Only"**. 
+*   **SÍ** te enviará alertas de hipoglucemia y recordatorios.
+*   **NO** responderá a comandos como `/bolus` o `/status`. Esto es para evitar conflictos infinitos con el Webhook/Polling del NAS. Usa la web de Render para registrar datos.
