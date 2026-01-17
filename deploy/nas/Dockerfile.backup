@@ -8,7 +8,7 @@ COPY scripts/migration/backup_to_neon.sh /scripts/backup_to_neon.sh
 RUN chmod +x /scripts/backup_to_neon.sh
 
 # Configure Cron to run every 4 hours
-RUN echo "0 */4 * * * /bin/sh /scripts/backup_to_neon.sh >> /var/log/backup.log 2>&1" > /etc/crontabs/root
+RUN echo "0 */4 * * * /bin/sh /scripts/backup_to_neon.sh > /proc/1/fd/1 2>&1" > /etc/crontabs/root
 
 # Start Cron Foreground
 CMD ["crond", "-f", "-l", "8"]

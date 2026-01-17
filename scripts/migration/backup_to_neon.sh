@@ -11,10 +11,11 @@ if [ -f "$ENV_FILE" ]; then
     . "$ENV_FILE"
     set +a
 else
-    echo "Error: .env file not found at $ENV_FILE" - but continuing if vars are in env
+    echo "Info: .env file not found at $ENV_FILE - relying on injected environment variables."
 fi
 
 TIMESTAMP=$(date +"%Y-%m-%d_%H-%M-%S")
+DISPLAY_TIME=$(date +"%Y-%m-%d %H:%M:%S")
 BACKUP_FILE="/tmp/bolus_backup_$TIMESTAMP.sql"
 
 # Telegram Notification Function (Delegated to bolus_app to avoid deps)
@@ -36,7 +37,7 @@ except: pass" > /dev/null 2>&1
     fi
 }
 
-echo "Starting Backup Routine: NAS -> Neon..."
+echo "[$DISPLAY_TIME] Starting Backup Routine: NAS -> Neon..."
 
 # 1. Dump Local DB
 # Access from inside the bolus_db container is easiest, but script runs on host.
@@ -47,7 +48,7 @@ CONTAINER_NAME="bolus_db"
 DB_USER="${POSTGRES_USER:-bolus_user}"
 DB_NAME="${POSTGRES_DB:-bolus_db}"
 
-echo "Dumping local database..."
+echo "[$DISPLAY_TIME] Dumping local database..."
 if docker exec "$CONTAINER_NAME" pg_dump -U "$DB_USER" -d "$DB_NAME" -F c -b -v -f "/tmp/dump.sql"; then
     # Copy out
     docker cp "$CONTAINER_NAME":/tmp/dump.sql "$BACKUP_FILE"
@@ -78,8 +79,8 @@ LATEST_NAS=${LATEST_NAS:-0}
 
 # Get Latest Timestamp (Epoch) from Remote Neon
 # Use a temporary container to query remote
-LATEST_NEON=$(docker run --rm -e DIRECT_URL="$DATABASE_URL_NEON" postgres:16-alpine \
-    psql "$DIRECT_URL" -t -c "SELECT EXTRACT(EPOCH FROM MAX(created_at))::int FROM treatments;")
+LATEST_NEON=$(docker run --rm postgres:16-alpine \
+    psql "$DATABASE_URL_NEON" -t -c "SELECT EXTRACT(EPOCH FROM MAX(created_at))::int FROM treatments;")
 LATEST_NEON=$(echo "$LATEST_NEON" | xargs)
 LATEST_NEON=${LATEST_NEON:-0}
 
