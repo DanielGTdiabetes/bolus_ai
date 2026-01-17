@@ -79,9 +79,7 @@ services:
 
   # Backup Cron Service
   backup:
-    build:
-      context: ../..
-      dockerfile: deploy/nas/Dockerfile.backup
+    image: docker:cli
     container_name: bolus_backup_cron
     restart: unless-stopped
     volumes:
@@ -94,6 +92,12 @@ services:
       - DATABASE_URL_NEON=${DATABASE_URL_NEON}
       - POSTGRES_USER=${POSTGRES_USER:-admin}
       - POSTGRES_DB=${POSTGRES_DB:-bolus_ai}
+    # Entrypoint: Start crond directly
+    entrypoint: [ "/bin/sh", "-c" ]
+    command:
+      - |
+        echo "0 */4 * * * /scripts/backup_to_neon.sh >> /var/log/backup.log 2>&1" > /etc/crontabs/root && \
+        crond -f -l 8
 
 volumes:
   backend_data:

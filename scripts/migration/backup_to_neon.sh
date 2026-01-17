@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 
 # Configuration
 # Load environment variables from .env file relative to script location
@@ -6,22 +6,33 @@ SCRIPT_DIR="$(dirname "$0")"
 ENV_FILE="$SCRIPT_DIR/../deploy/nas/.env"
 
 if [ -f "$ENV_FILE" ]; then
-    export $(grep -v '^#' "$ENV_FILE" | xargs)
+    # POSIX compliant source/export loop
+    set -a
+    . "$ENV_FILE"
+    set +a
 else
-    echo "Error: .env file not found at $ENV_FILE"
-    exit 1
+    echo "Error: .env file not found at $ENV_FILE" - but continuing if vars are in env
 fi
 
 TIMESTAMP=$(date +"%Y-%m-%d_%H-%M-%S")
 BACKUP_FILE="/tmp/bolus_backup_$TIMESTAMP.sql"
 
-# Telegram Notification Function
+# Telegram Notification Function (Delegated to bolus_app to avoid deps)
 send_telegram() {
     local message="$1"
     if [ -n "$BOT_TOKEN" ] && [ -n "$ADMIN_CHAT_ID" ]; then
-        curl -s -X POST "https://api.telegram.org/bot$BOT_TOKEN/sendMessage" \
-            -d chat_id="$ADMIN_CHAT_ID" \
-            -d text="$message" > /dev/null
+        # Check if bolus_app is running to use its python/networking
+        # We use python one-liner to send safe JSON
+        docker exec bolus_app python -c "
+import requests
+import os
+try:
+    requests.post(
+        'https://api.telegram.org/bot$BOT_TOKEN/sendMessage',
+        json={'chat_id': '$ADMIN_CHAT_ID', 'text': '$message'},
+        timeout=5
+    )
+except: pass" > /dev/null 2>&1
     fi
 }
 
