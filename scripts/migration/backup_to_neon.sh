@@ -95,22 +95,19 @@ if [ "$LATEST_NEON" -gt "$LATEST_NAS" ]; then
 fi
 
 echo "Safety Check Passed. Restoring to Neon (Overwriting)..."
-# We use PGPASSWORD / pg_restore locally on host (requires tools) OR use a temporary docker container with tools.
-# Using a temporary docker container is safer/cleaner than ensuring pg_restore is on NAS host.
 
-docker run --rm -v "$BACKUP_FILE":/backup.sql -e DIRECT_URL="$DATABASE_URL_NEON" postgres:16-alpine \
-    sh -c "pg_restore --clean --if-exists --no-owner --no-privileges -d \"\$DIRECT_URL\" /backup.sql"
+# Use a pipe to stream the dump directly to the remote Neon DB
+# This avoids the volume mounting issue between containers.
+docker exec "$CONTAINER_NAME" pg_dump -U "$DB_USER" -d "$DB_NAME" --clean --if-exists --no-owner --no-privileges \
+    | docker run --rm -i postgres:16-alpine psql "$DATABASE_URL_NEON"
 
 if [ $? -eq 0 ]; then
     echo "Success: Backup restored to Neon."
     send_telegram "✅ Backup Successful: NAS Database synchronized to Neon."
 else
     echo "Error: Failed to restore to Neon."
-    send_telegram "❌ Backup Failed: Could not restore data to Neon."
-    rm "$BACKUP_FILE"
+    send_telegram "❌ Backup Failed: Could not restore data to Neon via pipe."
     exit 1
 fi
 
-# Cleanup
-rm "$BACKUP_FILE"
 echo "Done."
