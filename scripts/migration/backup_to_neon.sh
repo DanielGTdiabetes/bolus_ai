@@ -58,7 +58,32 @@ if [ -z "$DATABASE_URL_NEON" ]; then
     exit 1
 fi
 
-echo "Restoring to Neon (Overwriting)..."
+echo "Running Integrity Check: Comparing Local vs Remote timestamps..."
+
+# Get Latest Timestamp (Epoch) from Local NAS
+LATEST_NAS=$(docker exec "$CONTAINER_NAME" psql -U "$DB_USER" -d "$DB_NAME" -t -c "SELECT EXTRACT(EPOCH FROM MAX(created_at))::int FROM treatments;")
+LATEST_NAS=$(echo "$LATEST_NAS" | xargs)
+LATEST_NAS=${LATEST_NAS:-0}
+
+# Get Latest Timestamp (Epoch) from Remote Neon
+# Use a temporary container to query remote
+LATEST_NEON=$(docker run --rm -e DIRECT_URL="$DATABASE_URL_NEON" postgres:16-alpine \
+    psql "$DIRECT_URL" -t -c "SELECT EXTRACT(EPOCH FROM MAX(created_at))::int FROM treatments;")
+LATEST_NEON=$(echo "$LATEST_NEON" | xargs)
+LATEST_NEON=${LATEST_NEON:-0}
+
+echo "Latest Data Check -> Local: $LATEST_NAS | Remote: $LATEST_NEON"
+
+if [ "$LATEST_NEON" -gt "$LATEST_NAS" ]; then
+    DIFF=$((LATEST_NEON - LATEST_NAS))
+    echo "⚠️ SAFETY STOP: Neon has newer data (+$DIFF sec). Render might have been active."
+    echo "Backup aborted to prevent data loss."
+    send_telegram "⚠️ Backup ABORTED: Neon DB is ahead of NAS (Render active?). Sync required."
+    rm "$BACKUP_FILE"
+    exit 1
+fi
+
+echo "Safety Check Passed. Restoring to Neon (Overwriting)..."
 # We use PGPASSWORD / pg_restore locally on host (requires tools) OR use a temporary docker container with tools.
 # Using a temporary docker container is safer/cleaner than ensuring pg_restore is on NAS host.
 

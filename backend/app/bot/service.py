@@ -1626,18 +1626,32 @@ async def initialize() -> None:
         nonlocal backoff_schedule
         
         # CRITICAL FIX: Force delete webhook before polling to steal control from Render
-        # We loop this because if it fails, polling will definitely crash with Conflict.
+        logger.warning(f"Initializing POLLING. Checking for rogue webhooks...")
+        
         for i in range(5):
             try:
-                logger.info(f"Cleaning rogue webhooks before polling (Attempt {i+1})...")
+                # Check current status
+                try: 
+                     wh_info = await _bot_app.bot.get_webhook_info()
+                     if not wh_info.url:
+                         logger.warning("No webhook detected. Proceeding to poll.")
+                         break
+                     logger.warning(f"Rogue webhook detected: {wh_info.url}")
+                except Exception: pass
+
+                logger.warning(f"Deleting webhook (Attempt {i+1})...")
                 await _bot_app.bot.delete_webhook(drop_pending_updates=False)
-                logger.info("Webhook deleted successfully.")
+                logger.warning("Webhook deleted successfully.")
+                await asyncio.sleep(1.0)
                 break
             except Exception as e:
-                logger.warning(f"Webhook cleanup warning: {e}")
+                logger.error(f"Webhook cleanup warning: {e}")
                 await asyncio.sleep(2)
         else:
              logger.error("Failed to delete webhook after 5 attempts. Polling might fail with Conflict.")
+
+        # Give it a moment to propagate
+        await asyncio.sleep(1)
 
         for attempt, delay in enumerate(backoff_schedule, start=1):
             try:
@@ -1647,7 +1661,7 @@ async def initialize() -> None:
                     bootstrap_retries=2,
                 )
                 health.set_mode(BotMode.POLLING, fallback_reason)
-                logger.info("Polling started (interval=%s, timeout=%s)", poll_interval, read_timeout)
+                logger.warning("Polling started (interval=%s, timeout=%s)", poll_interval, read_timeout)
                 return
             except Exception as exc:
                 msg = f"Polling start attempt {attempt} failed: {exc}"
@@ -1662,7 +1676,7 @@ async def initialize() -> None:
                 bootstrap_retries=2,
             )
             health.set_mode(BotMode.POLLING, fallback_reason)
-            logger.info("Polling started after retries (interval=%s, timeout=%s)", poll_interval, read_timeout)
+            logger.warning("Polling started after retries (interval=%s, timeout=%s)", poll_interval, read_timeout)
         except Exception as exc:
             logger.error("Failed to start polling after retries: %s", exc)
             health.set_mode(BotMode.ERROR, "polling_failed")
