@@ -57,7 +57,7 @@ def healthz():
 
 @app.get("/api/health/check", include_in_schema=False)
 def health_check_direct():
-    return {"status": "ok", "direct": True}
+    return {"status": "ok", "direct": True, "emergency_mode": settings.emergency_mode}
 
 app.include_router(api_router, prefix="/api")
 app.include_router(bot_webhook.router, prefix="/api/webhook")
@@ -137,6 +137,13 @@ async def startup_event() -> None:
     asyncio.create_task(_background_startup_jobs())
 
 async def _background_startup_jobs():
+    if settings.emergency_mode:
+        logger.warning("⚠️ EMERGENCY MODE ACTIVE: Skipping background maintenance jobs & ML setup.")
+        # We might still want the bot for read-only checks, but disable heavy I/O
+        # For now, we proceed to initialize bot but skip heavy 'setup_periodic_tasks'
+        await bot_service.initialize()
+        return
+
     logger.info("🚀 Starting background jobs...")
     try:
         # DB is already init

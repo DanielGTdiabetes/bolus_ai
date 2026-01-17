@@ -137,6 +137,9 @@ class Settings(BaseModel):
     proactive: "ProactiveGlobalConfig" = Field(default_factory=lambda: ProactiveGlobalConfig())
     dexcom: DexcomConfig = Field(default_factory=DexcomConfig)
     night_pattern: NightPatternConfig = Field(default_factory=NightPatternConfig)
+    
+    # Emergency / Failover Mode
+    emergency_mode: bool = False
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -304,6 +307,14 @@ def _load_env() -> dict[str, Any]:
     if night_pattern_slope_max:
         env_config.setdefault("night_pattern", {})["slope_max_mgdl_per_min"] = float(night_pattern_slope_max)
 
+    night_pattern_slope_max = os.environ.get("NIGHT_PATTERN_SLOPE_MAX_MGDL_PER_MIN")
+    if night_pattern_slope_max:
+        env_config.setdefault("night_pattern", {})["slope_max_mgdl_per_min"] = float(night_pattern_slope_max)
+
+    emergency_mode = os.environ.get("EMERGENCY_MODE")
+    if emergency_mode is not None:
+        env_config["emergency_mode"] = emergency_mode.lower() == "true"
+
     return env_config
 
 
@@ -317,6 +328,13 @@ def merge_settings(env_config: dict[str, Any], file_config: dict[str, Any]) -> d
     merged["database"] = {**file_config.get("database", {}), **env_config.get("database", {})}
     merged["dexcom"] = {**file_config.get("dexcom", {}), **env_config.get("dexcom", {})}
     merged["night_pattern"] = {**file_config.get("night_pattern", {}), **env_config.get("night_pattern", {})}
+    
+    # Root level setting merge
+    if "emergency_mode" in env_config:
+        merged["emergency_mode"] = env_config["emergency_mode"]
+    elif "emergency_mode" in file_config:
+        merged["emergency_mode"] = file_config["emergency_mode"]
+        
     return merged
 
 
