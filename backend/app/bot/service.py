@@ -1626,8 +1626,6 @@ async def initialize() -> None:
         nonlocal backoff_schedule
         
         # CRITICAL FIX: Force delete webhook before polling to steal control from Render
-        try:
-        # CRITICAL FIX: Force delete webhook before polling to steal control from Render
         # We loop this because if it fails, polling will definitely crash with Conflict.
         for i in range(5):
             try:
