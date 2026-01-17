@@ -1626,23 +1626,16 @@ async def initialize() -> None:
         nonlocal backoff_schedule
         
         # CRITICAL FIX: Force delete webhook before polling to steal control from Render
-        logger.warning(f"Initializing POLLING. Checking for rogue webhooks...")
+        logger.warning(f"Initializing POLLING. Enforcing webhook cleanup...")
         
         for i in range(5):
             try:
-                # Check current status
-                try: 
-                     wh_info = await _bot_app.bot.get_webhook_info()
-                     if not wh_info.url:
-                         logger.warning("No webhook detected. Proceeding to poll.")
-                         break
-                     logger.warning(f"Rogue webhook detected: {wh_info.url}")
-                except Exception: pass
-
+                # We used to check get_webhook_info(), but sometimes it reports empty while getUpdates fails.
+                # So we now blindly delete to be sure.
                 logger.warning(f"Deleting webhook (Attempt {i+1})...")
                 await _bot_app.bot.delete_webhook(drop_pending_updates=False)
                 logger.warning("Webhook deleted successfully.")
-                await asyncio.sleep(1.0)
+                await asyncio.sleep(2.0)
                 break
             except Exception as e:
                 logger.error(f"Webhook cleanup warning: {e}")
