@@ -1,0 +1,15 @@
+FROM docker:cli
+
+# Install dependencies at build time to avoid runtime OOM/loops
+# We install bash because the scripts use #!/bin/bash
+RUN apk add --no-cache bash curl
+
+# Create the log file
+RUN touch /var/log/backup.log
+
+# Configure Cron
+# Run every 4 hours
+RUN echo "0 */4 * * * /scripts/backup_to_neon.sh >> /var/log/backup.log 2>&1" > /etc/crontabs/root
+
+# Start Cron Foreground
+CMD ["crond", "-f", "-l", "8"]
