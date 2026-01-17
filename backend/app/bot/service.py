@@ -217,18 +217,18 @@ def decide_bot_mode() -> Tuple[BotMode, str]:
 
     public_url = config.get_public_bot_url()
     
-    # ARCHITECTURAL FIX: 
-    # If we have a Public URL (likely Cloud/Render) but Emergency Mode is NOT active,
-    # we must NOT register a webhook. receiving updates is the NAS's job (via Polling).
-    # We enter "Send Only" mode to allow alerts but avoid "Split Brain" conflicts.
-    settings = get_settings()
-    if public_url and not settings.emergency_mode:
-        return BotMode.DISABLED, "emergency_mode_send_only"
+    # HYBRID FIX:
+    # NAS usually runs via Polling (no direct incoming SSL port).
+    # Render runs via Webhook.
+    # We distinguish them by checking the 'RENDER' env var (automatically set by Render.com).
+    is_render = os.environ.get("RENDER") is not None
+    
+    if public_url and is_render:
+        return BotMode.WEBHOOK, "public_url_present_on_cloud"
 
-    if public_url:
-        return BotMode.WEBHOOK, "public_url_present"
-
-    return BotMode.POLLING, "missing_public_url"
+    # On NAS (or if no URL), we force Polling to ensure we get updates.
+    # The 'Guardian' will ensure we don't fight with an old Webhook.
+    return BotMode.POLLING, "forced_polling_on_prem"
 
 
 def build_expected_webhook() -> Tuple[Optional[str], str]:
