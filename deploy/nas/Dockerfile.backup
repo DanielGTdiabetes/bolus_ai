@@ -1,17 +1,14 @@
 FROM docker:cli
 
-# Install dependencies
-RUN apk add --no-cache bash curl
-
 # Create the log file
 RUN touch /var/log/backup.log
 
-# Copy scripts from the context (we will set context to root of repo)
+# Copy scripts from the repository context
 COPY scripts/migration/backup_to_neon.sh /scripts/backup_to_neon.sh
 RUN chmod +x /scripts/backup_to_neon.sh
 
 # Configure Cron to run every 4 hours
-RUN echo "0 */4 * * * /scripts/backup_to_neon.sh >> /var/log/backup.log 2>&1" > /etc/crontabs/root
+RUN echo "0 */4 * * * /bin/sh /scripts/backup_to_neon.sh >> /var/log/backup.log 2>&1" > /etc/crontabs/root
 
 # Start Cron Foreground
 CMD ["crond", "-f", "-l", "8"]
