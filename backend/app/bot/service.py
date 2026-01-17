@@ -1604,6 +1604,14 @@ async def initialize() -> None:
 
     async def _start_polling_with_retry() -> None:
         nonlocal backoff_schedule
+        
+        # CRITICAL FIX: Force delete webhook before polling to steal control from Render
+        try:
+            logger.info("Cleaning rogue webhooks before polling...")
+            await _bot_app.bot.delete_webhook(drop_pending_updates=False)
+        except Exception as e:
+            logger.warning(f"Webhook cleanup warning: {e}")
+
         for attempt, delay in enumerate(backoff_schedule, start=1):
             try:
                 await _bot_app.updater.start_polling(
