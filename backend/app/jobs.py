@@ -137,8 +137,15 @@ async def run_learning_evaluation():
 def setup_periodic_tasks():
     init_scheduler()
     
-    # --- Emergency Monitor (Render Only) ---
-    schedule_task(StabilityMonitor.check_health, CronTrigger(minute='*'), "check_nas_health")
+    # --- Emergency Monitor (Always check configuration inside, or explicit here) ---
+    # Only run monitor if we ARE in emergency mode (or want to monitor from standby)
+    settings = get_settings()
+    if settings.emergency_mode:
+        schedule_task(StabilityMonitor.check_health, CronTrigger(minute='*'), "check_nas_health")
+        logger.info("⚠️ Emergency Mode: Scheduler running ONLY Stability Monitor.")
+        return # STOP HERE. Do not schedule normal data ingestion tasks.
+
+    # --- Normal Operations (NAS Primary) ---
 
     # Run at 07:00 AM every day
     trigger = CronTrigger(hour=7, minute=0)

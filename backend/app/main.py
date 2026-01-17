@@ -138,14 +138,13 @@ async def startup_event() -> None:
 
 async def _background_startup_jobs():
     if settings.emergency_mode:
-        logger.warning("⚠️ EMERGENCY MODE ACTIVE: Skipping background maintenance jobs & ML setup.")
-        # We might still want the bot for read-only checks, but disable heavy I/O
-        # For now, we proceed to initialize bot but skip heavy 'setup_periodic_tasks'
-        await bot_service.initialize()
-        return
+        logger.warning("⚠️ EMERGENCY MODE ACTIVE: Running in restricted state (Monitor Only).")
+        # We allow setup_periodic_tasks to run because it now handles the conditional logic internally.
+    else:
+        logger.info("🚀 Starting background jobs (Full Mode)...")
 
-    logger.info("🚀 Starting background jobs...")
     try:
+        # DB is already init
         # DB is already init
         from app.core.datastore import UserStore
         data_dir = Path(settings.data.data_dir)
