@@ -3,7 +3,7 @@
 # Configuration
 # Load environment variables from .env file relative to script location
 SCRIPT_DIR="$(dirname "$0")"
-ENV_FILE="$SCRIPT_DIR/../deploy/nas/.env"
+ENV_FILE="$SCRIPT_DIR/../../deploy/nas/.env"
 
 if [ -f "$ENV_FILE" ]; then
     # POSIX compliant source/export loop
