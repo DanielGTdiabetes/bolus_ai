@@ -9,9 +9,227 @@ import uuid
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.error import BadRequest, Conflict
+from telegram.ext import Application, CommandHandler, MessageHandler, ContextTypes, filters, CallbackQueryHandler
+from telegram import constants
 
-# ... (lines 12-236 skipped) ...
+from app.core import config
+from app.bot import ai
+from app.bot import tools
+from app.bot import voice
+from app.bot.state import health, BotMode
+from app.bot import proactive
+from app.bot import context_builder
+from app.bot.llm import router
+from app.bot.image_renderer import generate_injection_image
+from app.bot.context_vars import bot_user_context
 
+# Sidecar dependencies
+from pathlib import Path
+from datetime import datetime, timezone, timedelta
+from app.core.settings import get_settings
+from app.services.store import DataStore
+from app.services.nightscout_client import NightscoutClient
+from app.services.dexcom_client import DexcomClient
+from app.services.iob import compute_iob_from_sources, compute_cob_from_sources
+from app.services.bolus_engine import calculate_bolus_v2
+from app.services.basal_repo import get_latest_basal_dose
+from app.models.bolus_v2 import BolusRequestV2, BolusResponseV2, GlucoseUsed
+from app.bot.capabilities.registry import build_registry, Permission
+
+
+SNAPSHOT_STORAGE: Dict[str, Any] = {}
+
+
+# DB Access for Settings
+from app.core.db import SessionLocal
+from app.services import settings_service as svc_settings
+from app.services import nightscout_secrets_service as svc_ns_secrets
+from app.models.settings import UserSettings
+from app.bot.user_settings_resolver import resolve_bot_user_settings
+
+async def fetch_history_context(user_settings: UserSettings, hours: int = 6) -> str:
+    """Fetches simplified glucose history context using Local DB as primary, Nightscout as fallback."""
+    now = datetime.now(timezone.utc)
+    start_time = now - timedelta(hours=hours)
+    
+    entries = []
+    source = "Bolus AI"
+
+    # 1. Try Local DB
+    try:
+        async with SessionLocal() as session:
+            from sqlalchemy import text
+            # We need sgv and date. date in internal DB is usually ISO string or epoch.
+            # In entries table it's typically date_string (ISO) or date (epoch ms common in NS sync)
+            stmt = text("""
+                SELECT sgv, date 
+                FROM entries 
+                WHERE date >= :start_ms 
+                ORDER BY date ASC
+            """)
+            # NS epoch is ms
+            start_ms = int(start_time.timestamp() * 1000)
+            res = await session.execute(stmt, {"start_ms": start_ms})
+            for row in res.fetchall():
+                # mock a NS-like object for compatibility with logic below
+                from dataclasses import dataclass
+                @dataclass
+                class MockEntry:
+                    sgv: float
+                    date: int
+                entries.append(MockEntry(sgv=float(row[0]), date=int(row[1])))
+    except Exception as e:
+        logger.warning(f"Local history fetch failed: {e}")
+
+    # 2. Fallback to Nightscout if DB empty or failed
+    if not entries and user_settings.nightscout.url:
+        source = "Nightscout"
+        client = None
+        try:
+            client = NightscoutClient(
+                base_url=user_settings.nightscout.url,
+                token=user_settings.nightscout.token,
+                timeout_seconds=10
+            )
+            count = int(hours * 12 * 1.5) 
+            entries = await client.get_sgv_range(start_dt=start_time, end_dt=now, count=count)
+        except Exception as e:
+            logger.warning(f"NS history fallback failed: {e}")
+        finally:
+            if client: await client.aclose()
+
+    if not entries:
+        return f"HISTORIAL ({hours}h): No hay datos disponibles."
+
+    # Compute Stats
+    values = [e.sgv for e in entries if e.sgv is not None]
+    if not values: 
+        return f"HISTORIAL ({hours}h): Datos vacíos."
+
+    avg = sum(values) / len(values)
+    min_v = min(values)
+    max_v = max(values)
+    in_range = sum(1 for v in values if 70 <= v <= 180)
+    tir_pct = (in_range / len(values)) * 100
+    
+    # Sample Trend (Every ~30 mins)
+    sorted_entries = sorted(entries, key=lambda x: x.date)
+    step = max(1, len(sorted_entries) // (hours * 2)) 
+    graph_points = [str(int(sorted_entries[i].sgv)) for i in range(0, len(sorted_entries), step)]
+    
+    if len(graph_points) > 20:
+         step2 = len(graph_points) // 20 + 1
+         graph_points = graph_points[::step2]
+         
+    graph_str = " -> ".join(graph_points)
+    
+    return (
+        f"RESUMEN HISTORIAL ({hours}h - Fuente: {source}):\n"
+        f"- Promedio: {int(avg)} mg/dL\n"
+        f"- TIR (70-180): {int(tir_pct)}%\n"
+        f"- Rango: {int(min_v)} - {int(max_v)}\n"
+        f"- Evolución: {graph_str}"
+    )
+
+
+
+logger = logging.getLogger(__name__)
+
+# Global Application instance
+_bot_app: Optional[Application] = None
+_polling_task: Optional[asyncio.Task] = None
+
+
+async def notify_admin(text: str) -> bool:
+    """Sends a message to the configured admin user."""
+    admin_id = config.get_allowed_telegram_user_id()
+    if not admin_id:
+        logger.warning("notify_admin failed: No admin ID configured")
+        return False
+    
+    # We call bot_send directly.
+    # Note: bot_send uses _bot_app global.
+    res = await bot_send(chat_id=admin_id, text=text, log_context="notify_admin")
+    return res is not None
+
+async def bot_send(
+    chat_id: int,
+    text: str,
+    *,
+    bot=None,
+    log_context: str = "reply",
+    **kwargs: Any,
+) -> Optional[Any]:
+    """Centralized sender for Telegram replies with health tracking."""
+    logger.info("sending reply", extra={"chat_id": chat_id, "context": log_context})
+
+    target_bot = bot or (_bot_app.bot if _bot_app else None)
+    if not target_bot:
+        error_msg = "bot_unavailable"
+        logger.error(f"reply failed: {error_msg}")
+        health.set_reply_error(error_msg)
+        return None
+
+    try:
+        result = await target_bot.send_message(chat_id=chat_id, text=text, **kwargs)
+        health.mark_reply_success()
+        logger.info("reply ok", extra={"chat_id": chat_id, "context": log_context})
+        return result
+    except Exception as exc:
+        error_msg = f"{type(exc).__name__}: {exc}"
+        logger.error(f"reply failed: {error_msg}")
+        health.set_reply_error(error_msg)
+        return None
+
+
+async def edit_message_text_safe(editor, *args: Any, **kwargs: Any) -> Optional[Any]:
+    try:
+        return await editor.edit_message_text(*args, **kwargs)
+    except BadRequest as exc:
+        if "Message is not modified" in str(exc):
+            logger.info("edit_message_not_modified", extra={"context": kwargs.get("context")})
+            return None
+        raise
+
+
+async def reply_text(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str, **kwargs: Any) -> Optional[Any]:
+    """Convenience wrapper for message replies."""
+    return await bot_send(
+        chat_id=update.effective_chat.id,
+        text=text,
+        bot=context.bot,
+        log_context="reply_text",
+        **kwargs,
+    )
+
+
+def decide_bot_mode() -> Tuple[BotMode, str]:
+    """
+    Decide how the bot should run based on environment.
+    Returns (mode, reason)
+    """
+    if not config.is_telegram_bot_enabled():
+        return BotMode.DISABLED, "feature_flag_off"
+
+    token = config.get_telegram_bot_token()
+    if not token:
+        return BotMode.DISABLED, "missing_token"
+
+    public_url = config.get_public_bot_url()
+    if public_url:
+        return BotMode.WEBHOOK, "public_url_present"
+
+    return BotMode.POLLING, "missing_public_url"
+
+
+def build_expected_webhook() -> Tuple[Optional[str], str]:
+    """
+    Returns (expected_url, source_env_key)
+    """
+    public_url, source = config.get_public_bot_url_with_source()
+    if not public_url:
+        return None, source
+    return f"{public_url}/api/webhook/telegram", source
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Log the error and send a telegram message to notify the developer."""
     error_id = uuid.uuid4().hex[:8]
