@@ -96,7 +96,7 @@ services:
     entrypoint: [ "/bin/sh", "-c" ]
     command:
       - |
-        echo "0 */4 * * * /scripts/backup_to_neon.sh >> /var/log/backup.log 2>&1" > /etc/crontabs/root && \
+        echo "0 */4 * * * /scripts/backup_to_neon.sh > /proc/1/fd/1 2>&1" > /etc/crontabs/root && \
         crond -f -l 8
 
 volumes:
