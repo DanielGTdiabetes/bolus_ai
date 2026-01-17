@@ -142,6 +142,12 @@ async def _background_startup_jobs():
         # We allow setup_periodic_tasks to run because it now handles the conditional logic internally.
     else:
         logger.info("🚀 Starting background jobs (Full Mode)...")
+        # 0. SAFETY FIRST: Rescue Sync from Nightscout (Recover IOB/COB)
+        try:
+            from app.services.rescue_sync import run_rescue_sync
+            await run_rescue_sync(hours=6)
+        except Exception as e:
+            logger.error(f"Startup Rescue Sync failed: {e}")
 
     try:
         # DB is already init

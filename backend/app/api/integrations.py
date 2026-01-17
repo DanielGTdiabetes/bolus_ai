@@ -117,6 +117,12 @@ async def ingest_nutrition(
     Es "silencioso": si falla, no rompe nada, solo loguea error.
     """
     # Initialize DataStore locally or via dependency if preferred, here we use settings for path
+    
+    # 0. EMERGENCY MODE CHECK
+    if settings.emergency_mode:
+        logger.warning("⛔ Nutrition Ingest REJECTED due to Emergency Mode.")
+        return {"success": 0, "message": "Ignored: System in Emergency Mode"}
+
     from pathlib import Path
     from app.services.store import DataStore
     ds = DataStore(Path(settings.data.data_dir))
