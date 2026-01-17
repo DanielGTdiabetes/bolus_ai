@@ -56,6 +56,7 @@ services:
 
   # Local Database for NAS
   db:
+    container_name: bolus_db
     image: postgres:17
     # image: postgres:16
     environment:
@@ -75,6 +76,31 @@ services:
       timeout: 10s
       retries: 10
       start_period: 40s
+
+  # Backup Cron Service
+  backup:
+    image: docker:cli
+    container_name: bolus_backup_cron
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Mount scripts from repo (assuming GitOps clone at ../..)
+      # In container, we map ../../scripts/migration to /scripts
+      # Adjust path relative to docker-compose.yml location (deploy/nas)
+      - ../../scripts/migration:/scripts
+    environment:
+      - BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - ADMIN_CHAT_ID=${TELEGRAM_DEFAULT_CHAT_ID}
+      - DATABASE_URL_NEON=${DATABASE_URL_NEON}
+      - POSTGRES_USER=${POSTGRES_USER:-admin}
+      - POSTGRES_DB=${POSTGRES_DB:-bolus_ai}
+    # Entrypoint: Install dependencies (curl, bash) and start crond
+    entrypoint: [ "/bin/sh", "-c" ]
+    command:
+      - |
+        apk add --no-cache curl bash && \
+        echo "0 */4 * * * /scripts/backup_to_neon.sh >> /var/log/backup.log 2>&1" > /etc/crontabs/root && \
+        crond -f -l 8
 
 volumes:
   backend_data:
