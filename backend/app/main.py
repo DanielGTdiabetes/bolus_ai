@@ -35,10 +35,16 @@ def _collect_cors_origins() -> list[str]:
         if origin.strip()
     ]
 
+    # Add Render's own URL if present
+    render_url = os.environ.get("RENDER_EXTERNAL_URL")
+    if render_url:
+        env_origins.append(render_url.strip())
+
     collected: list[str] = []
     for origin in (*default_origins, *configured_origins, *env_origins):
         if origin and origin not in collected:
-            collected.append(origin)
+            # Ensure no trailing slashes in origins
+            collected.append(origin.rstrip("/"))
 
     return collected
 
