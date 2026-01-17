@@ -79,25 +79,20 @@ services:
 
   # Backup Cron Service
   backup:
-    image: docker:cli
+    build:
+      context: ../..
+      dockerfile: deploy/nas/Dockerfile.backup
     container_name: bolus_backup_cron
     restart: unless-stopped
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      # Mount scripts from repo
-      - ../../scripts/migration:/scripts
     environment:
       - BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
       - ADMIN_CHAT_ID=${TELEGRAM_DEFAULT_CHAT_ID}
       - DATABASE_URL_NEON=${DATABASE_URL_NEON}
       - POSTGRES_USER=${POSTGRES_USER:-admin}
       - POSTGRES_DB=${POSTGRES_DB:-bolus_ai}
-    # Entrypoint: Start crond directly
-    entrypoint: [ "/bin/sh", "-c" ]
-    command:
-      - |
-        echo "0 */4 * * * /scripts/backup_to_neon.sh > /proc/1/fd/1 2>&1" > /etc/crontabs/root && \
-        crond -f -l 8
+    # No need for entrypoint/command here as they are in the Dockerfile
 
 volumes:
   backend_data:
