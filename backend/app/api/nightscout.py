@@ -179,7 +179,11 @@ async def get_current_glucose_stateless(
                                 break
 
             sgv = latest_entry
-            now_ms = datetime.now(timezone.utc).timestamp() * 1000
+            
+            # Correction: Use Clock Skew to adjust "Now"
+            skew_ms = client.get_clock_skew_ms()
+            now_ms = (datetime.now(timezone.utc).timestamp() * 1000) + skew_ms
+            
             diff_ms = now_ms - sgv.date
             diff_min = diff_ms / 60000.0
 
@@ -322,7 +326,11 @@ async def get_current_glucose_server(
             
             # Prepare Response
             sgv = latest_entry
-            now_ms = datetime.now(timezone.utc).timestamp() * 1000
+            
+            # Correction: Use Clock Skew to adjust "Now"
+            skew_ms = client.get_clock_skew_ms()
+            now_ms = (datetime.now(timezone.utc).timestamp() * 1000) + skew_ms
+            
             diff_ms = now_ms - sgv.date
             diff_min = diff_ms / 60000.0
 

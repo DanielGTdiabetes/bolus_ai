@@ -52,6 +52,46 @@ class NightscoutClient:
             headers=headers,
             params=params, 
         )
+        
+        # Clock Skew: Difference between Local Time and Server Time (Server - Local)
+        # If Server is ahead, skew is positive. If Server is behind, skew is negative.
+        # Adjusted Time = Local Time + Skew
+        self._clock_skew_ms: int = 0
+
+    def get_clock_skew_ms(self) -> int:
+        return self._clock_skew_ms
+
+    def _update_clock_skew(self, headers: httpx.Headers) -> None:
+        """
+        Estimates clock skew from the Date header.
+        """
+        date_str = headers.get("Date")
+        if not date_str:
+            return
+
+        try:
+            # Parse RFC 1123 date: "Fri, 17 Jan 2026 05:34:16 GMT"
+            # We use email.utils or datetime.strptime
+            from email.utils import parsedate_to_datetime
+            
+            server_dt = parsedate_to_datetime(date_str)
+            
+            if server_dt.tzinfo is None:
+                server_dt = server_dt.replace(tzinfo=timezone.utc)
+            
+            # Local now (UTC)
+            local_dt = datetime.now(timezone.utc)
+            
+            # Calculate Skew (Server - Local)
+            diff = server_dt - local_dt
+            self._clock_skew_ms = int(diff.total_seconds() * 1000)
+            
+            # Log significant skew (> 1 min)
+            if abs(self._clock_skew_ms) > 60000:
+                 logger.debug(f"Clock Skew Detected: {self._clock_skew_ms}ms (Server: {server_dt}, Local: {local_dt})")
+                 
+        except Exception as e:
+            logger.debug(f"Failed to calculate clock skew: {e}")
 
     def _auth_headers(self) -> dict[str, str]:
         headers: dict[str, str] = {}
@@ -96,6 +136,9 @@ class NightscoutClient:
         return headers
 
     async def _handle_response(self, response: httpx.Response) -> Any:
+        # Update clock skew first
+        self._update_clock_skew(response.headers)
+        
         try:
             response.raise_for_status()
             if not response.content.strip():
