@@ -216,6 +216,15 @@ def decide_bot_mode() -> Tuple[BotMode, str]:
         return BotMode.DISABLED, "missing_token"
 
     public_url = config.get_public_bot_url()
+    
+    # ARCHITECTURAL FIX: 
+    # If we have a Public URL (likely Cloud/Render) but Emergency Mode is NOT active,
+    # we must NOT register a webhook. receiving updates is the NAS's job (via Polling).
+    # We enter "Send Only" mode to allow alerts but avoid "Split Brain" conflicts.
+    settings = get_settings()
+    if public_url and not settings.emergency_mode:
+        return BotMode.DISABLED, "emergency_mode_send_only"
+
     if public_url:
         return BotMode.WEBHOOK, "public_url_present"
 
@@ -1627,25 +1636,57 @@ async def initialize() -> None:
     fallback_reason = "missing_public_url" if not public_url else "webhook_failed"
     backoff_schedule = [1, 2, 5, 10, 20, 30]
 
+    async def _webhook_guardian_task() -> None:
+        """
+        Periodically ensures no webhook is set (Guardian for Polling Mode).
+        This protects against 'Split Brain' scenarios where an external service (Render)
+        re-registers the webhook, causing the NAS bot to crash with Conflict errors.
+        """
+        logger.info("🛡️ Webhook Guardian started.")
+        while True:
+            try:
+                # Check 
+                try:
+                    info = await _bot_app.bot.get_webhook_info()
+                    if info.url:
+                        logger.warning(f"🛡️ Guardian detected ROGUE webhook: {info.url}")
+                        logger.warning("🛡️ Guardian enforcing cleanup...")
+                        await _bot_app.bot.delete_webhook(drop_pending_updates=False)
+                        logger.info("🛡️ Webhook deleted. Polling should resume.")
+                    else:
+                        # All good
+                        pass
+                except Conflict:
+                    # If we are already in conflict, blindly delete
+                    await _bot_app.bot.delete_webhook()
+                except Exception as inner:
+                     logger.debug(f"Guardian check warning: {inner}")
+
+                # Check infrequently to avoid rate limits, but fast enough to heal
+                await asyncio.sleep(15) 
+            except asyncio.CancelledError:
+                logger.info("🛡️ Guardian stopped.")
+                break
+            except Exception as e:
+                logger.error(f"Guardian Loop Error: {e}")
+                await asyncio.sleep(10)
+
     async def _start_polling_with_retry() -> None:
         nonlocal backoff_schedule
         
-        for attempt, delay in enumerate(backoff_schedule, start=1):
-            # CRITICAL FIX: Always force delete webhook before EACH polling attempt
-            # This ensures that if a previous attempt failed or an external service (Render)
-            # restored the webhook, we clear it again before retrying.
-            try:
-                logger.warning(f"Polling Init (Attempt {attempt}): Enforcing webhook cleanup...")
-                await _bot_app.bot.delete_webhook(drop_pending_updates=False)
-                logger.warning("Webhook deleted successfully.")
-            except Exception as e:
-                # Log but continue, sometimes it fails if already deleted or network blip, 
-                # but we still want to try polling.
-                logger.error(f"Webhook cleanup warning: {e}")
-            
-            # Give it a moment to propagate
-            await asyncio.sleep(1.0)
+        # 1. Start the Guardian immediately to clear the path
+        asyncio.create_task(_webhook_guardian_task(), name="webhook_guardian")
 
+        # 2. Initial heavy cleanup
+        logger.warning(f"Initializing POLLING. Enforcing webhook cleanup...")
+        try:
+            await _bot_app.bot.delete_webhook(drop_pending_updates=False)
+        except Exception: 
+            pass
+        await asyncio.sleep(1)
+
+        # 3. Start Polling
+        for attempt, delay in enumerate(backoff_schedule, start=1):
             try:
                 await _bot_app.updater.start_polling(
                     poll_interval=poll_interval,
@@ -1660,19 +1701,12 @@ async def initialize() -> None:
                 logger.warning(msg)
                 health.set_error(str(exc))
                 await asyncio.sleep(delay)
-        # Last attempt without further delay
+        
+        # Final attempt
         try:
-            await _bot_app.updater.start_polling(
-                poll_interval=poll_interval,
-                timeout=read_timeout,
-                bootstrap_retries=2,
-            )
-            health.set_mode(BotMode.POLLING, fallback_reason)
-            logger.warning("Polling started after retries (interval=%s, timeout=%s)", poll_interval, read_timeout)
-        except Exception as exc:
-            logger.error("Failed to start polling after retries: %s", exc)
-            health.set_mode(BotMode.ERROR, "polling_failed")
-            health.set_error(str(exc))
+             await _bot_app.updater.start_polling(poll_interval=poll_interval, timeout=read_timeout)
+        except Exception as e:
+             logger.error(f"Polling failed final: {e}")
 
     logger.info("Polling enabled (background).")
     _polling_task = asyncio.create_task(_start_polling_with_retry(), name="telegram-bot-polling")
@@ -1691,6 +1725,16 @@ async def shutdown() -> None:
             logger.info("Polling task cancelled.")
         except Exception as e:
             logger.error(f"Error cancelling polling task: {e}")
+
+    # Cancel Guardian Task if running
+    for task in asyncio.all_tasks():
+        if task.get_name() == "webhook_guardian":
+            logger.info("Cancelling Webhook Guardian...")
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
             
     if _bot_app:
         logger.info("Shutting down Telegram Bot...")
