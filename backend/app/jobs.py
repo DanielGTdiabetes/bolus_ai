@@ -7,6 +7,7 @@ from app.core import config
 from app.core.datastore import UserStore
 from pathlib import Path
 from app.services.basal_engine import scan_night_service
+from app.services.stability_monitor import StabilityMonitor
 from app import jobs_state
 
 logger = logging.getLogger(__name__)
@@ -136,6 +137,9 @@ async def run_learning_evaluation():
 def setup_periodic_tasks():
     init_scheduler()
     
+    # --- Emergency Monitor (Render Only) ---
+    schedule_task(StabilityMonitor.check_health, CronTrigger(minute='*'), "check_nas_health")
+
     # Run at 07:00 AM every day
     trigger = CronTrigger(hour=7, minute=0)
     schedule_task(run_auto_night_scan, trigger, "auto_night_scan")

@@ -143,6 +143,18 @@ _bot_app: Optional[Application] = None
 _polling_task: Optional[asyncio.Task] = None
 
 
+async def notify_admin(text: str) -> bool:
+    """Sends a message to the configured admin user."""
+    admin_id = config.get_allowed_telegram_user_id()
+    if not admin_id:
+        logger.warning("notify_admin failed: No admin ID configured")
+        return False
+    
+    # We call bot_send directly.
+    # Note: bot_send uses _bot_app global.
+    res = await bot_send(chat_id=admin_id, text=text, log_context="notify_admin")
+    return res is not None
+
 async def bot_send(
     chat_id: int,
     text: str,

@@ -140,6 +140,7 @@ class Settings(BaseModel):
     
     # Emergency / Failover Mode
     emergency_mode: bool = False
+    nas_public_url: Optional[str] = None
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -315,6 +316,10 @@ def _load_env() -> dict[str, Any]:
     if emergency_mode is not None:
         env_config["emergency_mode"] = emergency_mode.lower() == "true"
 
+    nas_url = os.environ.get("NAS_PUBLIC_URL")
+    if nas_url:
+        env_config["nas_public_url"] = nas_url
+
     return env_config
 
 
@@ -334,7 +339,10 @@ def merge_settings(env_config: dict[str, Any], file_config: dict[str, Any]) -> d
         merged["emergency_mode"] = env_config["emergency_mode"]
     elif "emergency_mode" in file_config:
         merged["emergency_mode"] = file_config["emergency_mode"]
-        
+
+    if "nas_public_url" in env_config:
+        merged["nas_public_url"] = env_config["nas_public_url"]
+    
     return merged
 
 
