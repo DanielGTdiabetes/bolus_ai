@@ -1627,10 +1627,19 @@ async def initialize() -> None:
         
         # CRITICAL FIX: Force delete webhook before polling to steal control from Render
         try:
-            logger.info("Cleaning rogue webhooks before polling...")
-            await _bot_app.bot.delete_webhook(drop_pending_updates=False)
-        except Exception as e:
-            logger.warning(f"Webhook cleanup warning: {e}")
+        # CRITICAL FIX: Force delete webhook before polling to steal control from Render
+        # We loop this because if it fails, polling will definitely crash with Conflict.
+        for i in range(5):
+            try:
+                logger.info(f"Cleaning rogue webhooks before polling (Attempt {i+1})...")
+                await _bot_app.bot.delete_webhook(drop_pending_updates=False)
+                logger.info("Webhook deleted successfully.")
+                break
+            except Exception as e:
+                logger.warning(f"Webhook cleanup warning: {e}")
+                await asyncio.sleep(2)
+        else:
+             logger.error("Failed to delete webhook after 5 attempts. Polling might fail with Conflict.")
 
         for attempt, delay in enumerate(backoff_schedule, start=1):
             try:
