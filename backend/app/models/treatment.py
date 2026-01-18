@@ -7,7 +7,7 @@ from app.core.db import Base
 class Treatment(Base):
     __tablename__ = "treatments"
     __table_args__ = (
-        UniqueConstraint("draft_id", name="uq_treatments_draft_id"),
+        # UniqueConstraint("draft_id", name="uq_treatments_draft_id"),
     )
 
     id: Mapped[str] = mapped_column(String, primary_key=True, comment="UUID or Unique ID")
@@ -27,8 +27,6 @@ class Treatment(Base):
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     entered_by: Mapped[str] = mapped_column(String, nullable=True)
 
-    draft_id: Mapped[Optional[str]] = mapped_column(String, nullable=True, index=True)
-    
     # Sync Status
     is_uploaded: Mapped[bool] = mapped_column(Boolean, default=False)
     nightscout_id: Mapped[Optional[str]] = mapped_column(String, nullable=True)

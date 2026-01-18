@@ -41,7 +41,6 @@ class NightPatternProfileData:
 
 @dataclass
 class NightPatternContext:
-    draft_active: bool
     meal_recent: bool
     bolus_recent: bool
     iob_u: Optional[float]
@@ -287,8 +286,6 @@ def evaluate_pattern_application(
     window = _window_label(now_local, cfg)
     if not window:
         return False, "Fuera de ventana nocturna", None
-    if context.draft_active:
-        return False, "Borrador de comida activo", window
     if context.meal_recent:
         return False, "Comida reciente dentro del rango", window
     if context.bolus_recent:

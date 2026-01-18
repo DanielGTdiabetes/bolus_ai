@@ -16,7 +16,6 @@ LOCAL_TZ = ZoneInfo("Europe/Madrid")
 
 def _base_context(**overrides) -> NightPatternContext:
     base = dict(
-        draft_active=False,
         meal_recent=False,
         bolus_recent=False,
         iob_u=0.1,
