@@ -944,38 +944,7 @@ export async function updateSettings(settings) {
   return putSettings(settings, settings.version);
 }
 
-export async function getNutritionDraft() {
-  const response = await apiFetch("/api/integrations/nutrition/draft", {
-    headers: { "Cache-Control": "no-cache" } // Explicitly prevent caching
-  });
-  const data = await toJson(response);
-  if (!response.ok) throw new Error(data.detail || "Error obteniendo draft");
-  return data;
-}
 
-export async function closeNutritionDraft() {
-  const response = await apiFetch("/api/integrations/nutrition/draft/close", { method: "POST" });
-  const data = await toJson(response);
-  if (!response.ok) throw new Error(data.detail || "Error cerrando draft");
-  return data;
-}
-
-export async function discardNutritionDraft() {
-  const response = await apiFetch("/api/integrations/nutrition/draft/discard", { method: "POST" });
-  const data = await toJson(response);
-  if (!response.ok) throw new Error(data.detail || "Error descartando draft");
-  return data;
-}
-
-export async function updateNutritionDraft(id, payload) {
-  const response = await apiFetch(`/api/integrations/nutrition/draft/${id}`, {
-    method: "PATCH",
-    body: JSON.stringify(payload)
-  });
-  const data = await toJson(response);
-  if (!response.ok) throw new Error(data.detail || "Error actualizando draft");
-  return data;
-}
 
 export async function fetchIngestLogs() {
   const response = await apiFetch("/api/integrations/nutrition/logs");

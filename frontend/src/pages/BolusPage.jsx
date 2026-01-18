@@ -5,7 +5,7 @@ import { BottomNav } from '../components/layout/BottomNav';
 import { Button } from '../components/ui/Atoms';
 // Hooks
 import { useOrphanDetection } from '../hooks/useOrphanDetection';
-import { useNutritionDraft } from '../hooks/useNutritionDraft';
+import { useOrphanDetection } from '../hooks/useOrphanDetection';
 import { useBolusCalculator } from '../hooks/useBolusCalculator';
 
 // Components
@@ -63,8 +63,8 @@ export default function BolusPage() {
     } = useOrphanDetection();
 
     const {
-        draft, checkDraft, applyDraft, discard: discardDraft
-    } = useNutritionDraft();
+        orphanCarbs, isUsingOrphan, setIsUsingOrphan, checkOrphans
+    } = useOrphanDetection();
 
     const {
         calculate, save, result, setResult, calcUsedParams,
@@ -84,7 +84,6 @@ export default function BolusPage() {
             const favs = await getFavorites();
             if (favs) setFavorites(favs);
 
-            await checkDraft();
             await checkOrphans();
         } catch (e) {
             console.warn(e);
@@ -185,47 +184,10 @@ export default function BolusPage() {
                 {!result && (
                     <div className="stack fade-in">
 
-                        {/* Nutrition Draft */}
-                        {draft && (
-                            <div className="fade-in" style={{
-                                background: '#f5f3ff', border: '1px solid #8b5cf6',
-                                borderRadius: '12px', padding: '1rem', marginBottom: '1rem',
-                                display: 'flex', flexDirection: 'column', gap: '8px'
-                            }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#5b21b6', fontWeight: 700 }}>
-                                    <span>📩 Borrador Recibido</span>
-                                    <span style={{ fontSize: '0.75rem', fontWeight: 400, background: 'rgba(0,0,0,0.05)', padding: '2px 8px', borderRadius: '10px' }}>
-                                        hace {Math.round((new Date() - new Date(draft.updated_at)) / 60000)} min
-                                    </span>
-                                </div>
-                                <div style={{ fontSize: '0.9rem', color: '#4c1d95' }}>
-                                    <div><strong>{draft.carbs}g Carbohidratos</strong></div>
-                                    {(draft.fat > 0 || draft.protein > 0) && (
-                                        <div style={{ fontSize: '0.85rem' }}>{draft.fat}g Grasas, {draft.protein}g Proteínas</div>
-                                    )}
-                                    {draft.notes && <div style={{ fontStyle: 'italic', fontSize: '0.8rem', marginTop: '4px' }}>"{draft.notes}"</div>}
-                                </div>
-                                <div style={{ display: 'flex', gap: '10px', marginTop: '5px' }}>
-                                    <Button onClick={() => applyDraft((d) => {
-                                        setCarbs(String(d.carbs));
-                                        mealMetaRef.current = { items: d.items || [], fat: d.fat, protein: d.protein, fiber: d.fiber };
-                                        const kcal = d.fat * 9 + d.protein * 4;
-                                        if (kcal > 250) {
-                                            setDualEnabled(true);
-                                            showToast("💡 Bolo Dual activado por contenido graso.", "info", 4000);
-                                        }
-                                    })} style={{ background: '#7c3aed', color: '#fff', fontSize: '0.85rem', padding: '6px 12px' }}>
-                                        Usar Datos
-                                    </Button>
-                                    <Button onClick={() => { if (confirm("¿Descartar?")) discardDraft(); }} variant="outline" style={{ fontSize: '0.85rem', padding: '6px 12px', color: '#ef4444', borderColor: '#ef4444' }}>
-                                        Descartar
-                                    </Button>
-                                </div>
-                            </div>
-                        )}
+
 
                         {/* Orphan Alert */}
-                        {orphanCarbs && !isUsingOrphan && !draft && (
+                        {orphanCarbs && !isUsingOrphan && (
                             <div className="fade-in" style={{
                                 background: '#f0fdf4', border: '1px solid #86efac',
                                 borderRadius: '12px', padding: '1rem', marginBottom: '1rem',
