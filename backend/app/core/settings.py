@@ -140,6 +140,7 @@ class Settings(BaseModel):
     
     # Emergency / Failover Mode
     emergency_mode: bool = False
+    autoscan_write_enabled: bool = False
     nas_public_url: Optional[str] = None
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
@@ -316,9 +317,12 @@ def _load_env() -> dict[str, Any]:
     if emergency_mode is not None:
         env_config["emergency_mode"] = emergency_mode.lower() == "true"
 
-    nas_url = os.environ.get("NAS_PUBLIC_URL")
     if nas_url:
         env_config["nas_public_url"] = nas_url
+
+    autoscan_write = os.environ.get("AUTOSCAN_WRITE_ENABLED")
+    if autoscan_write is not None:
+        env_config["autoscan_write_enabled"] = autoscan_write.lower() == "true"
 
     return env_config
 

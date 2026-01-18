@@ -26,11 +26,16 @@ async def telegram_webhook(
     if not config.is_telegram_bot_enabled():
         return {"status": "disabled"}
 
-    # Verify Secret if configured
+    # Verify Secret if configured AND we are in Webhook Mode
+    # (If we are in polling mode, Telegram won't be sending this header because we didn't setWebhook)
+    public_url, _ = get_public_bot_url_with_source()
+    is_webhook_mode = bool(public_url)
+    
     expected_secret = config.get_telegram_webhook_secret()
-    if expected_secret:
+    
+    if is_webhook_mode and expected_secret:
         if x_telegram_bot_api_secret_token != expected_secret:
-            logger.warning("Invalid Telegram Secret Token")
+            logger.warning("Invalid Telegram Secret Token (Webhook Mode)")
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN, 
                 detail="Invalid Secret Token"

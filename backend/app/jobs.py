@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime
 import logging
 from apscheduler.triggers.cron import CronTrigger
 from app.core.scheduler import init_scheduler, schedule_task
@@ -23,38 +23,87 @@ async def _run_auto_night_scan_task():
     user_store = UserStore(data_dir / "users.json")
     
     # Audit H14: Use DB users instead of local file
-    from app.core.db import get_engine
+    from app.core.db import get_engine, get_db_session
     from sqlalchemy import text
+    from sqlalchemy.ext.asyncio import AsyncSession
+    from app.services.store import DataStore
     
+    # Feature Flag for Safety
+    write_enabled = settings.autoscan_write_enabled
+    logger.info(f"Autoscan Write Mode: {'ENABLED' if write_enabled else 'SAFE (Dry Run)'}")
+
     users = []
+    engine = get_engine()
+    
+    # 1. Get Users
     try:
-        engine = get_engine()
         if engine:
             async with engine.connect() as conn:
                 res = await conn.execute(text("SELECT username FROM users"))
                 rows = res.fetchall()
-                # mimic dict structure expected by code
                 users = [{"username": r[0]} for r in rows]
         else:
-             # Fallback
              users = user_store.get_all_users()
     except Exception as e:
         logger.error(f"Failed to load users from DB: {e}")
         users = user_store.get_all_users()
     
-    count = 0
-    for user in users:
-        # Skip if missing basic role or deactivated
-        if not user.get("username"): 
-            continue
-        try:
-             # TODO: Fetch NS config from DB for this user.
-             logger.info(f"Checking night scan for user {user['username']}... (Skipping actual logic pending DB config access)")
-             count += 1
-        except Exception as e:
-            logger.error(f"Error scanning for user {user.get('username')}: {e}")
+    if not engine:
+        logger.warning("No DB Engine available for Autoscan. Skipping.")
+        return
 
-    logger.info(f"Auto Night Scan Job Completed. Processed {count} users (dry-run).")
+    # 2. Run Scan
+    count = 0
+    ds = DataStore(data_dir)
+    
+    async with AsyncSession(engine) as session:
+        from app.services.nightscout_secrets_service import get_ns_config
+        from app.services.nightscout_client import NightscoutClient
+        
+        for user in users:
+            username = user.get("username")
+            if not username: continue
+            
+            try:
+                # Get NS Client
+                ns_cfg = await get_ns_config(session, username)
+                if not ns_cfg or not ns_cfg.url:
+                    continue
+                    
+                client = NightscoutClient(ns_cfg.url, ns_cfg.api_secret, timeout_seconds=30)
+                
+                try:
+                    # Target Date: Yesterday? Or Today's morning? 
+                    # Usually we scan "Last Night". If running at 7AM, we scan the night that just ended.
+                    # Which is technically "Today's date" for the morning hours (00-06).
+                    target_date = date.today()
+                    
+                    result = await scan_night_service(username, target_date, client, session, write_enabled=write_enabled)
+                    
+                    if not write_enabled:
+                         # Persist Safe Log
+                         log_entry = {
+                             "user": username,
+                             "date": target_date.isoformat(),
+                             "result": result,
+                             "timestamp": datetime.now().isoformat()
+                         }
+                         # Append to daily log or rotational log
+                         try:
+                             logs = ds.read_json("night_scan_safemode.json", [])
+                             logs.insert(0, log_entry)
+                             ds.write_json("night_scan_safemode.json", logs[:100]) # Keep last 100
+                         except Exception as log_e:
+                             logger.error(f"Failed to write safemode log: {log_e}")
+
+                    count += 1
+                finally:
+                    await client.aclose()
+                    
+            except Exception as e:
+               logger.error(f"Error scanning for user {username}: {e}")
+
+    logger.info(f"Auto Night Scan Job Completed. Processed {count} users.")
 
 async def run_auto_night_scan():
     await jobs_state.run_job("auto_night_scan", _run_auto_night_scan_task)

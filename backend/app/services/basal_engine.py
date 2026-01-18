@@ -37,7 +37,7 @@ async def upsert_checkin_service(user_id: str, checkin_date: date, bg: float, tr
     await db.commit()
     return {"status": "ok"}
 
-async def scan_night_service(user_id: str, target_date: date, client: NightscoutClient, db: AsyncSession):
+async def scan_night_service(user_id: str, target_date: date, client: NightscoutClient, db: AsyncSession, write_enabled: bool = False):
     # Window: 00:00 - 06:00 of target_date local time? 
     # Night of X usually means X evening to X+1 morning.
     # User said: "00:00–06:00 local".
@@ -70,31 +70,35 @@ async def scan_night_service(user_id: str, target_date: date, client: Nightscout
     below_70 = sum(1 for x in bgs if x < 70)
     had_hypo = below_70 > 0
     
-    # Upsert Summary
-    stmt = select(BasalNightSummary).where(
-        BasalNightSummary.user_id == user_id,
-        BasalNightSummary.night_date == target_date
-    )
-    res = await db.execute(stmt)
-    existing = res.scalars().first()
-    
-    if existing:
-        existing.had_hypo = had_hypo
-        existing.min_bg_mgdl = min_bg
-        existing.events_below_70 = below_70
-        existing.created_at = datetime.utcnow()
-    else:
-        new_sum = BasalNightSummary(
-            user_id=user_id,
-            night_date=target_date,
-            had_hypo=had_hypo,
-            min_bg_mgdl=min_bg,
-            events_below_70=below_70
+    # DB Write - Validated by write_enabled flag
+    if write_enabled:
+        stmt = select(BasalNightSummary).where(
+            BasalNightSummary.user_id == user_id,
+            BasalNightSummary.night_date == target_date
         )
-        db.add(new_sum)
+        res = await db.execute(stmt)
+        existing = res.scalars().first()
         
-    await db.commit()
-    return {"status": "ok", "had_hypo": had_hypo, "min": min_bg}
+        if existing:
+            existing.had_hypo = had_hypo
+            existing.min_bg_mgdl = min_bg
+            existing.events_below_70 = below_70
+            existing.created_at = datetime.utcnow()
+        else:
+            new_sum = BasalNightSummary(
+                user_id=user_id,
+                night_date=target_date,
+                had_hypo=had_hypo,
+                min_bg_mgdl=min_bg,
+                events_below_70=below_70
+            )
+            db.add(new_sum)
+            
+        await db.commit()
+    else:
+        logger.info(f"Night Scan (Dry Run) for {user_id}: Hypo={had_hypo}, Min={min_bg}")
+        
+    return {"status": "ok", "had_hypo": had_hypo, "min": min_bg, "dry_run": not write_enabled}
 
 async def get_timeline_service(user_id: str, days: int, db: AsyncSession):
     start_date = date.today() - timedelta(days=days)

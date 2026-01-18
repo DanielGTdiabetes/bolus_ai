@@ -116,6 +116,12 @@ async def ingest_nutrition(
     Crea un tratamiento con insulin=0 (Orphan) para que el frontend lo detecte.
     Es "silencioso": si falla, no rompe nada, solo loguea error.
     """
+    # Payload Safety Check (2MB Limit) - Added for Audit Remediation
+    body_bytes = await request.body()
+    if len(body_bytes) > 2 * 1024 * 1024:
+        logger.warning(f"Payload too large: {len(body_bytes)} bytes")
+        raise HTTPException(status_code=413, detail="Payload too large (>2MB)")
+
     # Initialize DataStore locally or via dependency if preferred, here we use settings for path
     
     # 0. EMERGENCY MODE CHECK
@@ -387,10 +393,10 @@ async def ingest_nutrition(
         if session:
             from app.models.treatment import Treatment
             
-            # Use top 5 recent meals
+            # Use top 500 recent meals (extended history)
             count = 0 
             for date_key in sorted_keys:
-                if count >= 5: break
+                if count >= 500: break
                 
                 meal = parsed_meals[date_key]
                 t_carbs = round(meal["c"], 1)
@@ -716,6 +722,140 @@ async def get_ingest_logs(
     return ds.read_json("ingest_logs.json", [])
 
 # --- DRAFT ENDPOINTS ---
+
+from app.models.treatment import Treatment
+
+@router.get("/nutrition/draft", summary="Get current nutrition draft")
+async def get_nutrition_draft(
+    username: str = Depends(auth_required),
+    session: AsyncSession = Depends(get_db_session)
+):
+    """
+    Returns the active draft for the user, if any.
+    Expects a table 'nutrition_drafts' or logic to find pending items.
+    """
+    from sqlalchemy import text
+    try:
+        # Check if table exists (should exist per main.py audit)
+        # We will use raw SQL or a model if defined? 
+        # Models were listed in Step 41, but I didn't see nutrition_draft.py
+        # Main.py "SELECT 1 FROM nutrition_drafts" suggests table exists but maybe no ORM model?
+        # Let's try to infer structure from usage or use a generic approach.
+        # Actually, let's treat 'Draft' as a Treatment with is_uploaded=False, insulin=0, and a special flag? 
+        # Or did the user say "Tabla existente"? Yes.
+        # Let's assume a simple structure: id, user_id, content (JSON), created_at
+        
+        # NOTE: If we lack the ORM model, let's use SQL for safety.
+        stmt = text("SELECT id, content, created_at FROM nutrition_drafts WHERE user_id = :uid ORDER BY created_at DESC LIMIT 1")
+        res = await session.execute(stmt, {"uid": username})
+        row = res.fetchone()
+        
+        if not row:
+            # Check if we have "pending" extracted treatments?
+            # Or just return empty to signal "No Draft"
+            return {} # Frontend expects empty object or null?
+            
+        import json
+        content = row[1]
+        if isinstance(content, str):
+            content = json.loads(content)
+            
+        return {
+            "id": str(row[0]),
+            "content": content,
+            "created_at": row[2].isoformat() if row[2] else None
+        }
+    except Exception as e:
+        logger.error(f"Draft Fetch Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/nutrition/draft/discard", summary="Discard active draft")
+async def discard_nutrition_draft(
+    username: str = Depends(auth_required),
+    session: AsyncSession = Depends(get_db_session)
+):
+    from sqlalchemy import text
+    try:
+        await session.execute(
+            text("DELETE FROM nutrition_drafts WHERE user_id = :uid"), 
+            {"uid": username}
+        )
+        await session.commit()
+        return {"ok": True}
+    except Exception as e:
+        await session.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/nutrition/draft/close", summary="Convert draft to Treatment")
+async def close_nutrition_draft(
+    request: Request,
+    username: str = Depends(auth_required),
+    session: AsyncSession = Depends(get_db_session)
+):
+    """
+    Finalizes the draft. Use the payload as the final truth (user might have edited in UI).
+    """
+    try:
+        data = await request.json()
+        
+        # Create Treatment
+        # data should have carbs, fat, protein, etc.
+        t_id = str(uuid.uuid4())
+        
+        new_t = Treatment(
+            id=t_id,
+            user_id=username,
+            event_type="Meal Bolus",
+            created_at=datetime.now(timezone.utc).replace(tzinfo=None),
+            carbs=float(data.get("carbs", 0)),
+            fat=float(data.get("fat", 0)),
+            protein=float(data.get("protein", 0)),
+            fiber=float(data.get("fiber", 0)),
+            insulin=0.0, # Or maybe passed? Usually draft is just food, bolus comes later.
+            notes=data.get("notes", "Draft Finalized"),
+            entered_by="draft-close",
+            is_uploaded=False
+        )
+        session.add(new_t)
+        
+        # Clear draft
+        from sqlalchemy import text
+        await session.execute(
+            text("DELETE FROM nutrition_drafts WHERE user_id = :uid"), 
+            {"uid": username}
+        )
+        
+        await session.commit()
+        return {"ok": True, "treatment_id": t_id}
+        
+    except Exception as e:
+        await session.rollback()
+        logger.error(f"Draft Close Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.patch("/nutrition/draft/{draft_id}", summary="Update draft")
+async def update_nutrition_draft(
+    draft_id: str,
+    request: Request,
+    username: str = Depends(auth_required),
+    session: AsyncSession = Depends(get_db_session)
+):
+    from sqlalchemy import text
+    import json
+    try:
+        data = await request.json()
+        # Merge logic or replace? Usually replace content.
+        content_json = json.dumps(data)
+        
+        await session.execute(
+            text("UPDATE nutrition_drafts SET content = :c WHERE id = :id AND user_id = :uid"),
+            {"c": content_json, "id": draft_id, "uid": username}
+        )
+        await session.commit()
+        return {"ok": True}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 
 

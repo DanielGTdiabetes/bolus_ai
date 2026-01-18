@@ -1,3 +1,4 @@
+from datetime import datetime
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -29,7 +30,36 @@ async def subscribe_push(
     username: str = Depends(auth_required),
     db: AsyncSession = Depends(get_db_session)
 ):
-    # Store subscription in DB or JSON (Placeholder)
-    # In a real app, save to 'user_push_subscriptions' table
-    print(f"New Push Subscription for {username}: {sub.endpoint[:20]}...")
+    """
+    Persist web push subscription for the user.
+    """
+    from app.models.notifications import PushSubscription as PushModel
+    from sqlalchemy import select
+    from sqlalchemy.dialects.postgresql import insert
+    
+    # Check if endpoint exists
+    stmt = select(PushModel).where(
+        PushModel.user_id == username, 
+        PushModel.endpoint == sub.endpoint
+    )
+    res = await db.execute(stmt)
+    existing = res.scalars().first()
+    
+    if existing:
+        existing.keys = sub.keys
+        existing.updated_at = datetime.utcnow()
+    else:
+        new_sub = PushModel(
+            user_id=username,
+            endpoint=sub.endpoint,
+            keys=sub.keys
+        )
+        db.add(new_sub)
+        
+    try:
+        await db.commit()
+    except Exception as e:
+        await db.rollback()
+        # Handle unique constraint violation race condition if needed, but select-then-update is mostly fine for user-locked context
+    
     return {"ok": True, "message": "Subscribed"}
