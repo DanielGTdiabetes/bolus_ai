@@ -731,39 +731,26 @@ async def get_nutrition_draft(
     session: AsyncSession = Depends(get_db_session)
 ):
     """
-    Returns the active draft for the user, if any.
-    Expects a table 'nutrition_drafts' or logic to find pending items.
+    Returns the active draft for the user.
+    Frontend expects: { "active": bool, "draft": {...} }
     """
-    from sqlalchemy import text
+    from app.models.nutrition import NutritionDraft
+    
     try:
-        # Check if table exists (should exist per main.py audit)
-        # We will use raw SQL or a model if defined? 
-        # Models were listed in Step 41, but I didn't see nutrition_draft.py
-        # Main.py "SELECT 1 FROM nutrition_drafts" suggests table exists but maybe no ORM model?
-        # Let's try to infer structure from usage or use a generic approach.
-        # Actually, let's treat 'Draft' as a Treatment with is_uploaded=False, insulin=0, and a special flag? 
-        # Or did the user say "Tabla existente"? Yes.
-        # Let's assume a simple structure: id, user_id, content (JSON), created_at
+        stmt = select(NutritionDraft).where(NutritionDraft.user_id == username).order_by(NutritionDraft.created_at.desc())
+        res = await session.execute(stmt)
+        draft = res.scalars().first()
         
-        # NOTE: If we lack the ORM model, let's use SQL for safety.
-        stmt = text("SELECT id, content, created_at FROM nutrition_drafts WHERE user_id = :uid ORDER BY created_at DESC LIMIT 1")
-        res = await session.execute(stmt, {"uid": username})
-        row = res.fetchone()
-        
-        if not row:
-            # Check if we have "pending" extracted treatments?
-            # Or just return empty to signal "No Draft"
-            return {} # Frontend expects empty object or null?
-            
-        import json
-        content = row[1]
-        if isinstance(content, str):
-            content = json.loads(content)
+        if not draft:
+            return {"active": False, "draft": None}
             
         return {
-            "id": str(row[0]),
-            "content": content,
-            "created_at": row[2].isoformat() if row[2] else None
+            "active": True,
+            "draft": {
+                "id": draft.draft_id,
+                "items": draft.items, # The frontend likely expects the 'content' here
+                "created_at": draft.created_at.isoformat() if draft.created_at else None
+            }
         }
     except Exception as e:
         logger.error(f"Draft Fetch Error: {e}")
@@ -774,12 +761,15 @@ async def discard_nutrition_draft(
     username: str = Depends(auth_required),
     session: AsyncSession = Depends(get_db_session)
 ):
-    from sqlalchemy import text
+    from app.models.nutrition import NutritionDraft
     try:
-        await session.execute(
-            text("DELETE FROM nutrition_drafts WHERE user_id = :uid"), 
-            {"uid": username}
-        )
+        stmt = select(NutritionDraft).where(NutritionDraft.user_id == username)
+        res = await session.execute(stmt)
+        drafts = res.scalars().all()
+        
+        for d in drafts:
+            await session.delete(d)
+            
         await session.commit()
         return {"ok": True}
     except Exception as e:
@@ -793,13 +783,65 @@ async def close_nutrition_draft(
     session: AsyncSession = Depends(get_db_session)
 ):
     """
-    Finalizes the draft. Use the payload as the final truth (user might have edited in UI).
+    Finalizes the draft. 
+    If body is provided, use it. If empty (frontend standard), use the saved draft content.
     """
+    from app.models.nutrition import NutritionDraft
+    
     try:
-        data = await request.json()
+        # 1. Try to get payload, but don't fail if empty
+        data = None
+        try:
+            body_bytes = await request.body()
+            if body_bytes:
+                data = await request.json()
+        except Exception:
+            pass
+            
+        # 2. Get the draft from DB
+        stmt = select(NutritionDraft).where(NutritionDraft.user_id == username).order_by(NutritionDraft.created_at.desc())
+        res = await session.execute(stmt)
+        draft = res.scalars().first()
+        
+        if not draft and not data:
+            raise HTTPException(status_code=404, detail="No active draft to close")
+
+        # 3. Determine final values
+        # logic: prioritize data (if edited in modal), else fall back to draft.items
+        
+        final_carbs = 0.0
+        final_fat = 0.0
+        final_prot = 0.0
+        final_fiber = 0.0
+        final_notes = "Draft Finalized"
+        
+        if data:
+            final_carbs = float(data.get("carbs", 0))
+            final_fat = float(data.get("fat", 0))
+            final_prot = float(data.get("protein", 0))
+            final_fiber = float(data.get("fiber", 0))
+            final_notes = data.get("notes", final_notes)
+        elif draft:
+            # Parse items from draft
+            # draft.items is likely a list or a dict. 
+            # Assuming it's a list of food items, sum them up. 
+            # OR if it's already an aggregated object.
+            # Based on 'ingest', we don't know exactly what 'items' holds yet, but let's assume it holds the nutrition payload.
+            # If items is a list:
+            items = draft.items
+            if isinstance(items, list):
+                for item in items:
+                     final_carbs += float(item.get("carbs", 0))
+                     final_fat += float(item.get("fat", 0))
+                     final_prot += float(item.get("protein", 0))
+                     final_fiber += float(item.get("fiber", 0))
+            elif isinstance(items, dict):
+                 final_carbs = float(items.get("carbs", 0))
+                 final_fat = float(items.get("fat", 0))
+                 final_prot = float(items.get("protein", 0))
+                 final_fiber = float(items.get("fiber", 0))
         
         # Create Treatment
-        # data should have carbs, fat, protein, etc.
         t_id = str(uuid.uuid4())
         
         new_t = Treatment(
@@ -807,27 +849,26 @@ async def close_nutrition_draft(
             user_id=username,
             event_type="Meal Bolus",
             created_at=datetime.now(timezone.utc).replace(tzinfo=None),
-            carbs=float(data.get("carbs", 0)),
-            fat=float(data.get("fat", 0)),
-            protein=float(data.get("protein", 0)),
-            fiber=float(data.get("fiber", 0)),
-            insulin=0.0, # Or maybe passed? Usually draft is just food, bolus comes later.
-            notes=data.get("notes", "Draft Finalized"),
+            carbs=final_carbs,
+            fat=final_fat,
+            protein=final_prot,
+            fiber=final_fiber,
+            insulin=0.0, 
+            notes=final_notes,
             entered_by="draft-close",
             is_uploaded=False
         )
         session.add(new_t)
         
         # Clear draft
-        from sqlalchemy import text
-        await session.execute(
-            text("DELETE FROM nutrition_drafts WHERE user_id = :uid"), 
-            {"uid": username}
-        )
+        if draft:
+            await session.delete(draft)
         
         await session.commit()
         return {"ok": True, "treatment_id": t_id}
         
+    except HTTPException as he:
+        raise he
     except Exception as e:
         await session.rollback()
         logger.error(f"Draft Close Error: {e}")
@@ -840,17 +881,25 @@ async def update_nutrition_draft(
     username: str = Depends(auth_required),
     session: AsyncSession = Depends(get_db_session)
 ):
-    from sqlalchemy import text
+    from app.models.nutrition import NutritionDraft
     import json
+    
     try:
         data = await request.json()
-        # Merge logic or replace? Usually replace content.
-        content_json = json.dumps(data)
         
-        await session.execute(
-            text("UPDATE nutrition_drafts SET content = :c WHERE id = :id AND user_id = :uid"),
-            {"c": content_json, "id": draft_id, "uid": username}
-        )
+        stmt = select(NutritionDraft).where(NutritionDraft.draft_id == draft_id, NutritionDraft.user_id == username)
+        res = await session.execute(stmt)
+        draft = res.scalars().first()
+        
+        if not draft:
+            raise HTTPException(status_code=404, detail="Draft not found")
+            
+        # Update items
+        # If data is the new state, replace it. 
+        # CAUTION: Postgres JSONB update.
+        draft.items = data
+        draft.updated_at = datetime.utcnow()
+        
         await session.commit()
         return {"ok": True}
     except Exception as e:
