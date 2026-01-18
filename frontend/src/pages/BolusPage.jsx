@@ -62,9 +62,6 @@ export default function BolusPage() {
         orphanCarbs, isUsingOrphan, setIsUsingOrphan, checkOrphans
     } = useOrphanDetection();
 
-    const {
-        orphanCarbs, isUsingOrphan, setIsUsingOrphan, checkOrphans
-    } = useOrphanDetection();
 
     const {
         calculate, save, result, setResult, calcUsedParams,
