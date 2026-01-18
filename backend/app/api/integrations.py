@@ -725,185 +725,50 @@ async def get_ingest_logs(
 
 from app.models.treatment import Treatment
 
+# --- DRAFT ENDPOINTS (STUBS) ---
+# User requested to keep this functionality disabled/minimized to avoid risk.
+# We implementation stubs to prevent Frontend 404 errors.
+
 @router.get("/nutrition/draft", summary="Get current nutrition draft")
 async def get_nutrition_draft(
     username: str = Depends(auth_required),
-    session: AsyncSession = Depends(get_db_session)
 ):
     """
-    Returns the active draft for the user.
-    Frontend expects: { "active": bool, "draft": {...} }
+    Stub: Always return no active draft.
     """
-    from app.models.nutrition import NutritionDraft
-    
-    try:
-        stmt = select(NutritionDraft).where(NutritionDraft.user_id == username).order_by(NutritionDraft.created_at.desc())
-        res = await session.execute(stmt)
-        draft = res.scalars().first()
-        
-        if not draft:
-            return {"active": False, "draft": None}
-            
-        return {
-            "active": True,
-            "draft": {
-                "id": draft.draft_id,
-                "items": draft.items, # The frontend likely expects the 'content' here
-                "created_at": draft.created_at.isoformat() if draft.created_at else None
-            }
-        }
-    except Exception as e:
-        logger.error(f"Draft Fetch Error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    return {"active": False, "draft": None}
 
 @router.post("/nutrition/draft/discard", summary="Discard active draft")
 async def discard_nutrition_draft(
     username: str = Depends(auth_required),
-    session: AsyncSession = Depends(get_db_session)
 ):
-    from app.models.nutrition import NutritionDraft
-    try:
-        stmt = select(NutritionDraft).where(NutritionDraft.user_id == username)
-        res = await session.execute(stmt)
-        drafts = res.scalars().all()
-        
-        for d in drafts:
-            await session.delete(d)
-            
-        await session.commit()
-        return {"ok": True}
-    except Exception as e:
-        await session.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
+    """
+    Stub: No-op.
+    """
+    return {"ok": True}
 
 @router.post("/nutrition/draft/close", summary="Convert draft to Treatment")
 async def close_nutrition_draft(
     request: Request,
     username: str = Depends(auth_required),
-    session: AsyncSession = Depends(get_db_session)
 ):
     """
-    Finalizes the draft. 
-    If body is provided, use it. If empty (frontend standard), use the saved draft content.
+    Stub: No-op / Error. 
+    If the UI calls this, it means they somehow have a draft. 
+    We return an error to indicate this path is disabled, or just ok.
     """
-    from app.models.nutrition import NutritionDraft
-    
-    try:
-        # 1. Try to get payload, but don't fail if empty
-        data = None
-        try:
-            body_bytes = await request.body()
-            if body_bytes:
-                data = await request.json()
-        except Exception:
-            pass
-            
-        # 2. Get the draft from DB
-        stmt = select(NutritionDraft).where(NutritionDraft.user_id == username).order_by(NutritionDraft.created_at.desc())
-        res = await session.execute(stmt)
-        draft = res.scalars().first()
-        
-        if not draft and not data:
-            raise HTTPException(status_code=404, detail="No active draft to close")
-
-        # 3. Determine final values
-        # logic: prioritize data (if edited in modal), else fall back to draft.items
-        
-        final_carbs = 0.0
-        final_fat = 0.0
-        final_prot = 0.0
-        final_fiber = 0.0
-        final_notes = "Draft Finalized"
-        
-        if data:
-            final_carbs = float(data.get("carbs", 0))
-            final_fat = float(data.get("fat", 0))
-            final_prot = float(data.get("protein", 0))
-            final_fiber = float(data.get("fiber", 0))
-            final_notes = data.get("notes", final_notes)
-        elif draft:
-            # Parse items from draft
-            # draft.items is likely a list or a dict. 
-            # Assuming it's a list of food items, sum them up. 
-            # OR if it's already an aggregated object.
-            # Based on 'ingest', we don't know exactly what 'items' holds yet, but let's assume it holds the nutrition payload.
-            # If items is a list:
-            items = draft.items
-            if isinstance(items, list):
-                for item in items:
-                     final_carbs += float(item.get("carbs", 0))
-                     final_fat += float(item.get("fat", 0))
-                     final_prot += float(item.get("protein", 0))
-                     final_fiber += float(item.get("fiber", 0))
-            elif isinstance(items, dict):
-                 final_carbs = float(items.get("carbs", 0))
-                 final_fat = float(items.get("fat", 0))
-                 final_prot = float(items.get("protein", 0))
-                 final_fiber = float(items.get("fiber", 0))
-        
-        # Create Treatment
-        t_id = str(uuid.uuid4())
-        
-        new_t = Treatment(
-            id=t_id,
-            user_id=username,
-            event_type="Meal Bolus",
-            created_at=datetime.now(timezone.utc).replace(tzinfo=None),
-            carbs=final_carbs,
-            fat=final_fat,
-            protein=final_prot,
-            fiber=final_fiber,
-            insulin=0.0, 
-            notes=final_notes,
-            entered_by="draft-close",
-            is_uploaded=False
-        )
-        session.add(new_t)
-        
-        # Clear draft
-        if draft:
-            await session.delete(draft)
-        
-        await session.commit()
-        return {"ok": True, "treatment_id": t_id}
-        
-    except HTTPException as he:
-        raise he
-    except Exception as e:
-        await session.rollback()
-        logger.error(f"Draft Close Error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    # If the user insists on "Drafts Removed", we shouldn't allow closing.
+    return {"ok": False, "message": "Draft functionality is disabled."}
 
 @router.patch("/nutrition/draft/{draft_id}", summary="Update draft")
 async def update_nutrition_draft(
     draft_id: str,
-    request: Request,
     username: str = Depends(auth_required),
-    session: AsyncSession = Depends(get_db_session)
 ):
-    from app.models.nutrition import NutritionDraft
-    import json
-    
-    try:
-        data = await request.json()
-        
-        stmt = select(NutritionDraft).where(NutritionDraft.draft_id == draft_id, NutritionDraft.user_id == username)
-        res = await session.execute(stmt)
-        draft = res.scalars().first()
-        
-        if not draft:
-            raise HTTPException(status_code=404, detail="Draft not found")
-            
-        # Update items
-        # If data is the new state, replace it. 
-        # CAUTION: Postgres JSONB update.
-        draft.items = data
-        draft.updated_at = datetime.utcnow()
-        
-        await session.commit()
-        return {"ok": True}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    """
+    Stub: No-op.
+    """
+    return {"ok": True}
 
 
 
