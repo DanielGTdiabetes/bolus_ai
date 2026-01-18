@@ -1,4 +1,4 @@
-from pathlib import Path
+import logging
 from pathlib import Path
 
 from fastapi import APIRouter, Body, Depends, HTTPException, status, Request
@@ -11,6 +11,7 @@ from app.core.security import auth_required, get_token_manager, hash_password, v
 from app.core.settings import Settings, get_settings
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 # Rate Limiting State (In-Memory)
 # Key: IP_Username, Value: list of timestamps

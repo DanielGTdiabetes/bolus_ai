@@ -1,5 +1,6 @@
 
 from unittest.mock import AsyncMock, MagicMock
+import pytest
 from fastapi.testclient import TestClient
 from app.main import app
 from app.core.security import get_current_user, auth_required, CurrentUser
@@ -22,9 +23,13 @@ async def mock_get_db_session():
     mock_session.execute.return_value = mock_result
     yield mock_session
 
-app.dependency_overrides[get_current_user] = mock_get_current_user
-app.dependency_overrides[auth_required] = mock_auth_required
-app.dependency_overrides[get_db_session] = mock_get_db_session
+@pytest.fixture(autouse=True)
+def override_dependencies():
+    app.dependency_overrides[get_current_user] = mock_get_current_user
+    app.dependency_overrides[auth_required] = mock_auth_required
+    app.dependency_overrides[get_db_session] = mock_get_db_session
+    yield
+    app.dependency_overrides = {}
 
 def test_suggestions_list_fix():
     """Test that suggestions endpoint handles CurrentUser object correctly"""

@@ -38,7 +38,10 @@ async def test_notifications_unread():
     # or passed. But here it's imported directly.
     # We need to mock 'app.services.notification_service.get_advice_service'.
     
-    db.execute.side_effect = [mr_s, mr_p, mr_e]
+    mr_meal = MagicMock()
+    mr_meal.scalars.return_value.first.return_value = None
+
+    db.execute.side_effect = [mr_s, mr_p, mr_e, mr_meal]
     
     with pytest.MonkeyPatch.context() as m:
         # Mock basal advice logic
@@ -101,7 +104,9 @@ async def test_mark_seen_flow():
     mr_e2 = MagicMock()
     mr_e2.scalars.return_value.all.return_value = [] 
     
-    db.execute.side_effect = [mr_s2, mr_p2, mr_e2]
+    mr_meal2 = MagicMock()
+    mr_meal2.scalars.return_value.first.return_value = None
+    db.execute.side_effect = [mr_s2, mr_p2, mr_e2, mr_meal2]
     
     with pytest.MonkeyPatch.context() as m:
         async def mock_advice(*args):

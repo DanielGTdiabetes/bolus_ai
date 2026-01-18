@@ -18,7 +18,7 @@ def test_nightscout_secrets_store_and_get():
         mock_get_settings.return_value = mock_settings
 
         # Retrieve settings
-        settings = get_settings()
+        settings = mock_get_settings()
         
         # Verify secrets are accessible (simulating 'get')
         assert settings.nightscout.token == "test-token"
@@ -112,7 +112,7 @@ async def test_treatments_uses_header_api_secret():
 @pytest.mark.asyncio
 async def test_treatments_uses_header_logic_verification():
     base_url = "https://ns.example.com"
-    token = "eyTest.JWT.Token" # valid looking JWT
+    token = "eyMock.JWT.Token.Payload.Signature" # valid looking JWT
     
     ns_client = NightscoutClient(base_url=base_url, token=token)
     

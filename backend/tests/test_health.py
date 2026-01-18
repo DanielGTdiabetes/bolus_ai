@@ -16,18 +16,19 @@ def test_health_ok():
 
 from unittest.mock import MagicMock
 from app.core.settings import get_settings
+from app.core.security import CurrentUser, get_current_user
 
 def test_full_health_contains_fields(mocker):
     # Override settings to ensure Nightscout is enabled (system-level)
     def mock_settings():
-        s = MagicMock()
-        s.nightscout.base_url = "https://mock-ns.example.com"
-        s.nightscout.token = "foo"
-        s.nightscout.api_secret = None
-        s.nightscout.timeout_seconds = 10
-        s.server.host = "localhost"
-        s.server.port = 8000
-        return s
+        real_settings = get_settings().model_copy(deep=True)
+        real_settings.nightscout.base_url = "https://mock-ns.example.com"
+        real_settings.nightscout.token = "foo"
+        real_settings.nightscout.api_secret = None
+        real_settings.nightscout.timeout_seconds = 10
+        real_settings.server.host = "localhost"
+        real_settings.server.port = 8000
+        return real_settings
     
     app.dependency_overrides[get_settings] = mock_settings
 
@@ -42,6 +43,8 @@ def test_full_health_contains_fields(mocker):
         "app.services.nightscout_client.NightscoutClient.aclose",
         new=AsyncMock(),
     )
+
+    app.dependency_overrides[get_current_user] = lambda: CurrentUser(username="admin", role="admin")
 
     try:
         response = client.get("/api/health/full")

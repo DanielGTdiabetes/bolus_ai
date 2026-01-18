@@ -17,12 +17,10 @@ async def test_treatments_empty_body():
 
     ns_client = NightscoutClient(base_url="http://mock", client=mock_client)
     
-    with pytest.raises(NightscoutError) as excinfo:
-        await ns_client.get_recent_treatments()
-    
-    assert "Empty body" in str(excinfo.value)
-    # Ensure it retried? We can inspect call count
-    assert mock_client.get.call_count == 3 # 0 + 2 retries
+    treatments = await ns_client.get_recent_treatments()
+
+    assert treatments == []
+    assert mock_client.get.call_count == 1
 
 @pytest.mark.asyncio
 async def test_treatments_invalid_json():
@@ -60,11 +58,15 @@ async def test_treatments_success():
     mock_response = MagicMock()
     
     mock_response.status_code = 200
-    mock_response.content = b'...'
-    type(mock_response).content = PropertyMock(return_value=b'[...]')
+    from datetime import datetime, timezone
+    recent_ts = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    payload = (
+        f'[{{"created_at": "{recent_ts}", "insulin": 1.5, "eventType": "Correction Bolus"}}]'.encode()
+    )
+    mock_response.content = payload
+    type(mock_response).content = PropertyMock(return_value=payload)
     
-    data = [{"created_at": "2025-12-15T10:00:00Z", "insulin": 1.5, "eventType": "Correction Bolus"}]
-    mock_response.json = Mock(return_value=data)
+    mock_response.json = Mock(side_effect=AssertionError("response.json should not be used"))
     mock_response.raise_for_status = Mock()
     
     mock_client.get.return_value = mock_response

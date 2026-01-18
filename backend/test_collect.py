@@ -4,6 +4,8 @@ import os
 from app.core.db import init_db
 from app.bot.service import _collect_ml_data
 
+__test__ = False
+
 async def test():
     os.environ["JWT_SECRET"] = "dummy"
     init_db()

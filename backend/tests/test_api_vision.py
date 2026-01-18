@@ -15,10 +15,13 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setenv("DATA_DIR", str(tmp_path))
     monkeypatch.setenv("JWT_SECRET", "test-secret-vision")
     monkeypatch.setenv("OPENAI_API_KEY", "sk-fake-test-key")
+    monkeypatch.setenv("VISION_PROVIDER", "openai")
     # Reload main to pick up new routers if needed
     import app.main as main
     from importlib import reload
     reload(main)
+    from app.core.datastore import UserStore
+    UserStore(tmp_path / "users.json").ensure_seed_admin()
     return TestClient(main.app)
 
 def test_vision_unauthorized(client):
@@ -100,4 +103,3 @@ def test_vision_split_logic():
     assert u == 7.0
     assert l == 3.0
     assert d == 105
-

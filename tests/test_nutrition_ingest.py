@@ -59,15 +59,22 @@ async def db_session():
 
 
 @pytest.fixture
-def token_manager():
-    return TokenManager(get_settings())
-
-
-@pytest.fixture
 def nutrition_key(monkeypatch):
     key = "secret-key"
     monkeypatch.setenv("NUTRITION_INGEST_KEY", key)
+    monkeypatch.setenv("NUTRITION_INGEST_SECRET", key)
+    get_settings.cache_clear()
     return key
+
+
+@pytest.fixture
+def settings(nutrition_key):
+    return get_settings()
+
+
+@pytest.fixture
+def token_manager(settings):
+    return TokenManager(settings)
 
 
 def _make_request(query: str = ""):
@@ -91,14 +98,16 @@ def _make_request(query: str = ""):
 
 
 @pytest.mark.asyncio
-async def test_ingest_saves_fiber(db_session, token_manager, nutrition_key):
+async def test_ingest_saves_fiber(db_session, token_manager, nutrition_key, settings):
     ts = _ts_now()
     result = await ingest_nutrition(
         payload={"fiber": 12, "timestamp": ts},
         request=_make_request(f"key={nutrition_key}"),
         authorization=None,
+        ingest_key_header=None,
         session=db_session,
         token_manager=token_manager,
+        settings=settings,
     )
 
     assert result["success"] == 1
@@ -108,22 +117,26 @@ async def test_ingest_saves_fiber(db_session, token_manager, nutrition_key):
 
 
 @pytest.mark.asyncio
-async def test_ingest_updates_fiber_on_duplicate(db_session, token_manager, nutrition_key):
+async def test_ingest_updates_fiber_on_duplicate(db_session, token_manager, nutrition_key, settings):
     ts = _ts_now()
 
     await ingest_nutrition(
         payload={"fiber": 12, "timestamp": ts},
         request=_make_request(f"key={nutrition_key}"),
         authorization=None,
+        ingest_key_header=None,
         session=db_session,
         token_manager=token_manager,
+        settings=settings,
     )
     await ingest_nutrition(
         payload={"fiber": 18, "timestamp": ts},
         request=_make_request(f"key={nutrition_key}"),
         authorization=None,
+        ingest_key_header=None,
         session=db_session,
         token_manager=token_manager,
+        settings=settings,
     )
 
     saved = (await db_session.execute(select(Treatment))).scalars().all()
@@ -132,14 +145,16 @@ async def test_ingest_updates_fiber_on_duplicate(db_session, token_manager, nutr
 
 
 @pytest.mark.asyncio
-async def test_ingest_accepts_fiber_only_entries(db_session, token_manager, nutrition_key):
+async def test_ingest_accepts_fiber_only_entries(db_session, token_manager, nutrition_key, settings):
     ts = _ts_now()
     result = await ingest_nutrition(
         payload={"carbs": 0, "fat": 0, "protein": 0, "fiber": 10, "timestamp": ts},
         request=_make_request(f"key={nutrition_key}"),
         authorization=None,
+        ingest_key_header=None,
         session=db_session,
         token_manager=token_manager,
+        settings=settings,
     )
 
     assert result["success"] == 1
@@ -150,15 +165,17 @@ async def test_ingest_accepts_fiber_only_entries(db_session, token_manager, nutr
 
 
 @pytest.mark.asyncio
-async def test_ingest_rejects_without_auth(db_session, token_manager, monkeypatch):
+async def test_ingest_rejects_without_auth(db_session, token_manager, monkeypatch, settings):
     monkeypatch.delenv("NUTRITION_INGEST_KEY", raising=False)
     with pytest.raises(HTTPException) as exc:
         await ingest_nutrition(
             payload={"fiber": 5},
             request=_make_request(),
             authorization=None,
+            ingest_key_header=None,
             session=db_session,
             token_manager=token_manager,
+            settings=settings,
         )
 
     assert exc.value.status_code == 401
@@ -166,7 +183,7 @@ async def test_ingest_rejects_without_auth(db_session, token_manager, monkeypatc
 
 
 @pytest.mark.asyncio
-async def test_ingest_accepts_bearer_token(db_session, token_manager):
+async def test_ingest_accepts_bearer_token(db_session, token_manager, settings):
     ts = _ts_now()
     token = token_manager.create_access_token("tester")
 
@@ -174,8 +191,10 @@ async def test_ingest_accepts_bearer_token(db_session, token_manager):
         payload={"fiber": 7, "timestamp": ts},
         request=_make_request(),
         authorization=f"Bearer {token}",
+        ingest_key_header=None,
         session=db_session,
         token_manager=token_manager,
+        settings=settings,
     )
 
     assert result["success"] == 1

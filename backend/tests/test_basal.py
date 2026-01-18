@@ -88,7 +88,11 @@ async def test_get_latest_dose_empty(override_auth):
         
         response = client.get("/api/basal/latest")
         assert response.status_code == 200
-        assert response.json() is None
+        assert response.json() == {
+            "dose_u": None,
+            "effective_from": None,
+            "created_at": None,
+        }
 
 @pytest.mark.asyncio
 async def test_get_history(override_auth):
