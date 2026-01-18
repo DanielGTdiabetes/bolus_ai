@@ -5,7 +5,7 @@ import { Card, Button } from '../components/ui/Atoms';
 import { useInterval } from '../hooks/useInterval';
 import {
     getCurrentGlucose, getIOBData, fetchTreatments, getLocalNsConfig, getGlucoseEntries, apiFetch, toJson, saveTreatment, recalcSecondBolus,
-    getNutritionDraft, closeNutritionDraft, discardNutritionDraft, isAuthenticated
+    isAuthenticated
 } from '../lib/api';
 import { formatTrend, formatNotes } from '../modules/core/utils';
 import { navigate } from '../modules/core/navigation';
@@ -481,106 +481,7 @@ function RestaurantActivePanel() {
     );
 }
 
-function NutritionDraftPanel() {
-    const [draft, setDraft] = useState(null);
-    const [loading, setLoading] = useState(false);
 
-    const checkDraft = async () => {
-        // Don't check if not authenticated
-        if (!isAuthenticated()) {
-            setDraft(null);
-            return;
-        }
-        try {
-            const d = await getNutritionDraft();
-            if (d?.active && d?.draft) {
-                setDraft(d.draft);
-            } else {
-                setDraft(null);
-            }
-        } catch {
-            setDraft(null);
-        }
-    };
-
-    useEffect(() => {
-        if (isAuthenticated()) checkDraft();
-    }, []);
-
-    const handleConfirm = async () => {
-        // We do NOT close the draft here. We navigate to Bolus Page.
-        // The Bolus Page will detect the active draft and prompt the user to apply it.
-        navigate('#/bolus');
-    };
-
-    const handleDiscard = async () => {
-        if (!confirm("¿Descartar borrador?")) return;
-        setLoading(true);
-        try {
-            await discardNutritionDraft();
-            setDraft(null);
-        } catch (e) {
-            alert(e.message);
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    if (!draft) return null;
-
-    const parsedUpdatedAt = draft?.updated_at ? new Date(draft.updated_at) : null;
-    const formattedTime = parsedUpdatedAt && !isNaN(parsedUpdatedAt)
-        ? parsedUpdatedAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-        : '-';
-
-    const macros = {
-        carbs: Number(draft?.carbs ?? 0),
-        fat: Number(draft?.fat ?? 0),
-        protein: Number(draft?.protein ?? 0),
-        fiber: Number(draft?.fiber ?? 0)
-    };
-
-    return (
-        <section className="card draft-panel" style={{ marginBottom: '1rem', background: '#ecfdf5', borderColor: '#6ee7b7', border: '1px solid #34d399', borderRadius: '12px', padding: '1rem' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
-                <h3 style={{ margin: 0, color: '#047857', fontSize: '1rem', display: 'flex', alignItems: 'center', gap: '5px' }}>
-                    📝 Comida en Curso
-                </h3>
-                <div style={{ fontSize: '0.8rem', color: '#059669' }}>
-                    {formattedTime}
-                </div>
-            </div>
-
-            <div style={{ display: 'flex', gap: '10px', marginBottom: '1rem' }}>
-                <div style={{ flex: 1, textAlign: 'center', background: '#fff', borderRadius: '8px', padding: '0.5rem' }}>
-                    <div style={{ fontSize: '1.2rem', fontWeight: 'bold', color: '#059669' }}>{Number(macros.carbs).toFixed(1).replace(/\.0$/, '')}</div>
-                    <div style={{ fontSize: '0.7rem', color: '#6b7280' }}>Carbs</div>
-                </div>
-                <div style={{ flex: 1, textAlign: 'center', background: '#fff', borderRadius: '8px', padding: '0.5rem' }}>
-                    <div style={{ fontSize: '1.2rem', fontWeight: 'bold', color: '#059669' }}>{Number(macros.fat).toFixed(1).replace(/\.0$/, '')}</div>
-                    <div style={{ fontSize: '0.7rem', color: '#6b7280' }}>Grasa</div>
-                </div>
-                <div style={{ flex: 1, textAlign: 'center', background: '#fff', borderRadius: '8px', padding: '0.5rem' }}>
-                    <div style={{ fontSize: '1.2rem', fontWeight: 'bold', color: '#059669' }}>{Number(macros.protein).toFixed(1).replace(/\.0$/, '')}</div>
-                    <div style={{ fontSize: '0.7rem', color: '#6b7280' }}>Prot</div>
-                </div>
-                <div style={{ flex: 1, textAlign: 'center', background: '#fff', borderRadius: '8px', padding: '0.5rem' }}>
-                    <div style={{ fontSize: '1.2rem', fontWeight: 'bold', color: '#059669' }}>{Number(macros.fiber).toFixed(1).replace(/\.0$/, '')}</div>
-                    <div style={{ fontSize: '0.7rem', color: '#6b7280' }}>Fibra</div>
-                </div>
-            </div>
-
-            <div style={{ display: 'flex', gap: '10px' }}>
-                <Button onClick={handleDiscard} disabled={loading} size="sm" style={{ flex: 1, background: '#fee2e2', color: '#b91c1c', border: 'none' }}>
-                    Descartar
-                </Button>
-                <Button onClick={handleConfirm} disabled={loading} size="sm" style={{ flex: 2, background: '#7c3aed', color: '#fff', border: 'none' }}>
-                    Revisar en Calculadora
-                </Button>
-            </div>
-        </section>
-    );
-}
 
 // U2 Dual Panel Component
 function DualBolusPanel({ onHide, onCancel }) {
@@ -828,7 +729,7 @@ export default function HomePage() {
             />
             <main className="page" style={{ paddingBottom: '90px' }}>
                 <GlucoseHero onRefresh={refreshSignal} />
-                <NutritionDraftPanel />
+
                 <RestaurantActivePanel />
                 {activePlan && !dualHidden && (
                     <DualBolusPanel
