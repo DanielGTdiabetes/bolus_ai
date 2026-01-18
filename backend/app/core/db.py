@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, Asyn
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy import text, select
 from sqlalchemy.engine import make_url
-from sqlalchemy.pool import NullPool
+from sqlalchemy.pool import NullPool, StaticPool
 
 from app.core.settings import get_settings
 
@@ -71,7 +71,19 @@ def init_db():
                 "pool_pre_ping": True,
             }
             if make_url(url).drivername.startswith("sqlite"):
-                engine_kwargs["poolclass"] = NullPool
+                sqlite_url = make_url(url)
+                query = dict(sqlite_url.query)
+                database = sqlite_url.database or ""
+                is_memory = (
+                    database == ":memory:"
+                    or ":memory:" in database
+                    or query.get("mode") == "memory"
+                )
+                if is_memory:
+                    engine_kwargs["poolclass"] = StaticPool
+                    engine_kwargs["connect_args"] = {"check_same_thread": False}
+                else:
+                    engine_kwargs["poolclass"] = NullPool
             else:
                 engine_kwargs["pool_size"] = 20
                 engine_kwargs["max_overflow"] = 20
