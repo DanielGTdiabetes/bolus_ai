@@ -1,37 +1,60 @@
 
 import logging
 from datetime import datetime, timedelta, timezone
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from typing import Optional
+
+from sqlalchemy import select, text
 
 from app.core.db import SessionLocal
-from app.services.nightscout_client import get_nightscout_client
+from app.core.settings import get_settings
 from app.models.treatment import Treatment
+from app.services.nightscout_client import NightscoutClient
+from app.services.nightscout_secrets_service import get_ns_config
 
 logger = logging.getLogger(__name__)
+
+
+async def _get_single_user_id(session) -> Optional[str]:
+    result = await session.execute(text("SELECT username FROM users"))
+    usernames = [row[0] for row in result.fetchall()]
+    if len(usernames) == 1:
+        return usernames[0]
+    return None
+
 
 async def run_rescue_sync(hours: int = 6):
     """
     Fetches treatments from Nightscout for the last N hours and upserts them locally.
     Critial for NAS recovery to regain IOB/COB context.
     """
-    logger.info(f"🚑 Starting Rescue Sync (Last {hours}h from Nightscout)...")
-    
-    client = get_nightscout_client()
-    if not client:
-        logger.warning("🚑 Rescue Sync Skipped: Nightscout not configured.")
+    settings = get_settings()
+    if settings.emergency_mode:
+        logger.warning("🚑 Rescue Sync skipped: EMERGENCY_MODE enabled.")
         return
 
-    try:
-        # 1. Fetch from Nightscout
-        treatments = await client.get_recent_treatments(hours=hours)
-        if not treatments:
-            logger.info("🚑 No recent treatments found in Nightscout.")
+    logger.info(f"🚑 Starting Rescue Sync (Last {hours}h from Nightscout)...")
+    
+    async with SessionLocal() as session:
+        user_id = await _get_single_user_id(session)
+        if not user_id:
+            logger.info("Rescue Sync skipped: no Nightscout configured")
             return
 
-        async with SessionLocal() as session:
+        ns_config = await get_ns_config(session, user_id)
+        if not ns_config or not ns_config.url or not ns_config.enabled:
+            logger.info("Rescue Sync skipped: no Nightscout configured")
+            return
+
+        client = NightscoutClient(ns_config.url, ns_config.api_secret)
+
+        try:
+            # 1. Fetch from Nightscout
+            treatments = await client.get_recent_treatments(hours=hours)
+            if not treatments:
+                logger.info("🚑 No recent treatments found in Nightscout.")
+                return
+
             count_new = 0
-            count_updated = 0
             
             for t_ns in treatments:
                 # 2. Check existence (by ID or approximate match?)
@@ -89,7 +112,7 @@ async def run_rescue_sync(hours: int = 6):
             await session.commit()
             logger.info(f"🚑 Rescue Sync Completed: {count_new} new treatments imported.")
 
-    except Exception as e:
-        logger.error(f"🚑 Rescue Sync Failed: {e}")
-    finally:
-        await client.aclose()
+        except Exception as e:
+            logger.error(f"🚑 Rescue Sync Failed: {e}")
+        finally:
+            await client.aclose()
