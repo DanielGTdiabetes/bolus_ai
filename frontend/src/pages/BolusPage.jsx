@@ -118,7 +118,7 @@ export default function BolusPage() {
         state.tempItems = null;
 
         loadData();
-    }, []); // Check deps? checkDraft/checkOrphans are stable via useCallback? Yes.
+    }, []); // Check deps? checkOrphans are stable via useCallback? Yes.
 
     // Strategy Suggestion
     useEffect(() => {

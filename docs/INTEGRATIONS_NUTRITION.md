@@ -34,5 +34,5 @@ curl -X POST "https://bolus-ai-1.onrender.com/api/integrations/nutrition" \
 La ingesta nutricional es **directa**. No existe modo borrador.
 Cada petición recibida por este endpoint crea (o intenta crear) un registro de tratamiento inmediatamente.
 
-> **Nota**: El sistema de 'Drafts' descrito anteriormente ha sido deshabilitado y eliminado.
+> **Nota**: El sistema de 'Drafts' ha sido eliminado. La ingesta siempre crea registros directos.
 

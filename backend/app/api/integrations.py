@@ -492,7 +492,7 @@ async def ingest_nutrition(
 
                      if changes:
                          # DETECT LARGE ADDITION (Merged Meal Pattern)
-                         # If Carbs/Fat/Prot increased significantly on an OLD item (> 6h ago), treat the DELTA as a NEW meal (Draft).
+                         # If Carbs/Fat/Prot increased significantly on an OLD item (> 6h ago), treat the DELTA as a NEW meal.
                          # This catches things like "Avocados" (High Fat) added to an old Breakfast.
                          is_old_item = (now_utc - item_ts).total_seconds() > 21600 # 6 hours
                          carb_diff = t_carbs - existing_strict.carbs
