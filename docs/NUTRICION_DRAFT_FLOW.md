@@ -1,4 +1,8 @@
-# Flujo de Borrador de Nutrición (Drafts)
+# Flujo de Borrador de Nutrición (Drafts) [DESHABILITADO]
+
+> **AVISO**: Esta funcionalidad ha sido deshabilitada en el backend por petición del usuario (Enero 2025). Los endpoints existen solo como "stubs" para evitar errores en el frontend.
+
+
 
 ## Problema
 Las apps de nutrición (MyFitnessPal, Health Auto Export) a menudo envían datos fragmentados cuando se activan vía Shortcuts en iOS.
