@@ -11,6 +11,8 @@ from sqlalchemy.orm import sessionmaker
 
 from app.core import settings as settings_module
 from app.core.db import get_db_session
+from app.core.security import TokenManager
+from app.core.settings import get_settings
 from app.models.treatment import Treatment
 
 
@@ -93,8 +95,7 @@ def client(tmp_path, monkeypatch):
 
 
 def _auth_headers(client: TestClient) -> dict[str, str]:
-    login_resp = client.post("/api/auth/login", json={"username": "admin", "password": "admin123"})
-    token = login_resp.json()["access_token"]
+    token = TokenManager(get_settings()).create_access_token("admin")
     return {"Authorization": f"Bearer {token}"}
 
 
@@ -172,3 +173,9 @@ def test_rejects_missing_or_wrong_secret(client: TestClient):
         json={"carbs": 5, "date": ts},
     )
     assert resp_wrong.status_code == 401
+
+
+def test_nutrition_draft_endpoint_removed(client: TestClient):
+    resp = client.get("/api/integrations/nutrition/draft")
+    assert resp.status_code == 200
+    assert '<div id="app"></div>' in resp.text

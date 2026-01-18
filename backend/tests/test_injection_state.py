@@ -5,6 +5,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.core import settings as settings_module
+from app.core.security import TokenManager
+from app.core.settings import get_settings
 
 
 @pytest.fixture()
@@ -52,8 +54,7 @@ def client(tmp_path, monkeypatch):
 
 
 def _auth_headers(client: TestClient) -> dict[str, str]:
-    login_resp = client.post("/api/auth/login", json={"username": "admin", "password": "admin123"})
-    token = login_resp.json()["access_token"]
+    token = TokenManager(get_settings()).create_access_token("admin")
     return {"Authorization": f"Bearer {token}"}
 
 

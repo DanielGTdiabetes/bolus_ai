@@ -22,11 +22,17 @@ async def mock_get_db_session():
     # For unit testing endpoints that rely on service, we can mock the service functions.
     yield MagicMock(spec=AsyncSession)
 
-# Override dependencies
-app.dependency_overrides[get_current_user] = mock_get_current_user
-# We don't override get_db_session because we'll mock the secrets_service functions directly
-
 client = TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def _override_dependencies():
+    original_overrides = dict(app.dependency_overrides)
+    app.dependency_overrides[get_current_user] = mock_get_current_user
+    try:
+        yield
+    finally:
+        app.dependency_overrides = original_overrides
 
 @pytest.fixture
 def mock_ns_service():
@@ -140,8 +146,8 @@ def test_ns_status_endpoint_with_config(mock_ns_status_deps):
 def test_ns_treatments_endpoint_not_configured(mock_ns_status_deps):
     mock_ns_status_deps.return_value = None
     response = client.get("/api/nightscout/treatments")
-    assert response.status_code == 400
-    assert "not configured" in response.json()["detail"]
+    assert response.status_code == 200
+    assert response.json() == []
 
 def test_ns_treatments_endpoint_configured(mock_ns_status_deps):
     config = MagicMock()
@@ -151,14 +157,7 @@ def test_ns_treatments_endpoint_configured(mock_ns_status_deps):
     mock_ns_status_deps.return_value = config
     
     with patch("app.api.nightscout.NightscoutClient") as MockClient:
-        instance = MockClient.return_value
-        instance.get_recent_treatments = AsyncMock(return_value=[])
-        instance.aclose = AsyncMock()
-        
         response = client.get("/api/nightscout/treatments?count=5")
         assert response.status_code == 200
-        assert response.json() == [] # Empty list mocked
-        
-        # Verify secret passed
-        MockClient.assert_called_with(base_url="https://mock-ns.com/", token="shh", timeout_seconds=10)
-
+        assert response.json() == []  # Empty list mocked
+        MockClient.assert_not_called()

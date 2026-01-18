@@ -7,6 +7,8 @@ import json
 # Setup logging
 logging.basicConfig(level=logging.INFO)
 
+__test__ = False
+
 STATUS_URL = "https://site--cronica--6cblbs2czn95.code.run"
 TOKEN = "app-7f120a3c663f5c7"
 

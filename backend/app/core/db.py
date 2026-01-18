@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, Asyn
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy import text, select
 from sqlalchemy.engine import make_url
+from sqlalchemy.pool import NullPool
 
 from app.core.settings import get_settings
 
@@ -57,21 +58,24 @@ def init_db():
                 
             u = u._replace(query=q)
             _async_engine = create_async_engine(
-                u, 
-                connect_args=connect_args, 
-                echo=False, 
+                u,
+                connect_args=connect_args,
+                echo=False,
                 pool_pre_ping=True,
                 pool_size=20,
-                max_overflow=20
+                max_overflow=20,
             )
         else:
-            _async_engine = create_async_engine(
-                url, 
-                echo=False, 
-                pool_pre_ping=True,
-                pool_size=20,
-                max_overflow=20
-            )
+            engine_kwargs = {
+                "echo": False,
+                "pool_pre_ping": True,
+            }
+            if make_url(url).drivername.startswith("sqlite"):
+                engine_kwargs["poolclass"] = NullPool
+            else:
+                engine_kwargs["pool_size"] = 20
+                engine_kwargs["max_overflow"] = 20
+            _async_engine = create_async_engine(url, **engine_kwargs)
 
         _async_session_factory = async_sessionmaker(
             _async_engine,
@@ -92,6 +96,8 @@ def init_db():
             logger.critical(msg)
             raise RuntimeError(msg)
             
+        _async_engine = None
+        _async_session_factory = None
         logger.warning("DATABASE_URL not set. Using in-memory (dict) storage. Data will be lost on restart.")
 
 def get_engine():
@@ -112,11 +118,17 @@ async def check_db_health():
     
     try:
         async with _async_engine.connect() as conn:
-            result = await conn.execute(text("SELECT now()"))
-            row = result.fetchone()
+            if _async_engine.url.drivername.startswith("sqlite"):
+                result = await conn.execute(text("SELECT 1"))
+                row = result.fetchone()
+                db_time = None
+            else:
+                result = await conn.execute(text("SELECT now()"))
+                row = result.fetchone()
+                db_time = str(row[0]) if row else None
             return {
                 "ok": True,
-                "db_time": str(row[0]) if row else None,
+                "db_time": db_time,
                 "database": "neondb", # Assumption/Hardcoded or derive
                 "driver": _async_engine.driver
             }

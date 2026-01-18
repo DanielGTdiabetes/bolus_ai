@@ -77,7 +77,6 @@ async def test_add_treatment_calls_logger(monkeypatch):
 
     monkeypatch.setattr(tools, "log_treatment", fake_logger)
     monkeypatch.setattr(tools, "_resolve_user_id", fake_resolve_user_id)
-    monkeypatch.setattr(tools, "get_engine", lambda: None)
     monkeypatch.setattr(tools, "DataStore", lambda *args, **kwargs: _DummyStore())
     monkeypatch.setattr(
         tools,
@@ -97,6 +96,7 @@ class DummyQuery:
     def __init__(self, data: str, text: str):
         self.data = data
         self.message = type("Msg", (), {"text": text})
+        self.from_user = type("User", (), {"id": 1})()
         self.answered = False
         self.edits = []
 
@@ -111,14 +111,6 @@ class DummyContext:
     bot = None
 
 
-class DummyInjectionManager:
-    def __init__(self, *_args, **_kwargs):
-        pass
-
-    def rotate_site(self, *_args, **_kwargs):
-        return "Test Site"
-
-
 @pytest.mark.asyncio
 async def test_callback_accept_uses_add_treatment(monkeypatch):
     calls = {}
@@ -129,14 +121,16 @@ async def test_callback_accept_uses_add_treatment(monkeypatch):
 
     monkeypatch.setattr(tools, "add_treatment", fake_add_treatment)
     monkeypatch.setattr(bot_service, "DataStore", lambda *a, **k: _DummyStore())
-    monkeypatch.setattr(bot_service, "InjectionManager", DummyInjectionManager)
     monkeypatch.setattr(
         bot_service,
         "get_settings",
         lambda: type("Cfg", (), {"data": type("D", (), {"data_dir": "/tmp"})()})(),
     )
 
-    query = DummyQuery("chat_bolus_1.0_15", "Texto base")
+    bot_service.SNAPSHOT_STORAGE.clear()
+    bot_service.SNAPSHOT_STORAGE["req1"] = {"units": 1.0, "carbs": 15, "notes": "unit test"}
+
+    query = DummyQuery("accept|req1", "Texto base")
     update = type("U", (), {"callback_query": query})
     context = DummyContext()
 

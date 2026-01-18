@@ -39,8 +39,12 @@ async def test_basal_advice_night_hypos():
     # 2. Nights Query
     mr_n = MagicMock()
     mr_n.scalars.return_value.all.return_value = mock_nights
-    
-    db.execute.side_effect = [mr_c, mr_n]
+
+    # 3. Doses Query (empty)
+    mr_d = MagicMock()
+    mr_d.scalars.return_value.all.return_value = []
+
+    db.execute.side_effect = [mr_c, mr_n, mr_d]
     
     res = await get_advice_service(user_id, 3, db)
     
@@ -80,11 +84,13 @@ async def test_basal_advice_wake_high():
     
     mr_n = MagicMock()
     mr_n.scalars.return_value.all.return_value = mock_nights
-    
-    db.execute.side_effect = [mr_c, mr_n]
+    mr_d = MagicMock()
+    mr_d.scalars.return_value.all.return_value = []
+
+    db.execute.side_effect = [mr_c, mr_n, mr_d]
     
     res = await get_advice_service(user_id, 3, db)
     
-    assert "tendencia al alza" in res["message"]
+    assert "glucosa en ayunas alta" in res["message"]
     # 3 checks, 2 nights -> High confidence
     assert res["confidence"] == "high"

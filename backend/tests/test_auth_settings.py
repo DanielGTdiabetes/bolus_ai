@@ -15,6 +15,8 @@ def client(tmp_path, monkeypatch):
     import app.main as main
 
     importlib.reload(main)
+    from app.core.datastore import UserStore
+    UserStore(tmp_path / "users.json").ensure_seed_admin()
     client = TestClient(main.app)
     yield client
     settings_module.get_settings.cache_clear()
@@ -31,7 +33,7 @@ def test_login_successful(client: TestClient):
 
 
 def test_settings_requires_auth(client: TestClient):
-    resp = client.get("/api/settings")
+    resp = client.get("/api/settings/")
     assert resp.status_code == 401
 
 
@@ -39,10 +41,11 @@ def test_settings_with_token(client: TestClient):
     login_resp = client.post("/api/auth/login", json={"username": "admin", "password": "admin123"})
     token = login_resp.json()["access_token"]
 
-    resp = client.get("/api/settings", headers={"Authorization": f"Bearer {token}"})
+    resp = client.get("/api/settings/", headers={"Authorization": f"Bearer {token}"})
     assert resp.status_code == 200
     body = resp.json()
-    assert body["units"] == "mg/dL"
+    assert "settings" in body
+    assert isinstance(body["version"], int)
 
 
 def test_change_password_flow(client: TestClient):

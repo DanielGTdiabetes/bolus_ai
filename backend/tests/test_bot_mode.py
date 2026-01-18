@@ -12,7 +12,7 @@ from app.bot.state import BotMode
         (
             {"ENABLE_TELEGRAM_BOT": "true", "TELEGRAM_BOT_TOKEN": "dummy"},
             BotMode.POLLING,
-            "missing_public_url",
+            "forced_polling_on_prem",
         ),
         (
             {
@@ -20,8 +20,8 @@ from app.bot.state import BotMode
                 "TELEGRAM_BOT_TOKEN": "dummy",
                 "PUBLIC_URL": "https://example.com",
             },
-            BotMode.WEBHOOK,
-            "public_url_present",
+            BotMode.POLLING,
+            "forced_polling_on_prem",
         ),
     ],
 )

@@ -19,6 +19,8 @@ def setup_env(monkeypatch, tmp_path):
     monkeypatch.setenv("JWT_SECRET", "test-secret-bugs")
     monkeypatch.setenv("OPENAI_API_KEY", "sk-fake")
     monkeypatch.setenv("VISION_PROVIDER", "openai")
+    from app.core.datastore import UserStore
+    UserStore(tmp_path / "users.json").ensure_seed_admin()
 
 # --- TEST 1: Migration ---
 def test_cr_migration_logic():
@@ -61,6 +63,9 @@ async def test_api_recommend_uses_nightscout_when_no_bg():
     # Helper to load app after env setup
     from app.main import app
     from fastapi.testclient import TestClient
+    from datetime import datetime, timezone
+    from app.core.security import CurrentUser, get_current_user
+    from app.services.iob import IOBInfo, SourceStatus
     
     client = TestClient(app)
     
@@ -68,28 +73,51 @@ async def test_api_recommend_uses_nightscout_when_no_bg():
     mock_settings.nightscout.enabled = True
     mock_settings.nightscout.url = "https://ns.test"
     mock_settings.nightscout.token = "token"
+    mock_settings.nightscout.filter_compression = False
     mock_settings.cr.lunch = 10.0
     
-    with patch("app.services.store.DataStore.load_settings", return_value=mock_settings):
-        with patch("app.services.iob.compute_iob_from_sources", return_value=(0.0, [])):
-             with respx.mock(base_url="https://ns.test", assert_all_called=False) as respx_mock:
-                 respx_mock.get("/api/v1/entries/sgv.json").mock(
-                     return_value=Response(200, json=[{"sgv": 150, "direction": "Flat", "date": 1234567890}])
-                 )
-                 
-                 payload = {"carbs_g": 0, "meal_slot": "lunch"}
-                 resp = client.post("/api/bolus/recommend", json=payload)
-                 
-                 assert resp.status_code == 200, resp.text
-                 data = resp.json()
-                 
-                 assert data["glucose"]["source"] == "nightscout"
-                 assert data["glucose"]["mgdl"] == 150.0
+    app.dependency_overrides[get_current_user] = lambda: CurrentUser(username="admin", role="admin")
+    try:
+        iob_info = IOBInfo(
+            iob_u=0.0,
+            status="ok",
+            reason=None,
+            source="local_only",
+            fetched_at=datetime.now(timezone.utc),
+            last_known_iob=0.0,
+            last_updated_at=datetime.now(timezone.utc),
+            treatments_source_status=SourceStatus(source="nightscout", status="ok", fetched_at=datetime.now(timezone.utc)),
+            assumptions=[],
+        )
+        with patch("app.services.store.DataStore.load_settings", return_value=mock_settings):
+            with patch("app.services.iob.compute_iob_from_sources", return_value=(0.0, [], iob_info, None)):
+                with respx.mock(base_url="https://ns.test", assert_all_called=False) as respx_mock:
+                    respx_mock.get("/api/v1/entries/sgv").mock(
+                        return_value=Response(200, json=[{"sgv": 150, "direction": "Flat", "date": 1234567890}])
+                    )
+
+                    payload = {
+                        "carbs_g": 0,
+                        "meal_slot": "lunch",
+                        "nightscout": {"url": "https://ns.test", "token": "token"},
+                    }
+                    resp = client.post("/api/bolus/calc", json=payload)
+
+                    assert resp.status_code == 200, resp.text
+                    data = resp.json()
+
+                    assert data["glucose"]["source"] == "nightscout"
+                    assert data["glucose"]["mgdl"] == 150.0
+    finally:
+        app.dependency_overrides = {}
 
 @pytest.mark.asyncio
 async def test_api_recommend_fallback_when_ns_fails():
     from app.main import app
     from fastapi.testclient import TestClient
+    from datetime import datetime, timezone
+    from app.core.security import CurrentUser, get_current_user
+    from app.services.iob import IOBInfo, SourceStatus
     
     client = TestClient(app)
     
@@ -98,16 +126,31 @@ async def test_api_recommend_fallback_when_ns_fails():
     mock_settings.nightscout.url = "https://ns.fail"
     mock_settings.cr.lunch = 10.0
     
-    with patch("app.services.store.DataStore.load_settings", return_value=mock_settings):
-        with patch("app.services.iob.compute_iob_from_sources", return_value=(0.0, [])):
-             with respx.mock(base_url="https://ns.fail", assert_all_called=False) as respx_mock:
-                 respx_mock.get("/api/v1/entries/sgv.json").mock(return_value=Response(500))
-                 
-                 payload = {"carbs_g": 10, "meal_slot": "lunch"}
-                 resp = client.post("/api/bolus/recommend", json=payload)
-                 
-                 assert resp.status_code == 200
-                 data = resp.json()
-                 
-                 assert data["glucose"]["source"] == "none"
-                 assert data["upfront_u"] == 1.0
+    app.dependency_overrides[get_current_user] = lambda: CurrentUser(username="admin", role="admin")
+    try:
+        iob_info = IOBInfo(
+            iob_u=0.0,
+            status="ok",
+            reason=None,
+            source="local_only",
+            fetched_at=datetime.now(timezone.utc),
+            last_known_iob=0.0,
+            last_updated_at=datetime.now(timezone.utc),
+            treatments_source_status=SourceStatus(source="nightscout", status="ok", fetched_at=datetime.now(timezone.utc)),
+            assumptions=[],
+        )
+        with patch("app.services.store.DataStore.load_settings", return_value=mock_settings):
+            with patch("app.services.iob.compute_iob_from_sources", return_value=(0.0, [], iob_info, None)):
+                with respx.mock(base_url="https://ns.fail", assert_all_called=False) as respx_mock:
+                    respx_mock.get("/api/v1/entries/sgv").mock(return_value=Response(500))
+
+                    payload = {"carbs_g": 10, "meal_slot": "lunch"}
+                    resp = client.post("/api/bolus/calc", json=payload)
+
+                    assert resp.status_code == 200
+                    data = resp.json()
+
+                    assert data["glucose"]["source"] == "none"
+                    assert data["upfront_u"] == 1.0
+    finally:
+        app.dependency_overrides = {}

@@ -54,6 +54,8 @@ async def test_resolver_prefers_non_default_settings_over_admin(monkeypatch):
             await session.commit()
 
         monkeypatch.setattr(core_db, "get_engine", lambda: engine)
+        monkeypatch.setattr(core_db, "SessionLocal", Session)
+        monkeypatch.setattr("app.bot.user_settings_resolver.SessionLocal", Session)
         monkeypatch.setattr(config, "get_bot_default_username", lambda: "admin")
 
         resolved_settings, resolved_user = await resolve_bot_user_settings()
@@ -75,6 +77,8 @@ async def test_resolver_reads_file_store_when_no_db(monkeypatch, tmp_path):
     fake_settings = SimpleNamespace(data=SimpleNamespace(data_dir=str(tmp_path)))
     monkeypatch.setattr("app.bot.user_settings_resolver.get_settings", lambda: fake_settings)
     monkeypatch.setattr(core_db, "get_engine", lambda: None)
+    monkeypatch.setattr(core_db, "SessionLocal", lambda: (_ for _ in ()).throw(RuntimeError("no db")))
+    monkeypatch.setattr("app.bot.user_settings_resolver.SessionLocal", lambda: (_ for _ in ()).throw(RuntimeError("no db")))
     monkeypatch.setattr(config, "get_bot_default_username", lambda: "file_user")
 
     resolved_settings, resolved_user = await resolve_bot_user_settings()

@@ -12,9 +12,9 @@ async def test_evaluate_change_improved():
     db = AsyncMock()
     
     # Mock Entries (Change from 10 to 12 u)
-    change_dt = datetime.utcnow() - timedelta(days=8)
-    e_new = BasalEntry(units=12.0, created_at=change_dt)
-    e_old = BasalEntry(units=10.0, created_at=change_dt - timedelta(days=30))
+    change_date = date.today() - timedelta(days=8)
+    e_new = BasalEntry(user_id=user_id, dose_u=12.0, effective_from=change_date)
+    e_old = BasalEntry(user_id=user_id, dose_u=10.0, effective_from=change_date - timedelta(days=30))
     
     # Mock Data
     # Before: Bad (High and instable)
@@ -67,9 +67,9 @@ async def test_evaluate_change_worse_hypos():
     user_id = str(uuid.uuid4())
     db = AsyncMock()
     
-    change_dt = datetime.utcnow() - timedelta(days=8)
-    e_new = BasalEntry(units=15.0, created_at=change_dt) # Increased dose too much
-    e_old = BasalEntry(units=12.0, created_at=change_dt - timedelta(days=30))
+    change_date = date.today() - timedelta(days=8)
+    e_new = BasalEntry(user_id=user_id, dose_u=15.0, effective_from=change_date) # Increased dose too much
+    e_old = BasalEntry(user_id=user_id, dose_u=12.0, effective_from=change_date - timedelta(days=30))
     
     mr_e = MagicMock()
     mr_e.scalars.return_value.all.return_value = [e_new, e_old]

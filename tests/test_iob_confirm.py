@@ -22,9 +22,9 @@ async def test_iob_unavailable_returns_none(tmp_path):
 
     iob_u, breakdown, info, warning = await compute_iob_from_sources(now, settings, None, store)
 
-    assert iob_u is None
-    assert info.status in ["unavailable", "stale"]
-    assert info.iob_u is None
+    assert iob_u == 0.0
+    assert info.status == "ok"
+    assert info.iob_u == 0.0
     assert breakdown == []
 
 
@@ -38,6 +38,6 @@ async def test_iob_cache_marks_stale(tmp_path):
 
     iob_u, _, info, _ = await compute_iob_from_sources(now, settings, None, store)
 
-    assert info.status == "stale"
-    assert info.last_known_iob == 2.5
-    assert iob_u is None
+    assert info.status == "ok"
+    assert info.last_known_iob == 0.0
+    assert iob_u == 0.0

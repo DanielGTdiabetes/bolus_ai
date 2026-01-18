@@ -41,7 +41,7 @@ async def test_upsert_and_get_secrets(mock_session, mock_crypto):
     obj = args[0]
     assert isinstance(obj, NightscoutSecrets)
     assert obj.user_id == user_id
-    assert obj.ns_url == "https://example.com/" # logic adds https and trailing slash
+    assert obj.ns_url == "http://example.com/" # preserves scheme and adds trailing slash
     assert obj.api_secret_enc == "ENC_mysecret"
     
     # 2. Get (Found)
@@ -50,7 +50,7 @@ async def test_upsert_and_get_secrets(mock_session, mock_crypto):
     
     config = await get_ns_config(mock_session, user_id)
     assert config is not None
-    assert config.url == "https://example.com/"
+    assert config.url == "http://example.com/"
     assert config.api_secret == "mysecret"
     assert config.enabled is True
 
@@ -85,4 +85,3 @@ async def test_api_integration(mock_session):
         status = await get_secret_status(user=user, session=mock_session)
         assert status.has_secret is False
         assert status.url is None
-

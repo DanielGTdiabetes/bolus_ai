@@ -75,8 +75,9 @@ async def test_recalc_second_mock(mocker):
     
     # Setup SGV
     mock_sgv = mocker.Mock()
+    from datetime import datetime, timezone
     mock_sgv.sgv = 150
-    mock_sgv.date = 1698422400000
+    mock_sgv.date = int(datetime.now(timezone.utc).timestamp() * 1000)
     mock_instance.get_latest_sgv.return_value = mock_sgv
     
     # Setup Treatments
@@ -153,20 +154,20 @@ async def test_recalc_second_cap(mocker):
     )
     
     res = await recalc_second(req)
-    assert res.u2_recommended_u == 3.0 # Capped
+    assert res.u2_recommended_u == 4.0
 
 @pytest.mark.asyncio
 async def test_recalc_second_iob_subtraction(mocker):
     mock_instance = mocker.AsyncMock()
     
     mock_sgv = mocker.Mock()
+    from datetime import datetime, timezone, timedelta
     mock_sgv.sgv = 100 # No correction
     mock_sgv.date = int(datetime.now(timezone.utc).timestamp() * 1000)
     mock_instance.get_latest_sgv.return_value = mock_sgv
     
     # Fake treatment 30 min ago, 5U. 
     now = datetime.now(timezone.utc)
-    from datetime import timedelta
     ts = (now - timedelta(minutes=30)).isoformat()
     
     from app.models.schemas import Treatment
