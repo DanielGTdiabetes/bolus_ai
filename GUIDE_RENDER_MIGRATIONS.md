@@ -1,7 +1,7 @@
 # Guía de Migraciones en Render para Bolus AI
 
 ## Problema Detectado
-El error `relation "nutrition_drafts" does not exist` indica que las tablas de la base de datos no se crearon o actualizaron correctamente en producción.
+Errores de esquema en producción indican que las tablas de la base de datos no se crearon o actualizaron correctamente.
 
 ## Solución Implementada
 Hemos automatizado la ejecución de migraciones usando Alembic antes de arrancar la aplicación.
@@ -32,9 +32,4 @@ Si NO usas Docker y usas el entorno nativo de Python en Render:
 4.  En **Start Command**, mantén: `uvicorn app.main:app ...`
 
 ## Verificación de Salud
-Se ha añadido un log en `app.main:startup_event` que intenta hacer `SELECT 1 FROM nutrition_drafts`.
-- Si ves `✅ Table 'nutrition_drafts' verification successful.`, la migración funcionó.
-- Si ves `❌ Table 'nutrition_drafts' MISSING`, revisa los logs de Alembic.
-
-## Tests
-Ejecuta `pytest backend/tests/test_nutrition_draft.py` localmente para verificar que el modelo y la DB se comportan correctamente (requiere `aiosqlite`).
+Revisa los logs de arranque para confirmar que las migraciones se aplicaron sin errores y que la aplicación inicia sin fallos de esquema.

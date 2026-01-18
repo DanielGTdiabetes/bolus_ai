@@ -220,7 +220,6 @@ export default function FoodDatabasePage() {
                                 style={{
                                     padding: '0.7rem 1.4rem',
                                     borderRadius: '24px',
-                                    border: 'none',
                                     background: selectedCategory === cat ? '#3b82f6' : '#fff',
                                     color: selectedCategory === cat ? '#fff' : '#475569',
                                     fontWeight: 700,

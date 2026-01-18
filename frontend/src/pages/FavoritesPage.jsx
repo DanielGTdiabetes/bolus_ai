@@ -41,8 +41,6 @@ export default function FavoritesPage({ navigate }) {
                 carbs: parseFloat(newFav.carbs),
                 fat: parseFloat(newFav.fat) || 0,
                 protein: parseFloat(newFav.protein) || 0,
-                fat: parseFloat(newFav.fat) || 0,
-                protein: parseFloat(newFav.protein) || 0,
                 fiber: parseFloat(newFav.fiber) || 0,
                 notes: newFav.notes
             });
@@ -72,7 +70,6 @@ export default function FavoritesPage({ navigate }) {
             carbs: fav.carbs,
             fat: fav.fat || "",
             protein: fav.protein || "",
-            protein: fav.protein || "",
             fiber: fav.fiber || "",
             notes: fav.notes || ""
         });
@@ -90,8 +87,6 @@ export default function FavoritesPage({ navigate }) {
             const updated = await updateFavorite(editingId, {
                 name: editForm.name,
                 carbs: parseFloat(editForm.carbs),
-                fat: parseFloat(editForm.fat) || 0,
-                protein: parseFloat(editForm.protein) || 0,
                 fat: parseFloat(editForm.fat) || 0,
                 protein: parseFloat(editForm.protein) || 0,
                 fiber: parseFloat(editForm.fiber) || 0,

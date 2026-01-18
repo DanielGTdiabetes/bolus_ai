@@ -317,6 +317,7 @@ def _load_env() -> dict[str, Any]:
     if emergency_mode is not None:
         env_config["emergency_mode"] = emergency_mode.lower() == "true"
 
+    nas_url = os.environ.get("NAS_PUBLIC_URL")
     if nas_url:
         env_config["nas_public_url"] = nas_url
 

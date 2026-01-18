@@ -496,7 +496,6 @@ function CalcParamsPanel() {
                 techne: { ...defaults.techne, ...(p.techne || {}) },
                 warsaw: { ...defaults.warsaw, ...(p.warsaw || {}) },
                 autosens: { ...defaults.autosens, ...(p.autosens || {}) },
-                autosens: { ...defaults.autosens, ...(p.autosens || {}) },
                 calculator: { ...defaults.calculator, ...(p.calculator || {}) },
                 dual_bolus: { ...defaults.dual_bolus, ...(p.dual_bolus || {}) }
             };
