@@ -37,7 +37,6 @@ forecast_adj = forecast_model + clamp(w * delta_pattern, -cap, +cap)
 
 ## Clean Context Requirements
 All must be true:
-- No active nutrition draft.
 - No recent meal within `NIGHT_PATTERN_MEAL_LOOKBACK_H`.
 - No recent bolus within `NIGHT_PATTERN_BOLUS_LOOKBACK_H`.
 - IOB is low (`<= NIGHT_PATTERN_IOB_MAX_U`) **and available**.
@@ -49,7 +48,6 @@ All must be true:
 - High fat/protein meal (if macros present).
 - COB not near zero.
 - Sustained rise in the last 30–60 minutes.
-- Active nutrition draft.
 
 ## Configuration (Defaults)
 | Env var | Default |

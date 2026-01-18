@@ -5,7 +5,6 @@ import { BottomNav } from '../components/layout/BottomNav';
 import { Button } from '../components/ui/Atoms';
 // Hooks
 import { useOrphanDetection } from '../hooks/useOrphanDetection';
-import { useOrphanDetection } from '../hooks/useOrphanDetection';
 import { useBolusCalculator } from '../hooks/useBolusCalculator';
 
 // Components
