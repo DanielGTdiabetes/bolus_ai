@@ -5,71 +5,66 @@ services:
     build:
       context: ../..
       dockerfile: deploy/nas/Dockerfile
-    # env_file:    <-- REMOVED because Portainer injects variables, and the file doesn't exist in git
-    #   - .env
     environment:
-      # Database Connection provided by .env (DATABASE_URL)
       DATABASE_URL: ${DATABASE_URL}
 
-      # App Config
       CONFIG_PATH: /app/config/config.json
       JWT_SECRET: ${JWT_SECRET}
       DATA_DIR: /app/backend/data
       RENDER_EXTERNAL_URL: ${RENDER_EXTERNAL_URL}
       FRONTEND_ORIGIN: ${RENDER_EXTERNAL_URL}
 
-      # Secrets
       APP_SECRET_KEY: ${APP_SECRET_KEY}
 
-      # Nightscout
       NIGHTSCOUT_URL: ${NIGHTSCOUT_URL}
       NIGHTSCOUT_API_SECRET: ${NIGHTSCOUT_API_SECRET}
 
-      # Telegram
       ENABLE_TELEGRAM_BOT: ${ENABLE_TELEGRAM_BOT}
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
       TELEGRAM_DEFAULT_CHAT_ID: ${TELEGRAM_DEFAULT_CHAT_ID}
       TELEGRAM_WEBHOOK_SECRET: ${TELEGRAM_WEBHOOK_SECRET}
       ALLOWED_TELEGRAM_USER_ID: ${ALLOWED_TELEGRAM_USER_ID}
 
-      # AI / Google
       VISION_PROVIDER: ${VISION_PROVIDER}
       GEMINI_MODEL: ${GEMINI_MODEL}
       GEMINI_MODEL_PRO: ${GEMINI_MODEL_PRO}
       GOOGLE_API_KEY: ${GOOGLE_API_KEY}
 
-      # Integrations
       NUTRITION_INGEST_KEY: ${NUTRITION_INGEST_KEY}
 
-      # Variables for Frontend/Nginx if needed (Internal)
       PORT: 8000
     volumes:
-      # Persist Application Data (Maps to NAS folder defined in .env)
       - ${APP_DATA_PATH:-backend_data}:/app/backend/data
     ports:
       - "${APP_PORT:-8000}:8000"
     depends_on:
       - db
-      # db:
-      #   condition: service_healthy
     restart: unless-stopped
 
-  # Local Database for NAS
+    # ===== LIMITES (NAS 16GB) =====
+    mem_limit: 3g
+    mem_reservation: 512m
+    pids_limit: 512
+
   db:
     container_name: bolus_db
     image: postgres:17
-    # image: postgres:16
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-admin}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
       POSTGRES_DB: ${POSTGRES_DB:-bolus_ai}
     volumes:
-      # Maps to NAS folder defined in .env (Forces new v17 folder to avoid conflicts)
       - ${DB_DATA_PATH:-postgres_data}_v17:/var/lib/postgresql/data
     ports:
-      # User requested DB_PORT (e.g. 5433) maps to internal 5432
       - "${DB_PORT:-5432}:5432"
     restart: unless-stopped
+
+    # ===== LIMITES =====
+    mem_limit: 2g
+    mem_reservation: 1g
+    shm_size: 512m
+    pids_limit: 512
+
     healthcheck:
       test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-admin} -d ${POSTGRES_DB:-bolus_ai}" ]
       interval: 10s
@@ -77,7 +72,6 @@ services:
       retries: 10
       start_period: 40s
 
-  # Backup Cron Service
   backup:
     build:
       context: ../..
@@ -92,7 +86,11 @@ services:
       - DATABASE_URL_NEON=${DATABASE_URL_NEON}
       - POSTGRES_USER=${POSTGRES_USER:-admin}
       - POSTGRES_DB=${POSTGRES_DB:-bolus_ai}
-    # No need for entrypoint/command here as they are in the Dockerfile
+
+    # ===== LIMITES =====
+    mem_limit: 256m
+    mem_reservation: 64m
+    pids_limit: 128
 
 volumes:
   backend_data:
