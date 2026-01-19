@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Body, Depends, Header, HTTPException, Request
+from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -81,6 +81,21 @@ def should_update_fiber(existing_fiber: Optional[float], new_fiber: Optional[flo
 def is_valid_ingestion(carbs: float, fat: float, protein: float, fiber: float) -> bool:
     total_grams = (carbs or 0.0) + (fat or 0.0) + (protein or 0.0) + (fiber or 0.0)
     return total_grams > 0.0
+
+
+def _resolve_import_source(notes: Optional[str]) -> str:
+    if not notes:
+        return "Auto Export"
+    normalized = notes.lower()
+    if "myfitnesspal" in normalized:
+        return "MyFitnessPal"
+    if "healthkit" in normalized:
+        return "HealthKit"
+    if "auto export" in normalized or "autoexport" in normalized:
+        return "Auto Export"
+    if "health auto export" in normalized or "imported from health" in normalized:
+        return "Auto Export"
+    return "Auto Export"
 
 # Modelo flexible para Health Auto Export o n8n
 class NutritionPayload(BaseModel):
@@ -745,6 +760,47 @@ async def ingest_nutrition(
         log_entry["result"] = res
         append_log(log_entry)
         return res
+
+
+@router.get("/nutrition/recent", summary="Get recent imported nutrition entries")
+async def get_recent_imported_nutrition(
+    limit: int = Query(10, ge=1, le=50),
+    session: AsyncSession = Depends(get_db_session),
+    user: CurrentUser = Depends(get_current_user),
+):
+    from app.models.treatment import Treatment
+
+    # Pending vs consumed:
+    # - Pending imported meals are stored as treatments with insulin=0, entered_by=webhook-integration
+    #   and a "#imported" marker in notes.
+    # - When a bolus accepts/replaces an import (replace_id flow), the original treatment is deleted.
+    #   Therefore, "consumed" imports are excluded by absence plus the insulin==0 filter below.
+    stmt = (
+        select(Treatment)
+        .where(
+            Treatment.user_id == user.username,
+            Treatment.insulin == 0,
+            Treatment.entered_by == "webhook-integration",
+            Treatment.notes.contains("#imported"),
+        )
+        .order_by(Treatment.created_at.desc())
+        .limit(limit)
+    )
+    result = await session.execute(stmt)
+    treatments = result.scalars().all()
+
+    return [
+        {
+            "id": t.id,
+            "timestamp": t.created_at.isoformat(),
+            "source": _resolve_import_source(t.notes),
+            "carbs": float(t.carbs or 0.0),
+            "protein": float(t.protein or 0.0),
+            "fat": float(t.fat or 0.0),
+            "fiber": float(t.fiber or 0.0),
+        }
+        for t in treatments
+    ]
 
 @router.get("/nutrition/logs", summary="Get recent ingestion logs")
 async def get_ingest_logs(
