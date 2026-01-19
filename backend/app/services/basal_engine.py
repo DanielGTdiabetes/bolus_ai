@@ -86,6 +86,8 @@ async def scan_night_service(user_id: str, target_date: date, client: Nightscout
     below_70 = sum(1 for x in bgs if x < 70)
     had_hypo = below_70 > 0
     
+    logger.info(f"[BasalDebug] Scanned {target_date} for {user_id}. Entries: {len(entries)}. Hypo: {had_hypo}")
+
     # Upsert Summary
     stmt = select(BasalNightSummary).where(
         BasalNightSummary.user_id == user_id,
@@ -95,11 +97,13 @@ async def scan_night_service(user_id: str, target_date: date, client: Nightscout
     existing = res.scalars().first()
     
     if existing:
+        logger.info(f"[BasalDebug] Updating existing summary for {target_date}")
         existing.had_hypo = had_hypo
         existing.min_bg_mgdl = min_bg
         existing.events_below_70 = below_70
         existing.created_at = datetime.utcnow()
     else:
+        logger.info(f"[BasalDebug] Creating new summary for {target_date}")
         new_sum = BasalNightSummary(
             user_id=user_id,
             night_date=target_date,
@@ -114,6 +118,7 @@ async def scan_night_service(user_id: str, target_date: date, client: Nightscout
 
 async def get_timeline_service(user_id: str, days: int, db: AsyncSession):
     start_date = date.today() - timedelta(days=days)
+    logger.info(f"[BasalDebug] Fetching timeline for {user_id} since {start_date}")
     
     # Fetch Checkins
     q_check = select(BasalCheckin).where(
@@ -128,6 +133,7 @@ async def get_timeline_service(user_id: str, days: int, db: AsyncSession):
         BasalNightSummary.night_date >= start_date
     ).order_by(BasalNightSummary.night_date.desc())
     nights = (await db.execute(q_night)).scalars().all()
+    logger.info(f"[BasalDebug] Found {len(nights)} night records. Dates: {[n.night_date for n in nights]}")
 
     # Fetch Doses (BasalEntry in 'basal_dose' table usually)
     # The table is defined in models/basal.py as BasalEntry mapping to 'basal_dose'
@@ -138,27 +144,30 @@ async def get_timeline_service(user_id: str, days: int, db: AsyncSession):
     ).order_by(BasalEntry.effective_from.desc(), BasalEntry.created_at.asc())
     doses = (await db.execute(q_dose)).scalars().all()
     
-    # Combine by Date
-    c_map = {c.checkin_date: c for c in checkins}
-    n_map = {n.night_date: n for n in nights}
+    # Combine by Date (Use String Keys to avoid Date/Datetime/Type mismatch)
+    c_map = {c.checkin_date.isoformat() if hasattr(c.checkin_date, 'isoformat') else str(c.checkin_date): c for c in checkins}
+    n_map = {n.night_date.isoformat() if hasattr(n.night_date, 'isoformat') else str(n.night_date): n for n in nights}
     
-    # Doses map: (date -> dose_sum).
+    # Doses map: (date_str -> dose_sum).
     d_map = {}
     for dose in doses:
-        if dose.effective_from not in d_map:
-             d_map[dose.effective_from] = 0.0
-        d_map[dose.effective_from] += dose.dose_u
+        key = dose.effective_from.isoformat() if hasattr(dose.effective_from, 'isoformat') else str(dose.effective_from)
+        if key not in d_map:
+             d_map[key] = 0.0
+        d_map[key] += dose.dose_u
     
     items = []
     # Generate list for range
     for i in range(days):
         d = date.today() - timedelta(days=i)
-        c = c_map.get(d)
-        n = n_map.get(d)
-        dose_val = d_map.get(d)
+        d_str = d.isoformat()
+        
+        c = c_map.get(d_str)
+        n = n_map.get(d_str)
+        dose_val = d_map.get(d_str)
         
         items.append({
-            "date": d.isoformat(),
+            "date": d_str,
             "dose_u": dose_val,
             "wake_bg": c.bg_mgdl if c else None,
             "wake_trend": c.trend if c else None,

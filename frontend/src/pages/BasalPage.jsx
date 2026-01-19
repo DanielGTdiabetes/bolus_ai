@@ -486,12 +486,24 @@ function BasalTimelineSection() {
                 return;
             }
 
+            // Optimistic Update to remove button immediately
+            setItems(prev => prev.map(item => {
+                if (item.date === dateStr) {
+                    return {
+                        ...item,
+                        night_had_hypo: res.had_hypo,
+                        night_min_bg: res.min
+                    };
+                }
+                return item;
+            }));
+
             let msg = "✅ Análisis Completado.";
             if (res.had_hypo) msg += " Se detectó hipoglucemia.";
             else msg += " Noche estable (OK).";
 
             alert(msg);
-            load(); // Reload
+            load(); // Reload to confirm persistence
         } catch (e) {
             alert(typeof e.message === 'string' ? e.message : "Error desconocido al analizar");
         }
