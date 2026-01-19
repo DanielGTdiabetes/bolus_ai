@@ -37,6 +37,7 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setenv("BOLUS_AI_ALLOW_IN_MEMORY", "true")
     monkeypatch.setenv("CONFIG_PATH", str(config_path))
     monkeypatch.setenv("NUTRITION_INGEST_SECRET", "test-ingest-secret")
+    monkeypatch.setenv("ALLOWED_TELEGRAM_USER_ID", "12345")
     settings_module.DEFAULT_CONFIG_PATH = config_path
     settings_module.get_settings.cache_clear()
 
@@ -148,6 +149,36 @@ def test_accepts_fiber_only_meal(client: TestClient):
     assert saved.fat == pytest.approx(0.0)
     assert saved.protein == pytest.approx(0.0)
     assert saved.fiber == pytest.approx(10.0)
+
+
+def test_triggers_notification_for_valid_meal(client: TestClient, monkeypatch: pytest.MonkeyPatch):
+    headers = _auth_headers(client)
+    ts = _recent_timestamp()
+    called = {}
+
+    async def fake_on_new_meal_received(carbs, fat, protein, fiber, source, origin_id=None):
+        called["args"] = {
+            "carbs": carbs,
+            "fat": fat,
+            "protein": protein,
+            "fiber": fiber,
+            "source": source,
+            "origin_id": origin_id,
+        }
+
+    monkeypatch.setattr("app.bot.service.on_new_meal_received", fake_on_new_meal_received)
+
+    resp = client.post(
+        "/api/integrations/nutrition",
+        headers=headers,
+        json={"fat": 12, "protein": 4, "date": ts},
+    )
+    assert resp.status_code == 200
+
+    treatments = _fetch_all_treatments(client)
+    assert len(treatments) == 1
+    assert called["args"]["origin_id"] == treatments[0].id
+    assert called["args"]["fat"] == pytest.approx(12.0)
 
 
 def test_allows_secret_without_jwt(client: TestClient):

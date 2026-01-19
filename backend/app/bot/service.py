@@ -256,7 +256,14 @@ async def bot_send(
     try:
         result = await target_bot.send_message(chat_id=chat_id, text=text, **kwargs)
         health.mark_reply_success()
-        logger.info("reply ok", extra={"chat_id": chat_id, "context": log_context})
+        logger.info(
+            "reply ok",
+            extra={
+                "chat_id": chat_id,
+                "context": log_context,
+                "message_id": getattr(result, "message_id", None),
+            },
+        )
         return result
     except Exception as exc:
         error_msg = f"{type(exc).__name__}: {exc}"
@@ -2000,12 +2007,20 @@ async def on_new_meal_received(carbs: float, fat: float, protein: float, fiber: 
     """
     global _bot_app
     if not _bot_app:
+        logger.info("meal_event_received_no_bot event_id=%s source=%s", origin_id, source)
         return
 
     chat_id = config.get_allowed_telegram_user_id()
     if not chat_id:
+        logger.info("meal_event_received_no_chat_id event_id=%s source=%s", origin_id, source)
         return
 
+    logger.info(
+        "meal_event_received event_id=%s source=%s chat_id=%s",
+        origin_id,
+        source,
+        chat_id,
+    )
     logger.info(f"Bot proactively notifying meal: {carbs}g F:{fat} P:{protein} Fib:{fiber} from {source} (id={origin_id})")
     now_utc = datetime.now(timezone.utc)
     settings = get_settings()
