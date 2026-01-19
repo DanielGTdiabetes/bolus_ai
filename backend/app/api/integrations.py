@@ -77,6 +77,11 @@ def should_update_fiber(existing_fiber: Optional[float], new_fiber: Optional[flo
     base = existing_fiber or 0.0
     return abs(base - new_fiber) >= tolerance
 
+
+def is_valid_ingestion(carbs: float, fat: float, protein: float, fiber: float) -> bool:
+    total_grams = (carbs or 0.0) + (fat or 0.0) + (protein or 0.0) + (fiber or 0.0)
+    return total_grams > 0.0
+
 # Modelo flexible para Health Auto Export o n8n
 class NutritionPayload(BaseModel):
     # Campos comunes en exportaciones de salud
@@ -212,6 +217,19 @@ async def ingest_nutrition(
 
         if not username:
             username = "admin"
+
+        source = payload.get("source") or payload.get("provider") or payload.get("app") or payload.get("origin") or "unknown"
+        norm_log = normalize_nutrition_payload(payload)
+        logger.info(
+            "nutrition_ingest_start user_id=%s source=%s carbs=%s fat=%s protein=%s fiber=%s timestamp=%s",
+            username,
+            source,
+            norm_log.get("carbs"),
+            norm_log.get("fat"),
+            norm_log.get("protein"),
+            norm_log.get("fiber"),
+            norm_log.get("timestamp"),
+        )
 
         # 1. Normalización de Datos (Health Auto Export manda una lista "data": [...])
         # Buscamos carbs, fat, protein en el payload bruto
@@ -667,12 +685,29 @@ async def ingest_nutrition(
             
             if saved_ids:
                 logger.info(f"Ingested {len(saved_ids)} new meals from export.")
+                for saved_id in saved_ids:
+                    logger.info("nutrition_ingest_saved id=%s user_id=%s", saved_id, username)
                 
                 try:
                     from app.bot.service import on_new_meal_received
                     first_id = saved_ids[0]
                     t_obj = await session.get(Treatment, first_id)
-                    if t_obj and t_obj.carbs > 0:
+                    chat_id = config.get_allowed_telegram_user_id()
+                    notify_reason = "notify_allowed"
+                    if not t_obj:
+                        notify_reason = "skip_missing_treatment"
+                    elif not is_valid_ingestion(t_obj.carbs, t_obj.fat, t_obj.protein, t_obj.fiber):
+                        notify_reason = "skip_invalid_ingestion"
+                    elif not chat_id:
+                        notify_reason = "skip_missing_chat_id"
+                    logger.info("nutrition_notify_decision event_id=%s reason=%s", first_id, notify_reason)
+                    if notify_reason == "notify_allowed":
+                        logger.info(
+                            "nutrition_notify_enqueue event_id=%s user_id=%s chat_id=%s",
+                            first_id,
+                            username,
+                            chat_id,
+                        )
                         await on_new_meal_received(
                             t_obj.carbs, 
                             t_obj.fat or 0.0, 
@@ -720,4 +755,3 @@ async def get_ingest_logs(
     from app.services.store import DataStore
     ds = DataStore(Path(settings.data.data_dir))
     return ds.read_json("ingest_logs.json", [])
-
