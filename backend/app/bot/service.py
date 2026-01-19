@@ -5,6 +5,7 @@ import tempfile
 from typing import Optional, Dict, Any, Tuple
 from urllib.parse import urlparse, urlunparse
 import uuid
+import time
 
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -31,13 +32,95 @@ from app.services.store import DataStore
 from app.services.nightscout_client import NightscoutClient
 from app.services.dexcom_client import DexcomClient
 from app.services.iob import compute_iob_from_sources, compute_cob_from_sources
-from app.services.bolus_engine import calculate_bolus_v2
+from app.bot.bolus_client import calculate_bolus_for_bot
 from app.services.basal_repo import get_latest_basal_dose
-from app.models.bolus_v2 import BolusRequestV2, BolusResponseV2, GlucoseUsed
+from app.models.bolus_v2 import BolusRequestV2, BolusResponseV2
 from app.bot.capabilities.registry import build_registry, Permission
 
 
 SNAPSHOT_STORAGE: Dict[str, Any] = {}
+
+EXERCISE_FLOW_TTL_SECONDS = 15 * 60
+EXERCISE_LEVEL_LABELS = {
+    "low": "Suave",
+    "moderate": "Moderado",
+    "high": "Intenso",
+}
+EXERCISE_DURATION_PRESETS = [15, 30, 45, 60]
+
+
+def _exercise_flow_expired(flow: dict) -> bool:
+    created_at = flow.get("created_at", 0)
+    return (time.time() - created_at) > EXERCISE_FLOW_TTL_SECONDS
+
+
+def _format_exercise_label(intensity: str) -> str:
+    return EXERCISE_LEVEL_LABELS.get(intensity, intensity)
+
+
+def _build_bolus_message(
+    rec: BolusResponseV2,
+    *,
+    carbs: float,
+    fat: float,
+    protein: float,
+    bg_val: Optional[float],
+    request_id: str,
+    notes: str,
+    exercise_summary: Optional[str] = None,
+) -> tuple[str, bool, str]:
+    lines = [f"Sugerencia: **{rec.total_u_final} U**"]
+
+    if carbs > 0:
+        lines.append(f"- Carbos: {carbs}g → {rec.meal_bolus_u:.2f} U")
+    else:
+        lines.append("- Carbos: 0g")
+
+    targ_val = rec.used_params.target_mgdl
+    if rec.correction_u != 0:
+        sign = "+" if rec.correction_u > 0 else ""
+        if bg_val is not None:
+            lines.append(
+                f"- Corrección: {sign}{rec.correction_u:.2f} U ({bg_val:.0f} → {targ_val:.0f})"
+            )
+        else:
+            lines.append(f"- Corrección: {sign}{rec.correction_u:.2f} U")
+    elif bg_val is not None:
+        lines.append(f"- Corrección: 0.0 U ({bg_val:.0f} → {targ_val:.0f})")
+    else:
+        lines.append("- Corrección: 0.0 U (Falta Glucosa)")
+
+    if rec.iob_u > 0:
+        lines.append(f"- IOB: −{rec.iob_u:.2f} U")
+    else:
+        lines.append("- IOB: −0.0 U")
+
+    starting = rec.meal_bolus_u + rec.correction_u - rec.iob_u
+    if starting < 0:
+        starting = 0
+    diff = rec.total_u_final - starting
+    if abs(diff) > 0.01:
+        sign = "+" if diff > 0 else ""
+        lines.append(f"- Ajuste/Redondeo: {sign}{diff:.2f} U")
+
+    if exercise_summary:
+        lines.append(f"🏃 Ejercicio: {exercise_summary}")
+
+    lines.append(f"(`{request_id}`)")
+
+    fiber_msg = next(
+        (x for x in rec.explain if "Fibra" in x or "Restando" in x),
+        None,
+    )
+    if fiber_msg:
+        lines.append(f"ℹ️ {fiber_msg}")
+        notes += f" [{fiber_msg}]"
+
+    fiber_dual_rec = any("Valorar Bolo Dual" in x for x in rec.explain)
+    if not fiber_dual_rec and (fat > 0 or protein > 0):
+        lines.append(f"🥩 Macros extra: F:{fat} P:{protein}")
+
+    return "\n".join(lines), fiber_dual_rec, notes
 
 
 # DB Access for Settings
@@ -608,6 +691,34 @@ async def _process_text_input_internal(update: Update, context: ContextTypes.DEF
         await reply_text(update, context, "pong")
         return
 
+    exercise_flow = context.user_data.get("exercise_flow")
+    if exercise_flow and exercise_flow.get("step") == "awaiting_duration":
+        if _exercise_flow_expired(exercise_flow):
+            context.user_data.pop("exercise_flow", None)
+            await reply_text(update, context, "⏱️ Sesión de ejercicio caducada. Vuelve a intentarlo.")
+            return
+        try:
+            minutes_val = int(float(text.replace(",", ".")))
+            if minutes_val <= 0:
+                raise ValueError("Minutes must be positive")
+        except ValueError:
+            await reply_text(update, context, "⚠️ Indica los minutos (ej. 25).")
+            return
+
+        intensity = exercise_flow.get("level")
+        req_id = exercise_flow.get("request_id")
+        context.user_data["exercise_flow"]["step"] = "calculating"
+        await _apply_exercise_recalculation(
+            update,
+            context,
+            request_id=req_id,
+            intensity=intensity,
+            minutes=minutes_val,
+            source="manual",
+        )
+        context.user_data.pop("exercise_flow", None)
+        return
+
     # 0. Intercept Pending Inputs (Manual Bolus Edit)
     pending_bolus_req = context.user_data.get("editing_bolus_request")
     if pending_bolus_req:
@@ -751,26 +862,31 @@ async def _process_text_input_internal(update: Update, context: ContextTypes.DEF
                 
                 # Recalculate Bolus
                 user_settings = await get_bot_user_settings()
-                old_rec = snap["rec"]
-                
-                # We need to rebuild the request with new macros
-                req_v2 = BolusRequestV2(
-                    carbs_g=c_val,
-                    fat_g=f_val,
-                    protein_g=p_val,
-                    meal_slot=old_rec.used_params.meal_slot or "lunch", # Fallback
-                    bg_mgdl=old_rec.glucose.mgdl,
-                    target_mgdl=user_settings.targets.mid
-                )
-                
-                new_rec = calculate_bolus_v2(
-                    request=req_v2,
-                    settings=user_settings,
-                    iob_u=old_rec.iob_u,
-                    glucose_info=old_rec.glucose
+                base_payload = snap.get("payload")
+                if base_payload:
+                    req_v2 = base_payload.model_copy(deep=True)
+                    req_v2.carbs_g = c_val
+                    req_v2.fat_g = f_val
+                    req_v2.protein_g = p_val
+                else:
+                    req_v2 = BolusRequestV2(
+                        carbs_g=c_val,
+                        fat_g=f_val,
+                        protein_g=p_val,
+                        meal_slot=(snap["rec"].used_params.meal_slot if snap.get("rec") else "lunch"),
+                        target_mgdl=user_settings.targets.mid,
+                    )
+
+                req_v2.confirm_iob_unknown = True
+                req_v2.confirm_iob_stale = True
+
+                new_rec = await calculate_bolus_for_bot(
+                    req_v2,
+                    username=user_settings.username or "admin",
                 )
                 
                 snap["rec"] = new_rec
+                snap["payload"] = req_v2
                 
                 # Construct updated summary message
                 rec_u = new_rec.total_u_final
@@ -1005,62 +1121,16 @@ async def _handle_add_treatment_tool(update: Update, context: ContextTypes.DEFAU
     
     await reply_text(update, context, "⚙️ Procesando solicitud de tratamiento...")
     
-    # 1. Fetch Context
-    settings = get_settings()
-    store = DataStore(Path(settings.data.data_dir))
+    # 1. Resolve User Settings
     user_settings = await get_bot_user_settings()
-    
-    bg_val = None
-    iob_u = 0.0
-    iob_info = None
-    ns_client = None
-    
-    if user_settings.nightscout.url:
-         ns_client = NightscoutClient(
-            base_url=user_settings.nightscout.url,
-            token=user_settings.nightscout.token,
-            timeout_seconds=5
-         )
-    
-    try:
-        # Fetch BG
-        if ns_client:
-            try:
-                sgv = await ns_client.get_latest_sgv()
-                bg_val = float(sgv.sgv)
-            except Exception: pass
-            
-        # Fallback Local DB
-        if bg_val is None:
-            try:
-                async with SessionLocal() as session:
-                    from sqlalchemy import text
-                    stmt = text("SELECT sgv FROM entries ORDER BY date_string DESC LIMIT 1") 
-                    row = (await session.execute(stmt)).fetchone()
-                    if row: bg_val = float(row.sgv)
-            except Exception: pass
 
-        # Calc IOB
-        now_utc = datetime.now(timezone.utc)
-        try:
-            iob_u, _, iob_info, _ = await compute_iob_from_sources(now_utc, user_settings, ns_client, store)
-        except Exception:
-            iob_u = None
-            iob_info = None
-        
-    finally:
-        if ns_client: await ns_client.aclose()
-        
-    # 2. Recommendation Logic (V2 Engine)
+    # 2. Recommendation Logic (Shared Engine)
     # ---------------------------------------------------------
     # Generate Request ID
     request_id = str(uuid.uuid4())[:8] # Short 8-char ID for UX
     
     # Resolve Parameters
     slot = get_current_meal_slot(user_settings)
-    
-    # Calculate IOB & Context
-    eff_bg = bg_val if bg_val else user_settings.targets.mid
     
     # Create Request V2
     req_v2 = BolusRequestV2(
@@ -1070,37 +1140,24 @@ async def _handle_add_treatment_tool(update: Update, context: ContextTypes.DEFAU
         fat_g=fat, 
         protein_g=protein,
         fiber_g=fiber,
-        bg_mgdl=bg_val,
-        # If user asked for specific insulin, we still calculate standard
-        # but we might override later? No, tool says 'calculate'.
-        # If user provided 'insulin' arg, usually it means 'log this'.
-        # But this tool is _handle_add_treatment which implies calculation if insulin is None.
+        confirm_iob_unknown=True,
+        confirm_iob_stale=True,
     )
 
     # Manual Insulin Override?
     if insulin_req is not None:
          pass
 
-    # Autosens (Default OFF for bot unless specified? Let's assume OFF to match Web default or User Settings)
-    # We just pass 1.0/None for now or fetch.
-    # To be safe/fast: 1.0
-    
-    glucose_info = GlucoseUsed(
-        mgdl=bg_val,
-        source="nightscout" if ns_client else "manual",
-        trend=None, # Todo: fetch trend
-        is_stale=False
-    )
-    
-    # Execute V2
-    rec = calculate_bolus_v2(
-        request=req_v2,
-        settings=user_settings,
-        iob_u=iob_u or 0.0,
-        glucose_info=glucose_info
-    )
-    if iob_info and iob_info.status in ["unavailable", "stale"]:
-        rec.warnings.append(f"IOB {iob_info.status}; se asumió 0 U para el cálculo del bot.")
+    try:
+        rec = await calculate_bolus_for_bot(
+            req_v2,
+            username=user_settings.username or "admin",
+        )
+    except Exception as exc:
+        await reply_text(update, context, f"❌ Error calculando bolo: {exc}")
+        return
+
+    bg_val = rec.glucose.mgdl if rec.glucose else None
 
     # Override if manual input was given (but keep breakdown for reference if possible, or just overwrite)
     if insulin_req is not None:
@@ -1120,64 +1177,15 @@ async def _handle_add_treatment_tool(update: Update, context: ContextTypes.DEFAU
     # - Redondeo: 0.5 U
     # (request abc123)
 
-    lines = []
-    lines.append(f"Sugerencia: **{rec.total_u_final} U**")
-    
-    # ... (Breakdown logic remains same, implicit via context? No, need to reproduce logic or assume it is okay) ...
-    # Wait, the tool 'replace_file_content' replaces the whole block.
-    # I must ensure I don't lose the breakdown code.
-    # The breakdown code is Lines 1056-1115 in original.
-    
-    # I will simplify the breakdown reproduction here for brevity in the tool call, 
-    # but I must match the original functionality.
-    
-    # Breakdown Analysis
-    if carbs > 0:
-        cr = rec.used_params.cr_g_per_u
-        lines.append(f"- Carbos: {carbs}g → {rec.meal_bolus_u:.2f} U")
-    else:
-        lines.append(f"- Carbos: 0g")
-        
-    targ_val = rec.used_params.target_mgdl
-    if rec.correction_u != 0:
-        sign = "+" if rec.correction_u > 0 else ""
-        lines.append(f"- Corrección: {sign}{rec.correction_u:.2f} U ({bg_val:.0f} → {targ_val:.0f})")
-    elif bg_val is not None:
-         lines.append(f"- Corrección: 0.0 U ({bg_val:.0f} → {targ_val:.0f})")
-    else:
-         lines.append(f"- Corrección: 0.0 U (Falta Glucosa)")
-
-    if rec.iob_u > 0:
-        lines.append(f"- IOB: −{rec.iob_u:.2f} U")
-    else:
-        lines.append(f"- IOB: −0.0 U")
-
-    starting = rec.meal_bolus_u + rec.correction_u - rec.iob_u
-    if starting < 0: starting = 0
-    diff = rec.total_u_final - starting
-    if abs(diff) > 0.01:
-         sign = "+" if diff > 0 else ""
-         lines.append(f"- Ajuste/Redondeo: {sign}{diff:.2f} U")
-    
-    lines.append(f"(`{request_id}`)")
-
-    fiber_msg = next((x for x in rec.explain if "Fibra" in x or "Restando" in x), None)
-    if fiber_msg:
-        lines.append(f"ℹ️ {fiber_msg}")
-        notes += f" [{fiber_msg}]"
-    
-    # F) Check for High Fiber / Dual Recommendation (Warsaw)
-    fiber_dual_rec = False
-    
-    # If fat/protein were passed, Warsaw logic in calculate_bolus_v2 might have triggered advice
-    # We check the explain messages
-    if any("Valorar Bolo Dual" in x for x in rec.explain):
-        fiber_dual_rec = True
-    elif fat > 0 or protein > 0:
-        # Explicit mention of macros if they exist
-        lines.append(f"🥩 Macros extra: F:{fat} P:{protein}")
-
-    msg_text = "\n".join(lines)
+    msg_text, fiber_dual_rec, notes = _build_bolus_message(
+        rec,
+        carbs=carbs,
+        fat=fat,
+        protein=protein,
+        bg_val=bg_val,
+        request_id=request_id,
+        notes=notes,
+    )
 
     # 4. Save Snapshot
     SNAPSHOT_STORAGE[request_id] = {
@@ -1189,7 +1197,8 @@ async def _handle_add_treatment_tool(update: Update, context: ContextTypes.DEFAU
         "bg": bg_val,
         "notes": notes,
         "source": "CalculateBolus",
-        "ts": datetime.now()
+        "ts": datetime.now(),
+        "payload": req_v2
     }
     logger.info(f"Snapshot saved for request_{request_id}. Keys: {len(SNAPSHOT_STORAGE)}")
     
@@ -1238,6 +1247,10 @@ async def _handle_add_treatment_tool(update: Update, context: ContextTypes.DEFAU
         ])
 
     keyboard.append([
+        InlineKeyboardButton("🏃 Añadir ejercicio", callback_data=f"exercise_start|{request_id}")
+    ])
+
+    keyboard.append([
         InlineKeyboardButton("🌅 Desayuno", callback_data=f"set_slot|breakfast|{request_id}"),
         InlineKeyboardButton("🍕 Comida", callback_data=f"set_slot|lunch|{request_id}"),
         InlineKeyboardButton("🍽️ Cena", callback_data=f"set_slot|dinner|{request_id}"),
@@ -1258,6 +1271,113 @@ async def _handle_add_treatment_tool(update: Update, context: ContextTypes.DEFAU
              await context.bot.send_photo(chat_id=update.effective_chat.id, photo=img_bytes)
     except Exception as e:
         logger.warning(f"Failed to send recommendation image: {e}")
+
+
+async def _apply_exercise_recalculation(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    *,
+    request_id: str,
+    intensity: str,
+    minutes: int,
+    source: str,
+    query: Optional[Any] = None,
+) -> None:
+    snapshot = SNAPSHOT_STORAGE.get(request_id)
+    if not snapshot:
+        await reply_text(update, context, "⚠️ Sesión caducada. Recalcula el bolo.")
+        return
+
+    user_settings = await get_bot_user_settings()
+    base_payload = snapshot.get("payload")
+    if base_payload:
+        req_v2 = base_payload.model_copy(deep=True)
+    else:
+        req_v2 = BolusRequestV2(
+            carbs_g=snapshot.get("carbs", 0.0),
+            fat_g=snapshot.get("fat", 0.0),
+            protein_g=snapshot.get("protein", 0.0),
+            fiber_g=snapshot.get("fiber", 0.0),
+            meal_slot=get_current_meal_slot(user_settings),
+            target_mgdl=user_settings.targets.mid,
+        )
+
+    req_v2.exercise.planned = True
+    req_v2.exercise.minutes = minutes
+    req_v2.exercise.intensity = intensity
+    req_v2.confirm_iob_unknown = True
+    req_v2.confirm_iob_stale = True
+
+    try:
+        new_rec = await calculate_bolus_for_bot(
+            req_v2,
+            username=user_settings.username or "admin",
+        )
+    except Exception as exc:
+        await reply_text(update, context, f"❌ Error recalculando bolo: {exc}")
+        return
+
+    snapshot["rec"] = new_rec
+    snapshot["payload"] = req_v2
+    snapshot["exercise"] = {
+        "intensity": intensity,
+        "minutes": minutes,
+    }
+
+    exercise_summary = f"{_format_exercise_label(intensity)}, {minutes} min"
+    msg_text, fiber_dual_rec, _ = _build_bolus_message(
+        new_rec,
+        carbs=snapshot.get("carbs", 0.0),
+        fat=snapshot.get("fat", 0.0),
+        protein=snapshot.get("protein", 0.0),
+        bg_val=new_rec.glucose.mgdl if new_rec.glucose else None,
+        request_id=request_id,
+        notes=snapshot.get("notes", ""),
+        exercise_summary=exercise_summary,
+    )
+
+    rec_u = new_rec.total_u_final
+    keyboard = [
+        [
+            InlineKeyboardButton(f"✅ Poner {rec_u} U", callback_data=f"accept|{request_id}"),
+            InlineKeyboardButton("✏️ Cantidad", callback_data=f"edit_dose|{rec_u}|{request_id}"),
+            InlineKeyboardButton("❌ Ignorar", callback_data=f"cancel|{request_id}"),
+        ]
+    ]
+
+    if fiber_dual_rec:
+        split_pct = 70
+        if user_settings.dual_bolus:
+            split_pct = user_settings.dual_bolus.percent_now
+            if split_pct < 10:
+                split_pct = 10
+            if split_pct > 90:
+                split_pct = 90
+
+        fraction = split_pct / 100.0
+        total = new_rec.total_u_final
+        now_u = round(total * fraction, 2)
+        later_u = round(total * (1.0 - fraction), 2)
+        keyboard.insert(1, [
+            InlineKeyboardButton(
+                f"✅ Dual ({split_pct}/{100 - split_pct}) -> {now_u} + {later_u}e",
+                callback_data=f"accept_dual|{request_id}|{now_u}|{later_u}",
+            )
+        ])
+
+    keyboard.append([
+        InlineKeyboardButton("🌅 Desayuno", callback_data=f"set_slot|breakfast|{request_id}"),
+        InlineKeyboardButton("🍕 Comida", callback_data=f"set_slot|lunch|{request_id}"),
+        InlineKeyboardButton("🍽️ Cena", callback_data=f"set_slot|dinner|{request_id}"),
+        InlineKeyboardButton("🥨 Snack", callback_data=f"set_slot|snack|{request_id}"),
+    ])
+
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    if query:
+        await edit_message_text_safe(query, text=msg_text, reply_markup=reply_markup, parse_mode="Markdown")
+    else:
+        await reply_text(update, context, msg_text, reply_markup=reply_markup, parse_mode="Markdown")
 
 
 
@@ -2035,13 +2155,6 @@ async def on_new_meal_received(carbs: float, fat: float, protein: float, fiber: 
          is_stale_reading = True
          logger.warning(f"Glucose reading is stale! Age: {bg_age:.1f} mins")
     
-    glucose_info = GlucoseUsed(
-        mgdl=bg_val,
-        source=bg_source,
-        trend=bg_trend,
-        is_stale=is_stale_reading
-    )
-    
     req_v2 = BolusRequestV2(
         carbs_g=carbs,
         fat_g=fat,
@@ -2049,14 +2162,14 @@ async def on_new_meal_received(carbs: float, fat: float, protein: float, fiber: 
         fiber_g=fiber,
         meal_slot=slot,
         bg_mgdl=bg_val,
-        target_mgdl=user_settings.targets.mid
+        target_mgdl=user_settings.targets.mid,
+        confirm_iob_unknown=True,
+        confirm_iob_stale=True,
     )
-    
-    rec = calculate_bolus_v2(
-        request=req_v2,
-        settings=user_settings,
-        iob_u=iob_u,
-        glucose_info=glucose_info
+
+    rec = await calculate_bolus_for_bot(
+        req_v2,
+        username=user_settings.username or "admin",
     )
 
     # Store Snapshot
@@ -2068,7 +2181,8 @@ async def on_new_meal_received(carbs: float, fat: float, protein: float, fiber: 
         "fiber": fiber,
         "source": source,
         "origin_id": origin_id,
-        "ts": datetime.now()
+        "ts": datetime.now(),
+        "payload": req_v2,
     }
 
     # 3. Message (Strict Format matching Core Engine)
@@ -2498,6 +2612,130 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
              logger.error(f"Autosens cancel failed: {e}")
         return
 
+    # --- Exercise Flow ---
+    if data.startswith("exercise_start|"):
+        _, req_id = data.split("|")
+        snapshot = SNAPSHOT_STORAGE.get(req_id)
+        if not snapshot:
+            await query.answer("Sesión caducada")
+            return
+
+        flow = context.user_data.get("exercise_flow")
+        if flow and not _exercise_flow_expired(flow):
+            if flow.get("request_id") != req_id:
+                await query.answer("Ya hay un ejercicio en curso.")
+                return
+        context.user_data["exercise_flow"] = {
+            "request_id": req_id,
+            "step": "level",
+            "created_at": time.time(),
+        }
+
+        keyboard = [
+            [
+                InlineKeyboardButton("Suave", callback_data=f"exercise_level|{req_id}|low"),
+                InlineKeyboardButton("Moderado", callback_data=f"exercise_level|{req_id}|moderate"),
+                InlineKeyboardButton("Intenso", callback_data=f"exercise_level|{req_id}|high"),
+            ],
+            [
+                InlineKeyboardButton("❌ Cancelar", callback_data=f"exercise_cancel|{req_id}")
+            ],
+        ]
+        await reply_text(
+            update,
+            context,
+            "🏃‍♂️ **Ejercicio**\nSelecciona la intensidad:",
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode="Markdown",
+        )
+        return
+
+    if data.startswith("exercise_level|"):
+        _, req_id, level = data.split("|")
+        flow = context.user_data.get("exercise_flow")
+        if not flow or flow.get("request_id") != req_id or _exercise_flow_expired(flow):
+            context.user_data.pop("exercise_flow", None)
+            await query.answer("Sesión caducada")
+            return
+
+        flow["level"] = level
+        flow["step"] = "duration"
+        flow["created_at"] = time.time()
+        context.user_data["exercise_flow"] = flow
+
+        duration_buttons = [
+            InlineKeyboardButton(f"{m} min", callback_data=f"exercise_duration|{req_id}|{m}")
+            for m in EXERCISE_DURATION_PRESETS
+        ]
+        keyboard = [duration_buttons[i : i + 2] for i in range(0, len(duration_buttons), 2)]
+        keyboard.append([
+            InlineKeyboardButton("Otro…", callback_data=f"exercise_other|{req_id}"),
+            InlineKeyboardButton("❌ Cancelar", callback_data=f"exercise_cancel|{req_id}"),
+        ])
+
+        await reply_text(
+            update,
+            context,
+            "⏱️ **Duración**\nSelecciona los minutos:",
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode="Markdown",
+        )
+        return
+
+    if data.startswith("exercise_duration|"):
+        _, req_id, minutes_val = data.split("|")
+        flow = context.user_data.get("exercise_flow")
+        if not flow or flow.get("request_id") != req_id or _exercise_flow_expired(flow):
+            context.user_data.pop("exercise_flow", None)
+            await query.answer("Sesión caducada")
+            return
+
+        if flow.get("step") == "calculating":
+            await query.answer("Calculando...")
+            return
+
+        try:
+            minutes = int(minutes_val)
+        except ValueError:
+            await query.answer("Minutos inválidos")
+            return
+
+        flow["step"] = "calculating"
+        context.user_data["exercise_flow"] = flow
+        await _apply_exercise_recalculation(
+            update,
+            context,
+            request_id=req_id,
+            intensity=flow.get("level", "moderate"),
+            minutes=minutes,
+            source="preset",
+            query=query,
+        )
+        context.user_data.pop("exercise_flow", None)
+        return
+
+    if data.startswith("exercise_other|"):
+        _, req_id = data.split("|")
+        flow = context.user_data.get("exercise_flow")
+        if not flow or flow.get("request_id") != req_id or _exercise_flow_expired(flow):
+            context.user_data.pop("exercise_flow", None)
+            await query.answer("Sesión caducada")
+            return
+
+        flow["step"] = "awaiting_duration"
+        flow["created_at"] = time.time()
+        context.user_data["exercise_flow"] = flow
+        await reply_text(update, context, "✍️ Escribe los minutos de ejercicio (ej. 25):")
+        return
+
+    if data.startswith("exercise_cancel|"):
+        _, req_id = data.split("|")
+        flow = context.user_data.get("exercise_flow")
+        if flow and flow.get("request_id") == req_id:
+            context.user_data.pop("exercise_flow", None)
+        await query.answer("Ejercicio cancelado")
+        return
+
 
     # --- 0. Test Button ---
     if data.startswith("test|"):
@@ -2593,32 +2831,31 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                     await query.answer("Sesión caducada")
                     return
                 
-                # Recalcular
-                old_rec = snapshot["rec"]
-                user_settings = await get_bot_user_settings() # Fresh settings
-                
-                # Create NEW Request based on OLD one but changing slot
-                # snapshot["rec"].used_params has some data
-                # But it's better to use the original carbs/fat/protein
-                
-                req_v2 = BolusRequestV2(
-                    carbs_g=snapshot["carbs"],
-                    fat_g=snapshot.get("fat", 0.0),
-                    protein_g=snapshot.get("protein", 0.0),
-                    meal_slot=slot,
-                    bg_mgdl=old_rec.glucose.mgdl,
-                    target_mgdl=user_settings.targets.mid
-                )
-                
-                new_rec = calculate_bolus_v2(
-                    request=req_v2,
-                    settings=user_settings,
-                    iob_u=old_rec.iob_u,
-                    glucose_info=old_rec.glucose
+                user_settings = await get_bot_user_settings()
+                base_payload = snapshot.get("payload")
+                if base_payload:
+                    req_v2 = base_payload.model_copy(deep=True)
+                    req_v2.meal_slot = slot
+                else:
+                    req_v2 = BolusRequestV2(
+                        carbs_g=snapshot["carbs"],
+                        fat_g=snapshot.get("fat", 0.0),
+                        protein_g=snapshot.get("protein", 0.0),
+                        meal_slot=slot,
+                        target_mgdl=user_settings.targets.mid,
+                    )
+
+                req_v2.confirm_iob_unknown = True
+                req_v2.confirm_iob_stale = True
+
+                new_rec = await calculate_bolus_for_bot(
+                    req_v2,
+                    username=user_settings.username or "admin",
                 )
                 
                 # Update Snapshot
                 snapshot["rec"] = new_rec
+                snapshot["payload"] = req_v2
                 
                 # Update Message
                 rec_u = new_rec.total_u_final
@@ -3001,6 +3238,3 @@ async def _collect_ml_data():
              logger.debug(f"ML data point collected for {resolved_user} at {bucket_ts}")
     except Exception as e:
         logger.warning(f"ML collection failed: {e}")
-
-
-

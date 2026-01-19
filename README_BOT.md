@@ -6,6 +6,9 @@
 - `ALLOWED_TELEGRAM_USER_ID=<id numérico>`
 - URL pública para webhook (prioridad): `BOT_PUBLIC_URL` > `RENDER_EXTERNAL_URL` > `PUBLIC_URL`. Si ninguna está presente, el bot usa **polling** automáticamente.
 - `TELEGRAM_WEBHOOK_SECRET=<secreto>`
+- URLs de respaldo/monitor:
+  - `RENDER_EXTERNAL_URL` (URL alternativa de Render para alertas de caída NAS)
+  - `NAS_PUBLIC_URL` (URL principal del NAS para alertas de recuperación)
 - Voz (opcional):
   - `ENABLE_TELEGRAM_VOICE=true`
   - `GEMINI_API_KEY` (obligatoria para voz, puede reutilizarse con `GOOGLE_API_KEY`)

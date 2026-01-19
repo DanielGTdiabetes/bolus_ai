@@ -1,6 +1,7 @@
 
 import asyncio
 import logging
+import os
 import httpx
 from datetime import datetime
 from app.core.settings import get_settings
@@ -20,6 +21,30 @@ class StabilityMonitor:
     _consecutive_successes: int = 0
     _is_nas_down: bool = False
     _recovery_threshold_checks: int = 15 # Assuming 1 check/min -> 15 mins
+    _urls_logged: bool = False
+
+    @staticmethod
+    def _format_url_line(label: str, url: str | None) -> str:
+        return f"{label}: {url}" if url else f"{label}: (URL no configurada)"
+
+    @classmethod
+    def _build_nas_down_message(cls, reason: str, render_url: str | None) -> str:
+        return (
+            "🚨 **ALERTA CRÍTICA**\n\n"
+            "El NAS parece estar CAÍDO (o inalcanzable).\n"
+            f"Error: {reason}\n\n"
+            f"{cls._format_url_line('URL Render (emergencia)', render_url)}\n\n"
+            "Usa la URL de Emergencia si es necesario."
+        )
+
+    @classmethod
+    def _build_nas_recovery_message(cls, nas_url: str | None) -> str:
+        return (
+            "✅ **RECUPERACIÓN CONFIRMADA**\n\n"
+            f"El NAS ha estado estable durante {cls._recovery_threshold_checks} minutos.\n"
+            f"{cls._format_url_line('URL NAS', nas_url)}\n\n"
+            "Ya es seguro volver a la URL principal."
+        )
     
     @classmethod
     async def check_health(cls):
@@ -28,6 +53,14 @@ class StabilityMonitor:
             return # Only run in Emergency Mode
             
         url = settings.nas_public_url
+        render_url = os.environ.get("RENDER_EXTERNAL_URL")
+        if not cls._urls_logged:
+            logger.info(
+                "NAS monitor URLs configured: nas=%s render=%s",
+                "yes" if url else "no",
+                "yes" if render_url else "no",
+            )
+            cls._urls_logged = True
         if not url:
             logger.warning("Monitoring skipped: NAS_PUBLIC_URL not configured")
             return
@@ -39,7 +72,7 @@ class StabilityMonitor:
                 resp = await client.get(target)
                 
                 if resp.status_code == 200:
-                    await cls._handle_success()
+                    await cls._handle_success(url)
                 else:
                     await cls._handle_failure(f"Status {resp.status_code}")
                     
@@ -56,10 +89,11 @@ class StabilityMonitor:
         # Trigger alert on 2nd failure to avoid blips
         if cls._consecutive_failures == 2 and not cls._is_nas_down:
             cls._is_nas_down = True
-            await notify_admin(f"🚨 **ALERTA CRÍTICA**\n\nEl NAS parece estar CAÍDO (o inalcanzable).\nError: {reason}\n\nUsa la URL de Emergencia si es necesario.")
+            render_url = os.environ.get("RENDER_EXTERNAL_URL")
+            await notify_admin(cls._build_nas_down_message(reason, render_url))
 
     @classmethod
-    async def _handle_success(cls):
+    async def _handle_success(cls, nas_url: str | None):
         cls._consecutive_failures = 0
         cls._consecutive_successes += 1
         
@@ -68,7 +102,6 @@ class StabilityMonitor:
             
             if cls._consecutive_successes >= cls._recovery_threshold_checks:
                 cls._is_nas_down = False
-                await notify_admin(f"✅ **RECUPERACIÓN CONFIRMADA**\n\nEl NAS ha estado estable durante {cls._recovery_threshold_checks} minutos.\nYa es seguro volver a la URL principal.")
+                await notify_admin(cls._build_nas_recovery_message(nas_url))
                 # Reset counter to keep tracking
                 cls._consecutive_successes = 0
-
