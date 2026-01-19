@@ -60,10 +60,12 @@ async def scan_night_service(user_id: str, target_date: date, client: Nightscout
     
     if not entries:
         # Maybe store empty summary?
+        logger.warning("Night scan: no entries for user=%s date=%s", user_id, target_date)
         return {"status": "no_data"}
         
     bgs = [e.sgv for e in entries if e.sgv]
     if not bgs:
+        logger.warning("Night scan: no SGV values for user=%s date=%s", user_id, target_date)
         return {"status": "no_sgv"}
         
     min_bg = min(bgs)
@@ -95,6 +97,14 @@ async def scan_night_service(user_id: str, target_date: date, client: Nightscout
             db.add(new_sum)
             
         await db.commit()
+        logger.info(
+            "Night scan persisted for user=%s date=%s had_hypo=%s min_bg=%s below_70=%s",
+            user_id,
+            target_date,
+            had_hypo,
+            min_bg,
+            below_70,
+        )
     else:
         logger.info(f"Night Scan (Dry Run) for {user_id}: Hypo={had_hypo}, Min={min_bg}")
         
