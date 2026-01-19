@@ -16,7 +16,7 @@ from app.services.store import DataStore
 from app.services.nightscout_client import NightscoutClient, NightscoutError
 from app.services.dexcom_client import DexcomClient
 from app.services.iob import compute_iob_from_sources, compute_cob_from_sources
-from app.models.bolus_v2 import BolusRequestV2, BolusResponseV2, GlucoseUsed as GlucoseUsedV2
+from app.models.bolus_v2 import BolusRequestV2
 from app.services.forecast_engine import ForecastEngine
 from app.models.forecast import (
     ForecastSimulateRequest,
@@ -26,19 +26,15 @@ from app.models.forecast import (
     SimulationParams,
     MomentumConfig,
 )
-from app.services.bolus_engine import calculate_bolus_v2
+from app.bot.bolus_client import calculate_bolus_for_bot
 from app.models.settings import UserSettings
 from app.services.treatment_logger import log_treatment
 from app.services.suggestion_engine import generate_suggestions_service, get_suggestions_service, resolve_suggestion_service
 from app.api.user_data import FavoriteCreate, FavoriteRead
-from app.models.user_data import FavoriteFood
-from app.services.autosens_service import AutosensService
-from app.services.autosens_service import AutosensService
 from app.bot.user_settings_resolver import resolve_bot_user_settings
 from app.services.restaurant_db import RestaurantDBService
 from app.models.user_data import FavoriteFood, SupplyItem
 from app.api.user_data import SupplyRead, SupplyUpdate
-from app.services import basal_repo
 from app.services import basal_repo
 
 logger = logging.getLogger(__name__)
@@ -458,240 +454,129 @@ async def get_status_context(username: str = "admin", user_settings: Optional[Us
     )
 
 
-async def calculate_bolus(carbs: float, fat: float = 0.0, protein: float = 0.0, fiber: float = 0.0, meal_type: Optional[str] = None, split: Optional[float] = None, extend_minutes: Optional[int] = None, alcohol: bool = False, target: Optional[float] = None) -> BolusResult | ToolError:
+async def calculate_bolus(
+    carbs: float,
+    fat: float = 0.0,
+    protein: float = 0.0,
+    fiber: float = 0.0,
+    meal_type: Optional[str] = None,
+    split: Optional[float] = None,
+    extend_minutes: Optional[int] = None,
+    alcohol: bool = False,
+    target: Optional[float] = None,
+) -> BolusResult | ToolError:
     try:
-        # Resolve settings AND user_id explicitly to ensure consistency
-        # Previously: user_settings = await _load_user_settings() which lost the user_id
         user_settings, user_id = await resolve_bot_user_settings()
     except Exception as exc:
         return ToolError(type="config_error", message=f"Config no disponible: {exc}")
 
-    # PHASE 2: Snapshot Context
-    # We fetch status using the *just loaded* settings and explicit user_id.
-    # The context will contain bg, iob, and the config_hash of these settings.
-    status = await get_status_context(username=user_id, user_settings=user_settings)
-    if isinstance(status, ToolError):
-        return status
-
     if meal_type:
         meal_slot = meal_type
     else:
-        # Infer from system local time using User Settings Schedule
         from app.utils.timezone import to_local
-        # Use UTC aware time to ensure reliable conversion
+
         now_local = to_local(datetime.now(timezone.utc))
         h = now_local.hour
         sch = user_settings.schedule
-        
+
         if sch.breakfast_start_hour <= h < sch.lunch_start_hour:
             meal_slot = "breakfast"
         elif sch.lunch_start_hour <= h < sch.dinner_start_hour:
-             meal_slot = "lunch"
+            meal_slot = "lunch"
         elif h >= sch.dinner_start_hour or h < sch.breakfast_start_hour:
-             meal_slot = "dinner"
+            meal_slot = "dinner"
         else:
-             meal_slot = "snack"
+            meal_slot = "snack"
 
-    # Check for Active Temp Modes (Global Override)
     try:
         from app.models.temp_mode import TempModeDB
         from sqlalchemy import select
+
         async with SessionLocal() as session:
-             # Find active mode
-             now = datetime.now(timezone.utc)
-             stmt = select(TempModeDB).where(
-                 TempModeDB.expires_at > now,
-                 TempModeDB.mode == "alcohol"
-             )
-             res = await session.execute(stmt)
-             active = res.scalars().first()
-             if active:
-                 alcohol = True
+            now = datetime.now(timezone.utc)
+            stmt = select(TempModeDB).where(
+                TempModeDB.expires_at > now,
+                TempModeDB.mode == "alcohol",
+            )
+            res = await session.execute(stmt)
+            active = res.scalars().first()
+            if active:
+                alcohol = True
     except Exception as e:
         logger.warning(f"Failed to check temp modes from DB: {e}")
 
-    # STALE DATA SAFETY CHECK
-    is_stale_data = False
-    
-    # Use explicit age if available (more reliable), otherwise fallback to recalc
-    current_age = status.age_minutes
-    if current_age is None and status.bg_mgdl:
-         try:
-            ts = datetime.fromisoformat(status.timestamp)
-            if ts.tzinfo is None: ts = ts.replace(tzinfo=timezone.utc)
-            current_age = (datetime.now(timezone.utc) - ts).total_seconds() / 60
-         except: pass
-
-    if status.bg_mgdl:
-        if current_age is not None and current_age > 20:
-             # Don't fail, just mark stale (Parity with App)
-             logger.warning(f"Using stale glucose data ({int(current_age)} min old)")
-             is_stale_data = True
-    else:
-        return ToolError(type="missing_data", message="No hay datos de glucosa recientes.")
-
-    # Calculate Hybrid Autosens
-    autosens_ratio = 1.0
-    autosens_reason = None
-    try:
-        async with SessionLocal() as session:
-            # Removed internal import of _resolve_user_id that caused mismatch
-            # u_id = await _resolve_user_id(session)
-            u_id = user_id  # Use the consistently resolved ID
-
-            # 1. Macro (TDD)
-            from app.services.dynamic_isf_service import DynamicISFService
-            tdd_ratio = await DynamicISFService.calculate_dynamic_ratio(u_id, session, user_settings)
-
-            # 2. Micro (Local)
-            local_ratio = 1.0
-            try:
-                res = await AutosensService.calculate_autosens(u_id, session, user_settings)
-                local_ratio = res.ratio
-            except:
-                pass
-
-            # SMART FALLBACK: If we got neutral results (1.0) and we are not admin,
-            # it's possible this is a 'shadow' user (Telegram alias) without data.
-            # Try checking the default/admin user for data.
-            if tdd_ratio == 1.0 and local_ratio == 1.0 and u_id != "admin":
-                from app.core import config
-                fallback_uid = config.get_bot_default_username()
-                if fallback_uid and fallback_uid != u_id:
-                    logger.info(
-                        f"Autosens neutral for '{u_id}', attempting fallback to '{fallback_uid}' data..."
-                    )
-                    tdd_ratio_fb = await DynamicISFService.calculate_dynamic_ratio(
-                        fallback_uid,
-                        session,
-                        user_settings,
-                    )
-
-                    local_ratio_fb = 1.0
-                    try:
-                        res_fb = await AutosensService.calculate_autosens(
-                            fallback_uid,
-                            session,
-                            user_settings,
-                        )
-                        local_ratio_fb = res_fb.ratio
-                    except:
-                        pass
-
-                    if tdd_ratio_fb != 1.0 or local_ratio_fb != 1.0:
-                        logger.info(
-                            f"Fallback successful: Using '{fallback_uid}' autosens data."
-                        )
-                        tdd_ratio = tdd_ratio_fb
-                        local_ratio = local_ratio_fb
-
-            # 3. Combine
-            autosens_ratio = tdd_ratio * local_ratio
-            autosens_ratio = max(
-                user_settings.autosens.min_ratio,
-                min(user_settings.autosens.max_ratio, autosens_ratio),
-            )
-
-            if autosens_ratio != 1.0:
-                autosens_reason = f"Híbrido (TDD {tdd_ratio:.2f}x · Local {local_ratio:.2f}x)"
-            else:
-                autosens_reason = "Estable"
-    except Exception as e:
-        logger.warning(f"Bot Hybrid Autosens failed: {e}")
-    
-    # Build V2 Request
     req = BolusRequestV2(
         carbs_g=carbs,
         fat_g=fat,
         protein_g=protein,
         fiber_g=fiber,
-        bg_mgdl=status.bg_mgdl,
         meal_slot=meal_slot,
         target_mgdl=target or user_settings.targets.mid,
         alcohol=alcohol,
-        autosens_ratio=autosens_ratio,
-        autosens_reason=autosens_reason
+        confirm_iob_unknown=True,
+        confirm_iob_stale=True,
     )
 
-    # Handle Split/Extend using V2 machinery
     if split is not None or extend_minutes is not None:
-         req.slow_meal.enabled = True
-         req.slow_meal.mode = "dual"
-         if split: req.slow_meal.upfront_pct = split
-         if extend_minutes: req.slow_meal.duration_min = extend_minutes
+        req.slow_meal.enabled = True
+        req.slow_meal.mode = "dual"
+        if split:
+            req.slow_meal.upfront_pct = split
+        if extend_minutes:
+            req.slow_meal.duration_min = extend_minutes
 
-    iob_u = status.iob_u or 0.0
-    
-    # Glucose Info Wrapper
-    # Map 'local' -> 'none' (or 'manual') to satisfy GlucoseUsed Literal restriction
-    # status.source can be "local" coming from get_status_context
-    valid_source = status.source
-    if valid_source == "local":
-        valid_source = "none" # Default to none if relying on local calc without external data
-    
-    glucose_info = GlucoseUsed(
-        mgdl=status.bg_mgdl,
-        source=valid_source,
-        trend=status.direction,
-        is_stale=is_stale_data
-    )
+    try:
+        rec = await calculate_bolus_for_bot(req, username=user_id)
+    except Exception as exc:
+        return ToolError(type="calc_error", message=f"Error calculando bolo: {exc}")
 
-    # Security: Log Config Hash from Context
-    # We double-check that the settings object matches the context source
-    # (In this flow they are identical, but this reinforces observability)
-    cfg_hash = status.config_hash or user_settings.config_hash
-    logger.info(f"Calculating bolus using config hash: {cfg_hash[:8]}")
-    
-    # Snapshot Timestamp Logic
-    snap_ts = "Now"
-    if status.timestamp:
-        try:
-            # Format nicely: 14:05:01
-            dt_ts = datetime.fromisoformat(status.timestamp)
-            from app.utils.timezone import to_local
-            snap_ts = to_local(dt_ts).strftime("%H:%M:%S")
-        except: pass
+    if not rec.glucose or rec.glucose.mgdl is None:
+        return ToolError(type="missing_data", message="No hay datos de glucosa recientes.")
 
-    rec = calculate_bolus_v2(req, user_settings, iob_u, glucose_info)
-    
     explain = rec.explain
     if rec.warnings:
         explain.extend([f"⚠️ {w}" for w in rec.warnings])
 
-    # Append Security Footprint
+    cfg_hash = (
+        rec.used_params.config_hash
+        if rec.used_params and rec.used_params.config_hash
+        else user_settings.config_hash
+    )
+    logger.info(f"Calculating bolus using config hash: {cfg_hash[:8]}")
+
+    snap_ts = "Ahora"
+    if rec.glucose and rec.glucose.age_minutes is not None:
+        snap_ts = f"Hace {int(rec.glucose.age_minutes)} min"
+
     explain.append(f"🔒 Hash: {cfg_hash[:6]} | 🕒 Datos: {snap_ts}")
-    
-    # Calculate Rotation Preview
-    # Calculate Rotation Preview
+
     preview_site = None
     try:
         from app.services.async_injection_manager import AsyncInjectionManager
-        # Resolve user (simple, rely on what we have, or default admin)
         target_user = "admin"
         mgr = AsyncInjectionManager(target_user)
-        # Plan is 'rapid' (bolus) usually
         preview = await mgr.get_next_site("bolus")
-        
+
         preview_site = {
-             "id": preview["id"],
-             "name": preview["name"],
-             "emoji": preview["emoji"],
-             "image": preview["image"]
+            "id": preview["id"],
+            "name": preview["name"],
+            "emoji": preview["emoji"],
+            "image": preview["image"],
         }
         explain.append(f"📍 Sugerencia: {preview['name']} {preview['emoji']}")
     except Exception as e:
         logger.warning(f"DB Rotation preview failed: {e}")
 
     return BolusResult(
-        units=rec.total_u, 
-        explanation=explain, 
-        confidence="high", 
-        quality="data-driven", 
+        units=rec.total_u,
+        explanation=explain,
+        confidence="high",
+        quality="data-driven",
         recommended_site=preview_site,
         kind=rec.kind,
         upfront_u=rec.upfront_u,
         later_u=rec.later_u,
-        duration_min=rec.duration_min
+        duration_min=rec.duration_min,
     )
 
 
