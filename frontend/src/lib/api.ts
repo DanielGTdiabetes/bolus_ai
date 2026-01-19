@@ -549,7 +549,7 @@ export async function createBasalEntry(payload) {
 }
 
 export async function getBasalEntries(days = 30) {
-  const response = await apiFetch(`/api/basal/history?days=${days}`);
+  const response = await apiFetch(`/api/basal/history?days=${days}&_t=${Date.now()}`);
   const data = await toJson(response);
   if (!response.ok) throw new Error(data.detail || "Error al obtener historial basal");
   return data;
@@ -682,7 +682,7 @@ export async function getEvaluations() {
 }
 
 export async function getBasalTimeline(days = 14) {
-  const response = await apiFetch(`/api/basal/timeline?days=${days}`);
+  const response = await apiFetch(`/api/basal/timeline?days=${days}&_t=${Date.now()}`);
   const data = await toJson(response);
   if (!response.ok) throw new Error(data.detail || "Error al obtener timeline basal");
   return data;
