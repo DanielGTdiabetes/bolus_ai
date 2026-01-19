@@ -123,6 +123,103 @@ def _build_bolus_message(
     return "\n".join(lines), fiber_dual_rec, notes
 
 
+def _keyboard_button_texts(keyboard: list[list[InlineKeyboardButton]]) -> list[list[str]]:
+    return [[button.text for button in row] for row in keyboard]
+
+
+def _log_bolus_keyboard_build(
+    update: Optional[Update],
+    *,
+    request_id: str,
+    bolus_mode: str,
+    keyboard: list[list[InlineKeyboardButton]],
+) -> None:
+    user_id = getattr(update.effective_user, "id", None) if update else None
+    chat_id = getattr(update.effective_chat, "id", None) if update else None
+    has_bolus_context = request_id in SNAPSHOT_STORAGE
+    buttons = _keyboard_button_texts(keyboard)
+    logger.info(
+        "bot_bolus_keyboard_build start: user_id=%s chat_id=%s has_bolus_context=%s bolus_mode=%s buttons=%s",
+        user_id,
+        chat_id,
+        has_bolus_context,
+        bolus_mode,
+        buttons,
+    )
+
+
+def _maybe_append_exercise_button(
+    keyboard: list[list[InlineKeyboardButton]],
+    *,
+    request_id: str,
+    label: str,
+) -> None:
+    if request_id:
+        logger.info("bot_exercise_button gate: reason=shown motive=request_id_present")
+        keyboard.append([
+            InlineKeyboardButton(label, callback_data=f"exercise_start|{request_id}")
+        ])
+    else:
+        logger.info("bot_exercise_button gate: reason=hidden motive=missing_request_id")
+
+
+def _build_bolus_recommendation_keyboard(
+    update: Optional[Update],
+    *,
+    request_id: str,
+    rec_u: float,
+    user_settings: Any,
+    fiber_dual_rec: bool,
+    exercise_label: str = "🏃 Añadir ejercicio",
+) -> list[list[InlineKeyboardButton]]:
+    row1 = [
+        InlineKeyboardButton(f"✅ Poner {rec_u} U", callback_data=f"accept|{request_id}"),
+        InlineKeyboardButton("✏️ Cantidad", callback_data=f"edit_dose|{rec_u}|{request_id}"),
+        InlineKeyboardButton("❌ Ignorar", callback_data=f"cancel|{request_id}"),
+    ]
+
+    keyboard = [row1]
+
+    if fiber_dual_rec:
+        split_pct = 70
+        if user_settings.dual_bolus:
+            split_pct = user_settings.dual_bolus.percent_now
+            if split_pct < 10:
+                split_pct = 10
+            if split_pct > 90:
+                split_pct = 90
+
+        fraction = split_pct / 100.0
+        total = rec_u
+        now_u = round(total * fraction, 2)
+        later_u = round(total * (1.0 - fraction), 2)
+
+        keyboard.insert(1, [
+            InlineKeyboardButton(
+                f"✅ Dual ({split_pct}/{100 - split_pct}) -> {now_u} + {later_u}e",
+                callback_data=f"accept_dual|{request_id}|{now_u}|{later_u}",
+            )
+        ])
+
+    _maybe_append_exercise_button(keyboard, request_id=request_id, label=exercise_label)
+
+    keyboard.append([
+        InlineKeyboardButton("🌅 Desayuno", callback_data=f"set_slot|breakfast|{request_id}"),
+        InlineKeyboardButton("🍕 Comida", callback_data=f"set_slot|lunch|{request_id}"),
+        InlineKeyboardButton("🍽️ Cena", callback_data=f"set_slot|dinner|{request_id}"),
+        InlineKeyboardButton("🥨 Snack", callback_data=f"set_slot|snack|{request_id}"),
+    ])
+
+    _log_bolus_keyboard_build(
+        update,
+        request_id=request_id,
+        bolus_mode="dual" if fiber_dual_rec else "simple",
+        keyboard=keyboard,
+    )
+
+    return keyboard
+
+
 # DB Access for Settings
 from app.core.db import SessionLocal
 from app.services import settings_service as svc_settings
@@ -921,6 +1018,13 @@ async def _process_text_input_internal(update: Update, context: ContextTypes.DEF
                         InlineKeyboardButton("❌ Ignorar", callback_data=f"cancel|{req_id}")
                     ]
                 ]
+                _maybe_append_exercise_button(kb, request_id=req_id, label="🏃 Añadir ejercicio")
+                _log_bolus_keyboard_build(
+                    update,
+                    request_id=req_id,
+                    bolus_mode="simple",
+                    keyboard=kb,
+                )
                 
                 await reply_text(update, context, "\n".join(lines), reply_markup=InlineKeyboardMarkup(kb), parse_mode="Markdown")
                 health.record_action("macro_edit_success", True)
@@ -1219,50 +1323,13 @@ async def _handle_add_treatment_tool(update: Update, context: ContextTypes.DEFAU
     msg_text += f"\n\n📍 Sugerencia: {next_site['name']} {next_site['emoji']}"
 
     
-    # Callback: "accept|{request_id}"
-    # Standard Buttons
-    row1 = [
-        InlineKeyboardButton(f"✅ Poner {rec.total_u_final} U", callback_data=f"accept|{request_id}"),
-        InlineKeyboardButton("✏️ Cantidad", callback_data=f"edit_dose|{rec.total_u_final}|{request_id}"),
-        InlineKeyboardButton("❌ Ignorar", callback_data=f"cancel|{request_id}")
-    ]
-    
-    keyboard = [row1]
-
-    # Add Dual Bolus button if recommended
-    if fiber_dual_rec:
-        # Calculate Split based on User Settings
-        split_pct = 70 # Default
-        if user_settings.dual_bolus:
-            split_pct = user_settings.dual_bolus.percent_now
-            # Safety clamp
-            if split_pct < 10: split_pct = 10
-            if split_pct > 90: split_pct = 90
-            
-        fraction = split_pct / 100.0
-        
-        total = rec.total_u_final
-        now_u = round(total * fraction, 2)
-        later_u = round(total * (1.0 - fraction), 2)
-        
-        # Ensure sum matches exactly or close enough (rounding errors usually negligible for UI)
-        # Re-adjust slightly logic:
-        # now_u = round(total * fraction / 0.05) * 0.05 ? No, stick to simple round
-        
-        keyboard.insert(1, [
-             InlineKeyboardButton(f"✅ Dual ({split_pct}/{100-split_pct}) -> {now_u} + {later_u}e", callback_data=f"accept_dual|{request_id}|{now_u}|{later_u}")
-        ])
-
-    keyboard.append([
-        InlineKeyboardButton("🏃 Añadir ejercicio", callback_data=f"exercise_start|{request_id}")
-    ])
-
-    keyboard.append([
-        InlineKeyboardButton("🌅 Desayuno", callback_data=f"set_slot|breakfast|{request_id}"),
-        InlineKeyboardButton("🍕 Comida", callback_data=f"set_slot|lunch|{request_id}"),
-        InlineKeyboardButton("🍽️ Cena", callback_data=f"set_slot|dinner|{request_id}"),
-        InlineKeyboardButton("🥨 Snack", callback_data=f"set_slot|snack|{request_id}"),
-    ])
+    keyboard = _build_bolus_recommendation_keyboard(
+        update,
+        request_id=request_id,
+        rec_u=rec.total_u_final,
+        user_settings=user_settings,
+        fiber_dual_rec=fiber_dual_rec,
+    )
     
     reply_markup = InlineKeyboardMarkup(keyboard)
     
@@ -1344,40 +1411,13 @@ async def _apply_exercise_recalculation(
     )
 
     rec_u = new_rec.total_u_final
-    keyboard = [
-        [
-            InlineKeyboardButton(f"✅ Poner {rec_u} U", callback_data=f"accept|{request_id}"),
-            InlineKeyboardButton("✏️ Cantidad", callback_data=f"edit_dose|{rec_u}|{request_id}"),
-            InlineKeyboardButton("❌ Ignorar", callback_data=f"cancel|{request_id}"),
-        ]
-    ]
-
-    if fiber_dual_rec:
-        split_pct = 70
-        if user_settings.dual_bolus:
-            split_pct = user_settings.dual_bolus.percent_now
-            if split_pct < 10:
-                split_pct = 10
-            if split_pct > 90:
-                split_pct = 90
-
-        fraction = split_pct / 100.0
-        total = new_rec.total_u_final
-        now_u = round(total * fraction, 2)
-        later_u = round(total * (1.0 - fraction), 2)
-        keyboard.insert(1, [
-            InlineKeyboardButton(
-                f"✅ Dual ({split_pct}/{100 - split_pct}) -> {now_u} + {later_u}e",
-                callback_data=f"accept_dual|{request_id}|{now_u}|{later_u}",
-            )
-        ])
-
-    keyboard.append([
-        InlineKeyboardButton("🌅 Desayuno", callback_data=f"set_slot|breakfast|{request_id}"),
-        InlineKeyboardButton("🍕 Comida", callback_data=f"set_slot|lunch|{request_id}"),
-        InlineKeyboardButton("🍽️ Cena", callback_data=f"set_slot|dinner|{request_id}"),
-        InlineKeyboardButton("🥨 Snack", callback_data=f"set_slot|snack|{request_id}"),
-    ])
+    keyboard = _build_bolus_recommendation_keyboard(
+        update,
+        request_id=request_id,
+        rec_u=rec_u,
+        user_settings=user_settings,
+        fiber_dual_rec=fiber_dual_rec,
+    )
 
     reply_markup = InlineKeyboardMarkup(keyboard)
 
@@ -2243,13 +2283,20 @@ async def on_new_meal_received(carbs: float, fat: float, protein: float, fiber: 
         [
             InlineKeyboardButton(f"✏️ Editar Macros", callback_data=f"edit_macros|{request_id}")
         ],
-        [
-            InlineKeyboardButton("🌅 Desayuno", callback_data=f"set_slot|breakfast|{request_id}"),
-            InlineKeyboardButton("🍕 Comida", callback_data=f"set_slot|lunch|{request_id}"),
-            InlineKeyboardButton("🍽️ Cena", callback_data=f"set_slot|dinner|{request_id}"),
-            InlineKeyboardButton("🥨 Snack", callback_data=f"set_slot|snack|{request_id}"),
-        ]
     ]
+    _maybe_append_exercise_button(keyboard, request_id=request_id, label="🏃 Añadir ejercicio")
+    keyboard.append([
+        InlineKeyboardButton("🌅 Desayuno", callback_data=f"set_slot|breakfast|{request_id}"),
+        InlineKeyboardButton("🍕 Comida", callback_data=f"set_slot|lunch|{request_id}"),
+        InlineKeyboardButton("🍽️ Cena", callback_data=f"set_slot|dinner|{request_id}"),
+        InlineKeyboardButton("🥨 Snack", callback_data=f"set_slot|snack|{request_id}"),
+    ])
+    _log_bolus_keyboard_build(
+        None,
+        request_id=request_id,
+        bolus_mode="simple",
+        keyboard=keyboard,
+    )
     reply_markup = InlineKeyboardMarkup(keyboard)
     
     try:
@@ -2906,13 +2953,20 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                         InlineKeyboardButton("✏️ Cantidad", callback_data=f"edit_dose|{rec_u}|{req_id}"),
                         InlineKeyboardButton("❌ Ignorar", callback_data=f"cancel|{req_id}")
                     ],
-                    [
-                        InlineKeyboardButton("🌅 Desayuno", callback_data=f"set_slot|breakfast|{req_id}"),
-                        InlineKeyboardButton("🍕 Comida", callback_data=f"set_slot|lunch|{req_id}"),
-                        InlineKeyboardButton("🍽️ Cena", callback_data=f"set_slot|dinner|{req_id}"),
-                        InlineKeyboardButton("🥨 Snack", callback_data=f"set_slot|snack|{req_id}"),
-                    ]
                 ]
+                _maybe_append_exercise_button(keyboard, request_id=req_id, label="🏃 Añadir ejercicio")
+                keyboard.append([
+                    InlineKeyboardButton("🌅 Desayuno", callback_data=f"set_slot|breakfast|{req_id}"),
+                    InlineKeyboardButton("🍕 Comida", callback_data=f"set_slot|lunch|{req_id}"),
+                    InlineKeyboardButton("🍽️ Cena", callback_data=f"set_slot|dinner|{req_id}"),
+                    InlineKeyboardButton("🥨 Snack", callback_data=f"set_slot|snack|{req_id}"),
+                ])
+                _log_bolus_keyboard_build(
+                    update,
+                    request_id=req_id,
+                    bolus_mode="simple",
+                    keyboard=keyboard,
+                )
                 await edit_message_text_safe(query, text=msg_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
                 await query.answer(f"Slot cambiado a {slot}")
                 health.record_action(f"callback:set_slot:{slot}", True)
