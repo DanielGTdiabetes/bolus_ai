@@ -63,6 +63,21 @@ async def ensure_basal_schema(engine: AsyncEngine):
 
 
 
+
+        # Fix Legacy 'day' column constraint if it exists (it might be NOT NULL)
+        try:
+            day_check = await conn.execute(text(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_name='basal_checkin' AND column_name='day'"
+            ))
+            if day_check.fetchone():
+                logger.info("Legacy column 'day' detected. Ensuring it is NULLABLE...")
+                await conn.execute(text("ALTER TABLE basal_checkin ALTER COLUMN \"day\" DROP NOT NULL"))
+                await conn.commit()
+        except Exception as e:
+            await conn.rollback()
+            logger.warning(f"Error adjusting legacy day column: {e}")
+
         # Ensure Unique Index for ON CONFLICT support
         try:
             await conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_basal_checkin_user_date ON basal_checkin (user_id, checkin_date);"))
