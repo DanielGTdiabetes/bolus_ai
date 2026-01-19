@@ -592,7 +592,7 @@ export default function BolusPage() {
                                     <p>No hay importaciones recientes pendientes.</p>
                                 )}
                                 {!importLoading && !importError && recentImports.length > 0 && (
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                                    <div className="draft-modal-list" style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                                         {recentImports.map((item) => (
                                             <div key={item.id} style={{
                                                 border: '1px solid #e2e8f0',

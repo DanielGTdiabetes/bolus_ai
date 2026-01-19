@@ -841,6 +841,7 @@ input:checked+.slider:before {
   justify-content: center;
   z-index: 2000;
   padding: 1.5rem;
+  overscroll-behavior: contain;
 }
 
 .draft-modal {
@@ -852,6 +853,7 @@ input:checked+.slider:before {
   display: flex;
   flex-direction: column;
   gap: 1rem;
+  max-height: 90vh;
 }
 
 .draft-modal-header {
@@ -918,4 +920,18 @@ input:checked+.slider:before {
   .draft-modal-macros {
     grid-template-columns: repeat(2, 1fr);
   }
+}
+.draft-modal-body {
+  max-height: 70vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch; /* iOS: habilita scroll suave dentro del modal */
+  touch-action: pan-y;
+}
+
+.draft-modal-list {
+  max-height: 70vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch; /* iOS: asegura scroll en listados largos */
 }
