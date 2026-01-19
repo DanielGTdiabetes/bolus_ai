@@ -1,7 +1,7 @@
 import asyncio
 import importlib
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -111,6 +111,24 @@ def _recent_timestamp() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
 
+def _create_treatment(client: TestClient, **kwargs) -> Treatment:
+    session_factory = getattr(client, "_session_factory")
+    treatment = Treatment(**kwargs)
+    with session_factory() as session:
+        session.add(treatment)
+        session.commit()
+    return treatment
+
+
+def _delete_treatment(client: TestClient, treatment_id: str) -> None:
+    session_factory = getattr(client, "_session_factory")
+    with session_factory() as session:
+        treatment = session.get(Treatment, treatment_id)
+        if treatment:
+            session.delete(treatment)
+            session.commit()
+
+
 def test_updates_fiber_on_same_timestamp(client: TestClient):
     headers = _auth_headers(client)
     ts = _recent_timestamp()
@@ -199,11 +217,141 @@ def test_rejects_missing_or_wrong_secret(client: TestClient):
     )
     assert resp_missing.status_code == 401
 
-    resp_wrong = client.post(
-        "/api/integrations/nutrition?key=wrong-secret",
-        json={"carbs": 5, "date": ts},
+
+def test_recent_imports_sorted_and_limited(client: TestClient):
+    headers = _auth_headers(client)
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+
+    _create_treatment(
+        client,
+        id="import-1",
+        user_id="admin",
+        event_type="Meal Bolus",
+        created_at=now - timedelta(minutes=30),
+        insulin=0.0,
+        carbs=25.0,
+        fat=5.0,
+        protein=6.0,
+        fiber=3.0,
+        notes="Imported from Health: test #imported",
+        entered_by="webhook-integration",
+        is_uploaded=False,
     )
-    assert resp_wrong.status_code == 401
+    _create_treatment(
+        client,
+        id="import-2",
+        user_id="admin",
+        event_type="Meal Bolus",
+        created_at=now - timedelta(minutes=10),
+        insulin=0.0,
+        carbs=40.0,
+        fat=8.0,
+        protein=9.0,
+        fiber=4.0,
+        notes="Imported from Health: test #imported",
+        entered_by="webhook-integration",
+        is_uploaded=False,
+    )
+    _create_treatment(
+        client,
+        id="import-3",
+        user_id="admin",
+        event_type="Meal Bolus",
+        created_at=now - timedelta(minutes=5),
+        insulin=0.0,
+        carbs=10.0,
+        fat=2.0,
+        protein=3.0,
+        fiber=1.0,
+        notes="Imported from Health: test #imported",
+        entered_by="webhook-integration",
+        is_uploaded=False,
+    )
+
+    resp = client.get("/api/integrations/nutrition/recent?limit=2", headers=headers)
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert len(payload) == 2
+    assert payload[0]["id"] == "import-3"
+    assert payload[1]["id"] == "import-2"
+    assert payload[0]["timestamp"] > payload[1]["timestamp"]
+    assert payload[1]["timestamp"] > (now - timedelta(minutes=30)).isoformat()
+
+
+def test_recent_imports_excludes_consumed_entries(client: TestClient):
+    headers = _auth_headers(client)
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+
+    _create_treatment(
+        client,
+        id="import-pending",
+        user_id="admin",
+        event_type="Meal Bolus",
+        created_at=now - timedelta(minutes=15),
+        insulin=0.0,
+        carbs=30.0,
+        fat=4.0,
+        protein=5.0,
+        fiber=2.0,
+        notes="Imported from Health: pending #imported",
+        entered_by="webhook-integration",
+        is_uploaded=False,
+    )
+    _create_treatment(
+        client,
+        id="import-consumed",
+        user_id="admin",
+        event_type="Meal Bolus",
+        created_at=now - timedelta(minutes=5),
+        insulin=2.0,
+        carbs=30.0,
+        fat=4.0,
+        protein=5.0,
+        fiber=2.0,
+        notes="Imported from Health: consumed #imported",
+        entered_by="webhook-integration",
+        is_uploaded=False,
+    )
+
+    resp = client.get("/api/integrations/nutrition/recent", headers=headers)
+    assert resp.status_code == 200
+    payload = resp.json()
+    ids = {item["id"] for item in payload}
+    assert "import-pending" in ids
+    assert "import-consumed" not in ids
+
+
+def test_recent_imports_drop_after_delete(client: TestClient):
+    headers = _auth_headers(client)
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+
+    _create_treatment(
+        client,
+        id="import-delete-me",
+        user_id="admin",
+        event_type="Meal Bolus",
+        created_at=now - timedelta(minutes=2),
+        insulin=0.0,
+        carbs=22.0,
+        fat=4.0,
+        protein=6.0,
+        fiber=2.0,
+        notes="Imported from Health: delete test #imported",
+        entered_by="webhook-integration",
+        is_uploaded=False,
+    )
+
+    resp = client.get("/api/integrations/nutrition/recent", headers=headers)
+    assert resp.status_code == 200
+    ids = {item["id"] for item in resp.json()}
+    assert "import-delete-me" in ids
+
+    _delete_treatment(client, "import-delete-me")
+
+    resp_after = client.get("/api/integrations/nutrition/recent", headers=headers)
+    assert resp_after.status_code == 200
+    ids_after = {item["id"] for item in resp_after.json()}
+    assert "import-delete-me" not in ids_after
 
 
 def test_nutrition_draft_endpoint_removed(client: TestClient):

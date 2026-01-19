@@ -454,6 +454,20 @@ export async function fetchTreatments(config) {
   return data;
 }
 
+export async function fetchRecentNutritionImports(limit = 10) {
+  const params = new URLSearchParams();
+  if (limit) {
+    params.append("limit", String(limit));
+  }
+  const url = params.toString()
+    ? `/api/integrations/nutrition/recent?${params.toString()}`
+    : "/api/integrations/nutrition/recent";
+  const response = await apiFetch(url);
+  const data = await toJson(response);
+  if (!response.ok) throw new Error(data.detail || "Error al obtener importaciones");
+  return data;
+}
+
 export async function createBolusPlan(payload) {
   const response = await apiFetch("/api/bolus/plan", {
     method: "POST",

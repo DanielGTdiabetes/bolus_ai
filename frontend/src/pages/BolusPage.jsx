@@ -13,7 +13,7 @@ import { FoodSmartAutocomplete } from '../components/bolus/FoodSmartAutocomplete
 import { showToast } from '../components/ui/Toast';
 // Shared Logic / Store
 import { getCalcParams, state } from '../modules/core/store';
-import { getCurrentGlucose, getIOBData, getFavorites, getLocalNsConfig } from '../lib/api';
+import { getCurrentGlucose, getIOBData, getFavorites, getLocalNsConfig, fetchRecentNutritionImports } from '../lib/api';
 
 export default function BolusPage() {
     // --- 1. State Management ---
@@ -55,6 +55,11 @@ export default function BolusPage() {
     const [iob, setIob] = useState(null);
     const [favorites, setFavorites] = useState([]);
     const [nsConfig] = useState(getLocalNsConfig() || {});
+    const [importModalOpen, setImportModalOpen] = useState(false);
+    const [importLoading, setImportLoading] = useState(false);
+    const [importError, setImportError] = useState(null);
+    const [recentImports, setRecentImports] = useState([]);
+    const [usedImportIds, setUsedImportIds] = useState([]);
 
     // --- 2. Custom Hooks ---
     const {
@@ -135,6 +140,70 @@ export default function BolusPage() {
 
 
     // --- 4. Handlers ---
+    const roundToTenth = (value) => Math.round(value * 10) / 10;
+
+    const applyImportToMealMeta = (importItem, mode) => {
+        const currentMeta = mealMetaRef.current || {};
+        const currentItems = currentMeta.items || [];
+        const baseMeta = {
+            items: currentItems,
+            fat: currentMeta.fat || 0,
+            protein: currentMeta.protein || 0,
+            fiber: currentMeta.fiber || 0
+        };
+        const label = importItem.source ? `Importación (${importItem.source})` : "Importación externa";
+
+        if (mode === 'replace') {
+            return {
+                items: [{ name: label, carbs: importItem.carbs || 0, amount: 1 }],
+                fat: importItem.fat || 0,
+                protein: importItem.protein || 0,
+                fiber: importItem.fiber || 0
+            };
+        }
+
+        return {
+            items: [...baseMeta.items, { name: label, carbs: importItem.carbs || 0, amount: 1 }],
+            fat: baseMeta.fat + (importItem.fat || 0),
+            protein: baseMeta.protein + (importItem.protein || 0),
+            fiber: baseMeta.fiber + (importItem.fiber || 0)
+        };
+    };
+
+    const handleOpenImportModal = async () => {
+        setImportModalOpen(true);
+        setImportLoading(true);
+        setImportError(null);
+        try {
+            const data = await fetchRecentNutritionImports(10);
+            setRecentImports(Array.isArray(data) ? data : []);
+        } catch (err) {
+            setImportError(err?.message || "No se pudieron cargar importaciones.");
+        } finally {
+            setImportLoading(false);
+        }
+    };
+
+    const handleApplyImport = (importItem, mode) => {
+        if (mode === 'sum' && usedImportIds.includes(importItem.id)) {
+            showToast("⚠️ Ya sumaste esta importación en este cálculo.", "warning");
+            return;
+        }
+
+        const currentCarbs = parseFloat(carbs) || 0;
+        const importCarbs = parseFloat(importItem.carbs) || 0;
+        const newCarbs = mode === 'replace' ? importCarbs : currentCarbs + importCarbs;
+        setCarbs(String(roundToTenth(newCarbs)));
+        mealMetaRef.current = applyImportToMealMeta(importItem, mode);
+        setIsUsingOrphan(false);
+
+        if (mode === 'sum') {
+            setUsedImportIds((prev) => [...prev, importItem.id]);
+        }
+
+        setImportModalOpen(false);
+        showToast(mode === 'replace' ? "✅ Importación aplicada." : "✅ Importación sumada.", "success");
+    };
 
     const handleCalculateClick = (override = {}) => {
         calculate({
@@ -179,6 +248,16 @@ export default function BolusPage() {
                 {/* INPUT SECTION */}
                 {!result && (
                     <div className="stack fade-in">
+
+                        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                            <Button
+                                variant="secondary"
+                                className="text-sm"
+                                onClick={handleOpenImportModal}
+                            >
+                                Cargar importación
+                            </Button>
+                        </div>
 
 
 
@@ -497,6 +576,80 @@ export default function BolusPage() {
                             handleCalculateClick({ useAutosens: true });
                         }}
                     />
+                )}
+
+                {importModalOpen && (
+                    <div className="draft-modal-backdrop" onClick={() => setImportModalOpen(false)}>
+                        <div className="draft-modal" onClick={(e) => e.stopPropagation()}>
+                            <div className="draft-modal-header">
+                                <h3>Cargar importación</h3>
+                                <button className="draft-modal-close" onClick={() => setImportModalOpen(false)}>×</button>
+                            </div>
+                            <div className="draft-modal-body">
+                                {importLoading && <p>Cargando importaciones...</p>}
+                                {importError && <p style={{ color: '#b91c1c' }}>{importError}</p>}
+                                {!importLoading && !importError && recentImports.length === 0 && (
+                                    <p>No hay importaciones recientes pendientes.</p>
+                                )}
+                                {!importLoading && !importError && recentImports.length > 0 && (
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                                        {recentImports.map((item) => (
+                                            <div key={item.id} style={{
+                                                border: '1px solid #e2e8f0',
+                                                borderRadius: '12px',
+                                                padding: '0.75rem',
+                                                display: 'flex',
+                                                flexDirection: 'column',
+                                                gap: '0.5rem'
+                                            }}>
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.75rem' }}>
+                                                    <div style={{ fontSize: '0.85rem', fontWeight: 600, color: '#0f172a' }}>
+                                                        {item.source || 'Importación'}
+                                                    </div>
+                                                    <div style={{ fontSize: '0.75rem', color: '#64748b' }}>
+                                                        {new Date(item.timestamp).toLocaleString()}
+                                                    </div>
+                                                </div>
+                                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.5rem', fontSize: '0.8rem' }}>
+                                                    <div style={{ background: '#f8fafc', borderRadius: '10px', padding: '0.4rem', textAlign: 'center' }}>
+                                                        <div style={{ color: '#64748b' }}>HC</div>
+                                                        <strong>{Math.round(item.carbs || 0)}</strong>
+                                                    </div>
+                                                    <div style={{ background: '#f8fafc', borderRadius: '10px', padding: '0.4rem', textAlign: 'center' }}>
+                                                        <div style={{ color: '#64748b' }}>Prot</div>
+                                                        <strong>{Math.round(item.protein || 0)}</strong>
+                                                    </div>
+                                                    <div style={{ background: '#f8fafc', borderRadius: '10px', padding: '0.4rem', textAlign: 'center' }}>
+                                                        <div style={{ color: '#64748b' }}>Grasa</div>
+                                                        <strong>{Math.round(item.fat || 0)}</strong>
+                                                    </div>
+                                                    <div style={{ background: '#f8fafc', borderRadius: '10px', padding: '0.4rem', textAlign: 'center' }}>
+                                                        <div style={{ color: '#64748b' }}>Fibra</div>
+                                                        <strong>{Math.round(item.fiber || 0)}</strong>
+                                                    </div>
+                                                </div>
+                                                <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
+                                                    <Button
+                                                        variant="secondary"
+                                                        className="text-xs"
+                                                        onClick={() => handleApplyImport(item, 'replace')}
+                                                    >
+                                                        Reemplazar
+                                                    </Button>
+                                                    <Button
+                                                        className="text-xs"
+                                                        onClick={() => handleApplyImport(item, 'sum')}
+                                                    >
+                                                        Sumar
+                                                    </Button>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    </div>
                 )}
             </main>
             <BottomNav activeTab="bolus" />
