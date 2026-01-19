@@ -2034,7 +2034,7 @@ async def on_new_meal_received(carbs: float, fat: float, protein: float, fiber: 
     
     # 1. Gather Context
     store = DataStore(Path(settings.data.data_dir))
-    user_settings = await get_bot_user_settings() # NEW (DB)
+    user_settings, resolved_user_id = await resolve_bot_user_settings()
     
     bg_val = None
     bg_trend = None
@@ -2182,9 +2182,19 @@ async def on_new_meal_received(carbs: float, fat: float, protein: float, fiber: 
         confirm_iob_stale=True,
     )
 
+    telegram_username = getattr(user_settings, "telegram_username", None)
+    if telegram_username:
+        bolus_username = telegram_username
+    else:
+        bolus_username = resolved_user_id or getattr(user_settings, "user_id", None) or "admin"
+        logger.info(
+            "proactive_meal_username_fallback: using user_id='%s' (telegram_username missing)",
+            bolus_username,
+        )
+
     rec = await calculate_bolus_for_bot(
         req_v2,
-        username=user_settings.username or "admin",
+        username=bolus_username,
     )
 
     # Store Snapshot
