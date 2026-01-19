@@ -459,6 +459,7 @@ function BasalImpactSection() {
 function BasalTimelineSection() {
     const [items, setItems] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [analyzingDates, setAnalyzingDates] = useState(() => new Set());
 
     const load = async () => {
         try {
@@ -473,8 +474,23 @@ function BasalTimelineSection() {
 
     useEffect(() => { load(); }, []);
 
+    const updateAnalyzingDates = (dates, isActive) => {
+        setAnalyzingDates(prev => {
+            const next = new Set(prev);
+            dates.forEach(date => {
+                if (isActive) {
+                    next.add(date);
+                } else {
+                    next.delete(date);
+                }
+            });
+            return next;
+        });
+    };
+
     const handleAnalyzItem = async (dateStr) => {
         if (!confirm(`¿Analizar noche del ${dateStr}?`)) return;
+        updateAnalyzingDates([dateStr], true);
         try {
             const config = getLocalNsConfig() || {};
             // if (!config) throw new Error("Configurar Nightscout");
@@ -489,6 +505,8 @@ function BasalTimelineSection() {
             load(); // Reload
         } catch (e) {
             alert(typeof e.message === 'string' ? e.message : "Error desconocido al analizar");
+        } finally {
+            updateAnalyzingDates([dateStr], false);
         }
     };
 
@@ -498,6 +516,7 @@ function BasalTimelineSection() {
 
         if (!confirm(`Se analizarán ${pending.length} noches pendientes. Esto puede tardar unos segundos. ¿Continuar?`)) return;
 
+        updateAnalyzingDates(pending.map(item => item.date), true);
         setLoading(true);
         try {
             const config = getLocalNsConfig() || {};
@@ -514,10 +533,12 @@ function BasalTimelineSection() {
                 }
             }
             alert(`Proceso finalizado. ${processed}/${pending.length} noches analizadas.`);
-            load();
+            await load();
         } catch (e) {
             alert(typeof e.message === 'string' ? e.message : "Error en proceso masivo");
             setLoading(false); // only if error caught here, otherwise load() clears it
+        } finally {
+            updateAnalyzingDates(pending.map(item => item.date), false);
         }
     };
 
@@ -592,12 +613,19 @@ function BasalTimelineSection() {
                                             ) : (item.night_had_hypo === false ? (
                                                 <span style={{ color: 'var(--success)' }}>OK</span>
                                             ) : (
+                                                (() => {
+                                                    const isAnalyzing = analyzingDates.has(item.date);
+                                                    return (
                                                 <button
                                                     onClick={() => handleAnalyzItem(item.date)}
-                                                    style={{ fontSize: '0.7rem', padding: '2px 6px', border: '1px solid #cbd5e1', background: 'transparent', borderRadius: '4px', cursor: 'pointer' }}
+                                                    disabled={loading || isAnalyzing}
+                                                    aria-busy={isAnalyzing}
+                                                    style={{ fontSize: '0.7rem', padding: '2px 6px', border: '1px solid #cbd5e1', background: 'transparent', borderRadius: '4px', cursor: 'pointer', opacity: (loading || isAnalyzing) ? 0.6 : 1 }}
                                                 >
-                                                    🔍 Analizar
+                                                    {isAnalyzing ? '⏳ Analizando...' : '🔍 Analizar'}
                                                 </button>
+                                                    );
+                                                })()
                                             ))}
                                         </td>
                                     </tr>

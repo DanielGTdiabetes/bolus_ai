@@ -1,4 +1,5 @@
 from datetime import datetime, date, timedelta
+import logging
 from typing import List, Optional, Dict, Any
 import uuid
 
@@ -13,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.services.nightscout_client import NightscoutClient
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 # Hotfix for imports inside function to avoid circles or ensure readiness
 from app.core.security import CurrentUser, get_current_user, require_admin
@@ -463,7 +465,14 @@ async def scan_night_endpoint(
             token=ns_token
         )
         try:
-             result = await basal_engine.scan_night_service(username, target_date, ns_client, db)
+             logger.info("Night scan requested for user=%s date=%s", username, target_date)
+             result = await basal_engine.scan_night_service(
+                 username,
+                 target_date,
+                 ns_client,
+                 db,
+                 write_enabled=True
+             )
              return result
         finally:
              await ns_client.aclose()
