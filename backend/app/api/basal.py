@@ -295,14 +295,20 @@ async def create_checkin(
         # Simple convert to date (UTC)
         checkin_date = datetime.fromtimestamp(timestamp / 1000).date()
 
-    await basal_repo.upsert_daily_checkin(
-        username,
-        checkin_date,
-        bg_val,
-        direction,
-        age_min,
-        source
-    )
+    try:
+        await basal_repo.upsert_daily_checkin(
+            username,
+            checkin_date,
+            bg_val,
+            direction,
+            age_min,
+            source
+        )
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        # Log to application logger as well if possible, but print_exc goes to stderr/logs usually
+        raise HTTPException(status_code=500, detail=f"Error saving checkin to DB: {str(e)}")
 
     # 3. Analyze Trend (Last 7 checkins)
     history = await basal_repo.list_checkins(username, days=7)

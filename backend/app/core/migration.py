@@ -62,6 +62,16 @@ async def ensure_basal_schema(engine: AsyncEngine):
                 logger.warning(f"Error ensuring column {col}: {e}")
 
 
+
+        # Ensure Unique Index for ON CONFLICT support
+        try:
+            await conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_basal_checkin_user_date ON basal_checkin (user_id, checkin_date);"))
+            await conn.commit()
+            logger.info("Unique index uq_basal_checkin_user_date verified.")
+        except Exception as e:
+            await conn.rollback()
+            logger.warning(f"Failed to ensure unique index: {e}")
+
         # 3. Backfill
         logger.info("Backfilling checkin_date from created_at...")
         try:
