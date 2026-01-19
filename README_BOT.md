@@ -58,6 +58,9 @@ Respuesta de ejemplo:
 4. Con URL pública: configurar `BOT_PUBLIC_URL=https://<ngrok>/...` y revisar logs de webhook.
 5. Notas de voz: basta con `GEMINI_API_KEY` (se autoactiva); si quieres desactivar, usa `ENABLE_TELEGRAM_VOICE=false`. Si el audio supera `MAX_VOICE_SECONDS` o `MAX_VOICE_MB` se rechazará con un mensaje claro.
 
+### Ejercicio en recomendaciones de bolo
+Cuando el bot muestra una recomendación de bolo (modo simple o dual), siempre aparece el botón **“🏃 Añadir ejercicio”** junto al resto de acciones. Tras pulsarlo, el bot pedirá intensidad y minutos, y recalculará el bolo usando el payload de ejercicio antes de actualizar el mensaje. Esto permite ajustar la recomendación de inmediato sin rehacer el cálculo desde cero.
+
 ## Herramientas expuestas al LLM (function calling)
 - `get_status_context` (BG, tendencia, IOB, COB, calidad)
 - `calculate_bolus` (carbs, meal_type, split/extend)
@@ -96,6 +99,14 @@ El bot incluye gestión visual automatizada de la rotación de sitios de inyecci
 - **Morning Summary:** Resumen matutino de glucosa.
 - **Basal Reminder:** Recordatorio diario de insulina lenta.
 - **Supplies Check:** (Nuevo) Verificación diaria de stock de agujas y sensores. Avisa si (Agujas < 10, Sensores < 3, Reservorios < 3).
+
+## Checklist NAS (verificación en producción)
+1. Enviar un cálculo de bolo desde el bot (modo simple o dual).
+2. Confirmar que aparece el botón **“🏃 Añadir ejercicio”** junto a aceptar/cancelar.
+3. Revisar logs y localizar:
+   - `bot_bolus_keyboard_build start: ... buttons=[...]` con el botón en la lista.
+   - `bot_exercise_button gate: reason=shown motive=request_id_present`.
+4. Pulsar el botón, elegir intensidad y minutos y confirmar que el mensaje de bolo se actualiza.
 
 ## TODO
 - Mapear el `chat_id` de Telegram a un `username/user_id` real para recordatorios (p.ej., basal) y eliminar el fallback hardcodeado a `admin`.
