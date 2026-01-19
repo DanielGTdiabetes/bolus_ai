@@ -481,6 +481,11 @@ function BasalTimelineSection() {
             const res = await runNightScan(config, dateStr);
             console.log(res);
 
+            if (res.status === 'no_data' || res.status === 'no_sgv') {
+                alert(`⚠️ No se encontraron datos de glucosa (00:00-06:00) para el ${dateStr}.\n\nPosibles causas:\n- Sin datos en Nightscout.\n- Diferencia horaria (Timezone).\n- Fallo de conexión.`);
+                return;
+            }
+
             let msg = "✅ Análisis Completado.";
             if (res.had_hypo) msg += " Se detectó hipoglucemia.";
             else msg += " Noche estable (OK).";
@@ -501,23 +506,34 @@ function BasalTimelineSection() {
         setLoading(true);
         try {
             const config = getLocalNsConfig() || {};
-            // if (!config) throw new Error("Configurar Nightscout");
 
             let processed = 0;
+            let noData = 0;
+
             // Process sequentially to be gentle on API
             for (const item of pending) {
                 try {
-                    await runNightScan(config, item.date);
-                    processed++;
+                    const res = await runNightScan(config, item.date);
+                    if (res && (res.status === 'no_data' || res.status === 'no_sgv')) {
+                        noData++;
+                    } else {
+                        processed++;
+                    }
                 } catch (err) {
                     console.error(`Error analizando ${item.date}:`, err);
                 }
             }
-            alert(`Proceso finalizado. ${processed}/${pending.length} noches analizadas.`);
+
+            let msg = `Proceso finalizado.`;
+            if (processed > 0) msg += `\n✅ ${processed} noches analizadas correctamente.`;
+            if (noData > 0) msg += `\n⚠️ ${noData} noches sin datos (revisa Timezone/Nightscout).`;
+            if (processed === 0 && noData === 0) msg += `\nNo se pudo procesar ninguna noche.`;
+
+            alert(msg);
             load();
         } catch (e) {
             alert(typeof e.message === 'string' ? e.message : "Error en proceso masivo");
-            setLoading(false); // only if error caught here, otherwise load() clears it
+            setLoading(false);
         }
     };
 

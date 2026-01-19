@@ -8,6 +8,11 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.models.basal import BasalEntry, BasalCheckin, BasalNightSummary, BasalAdviceDaily, BasalChangeEvaluation
 from app.services.nightscout_client import NightscoutClient
+from app.services.settings_service import get_user_settings_service
+try:
+    import zoneinfo
+except ImportError:
+    from backports import zoneinfo
 
 logger = logging.getLogger(__name__)
 
@@ -52,8 +57,19 @@ async def scan_night_service(user_id: str, target_date: date, client: Nightscout
     # Start: YYYY-MM-DD T 00:00:00
     # End: YYYY-MM-DD T 06:00:00
     
-    start_dt = datetime.combine(target_date, time(0, 0))
-    end_dt = datetime.combine(target_date, time(6, 0))
+    # Fetch User Timezone
+    settings_res = await get_user_settings_service(user_id, db)
+    settings_dict = settings_res.get("settings") or {}
+    tz_name = settings_dict.get("timezone", "Europe/Madrid")
+    
+    try:
+        tz = zoneinfo.ZoneInfo(tz_name)
+    except Exception:
+        tz = zoneinfo.ZoneInfo("UTC")
+
+    # Use aware datetimes
+    start_dt = datetime.combine(target_date, time(0, 0), tzinfo=tz)
+    end_dt = datetime.combine(target_date, time(6, 0), tzinfo=tz)
     
     # Fetch entries from NS
     entries = await client.get_sgv_range(start_dt, end_dt, count=288)
