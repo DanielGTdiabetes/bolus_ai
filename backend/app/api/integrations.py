@@ -233,10 +233,18 @@ async def ingest_nutrition(
         if not username:
             username = "admin"
 
-        source = payload.get("source") or payload.get("provider") or payload.get("app") or payload.get("origin") or "unknown"
-        norm_log = normalize_nutrition_payload(payload)
+        raw_payload = payload
+        real_payload = (
+            payload.get("payload")
+            if isinstance(payload, dict) and isinstance(payload.get("payload"), dict)
+            else payload
+        )
+        source_payload = real_payload if isinstance(real_payload, dict) else raw_payload
+        source = source_payload.get("source") or source_payload.get("provider") or source_payload.get("app") or source_payload.get("origin") or "unknown"
+        norm_log = normalize_nutrition_payload(source_payload)
         logger.info(
-            "nutrition_ingest_start user_id=%s source=%s carbs=%s fat=%s protein=%s fiber=%s timestamp=%s",
+            "nutrition_ingest_start ingest_id=%s user_id=%s source=%s carbs=%s fat=%s protein=%s fiber=%s timestamp=%s",
+            ingest_id,
             username,
             source,
             norm_log.get("carbs"),
@@ -256,21 +264,21 @@ async def ingest_nutrition(
         
         metrics_list = []
         # Locate the metrics array deeply nested or flat
-        if "data" in payload and isinstance(payload["data"], dict) and "metrics" in payload["data"]:
-             metrics_list = payload["data"]["metrics"]
-        elif "data" in payload and isinstance(payload["data"], list):
+        if "data" in real_payload and isinstance(real_payload["data"], dict) and "metrics" in real_payload["data"]:
+             metrics_list = real_payload["data"]["metrics"]
+        elif "data" in real_payload and isinstance(real_payload["data"], list):
              # Sometimes it's a list of export objects?
-             if len(payload["data"]) > 0 and "metrics" in payload["data"][0]:
-                 metrics_list = payload["data"][0].get("metrics", [])
+             if len(real_payload["data"]) > 0 and "metrics" in real_payload["data"][0]:
+                 metrics_list = real_payload["data"][0].get("metrics", [])
                  # Or weird structure in user example: [ { data: { metrics: [...] } } ]
-                 if not metrics_list and "data" in payload["data"][0]:
-                      metrics_list = payload["data"][0]["data"].get("metrics", [])
-        elif "metrics" in payload:
-             metrics_list = payload["metrics"]
+                 if not metrics_list and "data" in real_payload["data"][0]:
+                      metrics_list = real_payload["data"][0]["data"].get("metrics", [])
+        elif "metrics" in real_payload:
+             metrics_list = real_payload["metrics"]
 
         
         if metrics_list:
-            logger.info(f"DEBUG: Found {len(metrics_list)} metric groups")
+            logger.info("nutrition_ingest_metrics ingest_id=%s metric_groups=%s", ingest_id, len(metrics_list))
             for metric in metrics_list:
                 # Normalize name: lower case AND replace spaces with underscores (e.g. "Dietary Fiber" -> "dietary_fiber")
                 m_name = metric.get("name", "").lower().replace(" ", "_")
@@ -286,6 +294,7 @@ async def ingest_nutrition(
                     for entry in m_data:
                         # entry: {date: "2025-...", qty: "..."}
                         raw_date = entry.get("date")
+                        entry_source = entry.get("source")
                         
                         # Fix Qty logic:
                         # Sometimes qty is string "36.6", sometimes number 36.6
@@ -299,7 +308,17 @@ async def ingest_nutrition(
                         # HealthKit data for same meal usually shares EXACT timestamp down to second
                         if raw_date:
                             if raw_date not in parsed_meals:
-                                parsed_meals[raw_date] = {"c":0.0, "f":0.0, "p":0.0, "fib":0.0, "ts": raw_date, "fiber_provided": False}
+                                parsed_meals[raw_date] = {
+                                    "c": 0.0,
+                                    "f": 0.0,
+                                    "p": 0.0,
+                                    "fib": 0.0,
+                                    "ts": raw_date,
+                                    "source": entry_source,
+                                    "fiber_provided": False,
+                                }
+                            elif entry_source and not parsed_meals[raw_date].get("source"):
+                                parsed_meals[raw_date]["source"] = entry_source
                             
                             # Add to existing (in case multiple entries for same type/time? unlikely but safe)
                             # Actually, usually unique per type per time.
@@ -309,10 +328,10 @@ async def ingest_nutrition(
         
         else:
              # Support for "Type", "Value" flat format (Shortcuts/Raw Export)
-             if "Type" in payload and "Value" in payload:
-                 p_type = payload.get("Type", "")
-                 p_val = payload.get("Value", 0)
-                 p_date = payload.get("Date") or payload.get("StartDate")
+             if "Type" in real_payload and "Value" in real_payload:
+                 p_type = real_payload.get("Type", "")
+                 p_val = real_payload.get("Value", 0)
+                 p_date = real_payload.get("Date") or real_payload.get("StartDate")
                  
                  # Map Type
                  metric_type = None
@@ -340,7 +359,7 @@ async def ingest_nutrition(
             
              else:
                  # FALLBACK: Try Direct Flat Keys (Simple JSON / n8n / Shortcuts)
-                 norm = normalize_nutrition_payload(payload)
+                 norm = normalize_nutrition_payload(real_payload)
                  c_raw = norm.get("carbs")
                  f_raw = norm.get("fat")
                  p_raw = norm.get("protein")
@@ -353,7 +372,7 @@ async def ingest_nutrition(
                  fiber_provided = fib_raw is not None
                  
                  if c > 0 or f > 0 or p > 0 or (fib is not None and fib > 0):
-                     ts_key = norm.get("timestamp") or payload.get("timestamp") or payload.get("created_at") or datetime.now(timezone.utc).isoformat()
+                     ts_key = norm.get("timestamp") or real_payload.get("timestamp") or real_payload.get("created_at") or datetime.now(timezone.utc).isoformat()
                      parsed_meals[ts_key] = {
                          "c": c,
                          "f": f,
@@ -374,54 +393,22 @@ async def ingest_nutrition(
         # 2. Process distinct meals found
         # Sort by date descending (newest first)
         sorted_keys = sorted(parsed_meals.keys(), reverse=True)
-        
-        # We only want to process RECENT meals (last 2 hours?) to avoid re-importing history
-        # But we have dedup logic.
-        
-        processed_ids = []
-        
-        # Only take the top 5 most recent to avoid massive DB writes on full export
-        for date_key in sorted_keys[:5]:
+        logger.info("nutrition_ingest_timestamps ingest_id=%s unique_timestamps=%s", ingest_id, len(sorted_keys))
+
+        for date_key in sorted_keys:
             meal = parsed_meals[date_key]
-            total_carbs = meal["c"]
-            total_fat = meal["f"]
-            total_protein = meal["p"]
-            total_fiber = meal.get("fib", 0)
-            
-            # Skip empty meals
-            if total_carbs < 1 and total_fat < 1 and total_protein < 1 and total_fiber < 1:
-                continue
-                
-            # Parse Date
-            try:
-                # "2025-12-26 13:01:00 +0100" -> ISO
-                # replace space before timezone?
-                # python format: "%Y-%m-%d %H:%M:%S %z"
-                ts_str = meal["ts"]
-                clean_ts = datetime.strptime(ts_str, "%Y-%m-%d %H:%M:%S %z")
-                # Convert to UTC
-                last_ts = clean_ts.astimezone(timezone.utc)
-            except:
-                # Fallback
-                last_ts = datetime.now(timezone.utc)
-                
-            # --- DEDUPLICATION LOGIC JOINED HERE ---
-            # ...
+            logger.info(
+                "nutrition_ingest_meal ingest_id=%s timestamp=%s carbs=%s fat=%s protein=%s fiber=%s source=%s",
+                ingest_id,
+                date_key,
+                meal.get("c"),
+                meal.get("f"),
+                meal.get("p"),
+                meal.get("fib"),
+                meal.get("source"),
+            )
 
-
-            # --- MEAL SAVING LOOP ---
-            
-            # DB Save Direct
-            if session:
-                from app.models.treatment import Treatment
-
-                # Loop through the processed meals (from the loop on line 125)
-                # But wait, line 125 started a loop but didn't finish the save logic inside.
-                # I need to MOVE the save logic INSIDE the loop.
-                pass 
-                
-        # Re-implementing the loop properly here to replace the broken block
-        saved_ids = []
+        created_ids = []
         
         if session:
             from app.models.treatment import Treatment
@@ -486,7 +473,9 @@ async def ingest_nutrition(
                             pass
                     
                     # Fallback NOW
-                    item_ts = now_utc
+                    if item_ts is None:
+                        item_ts = now_utc
+                        force_now = True
                         
                 except Exception as e:
                     logger.warning(f"Date parse soft-fail: {ts_str} -> {e}. Using NOW.")
@@ -497,7 +486,7 @@ async def ingest_nutrition(
                 # Check if we have already imported this specific external timestamp/ID.
                 # This handles cases where we "snap to now" and thus lose the temporal correlation 
                 # with the original event in the DB's created_at field.
-                import_sig = f"Imported from Health: {date_key}"
+                import_sig = f"Imported from Health: {date_key} #imported"
                 stmt_strict = select(Treatment).where(Treatment.notes.contains(import_sig))
                 result_strict = await session.execute(stmt_strict)
                 existing_strict = result_strict.scalars().first()
@@ -507,13 +496,16 @@ async def ingest_nutrition(
                 if existing_strict:
                      # Check for ANY meaningful change (Correction/Edit in Source)
                      changes = []
-                     if abs(existing_strict.carbs - t_carbs) > 0.5:
+                     existing_carbs = float(existing_strict.carbs or 0)
+                     existing_fat = float(existing_strict.fat or 0)
+                     existing_protein = float(existing_strict.protein or 0)
+                     if abs(existing_carbs - t_carbs) > 0.1:
                          existing_strict.carbs = t_carbs
                          changes.append("carbs")
-                     if abs((existing_strict.fat or 0) - t_fat) > 0.5:
+                     if abs(existing_fat - t_fat) > 0.1:
                          existing_strict.fat = t_fat
                          changes.append("fat")
-                     if abs((existing_strict.protein or 0) - t_protein) > 0.5:
+                     if abs(existing_protein - t_protein) > 0.1:
                          existing_strict.protein = t_protein
                          changes.append("protein")
                      
@@ -524,66 +516,26 @@ async def ingest_nutrition(
                              changes.append("fiber")
 
                      if changes:
-                         # DETECT LARGE ADDITION (Merged Meal Pattern)
-                         # If Carbs/Fat/Prot increased significantly on an OLD item (> 6h ago), treat the DELTA as a NEW meal.
-                         # This catches things like "Avocados" (High Fat) added to an old Breakfast.
-                         is_old_item = (now_utc - item_ts).total_seconds() > 21600 # 6 hours
-                         carb_diff = t_carbs - existing_strict.carbs
-                         fat_diff = t_fat - (existing_strict.fat or 0)
-                         prot_diff = t_protein - (existing_strict.protein or 0)
-                         
-                         if is_old_item and (carb_diff > 4.0 or fat_diff > 4.0 or prot_diff > 8.0):
-                             logger.info(f"Detected merged meal on old item {date_key}. Extracting delta C:{carb_diff:.1f} F:{fat_diff:.1f} P:{prot_diff:.1f} to New Treatment.")
-                             
-                             # Create Treatment with the DELTA
-                             ext_tid = str(uuid.uuid4())
-                             delta_fiber = max(0, (incoming_fiber or 0) - (existing_strict.fiber or 0))
-                             
-                             delta_t = Treatment(
-                                id=ext_tid,
-                                user_id=username,
-                                event_type="Meal Bolus",
-                                created_at=now_utc.replace(tzinfo=None), # Use NOW for the extracted delta
-                                insulin=0.0,
-                                carbs=max(0, carb_diff),
-                                fat=max(0, fat_diff),
-                                protein=max(0, prot_diff),
-                                fiber=delta_fiber,
-                                notes=f"Extracted from {date_key} (Merged) #extracted",
-                                entered_by="webhook-extraction",
-                                is_uploaded=False
-                             )
-                             session.add(delta_t)
-                             await session.commit()
-                             
-                             # Add to saved_ids so it triggers "New Meal Detected"
-                             saved_ids.append(ext_tid)
-                             
-                             # We still update the strict match in DB to keep history consistent but mark it
-                             current_note = existing_strict.notes or ""
-                             if "[Extracted]" not in current_note:
-                                existing_strict.notes = current_note + " [Extracted]"
-                             
-                             existing_strict.carbs = t_carbs
-                             existing_strict.fat = t_fat
-                             existing_strict.protein = t_protein
-                             if fiber_provided and incoming_fiber is not None:
-                                 existing_strict.fiber = float(incoming_fiber)
-
-                             session.add(existing_strict)
-                             await session.commit()
-                             continue
-
                          current_note = existing_strict.notes or ""
                          if "[Updated]" not in current_note:
                             existing_strict.notes = current_note + " [Updated]"
-                         
+
                          session.add(existing_strict)
                          await session.commit()
-                         saved_ids.append(existing_strict.id)
-                         logger.info(f"Updated strict match {existing_strict.id}: {changes}")
+                         logger.info(
+                             "nutrition_ingest_action ingest_id=%s action=update id=%s timestamp=%s changes=%s",
+                             ingest_id,
+                             existing_strict.id,
+                             date_key,
+                             changes,
+                         )
                      else:
-                         logger.info(f"Skipping import {date_key} - found exact match in history (ID: {existing_strict.id})")
+                         logger.info(
+                             "nutrition_ingest_action ingest_id=%s action=skip id=%s timestamp=%s",
+                             ingest_id,
+                             existing_strict.id,
+                             date_key,
+                         )
                      continue
 
                 # Dedup check
@@ -629,10 +581,20 @@ async def ingest_nutrition(
                                      c.fiber = float(incoming_fiber)
                                      session.add(c)
                                      await session.commit()
-                                     saved_ids.append(c.id)
-                                     logger.info(f"Updated fiber on duplicate: {c.id}")
+                                     logger.info(
+                                         "nutrition_ingest_action ingest_id=%s action=update id=%s timestamp=%s changes=%s",
+                                         ingest_id,
+                                         c.id,
+                                         date_key,
+                                         ["fiber"],
+                                     )
                              is_duplicate = True
-                             logger.info(f"Skipping exact duplicate {c.id}")
+                             logger.info(
+                                 "nutrition_ingest_action ingest_id=%s action=skip id=%s timestamp=%s",
+                                 ingest_id,
+                                 c.id,
+                                 date_key,
+                             )
                              break
                         
                         # 2. Enrichment (Existing is 'smaller' than incoming in terms of info)
@@ -653,8 +615,13 @@ async def ingest_nutrition(
                              c.notes = (c.notes or "") + " [Enriched]"
                              session.add(c)
                              await session.commit()
-                             saved_ids.append(c.id)
-                             logger.info(f"Enriched existing meal {c.id} with Fat/Prot/Fiber")
+                             logger.info(
+                                 "nutrition_ingest_action ingest_id=%s action=update id=%s timestamp=%s changes=%s",
+                                 ingest_id,
+                                 c.id,
+                                 date_key,
+                                 ["fat", "protein", "fiber"],
+                             )
                              is_duplicate = True
                              break
 
@@ -663,8 +630,13 @@ async def ingest_nutrition(
                              c.fiber = float(incoming_fiber)
                              session.add(c)
                              await session.commit()
-                             saved_ids.append(c.id)
-                             logger.info(f"Enriched existing meal {c.id} with Fiber")
+                             logger.info(
+                                 "nutrition_ingest_action ingest_id=%s action=update id=%s timestamp=%s changes=%s",
+                                 ingest_id,
+                                 c.id,
+                                 date_key,
+                                 ["fiber"],
+                             )
                              is_duplicate = True
                              break
                              
@@ -693,19 +665,25 @@ async def ingest_nutrition(
                     is_uploaded=False
                 )
                 session.add(new_t)
-                saved_ids.append(tid)
+                created_ids.append(tid)
                 count += 1
+                logger.info(
+                    "nutrition_ingest_action ingest_id=%s action=create id=%s timestamp=%s",
+                    ingest_id,
+                    tid,
+                    date_key,
+                )
                 
             await session.commit()
             
-            if saved_ids:
-                logger.info(f"Ingested {len(saved_ids)} new meals from export.")
-                for saved_id in saved_ids:
+            if created_ids:
+                logger.info("nutrition_ingest_saved ingest_id=%s new_count=%s user_id=%s", ingest_id, len(created_ids), username)
+                for saved_id in created_ids:
                     logger.info("nutrition_ingest_saved id=%s user_id=%s", saved_id, username)
                 
                 try:
                     from app.bot.service import on_new_meal_received
-                    first_id = saved_ids[0]
+                    first_id = created_ids[0]
                     t_obj = await session.get(Treatment, first_id)
                     chat_id = config.get_allowed_telegram_user_id()
                     notify_reason = "notify_allowed"
@@ -735,13 +713,13 @@ async def ingest_nutrition(
                 except Exception as e:
                     logger.error(f"Failed to trigger bot notification: {e}")
 
-                res = {"success": 1, "ingested_count": len(saved_ids), "ids": saved_ids}
+                res = {"success": 1, "ingested_count": len(created_ids), "ids": list(dict.fromkeys(created_ids))}
                 log_entry["status"] = "success"
                 log_entry["result"] = res
                 append_log(log_entry)
                 return res
             else:
-                res = {"success": 1, "message": "No new meals found (all duplicates or empty)"}
+                res = {"success": 1, "message": "No new meals found (all duplicates or empty)", "ingested_count": 0, "ids": []}
                 log_entry["status"] = "ignored"
                 log_entry["result"] = res
                 append_log(log_entry)
