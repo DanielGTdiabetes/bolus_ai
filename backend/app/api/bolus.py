@@ -155,6 +155,8 @@ class BolusAcceptRequest(BaseModel):
     fat: float = Field(default=0, ge=0)
     protein: float = Field(default=0, ge=0)
     fiber: float = Field(default=0, ge=0)
+    linked_ingestion: bool = False
+    ingestion_id: Optional[str] = None
     created_at: str
     notes: Optional[str] = ""
     enteredBy: str = "BolusAI"
@@ -171,7 +173,14 @@ async def save_treatment(
     session: AsyncSession = Depends(get_db_session)
 ):
     from app.services.learning_service import LearningService
-    
+
+    linked_ingestion = payload.linked_ingestion or bool(payload.ingestion_id)
+    original_carbs = payload.carbs
+    learning_carbs = payload.carbs
+    learning_fat = payload.meal_meta.get("fat", payload.fat) if payload.meal_meta else payload.fat
+    learning_protein = payload.meal_meta.get("protein", payload.protein) if payload.meal_meta else payload.protein
+    learning_fiber = payload.meal_meta.get("fiber", payload.fiber) if payload.meal_meta else payload.fiber
+
     # Optional: Save Meal Learning Data
     if payload.meal_meta and session:
         try:
@@ -184,19 +193,19 @@ async def save_treatment(
             await ls.save_meal_entry(
                 user_id=user.username,
                 items=payload.meal_meta.get("items", []),
-                carbs=payload.carbs,
-                fat=payload.meal_meta.get("fat", 0),
-                protein=payload.meal_meta.get("protein", 0),
+                carbs=learning_carbs,
+                fat=learning_fat,
+                protein=learning_protein,
                 bolus_data=payload.meal_meta.get("strategy", {}),
                 context={}, # Todo: Pass BG/Trend explicitly if needed
-                fiber=payload.fiber
+                fiber=learning_fiber
             )
         except Exception as e:
             logger.error(f"Failed to save meal learning entry: {e}")
 
     # --- FIX: Ensure macros are populated from meal_meta if missing in top-level ---
     # Some frontend flows (e.g. Favorites) might populate meal_meta but leave top-level fat/protein as 0.
-    if payload.meal_meta:
+    if payload.meal_meta and not linked_ingestion:
         if payload.fat <= 0 and "fat" in payload.meal_meta:
             try:
                 payload.fat = float(payload.meal_meta["fat"])
@@ -215,6 +224,16 @@ async def save_treatment(
                 logger.debug(f"Populated missing fiber from meal_meta: {payload.fiber}")
             except: pass
             
+    if linked_ingestion:
+        payload.carbs = 0.0
+        payload.fat = 0.0
+        payload.protein = 0.0
+        payload.fiber = 0.0
+        if payload.notes:
+            payload.notes = f"{payload.notes} [linked_ingestion_id={payload.ingestion_id or 'unknown'}]"
+        else:
+            payload.notes = f"[linked_ingestion_id={payload.ingestion_id or 'unknown'}]"
+
     # Resolve Nightscout config preference (payload overrides DB only when present)
     ns_url = payload.nightscout.get("url") if payload.nightscout else None
     ns_token = payload.nightscout.get("token") if payload.nightscout else None
@@ -235,7 +254,7 @@ async def save_treatment(
         carbs=payload.carbs,
         notes=payload.notes,
         entered_by=payload.enteredBy,
-        event_type="Correction Bolus" if payload.carbs == 0 else "Meal Bolus",
+        event_type="Correction Bolus" if original_carbs == 0 else "Meal Bolus",
         duration=payload.duration,
         fat=payload.fat,
         protein=payload.protein,

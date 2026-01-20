@@ -378,16 +378,16 @@ async def get_status_context(username: str = "admin", user_settings: Optional[Us
             # Convert to UTC if created_at is UTC
             start_of_day = midnight.astimezone(timezone.utc).replace(tzinfo=None) # Cast to naive for asyncpg
             
-            from sqlalchemy import select, func
+            from sqlalchemy import select, func, case
             from app.models.treatment import Treatment
 
             stmt = (
                 select(
                     func.sum(Treatment.insulin),
-                    func.sum(Treatment.carbs),
-                    func.sum(Treatment.fat),
-                    func.sum(Treatment.protein),
-                    func.sum(Treatment.fiber)
+                    func.sum(case((Treatment.insulin <= 0, Treatment.carbs), else_=0.0)),
+                    func.sum(case((Treatment.insulin <= 0, Treatment.fat), else_=0.0)),
+                    func.sum(case((Treatment.insulin <= 0, Treatment.protein), else_=0.0)),
+                    func.sum(case((Treatment.insulin <= 0, Treatment.fiber), else_=0.0))
                 )
                 .where(Treatment.user_id == target_user)
                 .where(Treatment.created_at >= start_of_day)
