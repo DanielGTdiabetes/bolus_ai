@@ -3,7 +3,7 @@ import socket
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional, Tuple
 
-from sqlalchemy import select
+from sqlalchemy import insert, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -35,14 +35,15 @@ async def try_acquire_bot_leader(
 
     try:
         async with session.begin():
-            lock = BotLeaderLock(
-                key=BOT_LEADER_KEY,
-                owner_id=instance_id,
-                acquired_at=now_ts,
-                expires_at=expires_at,
-                updated_at=now_ts,
+            await session.execute(
+                insert(BotLeaderLock).values(
+                    key=BOT_LEADER_KEY,
+                    owner_id=instance_id,
+                    acquired_at=now_ts,
+                    expires_at=expires_at,
+                    updated_at=now_ts,
+                )
             )
-            session.add(lock)
         return True, {
             "action": "acquired",
             "owner_id": instance_id,
