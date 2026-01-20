@@ -1817,33 +1817,33 @@ async def initialize() -> None:
     except Exception as e:
         logger.warning(f"Timezone System Check: FAILED ({e}). specific time features might be affected.")
 
-    if mode == BotMode.DISABLED:
-        # Special Case: Emergency Mode needs Bot App initialized for SENDING alerts,
-        # perfectly matching "Monitor" role.
-        if reason in {"emergency_mode_send_only", "leader_lock_standby"}:
-            logger.info("⚠️ Bot in SEND-ONLY mode (%s). Not starting Polling/Webhook.", reason)
-            # Verify token exists
-            if not config.get_telegram_bot_token():
-                return
-            # Allow proceeding to create app, but skip start logic later
-        else:
-            return
-
+    # ALWAYS create the bot app instance so we can SEND messages from any worker
+    # even if we are not the Polling Leader.
     _bot_app = create_bot_app()
     if not _bot_app:
         health.set_mode(BotMode.ERROR, reason)
         health.set_error("No TELEGRAM_BOT_TOKEN")
         return
 
-    # If send-only, we initialize but DO NOT start polling/webhook
-    if reason in {"emergency_mode_send_only", "leader_lock_standby"}:
+    # Initialize coroutines (needed for send_message)
+    try:
         await _bot_app.initialize()
-        # await _bot_app.start() # Start usually starts the scheduler/updater tasks.
-        # For just sending, initialize might be enough? 
-        # 'bot.send_message' usually requires 'start' if using Updater? 
-        # python-telegram-bot v20: 'bot' is independent of updater. 
-        # But 'ExtBot' uses the app context. 
-        # Let's do initialize only.
+    except Exception as e:
+        logger.error(f"Bot app initialization failed: {e}")
+        _bot_app = None
+        return
+
+    if mode == BotMode.DISABLED:
+        # Special Case: Emergency logic or Follower Logic
+        if reason in {"emergency_mode_send_only", "leader_lock_standby"}:
+             logger.info("⚠️ Bot in SEND-ONLY mode (%s). Not starting Polling/Webhook.", reason)
+        elif reason == "locked_by_other":
+             logger.info("🔒 Bot Worker is FOLLOWER (Lock held by other). Initialized in SEND-ONLY mode.")
+        else:
+             logger.info("Bot DISABLED (Reason: %s). Initialized in SEND-ONLY mode (for emergencies).", reason)
+        
+        # We do NOT return here blindly anymore, but we DO NOT call start() or webhook setup.
+        # This ensures _bot_app is available for proactive sends (e.g. from integrations).
         return
 
     # Track updates for both webhook and polling modes
@@ -1852,13 +1852,12 @@ async def initialize() -> None:
     public_url, public_url_source = config.get_public_bot_url_with_source()
     webhook_secret = config.get_telegram_webhook_secret()
 
-    # Initialize the app (coroutines)
+    # Start the app (Updater/Scheduler) only if we are the LEADER (Enabled/Webhook/Polling)
     max_retries = 3
     for attempt in range(max_retries):
         try:
-            await _bot_app.initialize()
             await _bot_app.start()
-            logger.info("✅ Bot initialized and started successfully.")
+            logger.info("✅ Bot STARTED successfully (Leader).")
             break
         except Exception as e:
             logger.error(f"⚠️ Bot initialization attempt {attempt + 1}/{max_retries} failed: {e}")
