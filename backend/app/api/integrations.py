@@ -415,6 +415,7 @@ async def ingest_nutrition(
             )
 
         created_ids = []
+        updated_ids = []
         updated_count = 0
         skipped_count = 0
         
@@ -539,6 +540,7 @@ async def ingest_nutrition(
                          session.add(existing_strict)
                          await session.commit()
                          updated_count += 1
+                         updated_ids.append(existing_strict.id)  # Track for notification
                          logger.info(
                              "nutrition_ingest_action ingest_id=%s action=update id=%s timestamp=%s changes=%s",
                              ingest_id,
@@ -600,6 +602,7 @@ async def ingest_nutrition(
                                      session.add(c)
                                      await session.commit()
                                      updated_count += 1
+                                     updated_ids.append(c.id) # Track for notification (Fiber update)
                                      logger.info(
                                          "nutrition_ingest_action ingest_id=%s action=update id=%s timestamp=%s changes=%s",
                                          ingest_id,
@@ -636,6 +639,7 @@ async def ingest_nutrition(
                              session.add(c)
                              await session.commit()
                              updated_count += 1
+                             updated_ids.append(c.id) # Track for notification (Macro enrichment)
                              logger.info(
                                  "nutrition_ingest_action ingest_id=%s action=update id=%s timestamp=%s changes=%s",
                                  ingest_id,
@@ -652,6 +656,7 @@ async def ingest_nutrition(
                              session.add(c)
                              await session.commit()
                              updated_count += 1
+                             updated_ids.append(c.id) # Track
                              logger.info(
                                  "nutrition_ingest_action ingest_id=%s action=update id=%s timestamp=%s changes=%s",
                                  ingest_id,
@@ -698,52 +703,68 @@ async def ingest_nutrition(
                 
             await session.commit()
             
-            if created_ids:
+            # Notification Phase: Trigger for BOTH created (New) and updated (Enriched/Corrected) meals
+            all_ids = list(set(created_ids + updated_ids))
+
+            if all_ids:
                 logger.info(
-                    "nutrition_ingest_summary ingest_id=%s created_count=%s updated_count=%s skipped_count=%s ids_count_unique=%s",
+                    "nutrition_ingest_summary ingest_id=%s created_count=%s updated_count=%s skipped_count=%s notify_candidates=%s",
                     ingest_id,
                     len(created_ids),
-                    updated_count,
+                    len(updated_ids),
                     skipped_count,
-                    len(dict.fromkeys(created_ids)),
+                    len(all_ids),
                 )
-                logger.info("nutrition_ingest_saved ingest_id=%s new_count=%s user_id=%s", ingest_id, len(created_ids), username)
-                for saved_id in created_ids:
-                    logger.info("nutrition_ingest_saved id=%s user_id=%s", saved_id, username)
                 
                 try:
                     from app.bot.service import on_new_meal_received
-                    first_id = created_ids[0]
-                    t_obj = await session.get(Treatment, first_id)
-                    chat_id = config.get_allowed_telegram_user_id()
-                    notify_reason = "notify_allowed"
-                    if not t_obj:
-                        notify_reason = "skip_missing_treatment"
-                    elif not is_valid_ingestion(t_obj.carbs, t_obj.fat, t_obj.protein, t_obj.fiber):
-                        notify_reason = "skip_invalid_ingestion"
-                    elif not chat_id:
-                        notify_reason = "skip_missing_chat_id"
-                    logger.info("nutrition_notify_decision event_id=%s reason=%s", first_id, notify_reason)
-                    if notify_reason == "notify_allowed":
-                        logger.info(
-                            "nutrition_notify_enqueue event_id=%s user_id=%s chat_id=%s",
-                            first_id,
-                            username,
-                            chat_id,
-                        )
-                        await on_new_meal_received(
-                            t_obj.carbs, 
-                            t_obj.fat or 0.0, 
-                            t_obj.protein or 0.0, 
-                            t_obj.fiber or 0.0, 
-                            f"Importado ({username})", 
-                            origin_id=first_id
-                        )
-                        
-                except Exception as e:
-                    logger.error(f"Failed to trigger bot notification: {e}")
+                    from app.models.treatment import Treatment
+                    
+                    # 1. Fetch Objects
+                    treatments_to_notify = []
+                    for tid in all_ids:
+                        t_obj = await session.get(Treatment, tid)
+                        if t_obj:
+                            treatments_to_notify.append(t_obj)
+                        else:
+                            logger.warning(f"nutrition_notify_skip event_id={tid} reason=missing_after_commit")
 
-                res = {"success": 1, "ingested_count": len(created_ids), "ids": list(dict.fromkeys(created_ids))}
+                    # 2. Sort Chronologically (Oldest Meal First)
+                    treatments_to_notify.sort(key=lambda x: x.created_at)
+
+                    # 3. Notify Loop
+                    for t_obj in treatments_to_notify:
+                        chat_id = config.get_allowed_telegram_user_id()
+                        if not chat_id:
+                            logger.info(f"nutrition_notify_skip event_id={t_obj.id} reason=no_chat_id")
+                            continue
+                        
+                        # Validate Macros (skip empty notifications)
+                        if not is_valid_ingestion(t_obj.carbs, t_obj.fat, t_obj.protein, t_obj.fiber):
+                            logger.info(f"nutrition_notify_skip event_id={t_obj.id} reason=invalid_macros")
+                            continue
+                        
+                        # Determine Source label
+                        is_update = t_obj.id in updated_ids
+                        notify_source = "Actualizado" if is_update else "Importado"
+
+                        logger.info(f"nutrition_notify_enqueue event_id={t_obj.id} user_id={username} chat_id={chat_id} source={notify_source}")
+                        try:
+                            await on_new_meal_received(
+                                t_obj.carbs, 
+                                t_obj.fat or 0.0, 
+                                t_obj.protein or 0.0, 
+                                t_obj.fiber or 0.0, 
+                                f"{notify_source} ({username})", 
+                                origin_id=t_obj.id
+                            )
+                        except Exception as inner_e:
+                            logger.error(f"Failed to send individual notification for {t_obj.id}: {inner_e}")
+
+                except Exception as e:
+                    logger.error(f"Failed to trigger bot notification batch: {e}")
+
+                res = {"success": 1, "ingested_count": len(created_ids), "updated_count": len(updated_ids), "ids": all_ids}
                 log_entry["status"] = "success"
                 log_entry["result"] = res
                 append_log(log_entry)
