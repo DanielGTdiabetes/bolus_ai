@@ -12,6 +12,7 @@ from app.services.iob import compute_iob_from_sources, compute_cob_from_sources
 from app.models.settings import UserSettings
 from pathlib import Path
 from app.bot.user_settings_resolver import resolve_bot_user_settings
+from app.services.treatment_retrieval import get_recent_treatments_db, get_visible_treatment_name
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +49,7 @@ async def build_context(username: str, chat_id: int) -> Dict[str, Any]:
     }
 
     try:
-        user_settings = await get_bot_user_settings_safe()
+        user_settings, resolved_user = await resolve_bot_user_settings(username)
         
         # 1. Settings Snapshot
         ctx["settings"] = {
@@ -103,17 +104,22 @@ async def build_context(username: str, chat_id: int) -> Dict[str, Any]:
         
             # 5. Recent Treatments (Last 4h)
             try:
-                treatments = await ns_client.get_recent_treatments(hours=4)
+                treatments = await get_recent_treatments_db(hours=4, username=resolved_user, limit=25)
+                if not treatments:
+                    treatments = await ns_client.get_recent_treatments(hours=4)
                 
                 # Simplify for AI
                 summaries = []
                 for t in treatments[:5]: # Top 5 recent
-                    desc = f"{t.eventType}"
+                    name_hint = get_visible_treatment_name(t)
+                    desc = f"{name_hint or t.eventType or 'Comida'}"
                     if t.insulin: desc += f" {t.insulin}U"
                     if t.carbs: desc += f" {t.carbs}g"
-                    minutes_ago = int((datetime.now(timezone.utc) - t.created_at).total_seconds() / 60)
-                    desc += f" ({minutes_ago}m ago)"
-                    if t.notes: desc += f" [{t.notes}]"
+                    if t.created_at:
+                        minutes_ago = int((datetime.now(timezone.utc) - t.created_at).total_seconds() / 60)
+                        desc += f" ({minutes_ago}m ago)"
+                    if t.notes:
+                        desc += f" [{t.notes}]"
                     summaries.append(desc)
                 ctx["recent_treatments"] = summaries
             except Exception as e:

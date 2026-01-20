@@ -307,6 +307,10 @@ function EditHistoryModal({ treatment, onClose, onSave, onDelete }) {
         return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
     };
 
+    const getInitialName = (t) => (
+        t.name || t.food_name || t.description || t.title || t.notes || ''
+    );
+    const [name, setName] = useState(getInitialName(treatment));
     const [insulin, setInsulin] = useState(treatment.insulin || '');
     const [carbs, setCarbs] = useState(treatment.carbs || '');
     const [fat, setFat] = useState(treatment.fat || '');
@@ -314,6 +318,16 @@ function EditHistoryModal({ treatment, onClose, onSave, onDelete }) {
     const [fiber, setFiber] = useState(treatment.fiber || '');
     const [dateVal, setDateVal] = useState(getInitialDate(treatment));
     const [submitting, setSubmitting] = useState(false);
+
+    useEffect(() => {
+        setName(getInitialName(treatment));
+        setInsulin(treatment.insulin || '');
+        setCarbs(treatment.carbs || '');
+        setFat(treatment.fat || '');
+        setProtein(treatment.protein || '');
+        setFiber(treatment.fiber || '');
+        setDateVal(getInitialDate(treatment));
+    }, [treatment]);
 
     const handleSubmit = async () => {
         if (!treatment._id) return;
@@ -327,6 +341,7 @@ function EditHistoryModal({ treatment, onClose, onSave, onDelete }) {
             fat: parseFloat(fat) || 0,
             protein: parseFloat(protein) || 0,
             fiber: parseFloat(fiber) || 0,
+            notes: name?.trim() || "",
             created_at: new Date(dateVal).toISOString()
         };
 
@@ -343,6 +358,11 @@ function EditHistoryModal({ treatment, onClose, onSave, onDelete }) {
         }}>
             <Card style={{ width: '100%', maxWidth: '400px', padding: '1.5rem' }}>
                 <h3 style={{ marginBottom: '1rem', fontWeight: 800 }}>Editar Registro</h3>
+
+                <div style={{ marginBottom: '1rem' }}>
+                    <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600, color: '#64748b' }}>Nombre</label>
+                    <Input type="text" value={name} onChange={e => setName(e.target.value)} />
+                </div>
 
                 <div style={{ marginBottom: '1rem' }}>
                     <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600, color: '#64748b' }}>Insulina (U)</label>
