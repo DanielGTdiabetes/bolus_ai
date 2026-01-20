@@ -178,7 +178,10 @@ async def _background_startup_jobs():
 @app.on_event("shutdown")
 async def shutdown_event() -> None:
     # Shutdown Telegram Bot
-    await bot_service.shutdown()
+    try:
+        await bot_service.shutdown()
+    except Exception as exc:
+        logger.warning("Telegram bot shutdown failed: %s", exc)
     
     # placeholder for cleanup hooks
     return None
