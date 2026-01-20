@@ -2647,7 +2647,8 @@ async def _handle_snapshot_callback(query, data: str) -> None:
                  new_next = await mgr.rotate_site("bolus")
                  if new_next:
                      success_msg += f"\n\n📍 Rotado. Siguiente: {new_next['name']} {new_next['emoji']}"
-             except Exception: pass
+             except Exception as e:
+                 logger.error(f"Failed to auto-rotate injection site: {e}")
 
         # New Buttons
         kb_post = []
