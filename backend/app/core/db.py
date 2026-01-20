@@ -222,6 +222,17 @@ async def migrate_schema(conn):
             )
         """))
 
+        # 10. bot_leader_locks
+        await conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS bot_leader_locks (
+                key VARCHAR PRIMARY KEY,
+                owner_id VARCHAR NOT NULL,
+                acquired_at TIMESTAMP NOT NULL,
+                expires_at TIMESTAMP NOT NULL,
+                updated_at TIMESTAMP NOT NULL
+            )
+        """))
+
         # 10. isf_runs
         await conn.execute(text("""
             CREATE TABLE IF NOT EXISTS isf_runs (

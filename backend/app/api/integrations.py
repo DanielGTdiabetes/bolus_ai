@@ -234,9 +234,10 @@ async def ingest_nutrition(
             username = "admin"
 
         raw_payload = payload
+        is_wrapper_payload = isinstance(payload, dict) and isinstance(payload.get("payload"), dict)
         real_payload = (
             payload.get("payload")
-            if isinstance(payload, dict) and isinstance(payload.get("payload"), dict)
+            if is_wrapper_payload
             else payload
         )
         source_payload = real_payload if isinstance(real_payload, dict) else raw_payload
@@ -252,6 +253,11 @@ async def ingest_nutrition(
             norm_log.get("protein"),
             norm_log.get("fiber"),
             norm_log.get("timestamp"),
+        )
+        logger.info(
+            "nutrition_ingest_payload ingest_id=%s wrapper=%s",
+            ingest_id,
+            "wrapper" if is_wrapper_payload else "direct",
         )
 
         # 1. Normalización de Datos (Health Auto Export manda una lista "data": [...])
@@ -409,6 +415,8 @@ async def ingest_nutrition(
             )
 
         created_ids = []
+        updated_count = 0
+        skipped_count = 0
         
         if session:
             from app.models.treatment import Treatment
@@ -482,6 +490,14 @@ async def ingest_nutrition(
                     item_ts = datetime.now(timezone.utc)
                     force_now = True
 
+                logger.info(
+                    "nutrition_ingest_timestamp ingest_id=%s ts_raw=%s ts_parsed=%s force_now=%s",
+                    ingest_id,
+                    ts_str,
+                    item_ts.isoformat(),
+                    force_now,
+                )
+
                 # 0. STRICT DEDUP CHECK (History-based)
                 # Check if we have already imported this specific external timestamp/ID.
                 # This handles cases where we "snap to now" and thus lose the temporal correlation 
@@ -522,6 +538,7 @@ async def ingest_nutrition(
 
                          session.add(existing_strict)
                          await session.commit()
+                         updated_count += 1
                          logger.info(
                              "nutrition_ingest_action ingest_id=%s action=update id=%s timestamp=%s changes=%s",
                              ingest_id,
@@ -530,6 +547,7 @@ async def ingest_nutrition(
                              changes,
                          )
                      else:
+                         skipped_count += 1
                          logger.info(
                              "nutrition_ingest_action ingest_id=%s action=skip id=%s timestamp=%s",
                              ingest_id,
@@ -581,6 +599,7 @@ async def ingest_nutrition(
                                      c.fiber = float(incoming_fiber)
                                      session.add(c)
                                      await session.commit()
+                                     updated_count += 1
                                      logger.info(
                                          "nutrition_ingest_action ingest_id=%s action=update id=%s timestamp=%s changes=%s",
                                          ingest_id,
@@ -589,6 +608,7 @@ async def ingest_nutrition(
                                          ["fiber"],
                                      )
                              is_duplicate = True
+                             skipped_count += 1
                              logger.info(
                                  "nutrition_ingest_action ingest_id=%s action=skip id=%s timestamp=%s",
                                  ingest_id,
@@ -615,6 +635,7 @@ async def ingest_nutrition(
                              c.notes = (c.notes or "") + " [Enriched]"
                              session.add(c)
                              await session.commit()
+                             updated_count += 1
                              logger.info(
                                  "nutrition_ingest_action ingest_id=%s action=update id=%s timestamp=%s changes=%s",
                                  ingest_id,
@@ -630,6 +651,7 @@ async def ingest_nutrition(
                              c.fiber = float(incoming_fiber)
                              session.add(c)
                              await session.commit()
+                             updated_count += 1
                              logger.info(
                                  "nutrition_ingest_action ingest_id=%s action=update id=%s timestamp=%s changes=%s",
                                  ingest_id,
@@ -677,6 +699,14 @@ async def ingest_nutrition(
             await session.commit()
             
             if created_ids:
+                logger.info(
+                    "nutrition_ingest_summary ingest_id=%s created_count=%s updated_count=%s skipped_count=%s ids_count_unique=%s",
+                    ingest_id,
+                    len(created_ids),
+                    updated_count,
+                    skipped_count,
+                    len(dict.fromkeys(created_ids)),
+                )
                 logger.info("nutrition_ingest_saved ingest_id=%s new_count=%s user_id=%s", ingest_id, len(created_ids), username)
                 for saved_id in created_ids:
                     logger.info("nutrition_ingest_saved id=%s user_id=%s", saved_id, username)
@@ -719,6 +749,14 @@ async def ingest_nutrition(
                 append_log(log_entry)
                 return res
             else:
+                logger.info(
+                    "nutrition_ingest_summary ingest_id=%s created_count=%s updated_count=%s skipped_count=%s ids_count_unique=%s",
+                    ingest_id,
+                    len(created_ids),
+                    updated_count,
+                    skipped_count,
+                    len(dict.fromkeys(created_ids)),
+                )
                 res = {"success": 1, "message": "No new meals found (all duplicates or empty)", "ingested_count": 0, "ids": []}
                 log_entry["status"] = "ignored"
                 log_entry["result"] = res

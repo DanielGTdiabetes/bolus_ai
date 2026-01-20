@@ -6,11 +6,16 @@ from fastapi.testclient import TestClient
 
 from .test_integrations_nutrition import _auth_headers, _fetch_all_treatments, client
 
-FIXTURE_PATH = Path(__file__).parent / "fixtures" / "autoexport_wrapper_real.json"
+WRAPPER_FIXTURE_PATH = Path(__file__).parent / "fixtures" / "payload_wrapper_real.json"
+DIRECT_FIXTURE_PATH = Path(__file__).parent / "fixtures" / "payload_direct_real.json"
 
 
 def _load_wrapper_payload() -> dict:
-    return json.loads(FIXTURE_PATH.read_text())
+    return json.loads(WRAPPER_FIXTURE_PATH.read_text())
+
+
+def _load_direct_payload() -> dict:
+    return json.loads(DIRECT_FIXTURE_PATH.read_text())
 
 
 def _expected_timestamps(payload: dict) -> dict[str, datetime]:
@@ -65,9 +70,9 @@ def test_autoexport_wrapper_idempotence(client: TestClient):
 
 def test_autoexport_direct_payload_idempotence(client: TestClient):
     headers = _auth_headers(client)
-    payload = _load_wrapper_payload()
-    direct_payload = payload["payload"]
-    expected_dates = _expected_timestamps(payload)
+    wrapper_payload = _load_wrapper_payload()
+    direct_payload = _load_direct_payload()
+    expected_dates = _expected_timestamps(wrapper_payload)
 
     resp_first = client.post("/api/integrations/nutrition", headers=headers, json=direct_payload)
     assert resp_first.status_code == 200
