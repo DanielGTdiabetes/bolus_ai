@@ -69,3 +69,4 @@
 - [x] Endpoints protegidos con `get_current_user`.
 - [x] Endpoints y rutas muertas eliminadas.
 - [x] Jobs faltantes añadidos al scheduler.
+- [x] Pruebas unitarias actualizadas y PASANDO (`backend/tests/test_*.py`).

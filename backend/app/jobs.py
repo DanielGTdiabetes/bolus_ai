@@ -12,6 +12,8 @@ from app import jobs_state
 
 logger = logging.getLogger(__name__)
 
+from app.bot import proactive
+
 async def _run_auto_night_scan_task():
     """
     Background Task: Scans night data for all users.

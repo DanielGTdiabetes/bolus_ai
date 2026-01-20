@@ -59,7 +59,13 @@ def test_full_health_contains_fields(mocker):
 
 
 def test_jobs_health_contains_basal():
-    response = client.get("/api/health/jobs")
+    from app.core.security import get_current_user, CurrentUser
+    app.dependency_overrides[get_current_user] = lambda: CurrentUser(username="admin", role="admin")
+    
+    try:
+        response = client.get("/api/health/jobs")
+    finally:
+        app.dependency_overrides = {}
     assert response.status_code == 200
     body = response.json()
     assert "basal" in body

@@ -16,15 +16,28 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setenv("JWT_SECRET", "test-secret-vision")
     monkeypatch.setenv("OPENAI_API_KEY", "sk-fake-test-key")
     monkeypatch.setenv("VISION_PROVIDER", "openai")
-    # Reload main to pick up new routers if needed
-    import app.main as main
-    from importlib import reload
-    reload(main)
+    
+    # Force settings reload to pick up env vars
+    from app.core.settings import get_settings
+    get_settings.cache_clear()
+    
+    from app.main import app
+    from app.core.security import get_current_user, CurrentUser
+    
+    # Bypass auth for all tests using this client
+    app.dependency_overrides[get_current_user] = lambda: CurrentUser(username="test", role="admin")
+    
     from app.core.datastore import UserStore
     UserStore(tmp_path / "users.json").ensure_seed_admin()
-    return TestClient(main.app)
+    
+    yield TestClient(app)
+    
+    app.dependency_overrides = {}
+    get_settings.cache_clear()
 
 def test_vision_unauthorized(client):
+    from app.main import app
+    app.dependency_overrides = {}
     resp = client.post("/api/vision/estimate")
     assert resp.status_code == 401
 

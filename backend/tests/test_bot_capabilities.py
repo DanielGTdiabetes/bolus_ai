@@ -10,7 +10,12 @@ client = TestClient(app)
 
 
 def test_capabilities_lists_core_items():
-    response = client.get("/api/bot/capabilities")
+    from app.core.security import get_current_user, CurrentUser
+    app.dependency_overrides[get_current_user] = lambda: CurrentUser(username="test", role="admin")
+    try:
+        response = client.get("/api/bot/capabilities")
+    finally:
+        app.dependency_overrides = {}
     assert response.status_code == 200
     payload = response.json()
 
