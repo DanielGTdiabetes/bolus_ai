@@ -1,7 +1,7 @@
 
 from datetime import datetime, timedelta, timezone
 import logging
-from typing import List
+from typing import List, Optional, Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,7 +12,32 @@ from app.models.schemas import Treatment as TreatmentSchema
 
 logger = logging.getLogger(__name__)
 
-async def get_recent_treatments_db(hours: int = 24) -> List[TreatmentSchema]:
+def _extract_field(source: Any, key: str) -> Optional[str]:
+    if source is None:
+        return None
+    if isinstance(source, dict):
+        value = source.get(key)
+    else:
+        value = getattr(source, key, None)
+    if value is None:
+        return None
+    value_str = str(value).strip()
+    return value_str or None
+
+
+def get_visible_treatment_name(treatment: Any) -> Optional[str]:
+    for key in ("name", "food_name", "description", "title"):
+        value = _extract_field(treatment, key)
+        if value:
+            return value
+    return None
+
+
+async def get_recent_treatments_db(
+    hours: int = 24,
+    username: Optional[str] = None,
+    limit: Optional[int] = None,
+) -> List[TreatmentSchema]:
     """
     Fetches recent treatments directly from the local PostgreSQL database.
     Returns them as Pydantic schemas compatible with existing logic.
@@ -30,7 +55,12 @@ async def get_recent_treatments_db(hours: int = 24) -> List[TreatmentSchema]:
             cutoff = now_utc - timedelta(hours=hours)
             cutoff_naive = cutoff.replace(tzinfo=None)
 
-            stmt = select(TreatmentSQL).where(TreatmentSQL.created_at >= cutoff_naive).order_by(TreatmentSQL.created_at.desc())
+            stmt = select(TreatmentSQL).where(TreatmentSQL.created_at >= cutoff_naive)
+            if username:
+                stmt = stmt.where(TreatmentSQL.user_id == username)
+            stmt = stmt.order_by(TreatmentSQL.created_at.desc())
+            if limit:
+                stmt = stmt.limit(limit)
             result = await session.execute(stmt)
             rows = result.scalars().all()
 
