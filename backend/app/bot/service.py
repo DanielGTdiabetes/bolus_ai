@@ -2382,8 +2382,17 @@ async def on_new_meal_received(carbs: float, fat: float, protein: float, fiber: 
     rec_u = rec.total_u_final
     
     lines = []
-    # Sanitize source for Markdown
-    safe_source = source.replace("_", "\\_") if source else "Unknown"
+    # Sanitize source for MarkdownV2
+    def escape_md(text: str) -> str:
+        if not text: return ""
+        # Characters to escape in MarkdownV2 (except maybe bold/italic markers if we want them)
+        # But here we treat source/explanation as raw text usually.
+        # Telegram Markdown (V1) vs MarkdownV2. The bot uses "Markdown" (V1) in send (parse_mode="Markdown").
+        # V1 only needs [ ] ( ) * _ ` be careful.
+        # Let's escape assuming parse_mode="Markdown" (V1 legacy).
+        return text.replace("_", "\\_").replace("*", "\\*").replace("`", "\\`").replace("[", "\\[")
+
+    safe_source = escape_md(source) if source else "Unknown"
     lines.append(f"🍽️ **Nueva Comida Detectada** ({safe_source})")
     lines.append("")
     lines.append(f"Resultado: **{rec_u} U**")
@@ -2392,7 +2401,8 @@ async def on_new_meal_received(carbs: float, fat: float, protein: float, fiber: 
     # Use the explanation from the core engine to match App exactly
     if rec.explain:
         for ex in rec.explain:
-            lines.append(f"• {ex}")
+            safe_ex = escape_md(ex)
+            lines.append(f"• {safe_ex}")
             
     lines.append("")
     lines.append(f"Total Calculado: {rec.total_u_raw:.2f} (Base) → {rec.total_u_final} U (Final)")
