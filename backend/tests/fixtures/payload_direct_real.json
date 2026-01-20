@@ -1,0 +1,46 @@
+{
+  "data": {
+    "metrics": [
+      {
+        "data": [
+          { "qty": 2.0099997520446777, "date": "2026-01-19 08:46:00 +0100", "source": "MyFitnessPal" },
+          { "qty": 7.200000286102295,  "date": "2026-01-19 13:49:00 +0100", "source": "MyFitnessPal" },
+          { "source": "MyFitnessPal",   "date": "2026-01-19 14:33:00 +0100", "qty": 0 },
+          { "source": "MyFitnessPal",   "qty": 0.03999999910593033, "date": "2026-01-19 19:27:00 +0100" }
+        ],
+        "name": "fiber",
+        "units": "g"
+      },
+      {
+        "units": "g",
+        "data": [
+          { "source": "MyFitnessPal", "date": "2026-01-19 08:46:00 +0100", "qty": 24.739999771118164 },
+          { "date": "2026-01-19 13:49:00 +0100", "qty": 8.989999771118164, "source": "MyFitnessPal" },
+          { "qty": 7.039999961853027, "source": "MyFitnessPal", "date": "2026-01-19 14:33:00 +0100" },
+          { "qty": 33.400001525878906, "source": "MyFitnessPal", "date": "2026-01-19 19:27:00 +0100" }
+        ],
+        "name": "total_fat"
+      },
+      {
+        "name": "carbohydrates",
+        "data": [
+          { "date": "2026-01-19 08:46:00 +0100", "qty": 8.58899974822998, "source": "MyFitnessPal" },
+          { "date": "2026-01-19 13:49:00 +0100", "qty": 21.62999725341797, "source": "MyFitnessPal" },
+          { "source": "MyFitnessPal", "date": "2026-01-19 14:33:00 +0100", "qty": 0.47999998927116394 },
+          { "date": "2026-01-19 19:27:00 +0100", "source": "MyFitnessPal", "qty": 5.220000267028809 }
+        ],
+        "units": "g"
+      },
+      {
+        "data": [
+          { "date": "2026-01-19 08:46:00 +0100", "qty": 30.479999542236328, "source": "MyFitnessPal" },
+          { "qty": 45.839996337890625, "source": "MyFitnessPal", "date": "2026-01-19 13:49:00 +0100" },
+          { "qty": 4.440000057220459, "source": "MyFitnessPal", "date": "2026-01-19 14:33:00 +0100" },
+          { "date": "2026-01-19 19:27:00 +0100", "qty": 38.79999923706055, "source": "MyFitnessPal" }
+        ],
+        "name": "protein",
+        "units": "g"
+      }
+    ]
+  }
+}

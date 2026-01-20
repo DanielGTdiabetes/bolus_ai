@@ -169,6 +169,59 @@ def test_accepts_fiber_only_meal(client: TestClient):
     assert saved.fiber == pytest.approx(10.0)
 
 
+def test_enrichment_updates_existing_meal(client: TestClient):
+    headers = _auth_headers(client)
+    ts = "2026-01-19 14:33:00 +0100"
+
+    resp_first = client.post(
+        "/api/integrations/nutrition",
+        headers=headers,
+        json={"carbs": 20, "date": ts},
+    )
+    assert resp_first.status_code == 200
+    assert resp_first.json()["ingested_count"] == 1
+
+    resp_second = client.post(
+        "/api/integrations/nutrition",
+        headers=headers,
+        json={"carbs": 20, "fat": 8, "protein": 12, "fiber": 4, "date": ts},
+    )
+    assert resp_second.status_code == 200
+    assert resp_second.json()["ingested_count"] == 0
+
+    treatments = _fetch_all_treatments(client)
+    assert len(treatments) == 1
+    saved = treatments[0]
+    assert saved.fat == pytest.approx(8.0)
+    assert saved.protein == pytest.approx(12.0)
+    assert saved.fiber == pytest.approx(4.0)
+
+
+def test_edit_updates_existing_meal(client: TestClient):
+    headers = _auth_headers(client)
+    ts = "2026-01-19 19:27:00 +0100"
+
+    resp_first = client.post(
+        "/api/integrations/nutrition",
+        headers=headers,
+        json={"carbs": 12, "date": ts},
+    )
+    assert resp_first.status_code == 200
+    assert resp_first.json()["ingested_count"] == 1
+
+    resp_second = client.post(
+        "/api/integrations/nutrition",
+        headers=headers,
+        json={"carbs": 18, "date": ts},
+    )
+    assert resp_second.status_code == 200
+    assert resp_second.json()["ingested_count"] == 0
+
+    treatments = _fetch_all_treatments(client)
+    assert len(treatments) == 1
+    assert treatments[0].carbs == pytest.approx(18.0)
+
+
 def test_triggers_notification_for_valid_meal(client: TestClient, monkeypatch: pytest.MonkeyPatch):
     headers = _auth_headers(client)
     ts = _recent_timestamp()

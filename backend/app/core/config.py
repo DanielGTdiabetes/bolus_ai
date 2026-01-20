@@ -92,6 +92,20 @@ def get_bot_read_timeout() -> int:
         return 20
 
 
+def get_bot_leader_ttl_seconds() -> int:
+    try:
+        return int(get_env("BOT_LEADER_TTL_SECONDS", "60"))
+    except ValueError:
+        return 60
+
+
+def get_bot_leader_renew_seconds() -> int:
+    try:
+        return int(get_env("BOT_LEADER_RENEW_SECONDS", "20"))
+    except ValueError:
+        return 20
+
+
 def get_voice_transcriber_provider() -> str:
     return (get_env("VOICE_TRANSCRIBER_PROVIDER") or "gemini").lower()
 

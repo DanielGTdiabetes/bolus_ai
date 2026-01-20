@@ -18,11 +18,13 @@ from app.bot import ai
 from app.bot import tools
 from app.bot import voice
 from app.bot.state import health, BotMode
+from app.bot.leader_lock import build_instance_id, release_bot_leader, try_acquire_bot_leader
 from app.bot import proactive
 from app.bot import context_builder
 from app.bot.llm import router
 from app.bot.image_renderer import generate_injection_image
 from app.bot.context_vars import bot_user_context
+from app.core.db import get_session_factory
 
 # Sidecar dependencies
 from pathlib import Path
@@ -318,6 +320,8 @@ logger = logging.getLogger(__name__)
 # Global Application instance
 _bot_app: Optional[Application] = None
 _polling_task: Optional[asyncio.Task] = None
+_leader_task: Optional[asyncio.Task] = None
+_leader_instance_id: Optional[str] = None
 
 
 async def notify_admin(text: str) -> bool:
@@ -436,6 +440,79 @@ def build_expected_webhook() -> Tuple[Optional[str], str]:
     if not public_url:
         return None, source
     return f"{public_url}/api/webhook/telegram", source
+
+
+async def _acquire_leader_lock(mode: BotMode, reason: str) -> Tuple[BotMode, str, bool]:
+    if mode == BotMode.DISABLED:
+        return mode, reason, False
+
+    session_factory = get_session_factory()
+    if not session_factory:
+        logger.warning("bot_leader_lock skipped: no database session factory available")
+        return mode, reason, True
+
+    instance_id = build_instance_id()
+    ttl_seconds = config.get_bot_leader_ttl_seconds()
+    renew_seconds = config.get_bot_leader_renew_seconds()
+    if renew_seconds >= ttl_seconds:
+        renew_seconds = max(1, ttl_seconds // 2)
+
+    async with session_factory() as session:
+        is_leader, info = await try_acquire_bot_leader(session, instance_id, ttl_seconds)
+
+    logger.info(
+        "bot_leader_lock ingest_id=%s action=%s owner=%s ttl=%s expires_at=%s",
+        instance_id,
+        info.get("action"),
+        info.get("owner_id"),
+        ttl_seconds,
+        info.get("expires_at"),
+    )
+
+    if not is_leader:
+        logger.warning(
+            "bot_leader_lock_standby owner=%s expires_at=%s",
+            info.get("owner_id"),
+            info.get("expires_at"),
+        )
+        return BotMode.DISABLED, "leader_lock_standby", False
+
+    global _leader_task, _leader_instance_id
+    _leader_instance_id = instance_id
+
+    async def _leader_heartbeat() -> None:
+        while True:
+            try:
+                await asyncio.sleep(renew_seconds)
+                async with session_factory() as session:
+                    renewed, renew_info = await try_acquire_bot_leader(
+                        session,
+                        instance_id,
+                        ttl_seconds,
+                    )
+                if not renewed:
+                    logger.warning(
+                        "bot_leader_lock_lost owner=%s expires_at=%s",
+                        renew_info.get("owner_id"),
+                        renew_info.get("expires_at"),
+                    )
+                    health.set_mode(BotMode.DISABLED, "leader_lock_lost")
+                    await shutdown()
+                    return
+                logger.info(
+                    "bot_leader_lock_renewed action=%s owner=%s expires_at=%s",
+                    renew_info.get("action"),
+                    renew_info.get("owner_id"),
+                    renew_info.get("expires_at"),
+                )
+            except asyncio.CancelledError:
+                return
+            except Exception as exc:
+                logger.error("bot_leader_lock_renew_failed: %s", exc)
+                await asyncio.sleep(renew_seconds)
+
+    _leader_task = asyncio.create_task(_leader_heartbeat(), name="bot_leader_heartbeat")
+    return mode, reason, True
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Log the error and send a telegram message to notify the developer."""
     error_id = uuid.uuid4().hex[:8]
@@ -1717,6 +1794,7 @@ async def initialize() -> None:
     global _polling_task
     
     mode, reason = decide_bot_mode()
+    mode, reason, _ = await _acquire_leader_lock(mode, reason)
     health.enabled = mode != BotMode.DISABLED
     health.set_mode(mode, reason)
     health.set_started()
@@ -1742,8 +1820,8 @@ async def initialize() -> None:
     if mode == BotMode.DISABLED:
         # Special Case: Emergency Mode needs Bot App initialized for SENDING alerts,
         # perfectly matching "Monitor" role.
-        if reason == "emergency_mode_send_only":
-            logger.info("⚠️ Bot in SEND-ONLY mode (Emergency/Monitor). Not starting Polling/Webhook.")
+        if reason in {"emergency_mode_send_only", "leader_lock_standby"}:
+            logger.info("⚠️ Bot in SEND-ONLY mode (%s). Not starting Polling/Webhook.", reason)
             # Verify token exists
             if not config.get_telegram_bot_token():
                 return
@@ -1758,7 +1836,7 @@ async def initialize() -> None:
         return
 
     # If send-only, we initialize but DO NOT start polling/webhook
-    if reason == "emergency_mode_send_only":
+    if reason in {"emergency_mode_send_only", "leader_lock_standby"}:
         await _bot_app.initialize()
         # await _bot_app.start() # Start usually starts the scheduler/updater tasks.
         # For just sending, initialize might be enough? 
@@ -1892,6 +1970,8 @@ async def shutdown() -> None:
     """Called on FastAPI shutdown."""
     global _bot_app
     global _polling_task
+    global _leader_task
+    global _leader_instance_id
     
     if _polling_task:
         logger.info("Canceling Telegram polling task...")
@@ -1902,6 +1982,27 @@ async def shutdown() -> None:
             logger.info("Polling task cancelled.")
         except Exception as e:
             logger.error(f"Error cancelling polling task: {e}")
+
+    if _leader_task:
+        logger.info("Canceling bot leader heartbeat...")
+        current_task = asyncio.current_task()
+        if _leader_task is not current_task:
+            _leader_task.cancel()
+            try:
+                await _leader_task
+            except asyncio.CancelledError:
+                logger.info("Leader heartbeat cancelled.")
+            except Exception as e:
+                logger.error("Error cancelling leader heartbeat: %s", e)
+        _leader_task = None
+
+    if _leader_instance_id:
+        session_factory = get_session_factory()
+        if session_factory:
+            async with session_factory() as session:
+                released = await release_bot_leader(session, _leader_instance_id)
+                logger.info("bot_leader_lock_release owner=%s released=%s", _leader_instance_id, released)
+        _leader_instance_id = None
 
     # Cancel Guardian Task if running
     for task in asyncio.all_tasks():
