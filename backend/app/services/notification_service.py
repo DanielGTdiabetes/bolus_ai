@@ -188,7 +188,8 @@ async def get_notification_summary_service(user_id: str, db: AsyncSession):
                     if sgv:
                         current_bg = float(sgv.sgv)
                         trend = sgv.direction
-            except Exception: pass
+            except Exception as e:
+                logger.error(f"Failed to fetch NS data for post-meal check: {e}")
             
             if current_bg and current_bg > 180:
                 # High Post Meal. 

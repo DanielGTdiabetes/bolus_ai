@@ -62,9 +62,6 @@ registerView('#/forecast', () => {
 registerView('#/status', () => {
   import('./bridge.jsx').then(({ mountReactPage }) => mountReactPage('status'));
 });
-registerView('#/labs', () => {
-  import('./bridge.jsx').then(({ mountReactPage }) => mountReactPage('labs'));
-});
 
 // Configuration & Auth
 registerView('#/settings', () => {
@@ -94,9 +91,11 @@ registerView('#/favorites', () => {
   import('./bridge.jsx').then(({ mountReactPage }) => mountReactPage('favorites'));
 });
 
-registerView('#/restaurant', () => {
-  import('./bridge.jsx').then(({ mountReactPage }) => mountReactPage('restaurant'));
-});
+if (RESTAURANT_MODE_ENABLED) {
+  registerView('#/restaurant', () => {
+    import('./bridge.jsx').then(({ mountReactPage }) => mountReactPage('restaurant'));
+  });
+}
 
 // Emergency Manual Mode
 registerView('#/manual', () => {

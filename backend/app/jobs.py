@@ -270,5 +270,21 @@ def setup_periodic_tasks():
         schedule_task(_run_active_plans, CronTrigger(minute='*/2'), "active_plans_check") # Check every 2 min
         jobs_state.refresh_next_run("active_plans_check")
 
+        # Missing Jobs (Audit Remediation)
+        async def _run_trend_alert():
+             # Trigger auto
+             await jobs_state.run_job("trend_alert", proactive.trend_alert)
+
+        async def _run_supplies_check():
+             await jobs_state.run_job("supplies_check", proactive.check_supplies_status)
+
+        # Trend alert: frequent check (e.g. every 10 min)
+        schedule_task(_run_trend_alert, CronTrigger(minute='*/10'), "trend_alert")
+        jobs_state.refresh_next_run("trend_alert")
+
+        # Supplies check: Daily at 9:00 AM
+        schedule_task(_run_supplies_check, CronTrigger(hour=9, minute=0), "supplies_check")
+        jobs_state.refresh_next_run("supplies_check")
+
 
 

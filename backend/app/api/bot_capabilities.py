@@ -7,14 +7,17 @@ from app import jobs_state
 router = APIRouter(prefix="/bot", tags=["bot"])
 
 
+from app.core.security import get_current_user, CurrentUser
+from fastapi import Depends
+
 @router.get("/capabilities", summary="Lista el registro de capacidades del bot")
-async def list_capabilities() -> dict:
+async def list_capabilities(user: CurrentUser = Depends(get_current_user)) -> dict:
     registry = build_registry()
     return registry.to_safe_dict()
 
 
 @router.get("/jobs/status", summary="Estado agregado de jobs de bot/scheduler")
-async def bot_jobs_status() -> dict:
+async def bot_jobs_status(user: CurrentUser = Depends(get_current_user)) -> dict:
     registry = build_registry()
     jobs = registry.to_safe_dict().get("jobs", [])
     states = jobs_state.get_all_states()

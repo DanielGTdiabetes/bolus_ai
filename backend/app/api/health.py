@@ -68,7 +68,7 @@ async def full_health(
 
 
 @router.get("/jobs", summary="Background jobs state")
-async def jobs_health() -> dict:
+async def jobs_health(user: CurrentUser = Depends(get_current_user)) -> dict:
     return jobs_state.get_all_states()
 
 @router.get("/wake", summary="Keep-alive Endpoint")

@@ -76,7 +76,7 @@ async def catch_exceptions_middleware(request: Request, call_next):
     except Exception as e:
         logger = logging.getLogger("uvicorn.error")
         logger.error(f"🔥 UNHANDLED EXCEPTION: {e}", exc_info=True)
-        return Response(content=f"Internal Server Error: {str(e)}", status_code=500)
+        return Response(content="Internal Server Error", status_code=500)
 
 
 @app.on_event("startup")
@@ -100,8 +100,6 @@ async def startup_event() -> None:
          # if os.environ.get("ENV") == "production":
          #   raise RuntimeError("APP_SECRET_KEY missing/weak in production")
 
-    # Ensure models are loaded before creating tables
-    
     # Ensure models are loaded before creating tables
     import app.models 
 
@@ -150,7 +148,6 @@ async def _background_startup_jobs():
             logger.error(f"Startup Rescue Sync failed: {e}")
 
     try:
-        # DB is already init
         # DB is already init
         from app.core.datastore import UserStore
         data_dir = Path(settings.data.data_dir)

@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends
 
 from app.core.datastore import ChangeStore
 from app.core.security import get_current_user
@@ -18,6 +18,4 @@ async def list_changes(_: dict = Depends(get_current_user), store: ChangeStore =
     return store.load()
 
 
-@router.post("/{change_id}/undo", summary="Undo change (stub)")
-async def undo_change(change_id: int, _: dict = Depends(get_current_user)):
-    raise HTTPException(status_code=status.HTTP_501_NOT_IMPLEMENTED, detail="Undo not implemented yet")
+

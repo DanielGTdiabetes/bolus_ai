@@ -82,7 +82,6 @@ def get_vision_status():
 
 
 @router.post("/estimate", response_model=VisionEstimateResponse, summary="Estimate carbs from image")
-@router.post("/estimate", response_model=VisionEstimateResponse, summary="Estimate carbs from image")
 async def estimate_from_image(
     image: UploadFile = File(...),
     # Optional fields form-encoded
@@ -340,8 +339,6 @@ async def estimate_from_image(
                  explain.append(f"Detectado alto contenido graso/lento (Grasa: {total_fat_g}g, Prot: {total_protein_g}g). Estrategia extendida.")
                  explain.append("IMPORTANTE: 'later_u' es una recomendación para pinchar más tarde (MDI).")
         else:
-             # Normal
-             final_later = bolus_res.later_u # usually 0
              # Normal
              final_later = bolus_res.later_u # usually 0
              delay_min = None # bolus_res.duration_min if extended, but here we assume normal?

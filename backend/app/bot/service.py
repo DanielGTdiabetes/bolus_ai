@@ -2197,7 +2197,8 @@ async def on_new_meal_received(carbs: float, fat: float, protein: float, fiber: 
         if hasattr(settings, "warsaw") and settings.warsaw.enabled:
              if (fat or 0) + (protein or 0) < 1.0:
                  logger.info("mfp_missing_kcal_warsaw_skipped: Low/Missing Fat/Protein data from MFP")
-    except Exception: pass
+    except Exception as e:
+        logger.error(f"Error checking Warsaw conditions: {e}")
     
     # 1. Gather Context
     store = DataStore(Path(settings.data.data_dir))
