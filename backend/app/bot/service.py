@@ -2003,9 +2003,10 @@ async def shutdown() -> None:
                 async with session_factory() as session:
                     released = await release_bot_leader(session, _leader_instance_id)
                     logger.info("bot_leader_lock_release owner=%s released=%s", _leader_instance_id, released)
+                if released:
+                    _leader_instance_id = None
             except Exception as exc:
                 logger.warning("bot_leader_lock_release failed owner=%s error=%s", _leader_instance_id, exc)
-        _leader_instance_id = None
 
     # Cancel Guardian Task if running
     for task in asyncio.all_tasks():
