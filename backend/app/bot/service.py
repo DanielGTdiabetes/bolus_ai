@@ -1999,9 +1999,12 @@ async def shutdown() -> None:
     if _leader_instance_id:
         session_factory = get_session_factory()
         if session_factory:
-            async with session_factory() as session:
-                released = await release_bot_leader(session, _leader_instance_id)
-                logger.info("bot_leader_lock_release owner=%s released=%s", _leader_instance_id, released)
+            try:
+                async with session_factory() as session:
+                    released = await release_bot_leader(session, _leader_instance_id)
+                    logger.info("bot_leader_lock_release owner=%s released=%s", _leader_instance_id, released)
+            except Exception as exc:
+                logger.warning("bot_leader_lock_release failed owner=%s error=%s", _leader_instance_id, exc)
         _leader_instance_id = None
 
     # Cancel Guardian Task if running
@@ -2013,15 +2016,37 @@ async def shutdown() -> None:
                 await task
             except asyncio.CancelledError:
                 pass
-            
-    if _bot_app:
-        logger.info("Shutting down Telegram Bot...")
+
+    if not _bot_app:
+        return
+
+    logger.info("Shutting down Telegram Bot...")
+    updater = getattr(_bot_app, "updater", None)
+    if updater is None:
+        logger.debug("Telegram updater not configured; skipping stop.")
+    elif getattr(updater, "running", False):
+        logger.info("Stopping Telegram updater...")
         try:
-            await _bot_app.updater.stop()
-        except Exception:
-            pass
-        await _bot_app.stop()
+            await updater.stop()
+        except RuntimeError as exc:
+            logger.warning("Telegram updater stop skipped: %s", exc)
+    else:
+        logger.debug("Telegram updater not running; skipping stop.")
+
+    if getattr(_bot_app, "running", False):
+        try:
+            await _bot_app.stop()
+        except RuntimeError as exc:
+            logger.warning("Telegram Bot stop skipped: %s", exc)
+    else:
+        logger.info("Telegram Bot application not running; skipping stop.")
+
+    try:
         await _bot_app.shutdown()
+    except RuntimeError as exc:
+        logger.warning("Telegram Bot shutdown skipped: %s", exc)
+    finally:
+        _bot_app = None
 
 async def process_update(update_data: dict) -> None:
     """
