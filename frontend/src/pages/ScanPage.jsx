@@ -211,6 +211,7 @@ function CameraSection({ scaleGrams, plateEntries, onAddEntry, scanMode, setScan
                     msgText += ` (G:${Math.round(totalFat)}, P:${Math.round(totalProt)})`;
                 }
                 if (result.bolus && result.bolus.kind === 'extended') {
+                    state.tempBolusKind = result.bolus.kind;
                     msgText += " 💡 Sugiere Dual";
                 }
                 else if (result.learning_hint && result.learning_hint.suggest_extended) {

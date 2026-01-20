@@ -225,6 +225,8 @@ export function useBolusCalculator() {
             // Resolve actual macros used
             const isOrphan = orphanContext?.isUsing && orphanContext?.data;
             let usedFat = 0, usedProt = 0, usedFiber = 0;
+            const linkedIngestion = !!(isOrphan || mealMeta?.linked_ingestion);
+            const ingestionId = isOrphan ? orphanContext?.data?.id : mealMeta?.ingestion_id;
 
             if (isOrphan) {
                 const oc = orphanContext.data;
@@ -250,6 +252,8 @@ export function useBolusCalculator() {
                 protein: usedProt,
                 fiber: usedFiber,
                 insulin: finalInsulin,
+                linked_ingestion: linkedIngestion,
+                ingestion_id: ingestionId || null,
                 enteredBy: state.user?.username || "BolusAI",
                 notes: `BolusAI: ${(result.kind === 'dual' || result.kind === 'extended') ? 'Dual' : 'Normal'}. Gr: ${carbs}${isOrphan ? ' (Sincronizado)' : ''}. BG: ${glucose}. ${foodName ? 'Comida: ' + foodName + '.' : ''} ${alcoholEnabled ? 'Alcohol Detected.' : ''} ${plateItems?.length > 0 ? 'Items: ' + plateItems.map(i => i.name).join(', ') : ''}${fiberNote}`,
                 nightscout: {

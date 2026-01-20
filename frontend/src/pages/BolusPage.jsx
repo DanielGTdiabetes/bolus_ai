@@ -38,6 +38,8 @@ export default function BolusPage() {
     const [correctionOnly, setCorrectionOnly] = useState(false);
     const [dessertMode, setDessertMode] = useState(false);
     const [dualEnabled, setDualEnabled] = useState(false);
+    const [autoDualApplied, setAutoDualApplied] = useState(false);
+    const [autoDualReason, setAutoDualReason] = useState(null);
     const [alcoholEnabled, setAlcoholEnabled] = useState(false);
     const [showAdvancedCarbs, setShowAdvancedCarbs] = useState(false);
 
@@ -49,6 +51,8 @@ export default function BolusPage() {
     // Meta / Learning
     const [plateItems, setPlateItems] = useState([]);
     const [learningHint, setLearningHint] = useState(null);
+    const [visionBolusKind, setVisionBolusKind] = useState(null);
+    const [macroHints, setMacroHints] = useState({ fat: 0, protein: 0, fiber: 0, ingestionId: null });
     const mealMetaRef = useRef(null);
 
     // Data
@@ -105,16 +109,22 @@ export default function BolusPage() {
             setLearningHint(state.tempLearningHint);
             state.tempLearningHint = null;
         }
+        if (state.tempBolusKind) {
+            setVisionBolusKind(state.tempBolusKind);
+            state.tempBolusKind = null;
+        }
         if (state.tempItems) {
             setPlateItems(state.tempItems);
         }
         if (state.tempItems || state.tempFat || state.tempProtein) {
-            mealMetaRef.current = {
+            const meta = {
                 items: state.tempItems || [],
                 fat: state.tempFat || 0,
                 protein: state.tempProtein || 0,
                 fiber: state.tempFiber || 0
             };
+            mealMetaRef.current = meta;
+            setMacroHints({ fat: meta.fat || 0, protein: meta.protein || 0, fiber: meta.fiber || 0, ingestionId: null });
         }
         state.tempFat = null;
         state.tempProtein = null;
@@ -138,6 +148,41 @@ export default function BolusPage() {
         }
     }, [foodName, dualEnabled, favorites]);
 
+    const setMealMeta = (meta) => {
+        mealMetaRef.current = meta;
+        setMacroHints({
+            fat: meta?.fat || 0,
+            protein: meta?.protein || 0,
+            fiber: meta?.fiber || 0,
+            ingestionId: meta?.ingestion_id || null
+        });
+    };
+
+    useEffect(() => {
+        const carbsVal = parseFloat(carbs) || 0;
+        if (correctionOnly || carbsVal <= 0) {
+            setAutoDualReason(null);
+            setAutoDualApplied(false);
+            return;
+        }
+
+        const hasLearningHint = !!learningHint?.suggest_extended;
+        const hasMacroTrigger = (macroHints.fat || 0) >= 15 || (macroHints.protein || 0) >= 20;
+        const hasVisionTrigger = visionBolusKind === 'extended';
+
+        if ((hasLearningHint || hasMacroTrigger || hasVisionTrigger) && !autoDualApplied) {
+            if (!dualEnabled) setDualEnabled(true);
+            if (hasLearningHint) {
+                setAutoDualReason("Activado automáticamente por memoria de efectos.");
+            } else if (hasVisionTrigger) {
+                setAutoDualReason("Activado automáticamente por sugerencia de visión IA.");
+            } else {
+                setAutoDualReason("Activado automáticamente por grasas/proteínas elevadas.");
+            }
+            setAutoDualApplied(true);
+        }
+    }, [carbs, correctionOnly, learningHint, macroHints, visionBolusKind, autoDualApplied, dualEnabled]);
+
 
     // --- 4. Handlers ---
     const roundToTenth = (value) => Math.round(value * 10) / 10;
@@ -149,7 +194,9 @@ export default function BolusPage() {
             items: currentItems,
             fat: currentMeta.fat || 0,
             protein: currentMeta.protein || 0,
-            fiber: currentMeta.fiber || 0
+            fiber: currentMeta.fiber || 0,
+            linked_ingestion: currentMeta.linked_ingestion || false,
+            ingestion_id: currentMeta.ingestion_id || null
         };
         const label = importItem.source ? `Importación (${importItem.source})` : "Importación externa";
 
@@ -158,7 +205,9 @@ export default function BolusPage() {
                 items: [{ name: label, carbs: importItem.carbs || 0, amount: 1 }],
                 fat: importItem.fat || 0,
                 protein: importItem.protein || 0,
-                fiber: importItem.fiber || 0
+                fiber: importItem.fiber || 0,
+                linked_ingestion: true,
+                ingestion_id: importItem.id || null
             };
         }
 
@@ -166,7 +215,9 @@ export default function BolusPage() {
             items: [...baseMeta.items, { name: label, carbs: importItem.carbs || 0, amount: 1 }],
             fat: baseMeta.fat + (importItem.fat || 0),
             protein: baseMeta.protein + (importItem.protein || 0),
-            fiber: baseMeta.fiber + (importItem.fiber || 0)
+            fiber: baseMeta.fiber + (importItem.fiber || 0),
+            linked_ingestion: true,
+            ingestion_id: baseMeta.ingestion_id || importItem.id || null
         };
     };
 
@@ -194,7 +245,7 @@ export default function BolusPage() {
         const importCarbs = parseFloat(importItem.carbs) || 0;
         const newCarbs = mode === 'replace' ? importCarbs : currentCarbs + importCarbs;
         setCarbs(String(roundToTenth(newCarbs)));
-        mealMetaRef.current = applyImportToMealMeta(importItem, mode);
+        setMealMeta(applyImportToMealMeta(importItem, mode));
         setIsUsingOrphan(false);
 
         if (mode === 'sum') {
@@ -297,12 +348,14 @@ export default function BolusPage() {
                                         setIsUsingOrphan(true);
 
                                         // CRITICAL FIX: Transfer Orphan Macros to mealMeta for simulation
-                                        mealMetaRef.current = {
+                                        setMealMeta({
                                             items: [{ name: "Importado (MFP/Externo)", carbs: valToSet, amount: 1 }],
                                             fat: orphanCarbs.fat || 0,
                                             protein: orphanCarbs.protein || 0,
-                                            fiber: orphanCarbs.fiber || 0
-                                        };
+                                            fiber: orphanCarbs.fiber || 0,
+                                            linked_ingestion: true,
+                                            ingestion_id: orphanCarbs.id || null
+                                        });
 
                                         if (orphanCarbs._diffMode) {
                                             const now = new Date();
@@ -353,12 +406,14 @@ export default function BolusPage() {
                                     setFoodName(item.name);
                                     setCarbs(String(item.carbs));
                                     // CRITICAL FIX: Transfer Macros to mealMeta for successful simulation
-                                    mealMetaRef.current = {
+                                    setMealMeta({
                                         items: [{ name: item.name, carbs: item.carbs, amount: 1 }],
                                         fat: item.fat || item.fat_g || 0,
                                         protein: item.protein || item.protein_g || 0,
-                                        fiber: item.fiber || item.fiber_g || 0
-                                    };
+                                        fiber: item.fiber || item.fiber_g || 0,
+                                        linked_ingestion: false,
+                                        ingestion_id: null
+                                    });
                                     // Trigger toast or visual feedback? No need, simulation will update.
                                 }}
                             />
@@ -392,7 +447,7 @@ export default function BolusPage() {
                                 <option value="snack">Snack</option>
                             </select>
                             <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.9rem' }}>
-                                <input type="checkbox" checked={correctionOnly} onChange={e => { setCorrectionOnly(e.target.checked); if (e.target.checked) setCarbs("0"); }} />
+                                <input type="checkbox" checked={correctionOnly} onChange={e => { setCorrectionOnly(e.target.checked); if (e.target.checked) { setCarbs("0"); setDualEnabled(false); setAutoDualReason(null); } }} />
                                 Solo Corrección
                             </label>
                             <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.9rem' }}>
@@ -479,8 +534,25 @@ export default function BolusPage() {
                             <div>
                                 <div style={{ fontWeight: 600, color: dualEnabled ? '#1d4ed8' : '#0f172a' }}>🌊 Bolo Dual / Extendido</div>
                                 {state.tempFat > 15 && <div style={{ fontSize: '0.75rem', color: '#b91c1c', marginTop: '4px' }}>🔥 Alto en grasas detectado.</div>}
+                                {autoDualReason && (
+                                    <div style={{ fontSize: '0.75rem', color: '#047857', marginTop: '4px' }}>
+                                        ✅ {autoDualReason}
+                                    </div>
+                                )}
                             </div>
-                            <input type="checkbox" checked={dualEnabled} onChange={() => setDualEnabled(!dualEnabled)} style={{ transform: 'scale(1.5)', cursor: 'pointer' }} />
+                            <input
+                                type="checkbox"
+                                checked={dualEnabled}
+                                onChange={() => {
+                                    const next = !dualEnabled;
+                                    setDualEnabled(next);
+                                    if (!next) {
+                                        setAutoDualReason(null);
+                                        setAutoDualApplied(true);
+                                    }
+                                }}
+                                style={{ transform: 'scale(1.5)', cursor: 'pointer' }}
+                            />
                         </div>
 
                         {/* Alcohol Toggle */}
