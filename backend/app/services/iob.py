@@ -103,6 +103,7 @@ async def compute_iob_from_sources(
     nightscout_client,
     data_store: DataStore,
     extra_boluses: list[dict[str, float]] | None = None,
+    user_id: Optional[str] = None,
 ) -> tuple[Optional[float], list[dict[str, float]], IOBInfo, Optional[str]]:
     """
     Computes IOB with detailed status reporting.
@@ -159,14 +160,25 @@ async def compute_iob_from_sources(
                 cutoff_naive = cutoff_aware.replace(tzinfo=None) # Strip TZ for comparison
                 
                 # Query treatments table
-                query = text("""
-                    SELECT created_at, insulin 
-                    FROM treatments 
-                    WHERE created_at > :cutoff 
-                    AND insulin > 0
-                """)
+                params = {"cutoff": cutoff_naive}
+                if user_id:
+                    query = text("""
+                        SELECT created_at, insulin 
+                        FROM treatments 
+                        WHERE created_at > :cutoff 
+                        AND insulin > 0
+                        AND user_id = :user_id
+                    """)
+                    params["user_id"] = user_id
+                else:
+                    query = text("""
+                        SELECT created_at, insulin 
+                        FROM treatments 
+                        WHERE created_at > :cutoff 
+                        AND insulin > 0
+                    """)
                 
-                result = await session.execute(query, {"cutoff": cutoff_naive})
+                result = await session.execute(query, params)
                 rows = result.fetchall()
                 
                 for r in rows:
@@ -190,6 +202,8 @@ async def compute_iob_from_sources(
     try:
         local_events = data_store.load_events()
         if local_events:
+            if user_id:
+                local_events = [e for e in local_events if e.get("user_id") == user_id]
             local_boluses = _boluses_from_events(local_events)
     except Exception as e:
         logger.error(f"Failed to load local events: {e}")
@@ -512,6 +526,7 @@ async def compute_cob_from_sources(
     nightscout_client,
     data_store: DataStore,
     extra_entries: list[dict[str, float]] | None = None,
+    user_id: Optional[str] = None,
 ) -> tuple[Optional[float], dict, SourceStatus]:
     entries = []
     assumptions: list[str] = []
@@ -524,6 +539,8 @@ async def compute_cob_from_sources(
     try:
         raw_events = data_store.load_events()
         for e in raw_events:
+             if user_id and e.get("user_id") != user_id:
+                 continue
              if e.get("carbs"):
                  local_events.append({"ts": e["ts"], "carbs": float(e["carbs"])})
     except Exception as exc:
@@ -550,14 +567,25 @@ async def compute_cob_from_sources(
                  cutoff = now - timedelta(hours=6)
                  cutoff_naive = cutoff.replace(tzinfo=None)
                  
-                 query = text("""
-                     SELECT created_at, carbs, fat, protein, fiber 
-                     FROM treatments 
-                     WHERE created_at > :cutoff 
-                     AND carbs > 0
-                 """)
+                 params = {"cutoff": cutoff_naive}
+                 if user_id:
+                     query = text("""
+                         SELECT created_at, carbs, fat, protein, fiber 
+                         FROM treatments 
+                         WHERE created_at > :cutoff 
+                         AND carbs > 0
+                         AND user_id = :user_id
+                     """)
+                     params["user_id"] = user_id
+                 else:
+                     query = text("""
+                         SELECT created_at, carbs, fat, protein, fiber 
+                         FROM treatments 
+                         WHERE created_at > :cutoff 
+                         AND carbs > 0
+                     """)
                  
-                 result = await session.execute(query, {"cutoff": cutoff_naive})
+                 result = await session.execute(query, params)
                  rows = result.fetchall()
                  
                  for r in rows:

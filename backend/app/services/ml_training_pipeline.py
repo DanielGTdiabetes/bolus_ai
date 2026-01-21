@@ -302,12 +302,14 @@ async def build_training_snapshot(
         nightscout_client=None,
         data_store=store,
         extra_boluses=None,
+        user_id=user_id,
     )
     cob_total, cob_info, _ = await compute_cob_from_sources(
         now=now_utc,
         nightscout_client=None,
         data_store=store,
         extra_entries=None,
+        user_id=user_id,
     )
 
     bolus_total_3h = 0.0
