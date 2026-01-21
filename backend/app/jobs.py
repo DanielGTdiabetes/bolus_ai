@@ -184,6 +184,51 @@ async def _run_learning_evaluation_task():
 async def run_learning_evaluation():
     return await jobs_state.run_job("learning_eval", _run_learning_evaluation_task)
 
+async def _run_ml_training_snapshot_task() -> None:
+    """
+    Background Task: Collects ML training snapshots for all users.
+    Runs every 5 minutes.
+    """
+    from app.core.db import get_engine
+    from sqlalchemy.ext.asyncio import AsyncSession
+    from app.services.ml_training_pipeline import collect_and_persist_training_snapshot
+    from sqlalchemy import text
+
+    logger.info("Running ML Training Snapshot Job...")
+    engine = get_engine()
+    if not engine:
+        logger.warning("No DB engine for ML training snapshot.")
+        return
+
+    settings = get_settings()
+    data_dir = Path(settings.data.data_dir)
+    user_store = UserStore(data_dir / "users.json")
+
+    users = []
+    try:
+        async with engine.connect() as conn:
+            res = await conn.execute(text("SELECT username FROM users"))
+            users = [{"username": r[0]} for r in res.fetchall()]
+    except Exception as exc:
+        logger.error("Failed to load users for ML snapshot: %s", exc)
+        users = user_store.get_all_users()
+
+    async with AsyncSession(engine) as session:
+        for user in users:
+            username = user.get("username")
+            if not username:
+                continue
+            try:
+                await collect_and_persist_training_snapshot(username, session)
+            except Exception as exc:
+                logger.error("ML snapshot failed for user %s: %s", username, exc)
+
+    logger.info("ML Training Snapshot Job Completed.")
+
+
+async def run_ml_training_snapshot() -> None:
+    await jobs_state.run_job("ml_training_snapshot", _run_ml_training_snapshot_task)
+
 
 def setup_periodic_tasks():
     init_scheduler()
@@ -212,6 +257,11 @@ def setup_periodic_tasks():
     learning_trigger = CronTrigger(minute='*/30')
     schedule_task(run_learning_evaluation, learning_trigger, "learning_eval")
     jobs_state.refresh_next_run("learning_eval")
+
+    # Run ML training snapshot every 5 mins
+    ml_training_trigger = CronTrigger(minute='*/5')
+    schedule_task(run_ml_training_snapshot, ml_training_trigger, "ml_training_snapshot")
+    jobs_state.refresh_next_run("ml_training_snapshot")
 
     # Run Guardian Mode (Glucose Alert) every 5 mins
     from app.bot.service import run_glucose_monitor_job
@@ -287,6 +337,4 @@ def setup_periodic_tasks():
         # Supplies check: Daily at 9:00 AM
         schedule_task(_run_supplies_check, CronTrigger(hour=9, minute=0), "supplies_check")
         jobs_state.refresh_next_run("supplies_check")
-
-
 
