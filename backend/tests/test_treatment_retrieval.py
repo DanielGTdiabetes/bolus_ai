@@ -61,3 +61,52 @@ async def test_get_recent_treatments_db_includes_imported(monkeypatch: pytest.Mo
     assert {t.enteredBy for t in treatments} == {"manual", "webhook-integration"}
 
     await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_get_recent_treatments_db_includes_null_user_id(monkeypatch: pytest.MonkeyPatch) -> None:
+    engine = create_async_engine(TEST_DB_URL, echo=False)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    SessionLocal = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+
+    async with SessionLocal() as session:
+        session.add_all([
+            Treatment(
+                id="legacy-1",
+                user_id=None,
+                event_type="Correction Bolus",
+                created_at=(now - timedelta(minutes=3)).replace(tzinfo=None),
+                insulin=1.0,
+                carbs=0.0,
+                fat=0.0,
+                protein=0.0,
+                fiber=0.0,
+                notes="Legacy record",
+                entered_by="legacy-client",
+            ),
+            Treatment(
+                id="current-1",
+                user_id="admin",
+                event_type="Correction Bolus",
+                created_at=(now - timedelta(minutes=2)).replace(tzinfo=None),
+                insulin=0.5,
+                carbs=0.0,
+                fat=0.0,
+                protein=0.0,
+                fiber=0.0,
+                notes="Current record",
+                entered_by="modern-client",
+            ),
+        ])
+        await session.commit()
+
+    monkeypatch.setattr(treatment_retrieval, "get_engine", lambda: engine)
+
+    treatments = await treatment_retrieval.get_recent_treatments_db(hours=1, username="admin")
+    assert len(treatments) == 2
+    assert {t.enteredBy for t in treatments} == {"legacy-client", "modern-client"}
+
+    await engine.dispose()
