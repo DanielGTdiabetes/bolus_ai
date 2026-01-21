@@ -29,6 +29,8 @@ from app.services.dexcom_client import DexcomClient
 from app.services.store import DataStore
 from pathlib import Path
 from app.services.iob import compute_iob_from_sources, compute_cob_from_sources
+from app.services.ml_inference_service import MLInferenceService
+from app.api.ml_features import build_runtime_features
 
 from app.services.night_pattern import (
     LOCAL_TZ,
@@ -799,61 +801,84 @@ async def get_current_forecast(
     response.slow_absorption_active = is_slow_absorption
     response.slow_absorption_reason = slow_reason
 
-    # [ML Beta] Fetch Hybrid Prediction
+    # --- IOB/COB & ML Preparation ---
+    iob_total = 0.0
+    cob_total = 0.0
+    iob_info = None
+    cob_info = None
+    
+    # We fetch IOB/COB now for both ML and NightPattern to ensure consistency
     try:
-        # 1. Prepare Features
-        # Extract last 60 min of BG
-        ml_sgv = [p['value'] for p in recent_bg_series[:12]] if recent_bg_series else []
-        ml_iob = [] # Todo: proper history
-        ml_cob = []
+        ns_client_for_iob = (
+            NightscoutClient(ns_config.url, ns_config.api_secret)
+            if ns_config and ns_config.enabled and ns_config.url
+            else None
+        )
+        try:
+             iob_total, _, iob_info, _ = await compute_iob_from_sources(
+                 now=datetime.now(timezone.utc),
+                 settings=user_settings,
+                 nightscout_client=ns_client_for_iob,
+                 data_store=store,
+                 extra_boluses=None,
+                 user_id=username,
+             )
+             cob_total, cob_info, _ = await compute_cob_from_sources(
+                 now=datetime.now(timezone.utc),
+                 nightscout_client=ns_client_for_iob,
+                 data_store=store,
+                 extra_entries=None,
+                 user_id=username,
+             )
+        finally:
+             if ns_client_for_iob:
+                 await ns_client_for_iob.aclose()
+    except Exception as e:
+        print(f"IOB/COB Calc failed: {e}")
+
+    # [ML Inference Real]
+    try:
+        ml_svc = MLInferenceService.get_instance()
+        ml_svc.load_models()
         
-        # 2. Call Service (or Mock)
-        # In production this would be: 
-        # async with httpx.AsyncClient() as client:
-        #    r = await client.post("http://localhost:8000/predict", json={...})
-        
-        # For Demo/Failover (since service isn't running):
-        ml_series = []
-        
-        # Simple LSTM-like 'Mock' Projection
-        # Just to visualize the 'Dotted Line' requested by User
-        if start_bg is None:
-             raise ValueError("Insufficient Data for ML (No Start BG)")
+        if ml_svc.models_loaded:
+             # Prepare Inputs
+             # Trend: Try to infer or default
+             ml_trend = "Flat" 
+             # todo: can we get direction from recent_bg_series if we enriched it?
              
-        last_val = start_bg
-        trend_factor = 0
-        if recent_bg_series and len(recent_bg_series) > 1:
-             # Calculate trend (mg/dL per step)
-             try:
-                 v0 = recent_bg_series[0].get('value')
-                 vN = recent_bg_series[-1].get('value')
-                 if v0 is not None and vN is not None:
-                     trend_factor = (v0 - vN) / len(recent_bg_series)
-             except:
-                 pass
-        
-        # Project 30 mins (Mock Curve)
-        for i in range(1, 13): # 12 steps x 5 min = 60 min
-             t_min = i * 5
+             # Age
+             calc_age = 0.0
+             if recent_bg_series:
+                 calc_age = recent_bg_series[0].get('minutes_ago', 0)
+
+             # Build Features
+             feats = build_runtime_features(
+                 user_id=username,
+                 now_utc=datetime.now(timezone.utc),
+                 bg_mgdl=start_bg,
+                 trend=ml_trend,
+                 bg_age_min=calc_age,
+                 iob_u=iob_total or 0.0,
+                 cob_g=cob_total or 0.0,
+                 to_utc_func=lambda d: d.replace(tzinfo=timezone.utc) if d.tzinfo is None else d.astimezone(timezone.utc),
+                 basal_rows=basal_rows,
+                 treatment_rows=unique_rows, 
+                 iob_status=iob_info.status if iob_info else "unknown",
+                 cob_status=cob_info.status if cob_info else "unknown",
+                 source_ns_enabled=bool(ns_config and ns_config.enabled),
+                 ns_treatments_count=0 # Not tracked in this context easily
+             )
              
-             # Mock ML Logic: Dampened trend projection + Regression to mean (110)
-             proj = last_val + (trend_factor * i * 0.8) 
-             proj = proj * 0.95 + (110.0 * 0.05)
+             pred = ml_svc.predict(feats, response.series)
              
-             ml_series.append({"t_min": t_min, "bg": round(proj, 1)})
-        
-        response.ml_series = ml_series
-        # In the future, if source == "ml", set True
-        response.ml_ready = False 
-        
-        # [User Request] If ML is fully ready, hide the legacy Physics curve
-        if response.ml_ready:
-             # Move ML to main series or clear main series
-             # For now, let's keep it as separate series but maybe visual will hide the other?
-             # Or just clear it:
-             response.series = [] # Physics removed
- 
-        
+             if pred.ml_ready:
+                 response.ml_ready = True
+                 response.ml_series = pred.predicted_series
+                 response.p10_series = pred.p10_series
+                 response.p90_series = pred.p90_series
+                 response.confidence_score = pred.confidence_score
+                 
     except Exception as ml_e:
         print(f"ML Inference skipped: {ml_e}")
     
@@ -893,30 +918,9 @@ async def get_current_forecast(
             if (row.insulin or 0) > 0 and r_time >= bolus_cutoff:
                 bolus_recent = True
 
-        ns_client_for_iob = (
-            NightscoutClient(ns_config.url, ns_config.api_secret)
-            if ns_config and ns_config.enabled and ns_config.url
-            else None
-        )
-        try:
-            iob_total, _, iob_info, _ = await compute_iob_from_sources(
-                now=now_utc,
-                settings=user_settings,
-                nightscout_client=ns_client_for_iob,
-                data_store=store,
-                extra_boluses=None,
-                user_id=user.username if user else None,
-            )
-            cob_total, cob_info, _ = await compute_cob_from_sources(
-                now=now_utc,
-                nightscout_client=ns_client_for_iob,
-                data_store=store,
-                extra_entries=None,
-                user_id=user.username if user else None,
-            )
-        finally:
-            if ns_client_for_iob:
-                await ns_client_for_iob.aclose()
+        ns_client_for_iob = None # Cleanup check
+        # IOB/COB already calculated above
+
 
         trend_slope = trend_slope_from_series(recent_bg_series)
         sustained_rise = sustained_rise_detected(recent_bg_series)
