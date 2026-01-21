@@ -1,5 +1,6 @@
 
 import logging
+import os # Added for env var
 import json
 import numpy as np
 import pandas as pd
@@ -51,35 +52,39 @@ class MLInferenceService:
         """
         Find the best available model directory.
         Priority:
-        1. Configured ML_MODEL_PATH env var
-        2. backend/ml_training_output/latest_ready (symlink or conceptual)
-        3. Scan backend/ml_training_output for newest folder with 'ml_ready' in report
+        1. Configured ML_MODEL_DIR env var
+        2. backend/ml_training_output (relative to repo root)
+        3. /app/backend/ml_training_output (Docker standard)
         """
-        # 1. Explicit Path
-        manual_path = self.settings.ml_model_path # Assuming added to settings or os.getenv
-        if manual_path: 
-            p = Path(manual_path)
+        # 1. Env Var
+        env_path = os.getenv("ML_MODEL_DIR")
+        if env_path:
+            p = Path(env_path)
             if p.exists() and p.is_dir():
                 return p
         
-        # 2. Scan default output dir
-        base_dir = Path(self.settings.data.data_dir).parent / "ml_training_output"
-        # Or relative to repo root if data_dir is absolute: /app/backend/data -> /app/backend/ml_training_output
-        # Fallback to local typical path
-        if not base_dir.exists():
-            base_dir = Path("backend/ml_training_output")
+        # 2. Relative to this file (backend/app/services/../../ml_training_output)
+        # This file is in backend/app/services
+        current_file = Path(__file__)
+        repo_root = current_file.parent.parent.parent # backend/
         
-        if not base_dir.exists():
-            return None
-        
-        # Find subdirs starting with "residual_"
-        candidates = sorted(list(base_dir.glob("residual_*")), key=lambda f: f.stat().st_mtime, reverse=True)
-        
-        for d in candidates:
-            # Check if it has a metadata.json
-            meta_path = d / "metadata.json"
-            if meta_path.exists():
-                return d
+        candidates = [
+            repo_root / "ml_training_output",
+            Path("/app/backend/ml_training_output"),
+            Path("backend/ml_training_output") # Fallback for cwd
+        ]
+
+        for base_dir in candidates:
+            if not base_dir.exists():
+                continue
+            
+            # Find subdirs starting with "residual_" (sorted new to old)
+            subdirs = sorted(list(base_dir.glob("residual_*")), key=lambda f: f.stat().st_mtime, reverse=True)
+            
+            for d in subdirs:
+                # Check if it has a metadata.json
+                if (d / "metadata.json").exists():
+                    return d
         
         return None
 
