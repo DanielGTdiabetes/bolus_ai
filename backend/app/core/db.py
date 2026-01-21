@@ -270,6 +270,51 @@ async def migrate_schema(conn):
         except Exception:
              pass
 
+        # 12. ml_training_data_v2 (Extended ML Dataset)
+        await conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS ml_training_data_v2 (
+                feature_time TIMESTAMP NOT NULL,
+                user_id VARCHAR NOT NULL,
+                bg_mgdl FLOAT,
+                trend VARCHAR,
+                bg_age_min FLOAT,
+                iob_u FLOAT,
+                cob_g FLOAT,
+                iob_status VARCHAR,
+                cob_status VARCHAR,
+                basal_active_u FLOAT,
+                basal_latest_u FLOAT,
+                basal_latest_age_min FLOAT,
+                basal_total_24h FLOAT,
+                basal_total_48h FLOAT,
+                bolus_total_3h FLOAT,
+                bolus_total_6h FLOAT,
+                carbs_total_3h FLOAT,
+                carbs_total_6h FLOAT,
+                exercise_minutes_6h FLOAT,
+                exercise_minutes_24h FLOAT,
+                baseline_bg_30m FLOAT,
+                baseline_bg_60m FLOAT,
+                baseline_bg_120m FLOAT,
+                baseline_bg_240m FLOAT,
+                baseline_bg_360m FLOAT,
+                active_params TEXT,
+                event_counts TEXT,
+                source_ns_enabled BOOLEAN,
+                source_ns_treatments_count INTEGER,
+                source_db_treatments_count INTEGER,
+                source_overlap_count INTEGER,
+                source_conflict_count INTEGER,
+                source_consistency_status VARCHAR,
+                flag_bg_missing BOOLEAN,
+                flag_bg_stale BOOLEAN,
+                flag_iob_unavailable BOOLEAN,
+                flag_cob_unavailable BOOLEAN,
+                flag_source_conflict BOOLEAN,
+                PRIMARY KEY (feature_time, user_id)
+            )
+        """))
+
 
         
         # Commit changes if using a connection that requires it (begin() usually handles this, but let's be safe)
