@@ -339,8 +339,19 @@ async def get_status_context(username: str = "admin", user_settings: Optional[Us
     cob_g = None
     iob_u = None
     try:
-        iob_u, _, iob_info, _ = await compute_iob_from_sources(now, user_settings, None, store)
-        cob_g, cob_info, _ = await compute_cob_from_sources(now, None, store)
+        iob_u, _, iob_info, _ = await compute_iob_from_sources(
+            now,
+            user_settings,
+            None,
+            store,
+            user_id=username,
+        )
+        cob_g, cob_info, _ = await compute_cob_from_sources(
+            now,
+            None,
+            store,
+            user_id=username,
+        )
         if iob_info and iob_info.status in ["unavailable", "stale"]:
             quality = "degraded"
         if cob_info and cob_info.status in ["unavailable", "stale"]:

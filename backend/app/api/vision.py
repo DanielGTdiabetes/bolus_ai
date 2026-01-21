@@ -253,7 +253,13 @@ async def estimate_from_image(
             # But here we provide a constructed client, effectively overriding
             now = datetime.now(timezone.utc)
             # We pass our explicit client
-            iob_u, breakdown, iob_info, warning_msg = await compute_iob_from_sources(now, user_settings, ns_client_iob, store)
+            iob_u, breakdown, iob_info, warning_msg = await compute_iob_from_sources(
+                now,
+                user_settings,
+                ns_client_iob,
+                store,
+                user_id=current_user.username,
+            )
         finally:
              if ns_client_iob:
                  await ns_client_iob.aclose()
