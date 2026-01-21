@@ -2,7 +2,6 @@
 import { useState, useCallback } from 'react';
 import { getIOBData, fetchTreatments, simulateForecast } from '../lib/api';
 import { buildHistoryFromSnapshot, shouldDegradeSimulation } from '../pages/bolusSimulationUtils';
-import { showToast } from '../components/ui/Toast';
 
 export function useBolusSimulator() {
     const [predictionData, setPredictionData] = useState(null);
@@ -116,19 +115,6 @@ export function useBolusSimulator() {
 
             const res = await simulateForecast(payload);
             setPredictionData(res);
-
-            // Notification logic
-            if (res && res.summary) {
-                const min = Math.round(res.summary.min_bg);
-                if (min < 70) {
-                    showToast(`⚠️ RIESGO: Mínimo previsto ${min} mg/dL`, "warning", 4000);
-                    localStorage.setItem('forecast_warning', 'true');
-                    window.dispatchEvent(new Event('forecast-update'));
-                } else {
-                    localStorage.removeItem('forecast_warning');
-                    window.dispatchEvent(new Event('forecast-update'));
-                }
-            }
 
         } catch (err) {
             console.warn("Forecast Sim error", err);

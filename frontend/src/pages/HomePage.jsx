@@ -106,22 +106,6 @@ function GlucoseHero({ onRefresh }) {
     const borderColor = isLow ? '#ef4444' : '#fff';
     const boxShadow = isLow ? '0 0 0 2px #fecaca' : '0 4px 6px -1px rgba(0, 0, 0, 0.05)';
 
-    // Check for prediction alerts
-    useEffect(() => {
-        if (prediction && prediction.summary) {
-            const min = prediction.summary.min_bg;
-            const max = prediction.summary.max_bg;
-            let warn = false;
-            // Warn if predicted low < 70 or high > 250
-            if (min < 70 || max > 250) {
-                warn = true;
-            }
-            localStorage.setItem('forecast_warning', warn ? 'true' : 'false');
-            // Trigger update in Header
-            window.dispatchEvent(new Event('forecast-update'));
-        }
-    }, [prediction]);
-
     const isStale = data ? (data.is_stale || data.age_minutes > 12) : false;
     const timeBg = isStale ? '#fee2e2' : '#f1f5f9';
     const timeColor = isStale ? '#b91c1c' : '#64748b';
@@ -172,18 +156,6 @@ function GlucoseHero({ onRefresh }) {
                 </div>
             )}
 
-            {/* Prediction Alerts */}
-            {prediction && prediction.summary && (prediction.summary.min_bg < 70 || prediction.summary.max_bg > 250) && (
-                <div style={{ marginTop: '0.8rem', padding: '0.5rem', background: prediction.summary.min_bg < 70 ? '#fef2f2' : '#fffbeb', border: `1px solid ${prediction.summary.min_bg < 70 ? '#fecaca' : '#fcd34d'}`, borderRadius: '8px', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.8rem', color: '#1e293b' }}>
-                    <span style={{ fontSize: '1.2rem' }}>{prediction.summary.min_bg < 70 ? '📉' : '📈'}</span>
-                    <div>
-                        <strong>{prediction.summary.min_bg < 70 ? 'Riesgo de Hipoglucemia' : 'Tendencia Alta'}</strong>
-                        <div style={{ fontSize: '0.75rem', color: '#64748b' }}>
-                            {prediction.summary.min_bg < 70 ? `Mínimo estimado: ${prediction.summary.min_bg} mg/dL` : `Máximo estimado: ${prediction.summary.max_bg} mg/dL`}
-                        </div>
-                    </div>
-                </div>
-            )}
             {/* ML Status Badge */}
             {prediction && prediction.ml_series && prediction.ml_series.length > 0 && (
                 <div style={{ textAlign: 'center', marginTop: '0.4rem', marginBottom: '0.2rem' }}>
