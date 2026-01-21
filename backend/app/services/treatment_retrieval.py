@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 import logging
 from typing import List, Optional, Any
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_engine
@@ -57,7 +57,9 @@ async def get_recent_treatments_db(
 
             stmt = select(TreatmentSQL).where(TreatmentSQL.created_at >= cutoff_naive)
             if username:
-                stmt = stmt.where(TreatmentSQL.user_id == username)
+                stmt = stmt.where(
+                    or_(TreatmentSQL.user_id == username, TreatmentSQL.user_id.is_(None))
+                )
             stmt = stmt.order_by(TreatmentSQL.created_at.desc())
             if limit:
                 stmt = stmt.limit(limit)
