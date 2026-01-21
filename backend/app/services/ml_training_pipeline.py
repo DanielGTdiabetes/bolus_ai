@@ -637,6 +637,11 @@ async def persist_training_snapshot(session: AsyncSession, snapshot: dict) -> No
         ON CONFLICT (feature_time, user_id) DO NOTHING
         """
     )
+    # Sanitize inputs for asyncpg compatibility with TIMESTAMP columns
+    # Ensure feature_time is offset-naive UTC if it has tzinfo
+    if snapshot.get("feature_time") and snapshot["feature_time"].tzinfo is not None:
+         snapshot["feature_time"] = snapshot["feature_time"].astimezone(timezone.utc).replace(tzinfo=None)
+
     await session.execute(insert_sql, snapshot)
     await session.commit()
 
