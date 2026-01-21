@@ -95,8 +95,8 @@ export default function ForecastPage() {
                     {prediction && (
                         <div className="fade-in">
                             {/* Big Chart */}
-                            <div style={{ height: '300px', width: '100%', marginBottom: '1rem' }}>
-                                <MainGlucoseChart predictionData={prediction} />
+                            <div style={{ width: '100%', marginBottom: '1rem' }}>
+                                <MainGlucoseChart predictionData={prediction} chartHeight={300} />
                             </div>
 
                             {/* Summary Stats */}

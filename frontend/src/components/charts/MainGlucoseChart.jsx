@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, ComposedChart, Line } from 'recharts';
 import { getGlucoseEntries, getLocalNsConfig } from '../../lib/api';
 
-export function MainGlucoseChart({ isLow, predictionData }) {
+export function MainGlucoseChart({ isLow, predictionData, chartHeight = 160 }) {
     const [data, setData] = useState([]);
     const [loading, setLoading] = useState(true);
 
@@ -204,7 +204,7 @@ export function MainGlucoseChart({ isLow, predictionData }) {
     const confidenceColor = confidenceRaw === 'high' ? '#16a34a' : (confidenceRaw === 'low' ? '#dc2626' : '#f59e0b');
 
     return (
-        <div style={{ width: '100%', height: '100%', minHeight: '160px', marginTop: '0.5rem', position: 'relative' }}>
+        <div style={{ width: '100%', marginTop: '0.5rem', position: 'relative' }}>
             <div
                 style={{
                     position: 'absolute',
@@ -242,7 +242,8 @@ export function MainGlucoseChart({ isLow, predictionData }) {
                     Patrón nocturno
                 </div>
             )}
-            <ResponsiveContainer width="100%" height="100%">
+            <div style={{ width: '100%', height: chartHeight }}>
+                <ResponsiveContainer width="100%" height="100%">
                 <ComposedChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
                     <defs>
                         <linearGradient id="splitColor" x1="0" y1="0" x2="0" y2="1">
@@ -363,6 +364,7 @@ export function MainGlucoseChart({ isLow, predictionData }) {
 
                 </ComposedChart>
             </ResponsiveContainer>
+            </div>
             <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', gap: '8px', marginTop: '0.35rem', fontSize: '0.7rem', color: '#94a3b8' }}>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px' }}>
                     <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
