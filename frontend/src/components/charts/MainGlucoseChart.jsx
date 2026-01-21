@@ -204,7 +204,7 @@ export function MainGlucoseChart({ isLow, predictionData, chartHeight = 160 }) {
     const confidenceColor = confidenceRaw === 'high' ? '#16a34a' : (confidenceRaw === 'low' ? '#dc2626' : '#f59e0b');
 
     return (
-        <div style={{ width: '100%', marginTop: '0.5rem', position: 'relative' }}>
+        <div style={{ width: '100%', marginTop: '0.5rem', position: 'relative', display: 'flex', flexDirection: 'column' }}>
             <div
                 style={{
                     position: 'absolute',
@@ -224,7 +224,7 @@ export function MainGlucoseChart({ isLow, predictionData, chartHeight = 160 }) {
             </div>
             {nightPatternApplied && (
                 <div
-                    title="Ajuste basado en tu patrón nocturno (00:00–03:45). Se desactiva si hay digestión lenta o datos incompletos."
+                    title="Ajuste basado en tu patrón nocturno (00:00–03:45)."
                     style={{
                         position: 'absolute',
                         top: '4px',
@@ -242,153 +242,155 @@ export function MainGlucoseChart({ isLow, predictionData, chartHeight = 160 }) {
                     Patrón nocturno
                 </div>
             )}
-            <div style={{ width: '100%', height: chartHeight }}>
+            <div style={{ width: '100%', height: chartHeight, minHeight: chartHeight }}>
                 <ResponsiveContainer width="100%" height="100%">
-                <ComposedChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
-                    <defs>
-                        <linearGradient id="splitColor" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset={offHigh} stopColor="#ef4444" stopOpacity={1} />
-                            <stop offset={offHigh} stopColor="#3b82f6" stopOpacity={1} />
-                            <stop offset={offLow} stopColor="#3b82f6" stopOpacity={1} />
-                            <stop offset={offLow} stopColor="#ef4444" stopOpacity={1} />
-                        </linearGradient>
-                        <linearGradient id="splitFill" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset={offHigh} stopColor="#ef4444" stopOpacity={0.2} />
-                            <stop offset={offHigh} stopColor="#3b82f6" stopOpacity={0.2} />
-                            <stop offset={offLow} stopColor="#3b82f6" stopOpacity={0.2} />
-                            <stop offset={offLow} stopColor="#ef4444" stopOpacity={0.2} />
-                        </linearGradient>
-                    </defs>
+                    <ComposedChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                        <defs>
+                            <linearGradient id="splitColor" x1="0" y1="0" x2="0" y2="1">
+                                <stop offset={offHigh} stopColor="#ef4444" stopOpacity={1} />
+                                <stop offset={offHigh} stopColor="#3b82f6" stopOpacity={1} />
+                                <stop offset={offLow} stopColor="#3b82f6" stopOpacity={1} />
+                                <stop offset={offLow} stopColor="#ef4444" stopOpacity={1} />
+                            </linearGradient>
+                            <linearGradient id="splitFill" x1="0" y1="0" x2="0" y2="1">
+                                <stop offset={offHigh} stopColor="#ef4444" stopOpacity={0.2} />
+                                <stop offset={offHigh} stopColor="#3b82f6" stopOpacity={0.2} />
+                                <stop offset={offLow} stopColor="#3b82f6" stopOpacity={0.2} />
+                                <stop offset={offLow} stopColor="#ef4444" stopOpacity={0.2} />
+                            </linearGradient>
+                        </defs>
 
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
 
-                    <XAxis
-                        dataKey="timeLabel"
-                        tick={{ fontSize: 10, fill: '#94a3b8' }}
-                        interval="preserveStartEnd"
-                        minTickGap={35}
-                    />
+                        <XAxis
+                            dataKey="timeLabel"
+                            tick={{ fontSize: 10, fill: '#94a3b8' }}
+                            interval="preserveStartEnd"
+                            minTickGap={35}
+                        />
 
-                    <YAxis
-                        yAxisId="bg"
-                        domain={[
-                            min => Math.min(60, Math.floor((minVal ?? 70) / 10) * 10),
-                            max => Math.max(200, Math.ceil((maxVal ?? 180) / 10) * 10)
-                        ]}
-                        allowDataOverflow={true}
-                        tick={{ fontSize: 10, fill: '#94a3b8' }}
-                        width={40}
-                    />
+                        <YAxis
+                            yAxisId="bg"
+                            domain={[
+                                min => Math.min(60, Math.floor((minVal ?? 70) / 10) * 10),
+                                max => Math.max(200, Math.ceil((maxVal ?? 180) / 10) * 10)
+                            ]}
+                            allowDataOverflow={true}
+                            tick={{ fontSize: 10, fill: '#94a3b8' }}
+                            width={40}
+                        />
 
-                    <Tooltip
-                        content={<CustomTooltip />}
-                        cursor={{ stroke: '#94a3b8', strokeWidth: 1, strokeDasharray: '3 3' }}
-                    />
+                        <Tooltip
+                            content={<CustomTooltip />}
+                            cursor={{ stroke: '#94a3b8', strokeWidth: 1, strokeDasharray: '3 3' }}
+                        />
 
-                    <ReferenceLine yAxisId="bg" y={LOW} stroke="#ef4444" strokeDasharray="3 3" opacity={0.3} strokeWidth={1} />
-                    <ReferenceLine yAxisId="bg" y={HIGH} stroke="#f59e0b" strokeDasharray="3 3" opacity={0.3} strokeWidth={1} />
+                        <ReferenceLine yAxisId="bg" y={LOW} stroke="#ef4444" strokeDasharray="3 3" opacity={0.3} strokeWidth={1} />
+                        <ReferenceLine yAxisId="bg" y={HIGH} stroke="#f59e0b" strokeDasharray="3 3" opacity={0.3} strokeWidth={1} />
 
-                    {/* Uncertainty Band p10–p90 */}
-                    {hasQuantileBand && (
-                        <>
-                            <Area
+                        {/* Uncertainty Band p10–p90 */}
+                        {hasQuantileBand && (
+                            <>
+                                <Area
+                                    yAxisId="bg"
+                                    type="monotone"
+                                    dataKey="p10Prediction"
+                                    stackId="confidenceBand"
+                                    stroke="none"
+                                    fill="transparent"
+                                    isAnimationActive={false}
+                                />
+                                <Area
+                                    yAxisId="bg"
+                                    type="monotone"
+                                    dataKey="p90BandRange"
+                                    stackId="confidenceBand"
+                                    stroke="none"
+                                    fill="rgba(129, 140, 248, 0.2)"
+                                    isAnimationActive={false}
+                                    name="Rango Probable"
+                                />
+                            </>
+                        )}
+
+                        {/* Historical BG */}
+                        <Area
+                            yAxisId="bg"
+                            type="monotone"
+                            dataKey="bg"
+                            stroke={strokeColor}
+                            strokeWidth={3}
+                            fill={fillColor}
+                            activeDot={{ r: 6, strokeWidth: 0, fill: '#1e293b' }}
+                            animationDuration={1000}
+                        />
+
+                        {/* Baseline / Risk Curve (Ghost) */}
+                        {chartData.some(d => d.baselinePrediction) && (
+                            <Line
                                 yAxisId="bg"
                                 type="monotone"
-                                dataKey="p10Prediction"
-                                stackId="confidenceBand"
-                                stroke="none"
-                                fill="transparent"
-                                isAnimationActive={false}
+                                dataKey="baselinePrediction"
+                                stroke="#94a3b8" // Slate-400 (Ghost)
+                                strokeWidth={2}
+                                strokeDasharray="2 2"
+                                opacity={0.7}
+                                dot={false}
+                                animationDuration={0}
+                                name="Sin acción (Ref)"
                             />
-                            <Area
-                                yAxisId="bg"
-                                type="monotone"
-                                dataKey="p90BandRange"
-                                stackId="confidenceBand"
-                                stroke="none"
-                                fill="rgba(129, 140, 248, 0.2)"
-                                isAnimationActive={false}
-                                name="Banda p10–p90 (info)"
-                            />
-                        </>
-                    )}
+                        )}
 
-                    {/* Historical BG */}
-                    <Area
-                        yAxisId="bg"
-                        type="monotone"
-                        dataKey="bg"
-                        stroke={strokeColor}
-                        strokeWidth={3}
-                        fill={fillColor}
-                        activeDot={{ r: 6, strokeWidth: 0, fill: '#1e293b' }}
-                        animationDuration={1000}
-                    />
-
-                    {/* Baseline / Risk Curve (Ghost) */}
-                    {chartData.some(d => d.baselinePrediction) && (
+                        {/* IA p50 Curve */}
                         <Line
                             yAxisId="bg"
                             type="monotone"
-                            dataKey="baselinePrediction"
-                            stroke="#94a3b8" // Slate-400 (Ghost)
-                            strokeWidth={2}
-                            strokeDasharray="2 2"
-                            opacity={0.7}
+                            dataKey="aiP50"
+                            stroke={predictionData?.slow_absorption_active ? "#f59e0b" : "#8b5cf6"} // Amber-500 if slow, else Violet-500
+                            strokeWidth={3}
+                            strokeDasharray={predictionData?.slow_absorption_active ? "0" : "5 5"} // Solid line if slow (more certain/modelled-heavy)
                             dot={false}
-                            animationDuration={0}
-                            name="Sin acción"
+                            activeDot={{ r: 4, fill: predictionData?.slow_absorption_active ? "#f59e0b" : "#8b5cf6" }}
+                            animationDuration={500}
+                            name="Predicción IA"
                         />
-                    )}
 
-                    {/* IA p50 Curve */}
-                    <Line
-                        yAxisId="bg"
-                        type="monotone"
-                        dataKey="aiP50"
-                        stroke={predictionData?.slow_absorption_active ? "#f59e0b" : "#8b5cf6"} // Amber-500 if slow, else Violet-500
-                        strokeWidth={3}
-                        strokeDasharray={predictionData?.slow_absorption_active ? "0" : "5 5"} // Solid line if slow (more certain/modelled-heavy)
-                        dot={false}
-                        activeDot={{ r: 4, fill: predictionData?.slow_absorption_active ? "#f59e0b" : "#8b5cf6" }}
-                        animationDuration={500}
-                        name="IA p50"
-                    />
+                        {/* Mode Badge within Chart */}
+                        {predictionData?.slow_absorption_active && (
+                            <text x="50%" y="30" textAnchor="middle" fill="#f59e0b" fontSize="12" fontWeight="bold" opacity="0.8">
+                                🐢 {predictionData.slow_absorption_reason || "Absorción Lenta (>5h)"}
+                            </text>
+                        )}
 
-                    {/* Mode Badge within Chart */}
-                    {predictionData?.slow_absorption_active && (
-                        <text x="50%" y="30" textAnchor="middle" fill="#f59e0b" fontSize="12" fontWeight="bold" opacity="0.8">
-                            🐢 {predictionData.slow_absorption_reason || "Modo Absorción Lenta Activo (>5h)"}
-                        </text>
-                    )}
-
-                </ComposedChart>
-            </ResponsiveContainer>
+                    </ComposedChart>
+                </ResponsiveContainer>
             </div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', gap: '8px', marginTop: '0.35rem', fontSize: '0.7rem', color: '#94a3b8' }}>
+
+            {/* LEGEND - Refined Labels & Layout */}
+            <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', gap: '8px', marginTop: '0.75rem', fontSize: '0.7rem', color: '#64748b', paddingBottom: '4px' }}>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px' }}>
                     <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                         <span style={{ width: '10px', height: '2px', background: '#94a3b8', display: 'inline-block' }}></span>
-                        Baseline (informativo)
+                        Sin acción (Ref)
                     </span>
                     <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                         <span style={{ width: '10px', height: '2px', background: '#8b5cf6', display: 'inline-block' }}></span>
-                        IA p50 (informativo)
+                        Predicción IA
                     </span>
                     {hasQuantileBand && (
                         <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                             <span style={{ width: '10px', height: '10px', background: 'rgba(129, 140, 248, 0.25)', borderRadius: '2px', display: 'inline-block' }}></span>
-                            Banda p10–p90 (informativo)
+                            Rango Probable
                         </span>
                     )}
                 </div>
                 <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                     <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: confidenceColor }}></span>
-                    Confianza {confidenceLabel} (informativo)
+                    Confianza {confidenceLabel}
                 </span>
             </div>
-            <div style={{ marginTop: '0.25rem', fontSize: '0.7rem', color: '#94a3b8' }}>
-                No usar para decisiones.
+            <div style={{ marginTop: '0.25rem', fontSize: '0.65rem', color: '#94a3b8' }}>
+                * No utilizar para decisiones médicas directas.
             </div>
         </div>
     );
