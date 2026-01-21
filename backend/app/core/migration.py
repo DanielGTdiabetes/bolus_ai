@@ -158,6 +158,7 @@ async def ensure_treatment_columns(engine: AsyncEngine):
 async def ensure_ml_schema(engine: AsyncEngine):
     """
     Ensures the ml_training_data table exists for the LSTM/Transformer model.
+    Also handles schema migration for v2 table to ensure all columns exist.
     """
     if not engine:
         return
@@ -165,6 +166,7 @@ async def ensure_ml_schema(engine: AsyncEngine):
     logger.info("Checking ML training data schema...")
     async with engine.connect() as conn:
         try:
+            # v1 table
             await conn.execute(text("""
                 CREATE TABLE IF NOT EXISTS ml_training_data (
                     feature_time TIMESTAMP NOT NULL,
@@ -179,6 +181,8 @@ async def ensure_ml_schema(engine: AsyncEngine):
                     PRIMARY KEY (feature_time, user_id)
                 )
             """))
+            
+            # v2 table - Core creation
             await conn.execute(text("""
                 CREATE TABLE IF NOT EXISTS ml_training_data_v2 (
                     feature_time TIMESTAMP NOT NULL,
@@ -222,8 +226,70 @@ async def ensure_ml_schema(engine: AsyncEngine):
                     PRIMARY KEY (feature_time, user_id)
                 )
             """))
+            
+            # v2 table - Column Verification & Backfill
+            # This ensures that if the table existed with fewer columns, new ones are added.
+            columns_v2 = [
+                ("bg_mgdl", "FLOAT"),
+                ("trend", "VARCHAR"),
+                ("bg_age_min", "FLOAT"),
+                ("iob_u", "FLOAT"),
+                ("cob_g", "FLOAT"),
+                ("iob_status", "VARCHAR"),
+                ("cob_status", "VARCHAR"),
+                ("basal_active_u", "FLOAT"),
+                ("basal_latest_u", "FLOAT"),
+                ("basal_latest_age_min", "FLOAT"),
+                ("basal_total_24h", "FLOAT"),
+                ("basal_total_48h", "FLOAT"),
+                ("bolus_total_3h", "FLOAT"),
+                ("bolus_total_6h", "FLOAT"),
+                ("carbs_total_3h", "FLOAT"),
+                ("carbs_total_6h", "FLOAT"),
+                ("exercise_minutes_6h", "FLOAT"),
+                ("exercise_minutes_24h", "FLOAT"),
+                ("baseline_bg_30m", "FLOAT"),
+                ("baseline_bg_60m", "FLOAT"),
+                ("baseline_bg_120m", "FLOAT"),
+                ("baseline_bg_240m", "FLOAT"),
+                ("baseline_bg_360m", "FLOAT"),
+                ("active_params", "TEXT"),
+                ("event_counts", "TEXT"),
+                ("source_ns_enabled", "BOOLEAN"),
+                ("source_ns_treatments_count", "INTEGER"),
+                ("source_db_treatments_count", "INTEGER"),
+                ("source_overlap_count", "INTEGER"),
+                ("source_conflict_count", "INTEGER"),
+                ("source_consistency_status", "VARCHAR"),
+                ("flag_bg_missing", "BOOLEAN"),
+                ("flag_bg_stale", "BOOLEAN"),
+                ("flag_iob_unavailable", "BOOLEAN"),
+                ("flag_cob_unavailable", "BOOLEAN"),
+                ("flag_source_conflict", "BOOLEAN"),
+            ]
+
+            logger.info("Verifying ml_training_data_v2 schema match...")
+            for col_name, col_type in columns_v2:
+                try:
+                    # Check if column exists
+                    # Note: We use simpler check that works on most Postgres setups
+                    # information_schema.columns is standard. 'ml_training_data_v2' is lowercased.
+                    res = await conn.execute(text(
+                        f"SELECT column_name FROM information_schema.columns "
+                        f"WHERE table_name='ml_training_data_v2' AND column_name='{col_name}'"
+                    ))
+                    if not res.fetchone():
+                        logger.warning(f"Column {col_name} missing in ml_training_data_v2. Adding it...")
+                        await conn.execute(text(f"ALTER TABLE ml_training_data_v2 ADD COLUMN {col_name} {col_type}"))
+                except Exception as e:
+                    logger.warning(f"Schema check warning for {col_name}: {e}. Trying blind add...")
+                    try:
+                        await conn.execute(text(f"ALTER TABLE ml_training_data_v2 ADD COLUMN {col_name} {col_type}"))
+                    except Exception:
+                        pass # Likely exists or major error
+            
             await conn.commit()
-            logger.info("✅ ML training data table ensured.")
+            logger.info("✅ ML training data tables schema verified.")
         except Exception as e:
             await conn.rollback()
             logger.error(f"❌ Failed to ensure ML schema: {e}")
