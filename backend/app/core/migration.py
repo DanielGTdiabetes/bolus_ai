@@ -295,6 +295,21 @@ async def ensure_ml_schema(engine: AsyncEngine):
             if data_cleanup_needed:
                 logger.warning("Schema changes detected. Truncating invalid ML training data...")
                 await conn.execute(text("TRUNCATE TABLE ml_training_data_v2"))
+            else:
+                # Secondary check: If columns existed but data is corrupt (NULLs in new critical fields)
+                # This handles the case where users restarted between partial fixes.
+                try:
+                    # Check for rows with NULL in strict columns (e.g. basal_active_u should be float 0.0 or higher, never NULL if new code ran)
+                    # We check a few key new columns.
+                    bad_data_check = await conn.execute(text(
+                        "SELECT COUNT(*) FROM ml_training_data_v2 WHERE basal_active_u IS NULL OR bg_age_min IS NULL"
+                    ))
+                    bad_count = bad_data_check.scalar()
+                    if bad_count and bad_count > 0:
+                        logger.warning(f"Found {bad_count} rows with corrupt/legacy data (NULLs). Truncating table to reset training...")
+                        await conn.execute(text("TRUNCATE TABLE ml_training_data_v2"))
+                except Exception as e:
+                    logger.warning(f"Could not verify data integrity: {e}")
 
             await conn.commit()
             logger.info("✅ ML training data tables schema verified.")
