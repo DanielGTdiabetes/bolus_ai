@@ -70,6 +70,21 @@ export function MainGlucoseChart({ isLow, predictionData }) {
             startBg = predictionData.summary.bg_now;
         }
 
+        const quantileSources = predictionData?.quantiles || predictionData?.percentiles || predictionData?.prediction_quantiles;
+
+        const resolveQuantileValue = (quantileKey, tMin) => {
+            const directSeries = predictionData?.[`${quantileKey}_series`];
+            const directPoint = directSeries?.find(point => point.t_min === tMin);
+            if (directPoint?.bg != null) {
+                return directPoint.bg;
+            }
+
+            const quantileSeries = quantileSources?.[quantileKey] || quantileSources?.[`${quantileKey}_series`];
+            const normalizedSeries = Array.isArray(quantileSeries) ? quantileSeries : quantileSeries?.series;
+            const quantilePoint = normalizedSeries?.find(point => point.t_min === tMin);
+            return quantilePoint?.bg ?? null;
+        };
+
         // Map prediction series
         const predPoints = predictionData.series.map(p => {
             // p.t_min is relative minutes from "now" (or start of sim)
@@ -103,11 +118,17 @@ export function MainGlucoseChart({ isLow, predictionData }) {
                 if (mPoint) mlVal = mPoint.bg;
             }
 
+            const p10Val = resolveQuantileValue('p10', p.t_min);
+            const p90Val = resolveQuantileValue('p90', p.t_min);
+            const aiP50Val = mlVal ?? p.bg;
+
             return {
                 timeLabel: new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-                prediction: p.bg,
+                aiP50: aiP50Val,
                 baselinePrediction: bVal,
-                mlPrediction: mlVal,
+                p10Prediction: p10Val,
+                p90Prediction: p90Val,
+                p90BandRange: p10Val != null && p90Val != null ? Math.max(p90Val - p10Val, 0) : null,
                 bg: null,
                 carbCurve: cCurve,
                 insulinCurve: iCurve,
@@ -120,9 +141,11 @@ export function MainGlucoseChart({ isLow, predictionData }) {
             const lastReal = baseData[baseData.length - 1];
             predPoints.unshift({
                 ...lastReal,
-                prediction: lastReal.bg, // Start prediction curve at actual BG
+                aiP50: lastReal.bg, // Start prediction curve at actual BG
                 baselinePrediction: lastReal.bg, // Start ghost curve at actual BG
-                mlPrediction: lastReal.bg, // Start ML curve at actual BG
+                p10Prediction: lastReal.bg,
+                p90Prediction: lastReal.bg,
+                p90BandRange: 0,
                 carbCurve: lastReal.bg, // Start component curves at actual BG
                 insulinCurve: lastReal.bg,
                 bg: null // Don't duplicate the 'Area' point, just start the 'Line'
@@ -137,7 +160,13 @@ export function MainGlucoseChart({ isLow, predictionData }) {
     if (!chartData.length) return <div className="text-center text-xs text-gray-400 py-10">Sin datos de glucosa</div>;
 
     // Recalculate max/min for domain (Global: History + Prediction)
-    const allValues = chartData.flatMap(d => [d.bg, d.prediction]).filter(v => v != null && !isNaN(v));
+    const allValues = chartData.flatMap(d => [
+        d.bg,
+        d.aiP50,
+        d.baselinePrediction,
+        d.p10Prediction,
+        d.p90Prediction
+    ]).filter(v => v != null && !isNaN(v));
     const maxVal = allValues.length ? Math.max(...allValues) : 180;
     const minVal = allValues.length ? Math.min(...allValues) : 70;
 
@@ -169,9 +198,30 @@ export function MainGlucoseChart({ isLow, predictionData }) {
     const fillColor = isSafe ? 'rgba(59, 130, 246, 0.2)' : 'url(#splitFill)';
 
     const nightPatternApplied = Boolean(predictionData?.prediction_meta?.pattern?.applied);
+    const hasQuantileBand = chartData.some(d => d.p90BandRange != null && d.p10Prediction != null);
+    const confidenceRaw = predictionData?.quality || predictionData?.absorption_confidence || 'medium';
+    const confidenceLabel = confidenceRaw === 'high' ? 'Alta' : (confidenceRaw === 'low' ? 'Baja' : 'Media');
+    const confidenceColor = confidenceRaw === 'high' ? '#16a34a' : (confidenceRaw === 'low' ? '#dc2626' : '#f59e0b');
 
     return (
         <div style={{ width: '100%', height: '100%', minHeight: '160px', marginTop: '0.5rem', position: 'relative' }}>
+            <div
+                style={{
+                    position: 'absolute',
+                    top: '4px',
+                    left: '8px',
+                    background: '#f8fafc',
+                    color: '#64748b',
+                    fontSize: '0.65rem',
+                    fontWeight: 700,
+                    padding: '2px 6px',
+                    borderRadius: '999px',
+                    border: '1px solid #e2e8f0',
+                    zIndex: 2
+                }}
+            >
+                Informativo
+            </div>
             {nightPatternApplied && (
                 <div
                     title="Ajuste basado en tu patrón nocturno (00:00–03:45). Se desactiva si hay digestión lenta o datos incompletos."
@@ -237,6 +287,31 @@ export function MainGlucoseChart({ isLow, predictionData }) {
                     <ReferenceLine yAxisId="bg" y={LOW} stroke="#ef4444" strokeDasharray="3 3" opacity={0.3} strokeWidth={1} />
                     <ReferenceLine yAxisId="bg" y={HIGH} stroke="#f59e0b" strokeDasharray="3 3" opacity={0.3} strokeWidth={1} />
 
+                    {/* Uncertainty Band p10–p90 */}
+                    {hasQuantileBand && (
+                        <>
+                            <Area
+                                yAxisId="bg"
+                                type="monotone"
+                                dataKey="p10Prediction"
+                                stackId="confidenceBand"
+                                stroke="none"
+                                fill="transparent"
+                                isAnimationActive={false}
+                            />
+                            <Area
+                                yAxisId="bg"
+                                type="monotone"
+                                dataKey="p90BandRange"
+                                stackId="confidenceBand"
+                                stroke="none"
+                                fill="rgba(129, 140, 248, 0.2)"
+                                isAnimationActive={false}
+                                name="Banda p10–p90 (info)"
+                            />
+                        </>
+                    )}
+
                     {/* Historical BG */}
                     <Area
                         yAxisId="bg"
@@ -265,17 +340,18 @@ export function MainGlucoseChart({ isLow, predictionData }) {
                         />
                     )}
 
-                    {/* Prediction Curve */}
+                    {/* IA p50 Curve */}
                     <Line
                         yAxisId="bg"
                         type="monotone"
-                        dataKey="prediction"
+                        dataKey="aiP50"
                         stroke={predictionData?.slow_absorption_active ? "#f59e0b" : "#8b5cf6"} // Amber-500 if slow, else Violet-500
                         strokeWidth={3}
                         strokeDasharray={predictionData?.slow_absorption_active ? "0" : "5 5"} // Solid line if slow (more certain/modelled-heavy)
                         dot={false}
                         activeDot={{ r: 4, fill: predictionData?.slow_absorption_active ? "#f59e0b" : "#8b5cf6" }}
                         animationDuration={500}
+                        name="IA p50"
                     />
 
                     {/* Mode Badge within Chart */}
@@ -285,23 +361,33 @@ export function MainGlucoseChart({ isLow, predictionData }) {
                         </text>
                     )}
 
-
-                    {/* ML Beta Curve (Green Dotted) */}
-                    {chartData.some(d => d.mlPrediction) && (
-                        <Line
-                            yAxisId="bg"
-                            type="monotone"
-                            dataKey="mlPrediction"
-                            stroke="#10b981" // Emerald-500
-                            strokeWidth={2}
-                            strokeDasharray="2 2"
-                            dot={false}
-                            animationDuration={1000}
-                            name="IA Experimental"
-                        />
-                    )}
                 </ComposedChart>
             </ResponsiveContainer>
+            <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', gap: '8px', marginTop: '0.35rem', fontSize: '0.7rem', color: '#94a3b8' }}>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px' }}>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <span style={{ width: '10px', height: '2px', background: '#94a3b8', display: 'inline-block' }}></span>
+                        Baseline (informativo)
+                    </span>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <span style={{ width: '10px', height: '2px', background: '#8b5cf6', display: 'inline-block' }}></span>
+                        IA p50 (informativo)
+                    </span>
+                    {hasQuantileBand && (
+                        <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <span style={{ width: '10px', height: '10px', background: 'rgba(129, 140, 248, 0.25)', borderRadius: '2px', display: 'inline-block' }}></span>
+                            Banda p10–p90 (informativo)
+                        </span>
+                    )}
+                </div>
+                <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: confidenceColor }}></span>
+                    Confianza {confidenceLabel} (informativo)
+                </span>
+            </div>
+            <div style={{ marginTop: '0.25rem', fontSize: '0.7rem', color: '#94a3b8' }}>
+                No usar para decisiones.
+            </div>
         </div>
     );
 }
@@ -309,9 +395,10 @@ export function MainGlucoseChart({ isLow, predictionData }) {
 function CustomTooltip({ active, payload, label }) {
     if (active && payload && payload.length) {
         const bgItem = payload.find(p => p.dataKey === 'bg');
-        const predItem = payload.find(p => p.dataKey === 'prediction');
+        const predItem = payload.find(p => p.dataKey === 'aiP50');
         const baseItem = payload.find(p => p.dataKey === 'baselinePrediction');
-        const mlItem = payload.find(p => p.dataKey === 'mlPrediction');
+        const p10Item = payload.find(p => p.dataKey === 'p10Prediction');
+        const p90Item = payload.find(p => p.dataKey === 'p90Prediction');
 
         // Prioritize actual BG, else show prediction
         const val = bgItem?.value ?? predItem?.value;
@@ -320,7 +407,7 @@ function CustomTooltip({ active, payload, label }) {
         return (
             <div style={{ background: 'rgba(255, 255, 255, 0.95)', padding: '10px', borderRadius: '12px', boxShadow: '0 4px 15px rgba(0,0,0,0.1)', border: '1px solid #e2e8f0', minWidth: '120px' }}>
                 <p style={{ margin: 0, fontSize: '0.8rem', color: '#64748b', marginBottom: '5px' }}>
-                    {label} {isPred && <span style={{ color: '#8b5cf6' }}>(Est.)</span>}
+                    {label} {isPred && <span style={{ color: '#8b5cf6' }}>(IA p50)</span>}
                 </p>
 
                 <div style={{ fontSize: '1.2rem', fontWeight: 800, color: isPred ? '#8b5cf6' : '#1e293b', lineHeight: 1, marginBottom: '8px' }}>
@@ -331,9 +418,9 @@ function CustomTooltip({ active, payload, label }) {
                         Sin bolo: <strong>{Math.round(baseItem.value)}</strong>
                     </div>
                 )}
-                {isPred && mlItem && mlItem.value != null && (
-                    <div style={{ fontSize: '0.8rem', color: '#10b981', paddingTop: '2px', fontWeight: 600 }}>
-                        IA Beta: <strong>{Math.round(mlItem.value)}</strong>
+                {isPred && p10Item?.value != null && p90Item?.value != null && (
+                    <div style={{ fontSize: '0.8rem', color: '#818cf8', paddingTop: '2px', fontWeight: 600 }}>
+                        Banda p10–p90: <strong>{Math.round(p10Item.value)}–{Math.round(p90Item.value)}</strong>
                     </div>
                 )}
             </div>

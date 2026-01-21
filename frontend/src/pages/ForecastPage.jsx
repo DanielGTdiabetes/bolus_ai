@@ -107,16 +107,6 @@ export default function ForecastPage() {
                                 <StatTile label="Tiempo al Mínimo" value={prediction.summary.time_to_min ? `en ${prediction.summary.time_to_min} min` : '--'} />
                             </div>
 
-                            {/* Warnings */}
-                            {prediction.warnings && prediction.warnings.length > 0 && (
-                                <div style={{ background: '#fff7ed', border: '1px solid #fdba74', padding: '1rem', borderRadius: '8px' }}>
-                                    <h4 style={{ margin: '0 0 0.5rem 0', color: '#c2410c', fontSize: '0.9rem' }}>Advertencias del Modelo</h4>
-                                    <ul style={{ margin: 0, paddingLeft: '1.2rem', color: '#ea580c', fontSize: '0.85rem' }}>
-                                        {prediction.warnings.map((w, i) => <li key={i}>{w}</li>)}
-                                    </ul>
-                                </div>
-                            )}
-
                             <div style={{ marginTop: '1rem', fontSize: '0.8rem', color: '#94a3b8', textAlign: 'center' }}>
                                 Última actualización: {lastUpdated ? lastUpdated.toLocaleTimeString() : '--'}
                             </div>
