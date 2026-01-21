@@ -135,7 +135,9 @@ class ForecastResponse(BaseModel):
     # ML Beta
     ml_series: Optional[List[dict]] = None
     ml_ready: bool = False # False = Learning/Mock, True = Trained Model Active
+    ml_prediction: Optional[dict[int, float]] = None
+    ml_band: Optional[dict[int, dict[str, float]]] = None
+    confidence_score: Optional[float] = None
     
     prediction_meta: Optional[PredictionMeta] = None
     meta: Optional[dict] = None
-

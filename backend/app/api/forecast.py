@@ -29,6 +29,11 @@ from app.services.dexcom_client import DexcomClient
 from app.services.store import DataStore
 from pathlib import Path
 from app.services.iob import compute_iob_from_sources, compute_cob_from_sources
+from app.services.residual_forecast import (
+    apply_residual_adjustment,
+    build_residual_features,
+    load_active_bundle,
+)
 
 from app.services.night_pattern import (
     LOCAL_TZ,
@@ -490,6 +495,7 @@ async def get_current_forecast(
 
     # 3.3. Fetch Basal History (Last 48h) from BasalEntry (Official Source)
     # These are preferred over generic Treatments.
+    basal_rows = []
     try:
         basal_cutoff = datetime.now(timezone.utc) - timedelta(hours=48)
         stmt_basal = (
@@ -799,61 +805,32 @@ async def get_current_forecast(
     response.slow_absorption_active = is_slow_absorption
     response.slow_absorption_reason = slow_reason
 
-    # [ML Beta] Fetch Hybrid Prediction
+    # [ML Residual] Passive correction over baseline
     try:
-        # 1. Prepare Features
-        # Extract last 60 min of BG
-        ml_sgv = [p['value'] for p in recent_bg_series[:12]] if recent_bg_series else []
-        ml_iob = [] # Todo: proper history
-        ml_cob = []
-        
-        # 2. Call Service (or Mock)
-        # In production this would be: 
-        # async with httpx.AsyncClient() as client:
-        #    r = await client.post("http://localhost:8000/predict", json={...})
-        
-        # For Demo/Failover (since service isn't running):
-        ml_series = []
-        
-        # Simple LSTM-like 'Mock' Projection
-        # Just to visualize the 'Dotted Line' requested by User
-        if start_bg is None:
-             raise ValueError("Insufficient Data for ML (No Start BG)")
-             
-        last_val = start_bg
-        trend_factor = 0
-        if recent_bg_series and len(recent_bg_series) > 1:
-             # Calculate trend (mg/dL per step)
-             try:
-                 v0 = recent_bg_series[0].get('value')
-                 vN = recent_bg_series[-1].get('value')
-                 if v0 is not None and vN is not None:
-                     trend_factor = (v0 - vN) / len(recent_bg_series)
-             except:
-                 pass
-        
-        # Project 30 mins (Mock Curve)
-        for i in range(1, 13): # 12 steps x 5 min = 60 min
-             t_min = i * 5
-             
-             # Mock ML Logic: Dampened trend projection + Regression to mean (110)
-             proj = last_val + (trend_factor * i * 0.8) 
-             proj = proj * 0.95 + (110.0 * 0.05)
-             
-             ml_series.append({"t_min": t_min, "bg": round(proj, 1)})
-        
-        response.ml_series = ml_series
-        # In the future, if source == "ml", set True
-        response.ml_ready = False 
-        
-        # [User Request] If ML is fully ready, hide the legacy Physics curve
-        if response.ml_ready:
-             # Move ML to main series or clear main series
-             # For now, let's keep it as separate series but maybe visual will hide the other?
-             # Or just clear it:
-             response.series = [] # Physics removed
- 
-        
+        bundle = load_active_bundle()
+        residual_features = await build_residual_features(
+            now_utc=now_utc,
+            start_bg=start_bg,
+            recent_bg_series=recent_bg_series,
+            treatments=rows,
+            basal_rows=basal_rows,
+            ns_config=ns_config,
+            user_settings=user_settings,
+            store=store,
+            baseline_series=response.series,
+        )
+        adjustment = apply_residual_adjustment(response.series, bundle, residual_features)
+        if adjustment.applied:
+            response.series = adjustment.adjusted_series
+            response.ml_ready = True
+            response.ml_prediction = adjustment.ml_prediction
+            response.ml_band = adjustment.ml_band
+            response.confidence_score = adjustment.confidence_score
+        else:
+            response.ml_ready = False
+            response.ml_prediction = None
+            response.ml_band = None
+            response.confidence_score = adjustment.confidence_score
     except Exception as ml_e:
         print(f"ML Inference skipped: {ml_e}")
     
