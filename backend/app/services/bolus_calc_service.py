@@ -371,10 +371,19 @@ async def calculate_bolus_stateless_service(
     try:
         now = datetime.now(timezone.utc)
         iob_u, breakdown, iob_info, iob_warning = await compute_iob_from_sources(
-            now, user_settings, ns_client, store, extra_boluses=db_events
+            now,
+            user_settings,
+            ns_client,
+            store,
+            extra_boluses=db_events,
+            user_id=user.username,
         )
         cob_total, cob_info, cob_source_status = await compute_cob_from_sources(
-            now, ns_client, store, extra_entries=None
+            now,
+            ns_client,
+            store,
+            extra_entries=None,
+            user_id=user.username,
         )
         iob_info.glucose_source_status = glucose_status
         assumptions: list[str] = []

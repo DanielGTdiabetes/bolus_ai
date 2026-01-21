@@ -454,9 +454,15 @@ async def get_current_iob(
     try:
         now = datetime.now(timezone.utc)
         total_iob, breakdown, iob_info, iob_warning = await compute_iob_from_sources(
-            now, settings, ns_client, store, extra_boluses=db_events
+            now, settings, ns_client, store, extra_boluses=db_events, user_id=user.username
         )
-        total_cob, cob_info, cob_source_status = await compute_cob_from_sources(now, ns_client, store, extra_entries=db_carbs)
+        total_cob, cob_info, cob_source_status = await compute_cob_from_sources(
+            now,
+            ns_client,
+            store,
+            extra_entries=db_carbs,
+            user_id=user.username,
+        )
         if not iob_info.glucose_source_status:
             iob_info.glucose_source_status = SourceStatus(source="unknown", status="unknown", fetched_at=now)
         

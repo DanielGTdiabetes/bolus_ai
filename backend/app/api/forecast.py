@@ -905,12 +905,14 @@ async def get_current_forecast(
                 nightscout_client=ns_client_for_iob,
                 data_store=store,
                 extra_boluses=None,
+                user_id=user.username if user else None,
             )
             cob_total, cob_info, _ = await compute_cob_from_sources(
                 now=now_utc,
                 nightscout_client=ns_client_for_iob,
                 data_store=store,
                 extra_entries=None,
+                user_id=user.username if user else None,
             )
         finally:
             if ns_client_for_iob:

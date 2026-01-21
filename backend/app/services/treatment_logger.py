@@ -72,6 +72,7 @@ async def log_treatment(
             {
                 "_id": treatment_id,
                 "id": treatment_id,
+                "user_id": user_id,
                 "eventType": event_type,
                 "created_at": created_iso,
                 "insulin": insulin,
