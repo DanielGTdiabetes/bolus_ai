@@ -562,14 +562,68 @@ async def _check_auth(update: Update, context: ContextTypes.DEFAULT_TYPE) -> boo
         return False
     return True
 
-async def get_bot_user_settings(username: Optional[str] = None) -> UserSettings:
+async def get_bot_user_settings_with_user_id(
+    username: Optional[str] = None,
+) -> tuple[UserSettings, str]:
     """
-    Helper to fetch settings from the best available user.
+    Helper to fetch settings + resolved user_id.
     Defaults to resolver priority (preferred -> BOT_DEFAULT_USERNAME -> freshest non-default).
     """
     resolved_settings, resolved_user = await resolve_bot_user_settings(username)
     logger.info("Bot using settings for user_id='%s'", resolved_user)
-    return resolved_settings
+    return resolved_settings, resolved_user
+
+
+async def get_bot_user_settings(username: Optional[str] = None) -> UserSettings:
+    settings, _ = await get_bot_user_settings_with_user_id(username)
+    return settings
+
+
+def _resolve_bolus_user_id(user_settings: UserSettings, resolved_user_id: Optional[str]) -> str:
+    bolus_user_id = resolved_user_id or getattr(user_settings, "user_id", None)
+    if not bolus_user_id:
+        logger.info("bot_bolus_user_fallback: using user_id='admin'")
+        bolus_user_id = "admin"
+    return bolus_user_id
+
+
+async def _calculate_bolus_with_context(
+    req_v2: BolusRequestV2,
+    *,
+    user_settings: UserSettings,
+    resolved_user_id: Optional[str],
+    snapshot_user_id: Optional[str] = None,
+) -> BolusResponseV2:
+    bolus_user_id = _resolve_bolus_user_id(
+        user_settings,
+        snapshot_user_id or resolved_user_id,
+    )
+    return await calculate_bolus_for_bot(req_v2, username=bolus_user_id)
+
+
+async def _hydrate_bolus_snapshot(
+    pending_action: dict,
+) -> dict:
+    if pending_action.get("type") != "bolus":
+        return pending_action
+    if "payload" in pending_action and "user_id" in pending_action:
+        return pending_action
+
+    user_settings, resolved_user_id = await get_bot_user_settings_with_user_id()
+    carbs = float(pending_action.get("carbs", 0) or 0)
+    pending_action.setdefault("user_id", resolved_user_id)
+    pending_action.setdefault(
+        "payload",
+        BolusRequestV2(
+            carbs_g=carbs,
+            meal_slot=get_current_meal_slot(user_settings),
+            target_mgdl=user_settings.targets.mid,
+            confirm_iob_unknown=True,
+            confirm_iob_stale=True,
+        ),
+    )
+    pending_action.setdefault("rec", None)
+    return pending_action
 
 def get_current_meal_slot(settings: UserSettings) -> str:
     """Infers current meal slot based on User Schedule (Local Time)."""
@@ -1042,7 +1096,7 @@ async def _process_text_input_internal(update: Update, context: ContextTypes.DEF
                 snap["protein"] = p_val
                 
                 # Recalculate Bolus
-                user_settings = await get_bot_user_settings()
+                user_settings, resolved_user_id = await get_bot_user_settings_with_user_id()
                 base_payload = snap.get("payload")
                 if base_payload:
                     req_v2 = base_payload.model_copy(deep=True)
@@ -1061,10 +1115,14 @@ async def _process_text_input_internal(update: Update, context: ContextTypes.DEF
                 req_v2.confirm_iob_unknown = True
                 req_v2.confirm_iob_stale = True
 
-                new_rec = await calculate_bolus_for_bot(
+                new_rec = await _calculate_bolus_with_context(
                     req_v2,
-                    username=user_settings.username or "admin",
+                    user_settings=user_settings,
+                    resolved_user_id=resolved_user_id,
+                    snapshot_user_id=snap.get("user_id"),
                 )
+                if snap.get("user_id") is None and resolved_user_id:
+                    snap["user_id"] = resolved_user_id
                 
                 snap["rec"] = new_rec
                 snap["payload"] = req_v2
@@ -1219,6 +1277,7 @@ async def _process_text_input_internal(update: Update, context: ContextTypes.DEF
     if bot_reply.pending_action:
         p = bot_reply.pending_action
         p["timestamp"] = datetime.now().timestamp()
+        p = await _hydrate_bolus_snapshot(p)
         SNAPSHOT_STORAGE[p["id"]] = p
         
     # 4. Send Reply
@@ -1310,7 +1369,7 @@ async def _handle_add_treatment_tool(update: Update, context: ContextTypes.DEFAU
     await reply_text(update, context, "⚙️ Procesando solicitud de tratamiento...")
     
     # 1. Resolve User Settings
-    user_settings = await get_bot_user_settings()
+    user_settings, resolved_user_id = await get_bot_user_settings_with_user_id()
 
     # 2. Recommendation Logic (Shared Engine)
     # ---------------------------------------------------------
@@ -1337,9 +1396,10 @@ async def _handle_add_treatment_tool(update: Update, context: ContextTypes.DEFAU
          pass
 
     try:
+        bolus_user_id = _resolve_bolus_user_id(user_settings, resolved_user_id)
         rec = await calculate_bolus_for_bot(
             req_v2,
-            username=user_settings.username or "admin",
+            username=bolus_user_id,
         )
     except Exception as exc:
         await reply_text(update, context, f"❌ Error calculando bolo: {exc}")
@@ -1384,6 +1444,7 @@ async def _handle_add_treatment_tool(update: Update, context: ContextTypes.DEFAU
         "fiber": fiber,
         "bg": bg_val,
         "notes": notes,
+        "user_id": resolved_user_id,
         "source": "CalculateBolus",
         "ts": datetime.now(),
         "payload": req_v2
@@ -1439,7 +1500,7 @@ async def _apply_exercise_recalculation(
         await reply_text(update, context, "⚠️ Sesión caducada. Recalcula el bolo.")
         return
 
-    user_settings = await get_bot_user_settings()
+    user_settings, resolved_user_id = await get_bot_user_settings_with_user_id()
     base_payload = snapshot.get("payload")
     if base_payload:
         req_v2 = base_payload.model_copy(deep=True)
@@ -1460,9 +1521,12 @@ async def _apply_exercise_recalculation(
     req_v2.confirm_iob_stale = True
 
     try:
-        new_rec = await calculate_bolus_for_bot(
+        snapshot_user_id = snapshot.get("user_id")
+        new_rec = await _calculate_bolus_with_context(
             req_v2,
-            username=user_settings.username or "admin",
+            user_settings=user_settings,
+            resolved_user_id=resolved_user_id,
+            snapshot_user_id=snapshot_user_id,
         )
     except Exception as exc:
         await reply_text(update, context, f"❌ Error recalculando bolo: {exc}")
@@ -1474,6 +1538,8 @@ async def _apply_exercise_recalculation(
         "intensity": intensity,
         "minutes": minutes,
     }
+    if snapshot.get("user_id") is None and resolved_user_id:
+        snapshot["user_id"] = resolved_user_id
 
     exercise_summary = f"{_format_exercise_label(intensity)}, {minutes} min"
     msg_text, fiber_dual_rec, _ = _build_bolus_message(
@@ -2373,6 +2439,7 @@ async def on_new_meal_received(carbs: float, fat: float, protein: float, fiber: 
         "fiber": fiber,
         "source": source,
         "origin_id": origin_id,
+        "user_id": resolved_user_id,
         "ts": datetime.now(),
         "payload": req_v2,
     }
@@ -2547,8 +2614,8 @@ async def _handle_snapshot_callback(query, data: str) -> None:
              SNAPSHOT_STORAGE.pop(request_id, None)
              return
             
-        if "rec" in snapshot:
-             rec: BolusResponseV2 = snapshot["rec"]
+        rec = snapshot.get("rec")
+        if isinstance(rec, BolusResponseV2):
              carbs = snapshot["carbs"]
              units = units_override if units_override is not None else rec.total_u_final
         elif "units" in snapshot:
@@ -2771,8 +2838,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             slot = parts[3]
             
             # 1. Update DB Settings
-            user_settings = await get_bot_user_settings()
-            username = user_settings.username or "admin"
+            user_settings, resolved_user_id = await get_bot_user_settings_with_user_id()
+            username = _resolve_bolus_user_id(user_settings, resolved_user_id)
             
             async with SessionLocal() as session:
                  # Fetch current raw settings
@@ -3041,7 +3108,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                     await query.answer("Sesión caducada")
                     return
                 
-                user_settings = await get_bot_user_settings()
+                user_settings, resolved_user_id = await get_bot_user_settings_with_user_id()
                 base_payload = snapshot.get("payload")
                 if base_payload:
                     req_v2 = base_payload.model_copy(deep=True)
@@ -3058,10 +3125,14 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 req_v2.confirm_iob_unknown = True
                 req_v2.confirm_iob_stale = True
 
-                new_rec = await calculate_bolus_for_bot(
+                new_rec = await _calculate_bolus_with_context(
                     req_v2,
-                    username=user_settings.username or "admin",
+                    user_settings=user_settings,
+                    resolved_user_id=resolved_user_id,
+                    snapshot_user_id=snapshot.get("user_id"),
                 )
+                if snapshot.get("user_id") is None and resolved_user_id:
+                    snapshot["user_id"] = resolved_user_id
                 
                 # Update Snapshot
                 snapshot["rec"] = new_rec
@@ -3249,8 +3320,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
              # --- SAFETY RAIL: Check if already added recently ---
              # (Prevents race condition where user adds manually while bot is waiting)
              try:
-                 user_settings = await get_bot_user_settings()
-                 username = user_settings.username or "admin" # Default
+                 user_settings, resolved_user_id = await get_bot_user_settings_with_user_id()
+                 username = _resolve_bolus_user_id(user_settings, resolved_user_id)
                  last_basal, mins_ago = await get_latest_basal_dose(username)
                  
                  # If we found a basal injected in the last 20 hours, we might want to be careful.
@@ -3400,6 +3471,7 @@ async def _handle_voice_callback(update: Update, context: ContextTypes.DEFAULT_T
             if bot_reply.pending_action:
                 p = bot_reply.pending_action
                 p["timestamp"] = datetime.now().timestamp()
+                p = await _hydrate_bolus_snapshot(p)
                 SNAPSHOT_STORAGE[p["id"]] = p
             
             if bot_reply.buttons:
