@@ -2582,7 +2582,8 @@ async def _handle_snapshot_callback(query, data: str) -> None:
                     "protein": 0,
                     "fiber": 0,
                     "notes": "Recordatorio",
-                    "source": "ActivePlan"
+                    "source": "ActivePlan",
+                    "units": units_override,
                 }
                 logger.info(f"Synthesized snapshot for manual accept: {units_override} U")
             elif not is_accept:
