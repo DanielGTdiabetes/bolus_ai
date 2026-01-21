@@ -269,6 +269,8 @@ async def ensure_ml_schema(engine: AsyncEngine):
             ]
 
             logger.info("Verifying ml_training_data_v2 schema match...")
+            data_cleanup_needed = False
+            
             for col_name, col_type in columns_v2:
                 try:
                     # Check if column exists
@@ -281,13 +283,19 @@ async def ensure_ml_schema(engine: AsyncEngine):
                     if not res.fetchone():
                         logger.warning(f"Column {col_name} missing in ml_training_data_v2. Adding it...")
                         await conn.execute(text(f"ALTER TABLE ml_training_data_v2 ADD COLUMN {col_name} {col_type}"))
+                        data_cleanup_needed = True
                 except Exception as e:
                     logger.warning(f"Schema check warning for {col_name}: {e}. Trying blind add...")
                     try:
                         await conn.execute(text(f"ALTER TABLE ml_training_data_v2 ADD COLUMN {col_name} {col_type}"))
+                        data_cleanup_needed = True
                     except Exception:
                         pass # Likely exists or major error
             
+            if data_cleanup_needed:
+                logger.warning("Schema changes detected. Truncating invalid ML training data...")
+                await conn.execute(text("TRUNCATE TABLE ml_training_data_v2"))
+
             await conn.commit()
             logger.info("✅ ML training data tables schema verified.")
         except Exception as e:
