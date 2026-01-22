@@ -11,16 +11,16 @@ The ML system can be in one of three states for any given user/horizon.
 
 ### State A: `DATA_GATHERING` (Default)
 
-- **Condition:** No trained model exists, or data volume is below `ML_MIN_TRAINING_SAMPLES` (default: 288 samples / 24h).
+- **Condition:** No trained model exists, or data volume is below `ml.min_training_samples` (default: 1000 samples / ~3.5 days).
 - **Behavior:**
-  - `predict()` returns `ml_ready=False`.
+  - `predict()` returns `ml_ready=False` and `source="physics"`.
   - UI/Bot shows "Heuristic Forecast" or similar, relying purely on math models (ISF/ICR/IOB).
   - Background jobs collect metrics but do **not** attempt training.
-- **Logging:** "No ML models found. Skipping load." (Once at startup).
+- **Logging:** "ML: No model directory found (not trained yet). State: DATA_GATHERING." (Once at startup).
 
 ### State B: `TRAINING` (Transient)
 
-- **Condition:** Data accumulates in `ml_training_data_v2` > `ML_MIN_TRAINING_SAMPLES`.
+- **Condition:** Data accumulates in `ml_training_data_v2` > `ml.min_training_samples`.
 - **Behavior:**
   - Scheduled job `run_ml_training` (e.g. nightly) triggers.
   - Generates model artifacts (`catboost_residual_*.cbm`) in `ML_MODEL_DIR`.

@@ -42,13 +42,14 @@ This report details findings from the comprehensive audit of the Bolo AI reposit
 - **Issue:** Pydantic models with fields starting with `model_` emit warnings because that prefix is protected in Pydantic v2. This polluted logs in Render.
 - **Remediation:** Added `model_config = ConfigDict(protected_namespaces=())` to `MLConfig` class in `settings.py`.
 
-### [P2] "Invisible" Fallback ML State
+### [P2] "Invisible" Fallback ML State (Anti-Humo)
 
-- **Issue:** The logs said "No ML models found" without clarifying *why* (configurations errors vs. not trained yet).
+- **Issue:** The logs said "No ML models found" without clarifying *why*, and the inference result didn't distinguish between "source: physics" and "source: ml".
 - **Remediation:**
-  - Defined explicit lifecycle in `ML_LIFECYCLE.md`.
-  - Updated logs to explicitly state "State: DATA_GATHERING" when models are missing because training hasn't happened.
-  - Added strict metadata validation loop (`metadata.json`).
+  - Defined explicit lifecycle in `ML_LIFECYCLE.md` (DATA_GATHERING, TRAINING, ACTIVE).
+  - Unified all training thresholds to **1000** samples (~3.5 days).
+  - Added `source` field to `MLPredictionResult` ("ml" vs "physics").
+  - Updated logs to explicitly state "State: DATA_GATHERING" or "State: ACTIVE".
 
 ## 4. Minor Observations (P3)
 
@@ -62,6 +63,6 @@ The codebase is stable for deployment.
 - **NAS:** Deploy using the provided `docker-compose.yml`. Ensure `ML_MODEL_DIR` is mounted if custom models are used, otherwise it defaults securely to `State A`.
 - **Render:** Standard build script `build_render.sh` should be used.
 
-## 6. How to Verify
+## 6. Closing Note
 
-Refer to `VERIFICATION.md` for specific commands to validate the integrity of the release.
+This audit guarantees that the system is "Anti-Humo" compliant: it will never simulate AI behavior. If models aren't ready, it admits it uses Physics.

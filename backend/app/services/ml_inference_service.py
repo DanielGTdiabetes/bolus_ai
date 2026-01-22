@@ -30,6 +30,7 @@ class MLPredictionResult:
     confidence_score: float = 0.0
     used_model_version: Optional[str] = None
     warnings: List[str] = None
+    source: str = "physics" # "ml" or "physics"
 
 class MLInferenceService:
     _instance = None
@@ -135,7 +136,7 @@ class MLInferenceService:
             
             self._models = new_models
             self.models_loaded = True
-            logger.info(f"Successfully loaded {loaded_count} ML models (Version: {self._model_version})")
+            logger.info(f"Successfully loaded {loaded_count} ML models (Version: {self._model_version}). State: ACTIVE.")
 
         except Exception as e:
             logger.error(f"Failed to load ML models: {e}")
@@ -180,7 +181,7 @@ class MLInferenceService:
         baseline_series: The physics-based forecast series.
         """
         if not self.models_loaded or not self._models:
-            return MLPredictionResult([], ml_ready=False, warnings=["Models not loaded"])
+            return MLPredictionResult([], ml_ready=False, warnings=["Models not loaded"], source="physics")
 
         # Validate Features
         # CatBoost handles missing values (NaN) if configured, but cleaner to fill defaults
@@ -256,7 +257,7 @@ class MLInferenceService:
                  except: pass
 
         if not residuals_p50:
-            return MLPredictionResult([], ml_ready=False, warnings=["Inference produced no results"])
+            return MLPredictionResult([], ml_ready=False, warnings=["Inference produced no results"], source="physics")
 
         # Reconstruct Absolute Values
         # Pred = Baseline + Residual
@@ -321,6 +322,7 @@ class MLInferenceService:
             p90_series=final_series_p90 if has_band else None,
             ml_ready=True,
             confidence_score=0.8 if has_band else 0.5, # Placeholder Logic
-            used_model_version=self._model_version
+            used_model_version=self._model_version,
+            source="ml"
         )
 
