@@ -56,10 +56,9 @@ class MLInferenceService:
         2. backend/ml_training_output (relative to repo root)
         3. /app/backend/ml_training_output (Docker standard)
         """
-        # 1. Env Var
-        env_path = os.getenv("ML_MODEL_DIR")
-        if env_path:
-            p = Path(env_path)
+        # 1. Settings (Env Var already mapped to settings.ml.model_dir)
+        if self.settings.ml.model_dir:
+            p = Path(self.settings.ml.model_dir)
             if p.exists() and p.is_dir():
                 return p
         
@@ -290,7 +289,8 @@ class MLInferenceService:
             
             # Safety Clamp on Residual
             # Example: Max surge +100, max drop -100
-            residual = max(-100, min(100, pt.bg))
+            clamp_val = self.settings.ml.safety_clamp_mgdl
+            residual = max(-clamp_val, min(clamp_val, pt.bg))
             
             val_p50 = base + residual
             # Physio Clamp

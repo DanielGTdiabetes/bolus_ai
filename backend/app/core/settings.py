@@ -63,8 +63,11 @@ class VisionConfig(BaseModel):
     gemini_model: Optional[str] = Field(default=None)
     openai_model: Optional[str] = Field(default="gpt-4o")
     max_image_mb: int = Field(default=6, ge=1, le=20)
-    timeout_seconds: int = Field(default=15, ge=5, le=60)
+    timeout_seconds: int = Field(default=30, ge=5, le=120)  # Increased from 15s to 30s for safety
 
+class MLConfig(BaseModel):
+    model_dir: Optional[str] = Field(default=None)
+    safety_clamp_mgdl: float = Field(default=100.0) # Used to clamp residual (+/-)
 
 class DatabaseConfig(BaseModel):
     url: Optional[str] = Field(default=None, validate_default=True)
@@ -133,6 +136,7 @@ class Settings(BaseModel):
     security: SecurityConfig
     data: DataConfig
     vision: VisionConfig = Field(default_factory=VisionConfig)
+    ml: MLConfig = Field(default_factory=MLConfig)
     database: DatabaseConfig = Field(default_factory=DatabaseConfig)
     proactive: "ProactiveGlobalConfig" = Field(default_factory=lambda: ProactiveGlobalConfig())
     dexcom: DexcomConfig = Field(default_factory=DexcomConfig)
@@ -222,9 +226,14 @@ def _load_env() -> dict[str, Any]:
     if vision_max_mb:
         env_config.setdefault("vision", {})["max_image_mb"] = int(vision_max_mb)
         
-    vision_timeout = os.environ.get("VISION_TIMEOUT_S")
+    vision_timeout= os.environ.get("VISION_TIMEOUT_S")
     if vision_timeout:
         env_config.setdefault("vision", {})["timeout_seconds"] = int(vision_timeout)
+
+    # ML Config
+    ml_model_dir = os.environ.get("ML_MODEL_DIR")
+    if ml_model_dir:
+        env_config.setdefault("ml", {})["model_dir"] = ml_model_dir
 
     db_url = os.environ.get("DATABASE_URL")
     if db_url:
