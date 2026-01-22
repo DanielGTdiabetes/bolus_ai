@@ -60,7 +60,16 @@ MLPredictionResult(
 
 The consuming service (ForecastEngine) MUST fallback to physics-based calculation and flag the result source as `physics`.
 
-## 3. Configuration & Persistence
+## 3. Persistent Storage
+
+The ML system uses a persistent directory for trained models:
+
+- `ML_MODEL_DIR` (default: `/app/backend/data/ml_models`)
+
+This directory is automatically created at runtime if missing.
+For NAS deployments, it MUST be mounted to persistent storage.
+
+## 4. Configuration & Persistence
 
 - **ML_MODEL_DIR:**
   - **NAS:** Mounted volume `/app/data/ml_models` (preserves training across restarts).
@@ -71,7 +80,7 @@ The consuming service (ForecastEngine) MUST fallback to physics-based calculatio
   - `retrain_interval_hours`: 24.
   - `min_days_history`: 3.
 
-## 4. Gating Logic
+## 5. Gating Logic
 
 ```python
 def can_train_model(sample_count: int) -> bool:

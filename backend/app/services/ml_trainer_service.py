@@ -165,16 +165,7 @@ class MLTrainerService:
         models = {}
         
         # Define output directory
-        out_dir = Path(self.settings.ml.model_dir) if self.settings.ml.model_dir else Path("backend/ml_training_output")
-        # Ensure it is absolute if possible or relative to root
-        if not out_dir.is_absolute():
-            # Fallback to backend/ml_training_output
-            base = Path(__file__).resolve().parent.parent.parent
-            out_dir = base / out_dir
-            
-        out_dir.mkdir(parents=True, exist_ok=True)
-        # Create a subdir for this version? Or overwrite? 
-        # Overwrite is cleaner for "current model". History can be supported later.
+        out_dir = self._ensure_model_dir()
         
         # Training Loop
         total_mae = 0
@@ -258,3 +249,23 @@ class MLTrainerService:
         svc.load_models(force_reload=True)
         
         return {"status": "success", "metadata": meta}
+
+    def _ensure_model_dir(self) -> Path:
+        """
+        Guarantees that the ML model directory exists.
+        """
+        # Resolve path logic same as locate but for writing
+        raw_path = self.settings.ml.model_dir
+        if raw_path:
+             out_dir = Path(raw_path)
+             if not out_dir.is_absolute():
+                  # Anchor to backend root if relative
+                  base = Path(__file__).resolve().parent.parent.parent
+                  out_dir = base / out_dir
+        else:
+             # Default fallback
+             base = Path(__file__).resolve().parent.parent.parent
+             out_dir = base / "ml_training_output"
+             
+        out_dir.mkdir(parents=True, exist_ok=True)
+        return out_dir
