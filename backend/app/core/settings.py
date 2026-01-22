@@ -70,6 +70,17 @@ class MLConfig(BaseModel):
     safety_clamp_mgdl: float = Field(default=100.0) # Used to clamp residual (+/-)
     min_training_samples: int = Field(default=1000) # Gating for training (~3.5 days)
     
+    # Training Controls
+    training_enabled: bool = Field(default=False) # Manual opt-in required (or set via Env)
+    
+    # Quality Gates & Constraints
+    min_days_history: int = Field(default=3)      # Must span X days
+    retrain_interval_hours: int = Field(default=24)
+    model_quality_max_rmse: float = Field(default=40.0) # Reject models with huge error
+    
+    # Environment Gating (Can be overridden to allow Render training)
+    allow_training_on_ephemeral: bool = Field(default=False)
+
     model_config = ConfigDict(protected_namespaces=())
 
 class DatabaseConfig(BaseModel):
@@ -237,6 +248,14 @@ def _load_env() -> dict[str, Any]:
     ml_model_dir = os.environ.get("ML_MODEL_DIR")
     if ml_model_dir:
         env_config.setdefault("ml", {})["model_dir"] = ml_model_dir
+        
+    ml_train_enabled = os.environ.get("ML_TRAINING_ENABLED")
+    if ml_train_enabled is not None:
+         env_config.setdefault("ml", {})["training_enabled"] = ml_train_enabled.lower() == "true"
+         
+    ml_allow_ephemeral = os.environ.get("ML_ALLOW_EPHEMERAL_TRAINING")
+    if ml_allow_ephemeral is not None:
+         env_config.setdefault("ml", {})["allow_training_on_ephemeral"] = ml_allow_ephemeral.lower() == "true"
 
     db_url = os.environ.get("DATABASE_URL")
     if db_url:

@@ -20,11 +20,14 @@ The ML system can be in one of three states for any given user/horizon.
 
 ### State B: `TRAINING` (Transient)
 
-- **Condition:** Data accumulates in `ml_training_data_v2` > `ml.min_training_samples`.
+- **Condition:**
+  - Data accumulates > `ml.min_training_samples`
+  - `ml.training_enabled` is set to `True` (default False).
 - **Behavior:**
-  - Scheduled job `run_ml_training` (e.g. nightly) triggers.
+  - Scheduled job `run_ml_training` (Daily 03:00 AM) triggers via `MLTrainerService`.
+  - Checks quality gates (RMSE < 40, history > 3 days).
   - Generates model artifacts (`catboost_residual_*.cbm`) in `ML_MODEL_DIR`.
-  - Persists `metadata.json` with training metrics (RMSE, accuracy).
+  - Persists `metadata.json` and loads model into memory.
 
 ### State C: `ACTIVE`
 
@@ -61,11 +64,12 @@ The consuming service (ForecastEngine) MUST fallback to physics-based calculatio
 
 - **ML_MODEL_DIR:**
   - **NAS:** Mounted volume `/app/data/ml_models` (preserves training across restarts).
-  - **Render:** Ephemeral (re-trains daily or pulls from external storage if configured; currently strictly ephemeral).
+  - **Render:** Ephemeral. Training disabled by default (`ml.training_enabled=False`). If enabled, models are lost on restart unless external storage (S3/GCS) is configured (future scope).
   
 - **Thresholds:**
-  - `ML_MIN_TRAINING_SAMPLES`: 1000 (~3.5 days of data).
-  - `ML_RETRAIN_INTERVAL_HOURS`: 24.
+  - `min_training_samples`: 1000 (~3.5 days).
+  - `retrain_interval_hours`: 24.
+  - `min_days_history`: 3.
 
 ## 4. Gating Logic
 

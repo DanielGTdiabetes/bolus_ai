@@ -230,6 +230,58 @@ async def run_ml_training_snapshot() -> None:
     await jobs_state.run_job("ml_training_snapshot", _run_ml_training_snapshot_task)
 
 
+async def _run_ml_training_task() -> None:
+    """
+    Background Task: Trains ML models if conditions met (Anti-Humo Compliant).
+    Runs Daily.
+    """
+    from app.core.db import get_engine
+    from sqlalchemy.ext.asyncio import AsyncSession
+    from sqlalchemy import text
+    from app.services.ml_trainer_service import MLTrainerService
+    
+    settings = get_settings()
+    
+    # 1. Check Global Switch
+    if not settings.ml.training_enabled:
+        logger.info("ML Train Job: Skipped (Training Disabled in Settings)")
+        return
+
+    logger.info("Running ML Training Job...")
+    engine = get_engine()
+    if not engine: 
+        return
+        
+    async with AsyncSession(engine) as session:
+        # Get users
+        users = []
+        try:
+            res = await session.execute(text("SELECT username FROM users"))
+            users = [r[0] for r in res.fetchall()]
+        except: pass
+        if not users: # Default fallback
+             # If no DB users, use admin or similar if defined? 
+             # Actually trainer needs user_id to fetch data.
+             pass
+
+        trainer = MLTrainerService(session)
+        
+        for user in users:
+            try:
+                res = await trainer.train_user_model(user)
+                if res.get("status") == "success":
+                    logger.info(f"ML Train Job: Success for {user}. New Model Active.")
+                elif res.get("status") == "skipped":
+                    logger.debug(f"ML Train Job: Skipped for {user}. Reason: {res.get('reason')}")
+                else:
+                    logger.warning(f"ML Train Job: Failed/Rejected for {user}. {res}")
+            except Exception as e:
+                logger.error(f"ML Train Job: Error for {user}: {e}")
+
+async def run_ml_training():
+    await jobs_state.run_job("ml_training", _run_ml_training_task)
+
+
 def setup_periodic_tasks():
     init_scheduler()
     
@@ -338,3 +390,7 @@ def setup_periodic_tasks():
         schedule_task(_run_supplies_check, CronTrigger(hour=9, minute=0), "supplies_check")
         jobs_state.refresh_next_run("supplies_check")
 
+        # ML Training: Daily at 03:00 AM
+        ml_train_trigger = CronTrigger(hour=3, minute=0)
+        schedule_task(run_ml_training, ml_train_trigger, "ml_training")
+        jobs_state.refresh_next_run("ml_training")

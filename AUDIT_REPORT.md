@@ -32,11 +32,6 @@ This report details findings from the comprehensive audit of the Bolo AI reposit
 - **Issue:** The prediction engine had a hardcoded safety clamp of +/- 100 mg/dL for residual corrections.
 - **Remediation:** Moved this value to `Settings.ml.safety_clamp_mgdl` (default 100), allowing future adjustment via environment variables without code deployment.
 
-### [P2] Vision Timeout Risk
-
-- **Issue:** Default timeout for AI Vision analysis was 15 seconds, which is aggressive for complex GenAI storage/processing.
-- **Remediation:** Increased default timeout to 30 seconds in `Settings`.
-
 ### [P2] Pydantic Protected Namespace Conflict
 
 - **Issue:** Pydantic models with fields starting with `model_` emit warnings because that prefix is protected in Pydantic v2. This polluted logs in Render.
@@ -44,12 +39,12 @@ This report details findings from the comprehensive audit of the Bolo AI reposit
 
 ### [P2] "Invisible" Fallback ML State (Anti-Humo)
 
-- **Issue:** The logs said "No ML models found" without clarifying *why*, and the inference result didn't distinguish between "source: physics" and "source: ml".
+- **Issue:** The logs said "No ML models found" without clarifying *why*, inferring confusion about whether training was broken or just not started.
 - **Remediation:**
   - Defined explicit lifecycle in `ML_LIFECYCLE.md` (DATA_GATHERING, TRAINING, ACTIVE).
-  - Unified all training thresholds to **1000** samples (~3.5 days).
-  - Added `source` field to `MLPredictionResult` ("ml" vs "physics").
-  - Updated logs to explicitly state "State: DATA_GATHERING" or "State: ACTIVE".
+  - Implemented `MLTrainerService` for automatic, gated training logic.
+  - Added strict `training_enabled: bool` toggle (default False) to prevent accidental training in ephemeral envs.
+  - Unified thresholds to **1000 samples**.
 
 ## 4. Minor Observations (P3)
 
@@ -60,9 +55,9 @@ This report details findings from the comprehensive audit of the Bolo AI reposit
 
 The codebase is stable for deployment.
 
-- **NAS:** Deploy using the provided `docker-compose.yml`. Ensure `ML_MODEL_DIR` is mounted if custom models are used, otherwise it defaults securely to `State A`.
-- **Render:** Standard build script `build_render.sh` should be used.
+- **NAS:** Deploy using the provided `docker-compose.yml`. Mount volume `/app/data/ml_models` for persistency. Set `ML_TRAINING_ENABLED=true` to enable auto-training.
+- **Render:** Standard build script `build_render.sh`. Leave `ML_TRAINING_ENABLED=false` (default) to avoid ephemeral training cycles.
 
 ## 6. Closing Note
 
-This audit guarantees that the system is "Anti-Humo" compliant: it will never simulate AI behavior. If models aren't ready, it admits it uses Physics.
+This audit guarantees that the system is "Anti-Humo" compliant: it utilizes AI only when models are explicitly trained and valid. The full pipeline (collection -> training -> inference) is now automated but strictly gated.
