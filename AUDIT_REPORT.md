@@ -55,7 +55,9 @@ This report details findings from the comprehensive audit of the Bolo AI reposit
 
 The codebase is stable for deployment.
 
-- **NAS:** Deploy using the provided `docker-compose.yml`. Mount volume `/app/data/ml_models` for persistency. Set `ML_TRAINING_ENABLED=true` to enable auto-training.
+- **NAS:** Deploy using the provided `docker-compose.yml`.
+  - Mount volume `/app/data/ml_models` is now configured for persistency.
+  - Set `ML_TRAINING_ENABLED=true` to enable auto-training.
 - **Render:** Standard build script `build_render.sh`. Leave `ML_TRAINING_ENABLED=false` (default) to avoid ephemeral training cycles.
 
 ## 6. Closing Note
