@@ -68,6 +68,8 @@ class VisionConfig(BaseModel):
 class MLConfig(BaseModel):
     model_dir: Optional[str] = Field(default=None)
     safety_clamp_mgdl: float = Field(default=100.0) # Used to clamp residual (+/-)
+    
+    model_config = ConfigDict(protected_namespaces=())
 
 class DatabaseConfig(BaseModel):
     url: Optional[str] = Field(default=None, validate_default=True)

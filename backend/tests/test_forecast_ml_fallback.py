@@ -43,10 +43,14 @@ def test_explicit_env_var_success(clean_ml_service, monkeypatch, tmp_path):
     model_dir = tmp_path / "models"
     model_dir.mkdir()
     
-    # Set env var
-    monkeypatch.setenv("ML_MODEL_DIR", str(model_dir))
-    
+    # Init service
     svc = MLInferenceService.get_instance()
+    
+    # Mock settings.ml.model_dir
+    # Note: svc.settings is an instance of Settings. 
+    # We can patch the attribute on the instance.
+    monkeypatch.setattr(svc.settings.ml, "model_dir", str(model_dir))
+
     found = svc._locate_models()
     
     assert found == model_dir

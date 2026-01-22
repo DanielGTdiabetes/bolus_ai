@@ -5,7 +5,7 @@
 **Date:** 2026-01-22
 **Scope:** Backend (FastAPI), Bot, Frontend (React), Infra.
 **Auditor:** Gemini (Agentic AI)
-**Status:** **PASSED** (With remediation applied)
+**Status:** **PASSED** (All critical and major issues resolved)
 
 This report details findings from the comprehensive audit of the Bolo AI repository and the subsequent remediations applied to ensure robustness, security, and stability.
 
@@ -36,6 +36,11 @@ This report details findings from the comprehensive audit of the Bolo AI reposit
 
 - **Issue:** Default timeout for AI Vision analysis was 15 seconds, which is aggressive for complex GenAI storage/processing.
 - **Remediation:** Increased default timeout to 30 seconds in `Settings`.
+
+### [P2] Pydantic Protected Namespace Conflict
+
+- **Issue:** Pydantic models with fields starting with `model_` emit warnings because that prefix is protected in Pydantic v2. This polluted logs in Render.
+- **Remediation:** Added `model_config = ConfigDict(protected_namespaces=())` to `MLConfig` class in `settings.py`.
 
 ## 4. Minor Observations (P3)
 
