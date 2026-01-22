@@ -68,6 +68,7 @@ class VisionConfig(BaseModel):
 class MLConfig(BaseModel):
     model_dir: Optional[str] = Field(default=None)
     safety_clamp_mgdl: float = Field(default=100.0) # Used to clamp residual (+/-)
+    min_training_samples: int = Field(default=1000) # Gating for training (~3.5 days)
     
     model_config = ConfigDict(protected_namespaces=())
 

@@ -97,13 +97,16 @@ class MLInferenceService:
 
         model_dir = self._locate_models()
         if not model_dir:
-            logger.info("No ML models found. Skipping load.")
+            logger.info("ML: No model directory found (not trained yet). State: DATA_GATHERING.")
             return
 
         try:
-            logger.info(f"Loading ML models from {model_dir}...")
+            logger.info(f"ML: Found model directory at {model_dir}. Verifying artifacts...")
             
             # Load metadata
+            if not (model_dir / "metadata.json").exists():
+                 logger.warning("ML: metadata.json missing in model dir. Refusing to load partial models.")
+                 return
             with open(model_dir / "metadata.json", "r") as f:
                 self._metadata = json.load(f)
                 self._model_version = self._metadata.get("version", "unknown")

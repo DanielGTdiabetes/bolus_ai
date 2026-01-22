@@ -5,7 +5,7 @@
 **Date:** 2026-01-22
 **Scope:** Backend (FastAPI), Bot, Frontend (React), Infra.
 **Auditor:** Gemini (Agentic AI)
-**Status:** **PASSED** (All critical and major issues resolved)
+**Status:** **PASSED** (With remediation applied)
 
 This report details findings from the comprehensive audit of the Bolo AI repository and the subsequent remediations applied to ensure robustness, security, and stability.
 
@@ -42,6 +42,14 @@ This report details findings from the comprehensive audit of the Bolo AI reposit
 - **Issue:** Pydantic models with fields starting with `model_` emit warnings because that prefix is protected in Pydantic v2. This polluted logs in Render.
 - **Remediation:** Added `model_config = ConfigDict(protected_namespaces=())` to `MLConfig` class in `settings.py`.
 
+### [P2] "Invisible" Fallback ML State
+
+- **Issue:** The logs said "No ML models found" without clarifying *why* (configurations errors vs. not trained yet).
+- **Remediation:**
+  - Defined explicit lifecycle in `ML_LIFECYCLE.md`.
+  - Updated logs to explicitly state "State: DATA_GATHERING" when models are missing because training hasn't happened.
+  - Added strict metadata validation loop (`metadata.json`).
+
 ## 4. Minor Observations (P3)
 
 - **Test Warnings:** Backend tests emit `RuntimeWarning: coroutine ... was never awaited` in some mock scenarios (`test_settings_sync.py`). This suggests improving test hygiene but does not affect production code.
@@ -51,7 +59,7 @@ This report details findings from the comprehensive audit of the Bolo AI reposit
 
 The codebase is stable for deployment.
 
-- **NAS:** Deploy using the provided `docker-compose.yml`. Ensure `ML_MODEL_DIR` is mounted if custom models are used, otherwise it defaults securely.
+- **NAS:** Deploy using the provided `docker-compose.yml`. Ensure `ML_MODEL_DIR` is mounted if custom models are used, otherwise it defaults securely to `State A`.
 - **Render:** Standard build script `build_render.sh` should be used.
 
 ## 6. How to Verify
