@@ -386,9 +386,24 @@ async def edit_message_text_safe(editor, *args: Any, **kwargs: Any) -> Optional[
     try:
         return await editor.edit_message_text(*args, **kwargs)
     except BadRequest as exc:
-        if "Message is not modified" in str(exc):
+        err_str = str(exc)
+        if "Message is not modified" in err_str:
             logger.info("edit_message_not_modified", extra={"context": kwargs.get("context")})
             return None
+            
+        # Robust Fallback: If Markdown fails, strip mode and retry as plain text.
+        # Common errors: "Can't parse entities", "Unmatched", "Byte offset"
+        if "parse entities" in err_str or "can't parse" in err_str or "Cant parse" in err_str:
+            logger.warning(f"Markdown parse failed ({err_str}). Retrying as Plain Text.")
+            kwargs.pop("parse_mode", None) 
+            # Note: We keep the text as-is (with * and _), they will just appear literally.
+            # This is better than failing completely.
+            try:
+                return await editor.edit_message_text(*args, **kwargs)
+            except Exception as retry_exc:
+                logger.error(f"Fallback plain text edit also failed: {retry_exc}")
+                raise retry_exc
+
         raise
 
 
