@@ -56,8 +56,17 @@ def _exercise_flow_expired(flow: dict) -> bool:
     return (time.time() - created_at) > EXERCISE_FLOW_TTL_SECONDS
 
 
+
 def _format_exercise_label(intensity: str) -> str:
     return EXERCISE_LEVEL_LABELS.get(intensity, intensity)
+
+
+def _escape_md_v1(text: str) -> str:
+    """Escapes markdown v1 special characters to prevent API errors."""
+    if not text:
+        return ""
+    return text.replace("_", "\\_").replace("*", "\\*").replace("`", "\\`").replace("[", "\\[")
+
 
 
 def _build_bolus_message(
@@ -2664,12 +2673,12 @@ async def _handle_snapshot_callback(query, data: str) -> None:
         }
         result = await tools.add_treatment(add_args)
         
-        base_text = query.message.text if query.message else ""
+        base_text = _escape_md_v1(query.message.text if query.message else "")
 
         if isinstance(result, tools.ToolError) or not getattr(result, "ok", False):
             error_msg = result.message if isinstance(result, tools.ToolError) else (result.ns_error or "Error")
             health.record_action(f"callback:accept:{request_id}", False, error_msg)
-            await edit_message_text_safe(query, text=f"{base_text}\n\n❌ Error: {error_msg}", parse_mode="Markdown")
+            await edit_message_text_safe(query, text=f"{base_text}\n\n❌ Error: {_escape_md_v1(error_msg)}", parse_mode="Markdown")
             return
 
         success_msg = f"{base_text}\n\nRegistrado ✅ {units} U"
@@ -2679,7 +2688,7 @@ async def _handle_snapshot_callback(query, data: str) -> None:
         
         if getattr(result, "injection_site", None):
              site = result.injection_site
-             success_msg += f"\n\n📍 Rotado. Siguiente: {site.get('name')} {site.get('emoji')}"
+             success_msg += f"\n\n📍 Rotado. Siguiente: {_escape_md_v1(site.get('name'))} {site.get('emoji')}"
              
              # Send Image
              # Send Image with Overlay
@@ -2723,7 +2732,7 @@ async def _handle_snapshot_callback(query, data: str) -> None:
                  mgr = AsyncInjectionManager("admin")
                  new_next = await mgr.rotate_site("bolus")
                  if new_next:
-                     success_msg += f"\n\n📍 Rotado. Siguiente: {new_next['name']} {new_next['emoji']}"
+                     success_msg += f"\n\n📍 Rotado. Siguiente: {_escape_md_v1(new_next['name'])} {new_next['emoji']}"
              except Exception as e:
                  logger.error(f"Failed to auto-rotate injection site: {e}")
 
