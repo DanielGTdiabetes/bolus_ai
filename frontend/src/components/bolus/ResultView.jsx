@@ -239,21 +239,35 @@ export function ResultView({
                         </div>
 
                         {/* Chart Area */}
-                        <div style={{ height: '160px', width: '100%', position: 'relative', marginBottom: '1rem' }}>
+                        {/* Chart Area - Auto height to fit Legend */}
+                        <div style={{ width: '100%', position: 'relative', marginBottom: '0.5rem' }}>
                             {simulating ? (
-                                <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                <div style={{ height: '160px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                                     <div className="pulse-animation" style={{ width: '40px', height: '40px', borderRadius: '50%', background: '#e2e8f0' }}></div>
                                 </div>
                             ) : (
-                                <MainGlucoseChart
-                                    predictionData={predictionData}
-                                    height={160}
-                                    hideLegend
-                                    syncId="bolus-preview"
-                                    showTargetBand
-                                    targetLow={resolvedParams.target - 20}
-                                    targetHigh={resolvedParams.target + 20}
-                                />
+                                <>
+                                    {/* Slow Absorption Reason Header */}
+                                    {predictionData?.slow_absorption_active && predictionData?.slow_absorption_reason && (
+                                        <div className="fade-in" style={{
+                                            marginBottom: '6px', fontSize: '0.75rem', color: '#d97706',
+                                            fontWeight: 700, background: '#fffbeb', padding: '4px 8px',
+                                            borderRadius: '6px', border: '1px solid #fcd34d', display: 'inline-block'
+                                        }}>
+                                            🐢 {predictionData.slow_absorption_reason} ({predictionData.summary?.ending_bg} mg/dL)
+                                        </div>
+                                    )}
+
+                                    <MainGlucoseChart
+                                        predictionData={predictionData}
+                                        height={160}
+                                        hideLegend={false}
+                                        syncId="bolus-preview"
+                                        showTargetBand
+                                        targetLow={resolvedParams.target - 20}
+                                        targetHigh={resolvedParams.target + 20}
+                                    />
+                                </>
                             )}
                         </div>
 
