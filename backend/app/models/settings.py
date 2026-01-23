@@ -84,7 +84,8 @@ class LearningConfig(BaseModel):
     cr_on: bool = True
     step_pct: int = Field(default=5, ge=1, le=10)
     weekly_cap_pct: int = Field(default=20, ge=10, le=30)
-    auto_apply_safe: bool = True
+    # Preference only: controls whether the bot can propose changes, never auto-applies.
+    auto_apply_safe: bool = False
     schedule: LearningSchedule = Field(default_factory=LearningSchedule)
 
 
@@ -258,7 +259,7 @@ class MealSchedule(BaseModel):
 
 
 class UserSettings(BaseModel):
-    schema_version: int = 1
+    schema_version: int = 2
     units: Literal["mg/dL"] = "mg/dL"
     timezone: Optional[str] = Field(default="Europe/Madrid", description="IANA Timezone string, e.g. Europe/Madrid")
     targets: TargetRange = Field(default_factory=TargetRange)
@@ -370,6 +371,20 @@ class UserSettings(BaseModel):
             val = data["insulin_model"]
             if val in ["fiasp", "novorapid", "linear", "exponential"]:
                 data["iob"]["curve"] = val
+
+        # 4. Autonomy preference migration (schema v2)
+        schema_version = int(data.get("schema_version", 1) or 1)
+        learning = data.get("learning", {})
+        if hasattr(learning, "model_dump"):
+            learning = learning.model_dump()
+        if not isinstance(learning, dict):
+            learning = {}
+        if schema_version < 2:
+            learning["auto_apply_safe"] = False
+            data["schema_version"] = 2
+        elif "auto_apply_safe" not in learning:
+            learning["auto_apply_safe"] = False
+        data["learning"] = learning
 
         return cls.model_validate(data)
 

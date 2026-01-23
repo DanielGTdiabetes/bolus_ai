@@ -1203,7 +1203,7 @@ async def check_app_notifications(username: str = "admin", chat_id: Optional[int
     if not chat_id: return
 
     # 2. Check Cooldown (Don't nag too often for the SAME state)
-    # We use a longer chill time (e.g. 2 hours) to avoid spamming "You have unread items".
+    # We use a longer chill time (2 hours) to avoid spamming "You have unread items".
     # Unless trigger is manual.
     if trigger == "auto" and not cooldowns.is_ready("app_notif_check", 120 * 60): 
         return
@@ -1257,7 +1257,11 @@ async def check_app_notifications(username: str = "admin", chat_id: Optional[int
         lines.append(f"_{msg_body}_") 
         lines.append("") # spacer
 
-    lines.append("[Abrir App](#)") # Link not really functional in TG but implies action
+    lines.append("ℹ️ _Las notificaciones se gestionan desde la app._")
+
+    app_url = config.get_public_app_url()
+    if app_url:
+        lines.append(f"[Abrir App]({app_url})")
 
     text_msg = "\n".join(lines)
 

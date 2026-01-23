@@ -32,6 +32,7 @@ async def subscribe_push(
 ):
     """
     Persist web push subscription for the user.
+    @deprecated Not consumed by the current notification UX; kept for legacy clients.
     """
     from app.models.notifications import PushSubscription as PushModel
     from sqlalchemy import select

@@ -70,6 +70,30 @@ def get_public_bot_url() -> Optional[str]:
     return url
 
 
+def get_public_app_url_with_source() -> Tuple[Optional[str], str]:
+    """
+    Return the public URL for the web app to reference in outbound notifications.
+
+    Priority:
+    1. NAS_EXTERNAL_URL (primary NAS public URL)
+    2. RENDER_EXTERNAL_URL (Render public URL)
+    """
+    candidates = [
+        (get_env("NAS_EXTERNAL_URL"), "NAS_EXTERNAL_URL"),
+        (get_env("RENDER_EXTERNAL_URL"), "RENDER_EXTERNAL_URL"),
+    ]
+
+    for url, source in candidates:
+        if url:
+            return url.rstrip("/"), source
+    return None, "none"
+
+
+def get_public_app_url() -> Optional[str]:
+    url, _ = get_public_app_url_with_source()
+    return url
+
+
 def get_admin_shared_secret() -> Optional[str]:
     """
     Shared secret for admin-like actions (e.g., webhook refresh).

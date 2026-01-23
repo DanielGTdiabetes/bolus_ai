@@ -355,8 +355,8 @@ def setup_periodic_tasks():
         jobs_state.refresh_next_run("premeal")
         schedule_task(_run_combo, CronTrigger(minute='*/30'), "combo_followup")
         
-        # Schedule Notification Check (Every 1 hour)
-        schedule_task(_run_app_notifications, CronTrigger(minute='0'), "app_notifications")
+        # Schedule Notification Check (Every 2 hours, aligned with cooldown)
+        schedule_task(_run_app_notifications, CronTrigger(hour='*/2', minute='0'), "app_notifications")
         jobs_state.refresh_next_run("app_notifications")
 
         async def _run_isf_check():
