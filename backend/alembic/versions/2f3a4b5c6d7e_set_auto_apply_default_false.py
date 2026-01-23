@@ -1,6 +1,6 @@
 """Set auto_apply_safe default false.
 
-Revision ID: set_auto_apply_safe_default_false
+Revision ID: 2f3a4b5c6d7e
 Revises: 1eb17937698e
 Create Date: 2026-03-15 00:00:00.000000
 
@@ -11,7 +11,7 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision: str = "set_auto_apply_safe_default_false"
+revision: str = "2f3a4b5c6d7e"
 down_revision: Union[str, Sequence[str], None] = "1eb17937698e"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
