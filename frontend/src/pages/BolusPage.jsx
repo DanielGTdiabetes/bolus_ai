@@ -47,6 +47,10 @@ export default function BolusPage() {
     const [exerciseEnabled, setExerciseEnabled] = useState(false);
     const [exerciseIntensity, setExerciseIntensity] = useState('moderate');
     const [exerciseMinutes, setExerciseMinutes] = useState(60);
+    const [manualEntryEnabled, setManualEntryEnabled] = useState(true);
+    const [manualProtein, setManualProtein] = useState('0');
+    const [manualFat, setManualFat] = useState('0');
+    const [manualFiber, setManualFiber] = useState('0');
 
     // Meta / Learning
     const [plateItems, setPlateItems] = useState([]);
@@ -125,6 +129,7 @@ export default function BolusPage() {
             };
             mealMetaRef.current = meta;
             setMacroHints({ fat: meta.fat || 0, protein: meta.protein || 0, fiber: meta.fiber || 0, ingestionId: null });
+            setManualEntryEnabled(false);
         }
         state.tempFat = null;
         state.tempProtein = null;
@@ -148,6 +153,8 @@ export default function BolusPage() {
         }
     }, [foodName, dualEnabled, favorites]);
 
+    const clampMacroValue = (value) => Math.min(300, Math.max(0, value));
+
     const setMealMeta = (meta) => {
         mealMetaRef.current = meta;
         setMacroHints({
@@ -156,6 +163,32 @@ export default function BolusPage() {
             fiber: meta?.fiber || 0,
             ingestionId: meta?.ingestion_id || null
         });
+    };
+
+    const resetMealContext = () => {
+        mealMetaRef.current = null;
+        setMacroHints({ fat: 0, protein: 0, fiber: 0, ingestionId: null });
+        setPlateItems([]);
+        setLearningHint(null);
+        setVisionBolusKind(null);
+        setIsUsingOrphan(false);
+        setUsedImportIds([]);
+        setImportError(null);
+        setAutoDualReason(null);
+        setAutoDualApplied(false);
+        setResult(null);
+        setFoodName('');
+        setManualProtein('0');
+        setManualFat('0');
+        setManualFiber('0');
+        state.tempItems = null;
+        state.tempFat = null;
+        state.tempProtein = null;
+        state.tempFiber = null;
+        state.tempLearningHint = null;
+        state.tempBolusKind = null;
+        state.visionResult = null;
+        state.visionError = null;
     };
 
     useEffect(() => {
@@ -183,9 +216,33 @@ export default function BolusPage() {
         }
     }, [carbs, correctionOnly, learningHint, macroHints, visionBolusKind, autoDualApplied, dualEnabled]);
 
+    useEffect(() => {
+        if (!manualEntryEnabled) return;
+        setMealMeta({
+            items: [],
+            fat: clampMacroValue(parseFloat(manualFat) || 0),
+            protein: clampMacroValue(parseFloat(manualProtein) || 0),
+            fiber: clampMacroValue(parseFloat(manualFiber) || 0),
+            linked_ingestion: false,
+            ingestion_id: null
+        });
+    }, [manualEntryEnabled, manualFat, manualProtein, manualFiber]);
 
     // --- 4. Handlers ---
     const roundToTenth = (value) => Math.round(value * 10) / 10;
+    const handleMacroInput = (setter) => (event) => {
+        const { value } = event.target;
+        if (value === '') {
+            setter('');
+            return;
+        }
+        const parsed = parseFloat(value);
+        if (Number.isNaN(parsed)) {
+            setter('0');
+            return;
+        }
+        setter(String(clampMacroValue(parsed)));
+    };
 
     const applyImportToMealMeta = (importItem, mode) => {
         const currentMeta = mealMetaRef.current || {};
@@ -245,6 +302,10 @@ export default function BolusPage() {
         const importCarbs = parseFloat(importItem.carbs) || 0;
         const newCarbs = mode === 'replace' ? importCarbs : currentCarbs + importCarbs;
         setCarbs(String(roundToTenth(newCarbs)));
+        setManualEntryEnabled(false);
+        setManualFat('0');
+        setManualProtein('0');
+        setManualFiber('0');
         setMealMeta(applyImportToMealMeta(importItem, mode));
         setIsUsingOrphan(false);
 
@@ -300,15 +361,26 @@ export default function BolusPage() {
                 {!result && (
                     <div className="stack fade-in">
 
-                        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-                            <Button
-                                variant="secondary"
-                                className="text-sm"
-                                onClick={handleOpenImportModal}
-                            >
-                                Cargar importación
-                            </Button>
-                        </div>
+                    <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                        <Button
+                            variant="secondary"
+                            className="text-sm"
+                            onClick={handleOpenImportModal}
+                        >
+                            Cargar importación
+                        </Button>
+                        <Button
+                            variant="outline"
+                            className="text-sm"
+                            style={{ marginLeft: '0.5rem' }}
+                            onClick={() => {
+                                resetMealContext();
+                                setManualEntryEnabled(true);
+                            }}
+                        >
+                            Nueva comida
+                        </Button>
+                    </div>
 
 
 
@@ -346,6 +418,10 @@ export default function BolusPage() {
                                         const valToSet = orphanCarbs._diffMode ? orphanCarbs._netCarbs : orphanCarbs.carbs;
                                         setCarbs((valToSet || 0).toFixed(1));
                                         setIsUsingOrphan(true);
+                                        setManualEntryEnabled(false);
+                                        setManualFat('0');
+                                        setManualProtein('0');
+                                        setManualFiber('0');
 
                                         // CRITICAL FIX: Transfer Orphan Macros to mealMeta for simulation
                                         setMealMeta({
@@ -405,6 +481,10 @@ export default function BolusPage() {
                                 onSelect={(item) => {
                                     setFoodName(item.name);
                                     setCarbs(String(item.carbs));
+                                    setManualEntryEnabled(false);
+                                    setManualFat('0');
+                                    setManualProtein('0');
+                                    setManualFiber('0');
                                     // CRITICAL FIX: Transfer Macros to mealMeta for successful simulation
                                     setMealMeta({
                                         items: [{ name: item.name, carbs: item.carbs, amount: 1 }],
@@ -440,7 +520,7 @@ export default function BolusPage() {
 
                         {/* Slot/Toggles */}
                         <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'center', margin: '1rem 0' }}>
-                            <select value={slot} onChange={e => setSlot(e.target.value)} style={{ padding: '0.5rem', borderRadius: '8px', border: '1px solid #cbd5e1', background: '#fff' }}>
+                            <select value={slot} onChange={e => { setSlot(e.target.value); resetMealContext(); }} style={{ padding: '0.5rem', borderRadius: '8px', border: '1px solid #cbd5e1', background: '#fff' }}>
                                 <option value="breakfast">Desayuno</option>
                                 <option value="lunch">Comida</option>
                                 <option value="dinner">Cena</option>
@@ -493,6 +573,76 @@ export default function BolusPage() {
                                     </button>
                                 ))}
                             </div>
+                        </div>
+
+                        {/* Manual Macros */}
+                        <div className="card" style={{ padding: '1rem', marginTop: '0.5rem', border: manualEntryEnabled ? '2px solid #16a34a' : '1px solid #e2e8f0', background: manualEntryEnabled ? '#f0fdf4' : '#fff' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <div>
+                                    <div style={{ fontWeight: 600, color: manualEntryEnabled ? '#166534' : '#0f172a' }}>✍️ Entrada manual</div>
+                                    <div style={{ fontSize: '0.75rem', color: manualEntryEnabled ? '#15803d' : '#64748b' }}>Opcional. Solo afecta a pronóstico y avisos.</div>
+                                </div>
+                                <input
+                                    type="checkbox"
+                                    checked={manualEntryEnabled}
+                                    onChange={() => {
+                                        const next = !manualEntryEnabled;
+                                        if (next) {
+                                            resetMealContext();
+                                            setManualProtein('0');
+                                            setManualFat('0');
+                                            setManualFiber('0');
+                                        }
+                                        setManualEntryEnabled(next);
+                                    }}
+                                    style={{ transform: 'scale(1.4)', cursor: 'pointer' }}
+                                />
+                            </div>
+                            {manualEntryEnabled && (
+                                <div className="fade-in" style={{ marginTop: '0.8rem', display: 'grid', gap: '0.6rem' }}>
+                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.6rem' }}>
+                                        <div>
+                                            <label style={{ fontSize: '0.7rem', fontWeight: 700, color: '#475569' }}>Proteínas (g)</label>
+                                            <input
+                                                type="number"
+                                                min="0"
+                                                max="300"
+                                                value={manualProtein}
+                                                onChange={handleMacroInput(setManualProtein)}
+                                                onBlur={() => setManualProtein((val) => (val === '' ? '0' : val))}
+                                                className="w-full"
+                                                style={{ width: '100%', padding: '0.4rem', borderRadius: '8px', border: '1px solid #cbd5e1', textAlign: 'center' }}
+                                            />
+                                        </div>
+                                        <div>
+                                            <label style={{ fontSize: '0.7rem', fontWeight: 700, color: '#475569' }}>Fibra (g)</label>
+                                            <input
+                                                type="number"
+                                                min="0"
+                                                max="300"
+                                                value={manualFiber}
+                                                onChange={handleMacroInput(setManualFiber)}
+                                                onBlur={() => setManualFiber((val) => (val === '' ? '0' : val))}
+                                                className="w-full"
+                                                style={{ width: '100%', padding: '0.4rem', borderRadius: '8px', border: '1px solid #cbd5e1', textAlign: 'center' }}
+                                            />
+                                        </div>
+                                        <div>
+                                            <label style={{ fontSize: '0.7rem', fontWeight: 700, color: '#475569' }}>Grasas (g)</label>
+                                            <input
+                                                type="number"
+                                                min="0"
+                                                max="300"
+                                                value={manualFat}
+                                                onChange={handleMacroInput(setManualFat)}
+                                                onBlur={() => setManualFat((val) => (val === '' ? '0' : val))}
+                                                className="w-full"
+                                                style={{ width: '100%', padding: '0.4rem', borderRadius: '8px', border: '1px solid #cbd5e1', textAlign: 'center' }}
+                                            />
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
                         </div>
 
                         {/* Plate Summary */}
