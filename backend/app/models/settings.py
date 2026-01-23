@@ -205,8 +205,8 @@ class BasalReminderConfig(BaseModel):
 
 class PremealConfig(BaseModel):
     enabled: bool = True
-    bg_threshold_mgdl: int = 150
-    delta_threshold_mgdl: int = 2
+    bg_threshold_mgdl: int = 140
+    delta_threshold_mgdl: int = 1
     window_minutes: int = 60
     silence_minutes: int = 90
     username: str = "admin"
@@ -224,14 +224,16 @@ class TrendAlertConfig(BaseModel):
     enabled: bool = False
     window_minutes: int = 30
     sample_points_min: int = 4
-    rise_mgdl_per_min: float = 2.0
-    drop_mgdl_per_min: float = -2.0
-    min_delta_total_mgdl: int = 35
+    rise_mgdl_per_min: float = 1.5
+    drop_mgdl_per_min: float = -1.5
+    min_delta_total_mgdl: int = 25
     recent_carbs_minutes: int = 180
     recent_bolus_minutes: int = 180
-    silence_minutes: int = 60
+    silence_minutes: int = 90
     quiet_hours_start: Optional[str] = "23:00"
     quiet_hours_end: Optional[str] = "07:00"
+    trend_soft_mode: bool = True
+
 
 
 class ProactiveConfig(BaseModel):

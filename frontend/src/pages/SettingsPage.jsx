@@ -12,7 +12,8 @@ import {
     fetchHealth, exportUserData, importUserData, fetchAutosens,
     getSettings, updateSettings, getLearningLogs, testDexcom,
     fetchIngestLogs,
-    getMlStatus
+    getMlStatus,
+    fetchBotProactiveStatus
 } from '../lib/api';
 import { IsfAnalyzer } from '../components/settings/IsfAnalyzer';
 
@@ -1243,6 +1244,7 @@ function BotPanel() {
     const [botEnabled, setBotEnabled] = useState(true);
     const [loading, setLoading] = useState(true);
     const [status, setStatus] = useState(null);
+    const [proactiveStatus, setProactiveStatus] = useState(null);
 
     // Initial State structure matches backend models/settings.py defaults
     const [premealConfig, setPremealConfig] = useState({
@@ -1296,6 +1298,11 @@ function BotPanel() {
             }
             setBasalConfig(prev => ({ ...prev, ...b }));
         }
+
+        // Fetch Diagnostics
+        fetchBotProactiveStatus()
+            .then(data => setProactiveStatus(data))
+            .catch(err => console.warn("Failed to fetch bot diagnostics", err));
 
         setLoading(false);
     }, []);
@@ -1426,6 +1433,38 @@ function BotPanel() {
             <p className="text-muted text-sm">
                 Configura los comportamientos proactivos del asistente.
             </p>
+
+            {/* DIAGNOSTICS CARD */}
+            {proactiveStatus && (
+                <div style={{ background: '#f0f9ff', padding: '1rem', borderRadius: '8px', border: '1px solid #bae6fd', marginBottom: '1.5rem', fontSize: '0.85rem' }}>
+                    <h4 style={{ margin: '0 0 0.5rem 0', color: '#0369a1' }}>🩺 Estado / Diagnóstico Última Ejecución</h4>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0.8rem' }}>
+                        {Object.entries(proactiveStatus).map(([key, val]) => (
+                            <div key={key} style={{ background: 'white', padding: '0.6rem', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
+                                <div style={{ fontWeight: 700, textTransform: 'uppercase', color: '#64748b', fontSize: '0.75rem', marginBottom: '4px' }}>
+                                    {key === 'basal' ? '💉 Basal' : key === 'premeal' ? '🥣 Premeal' : key === 'trend' ? '📈 Tendencia' : key === 'combo' ? '🔁 Combo' : key}
+                                </div>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
+                                    {val.sent ? <span style={{ color: '#16a34a', fontWeight: 600 }}>⚡ Enviado</span> : <span style={{ color: '#f59e0b' }}>⏸️ Silenciado / Omitido</span>}
+                                </div>
+                                <div style={{ color: '#334155', fontWeight: 500, wordBreak: 'break-word', lineHeight: '1.2' }}>
+                                    {val.reason || "Sin datos"}
+                                </div>
+                                {val.details && Object.keys(val.details).length > 0 && (
+                                    <div style={{ fontSize: '0.7rem', color: '#475569', marginTop: '4px', background: '#f1f5f9', padding: '2px 4px', borderRadius: '4px' }}>
+                                        {JSON.stringify(val.details).substring(0, 50)}...
+                                    </div>
+                                )}
+                                {val.timestamp && (
+                                    <div style={{ fontSize: '0.7rem', color: '#94a3b8', marginTop: '4px', textAlign: 'right' }}>
+                                        {new Date(val.timestamp).toLocaleTimeString()}
+                                    </div>
+                                )}
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
 
             {/* MASTER SWITCH */}
             <div style={{ background: '#fff', padding: '1rem', borderRadius: '8px', border: '1px solid #cbd5e1', marginBottom: '1.5rem', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>

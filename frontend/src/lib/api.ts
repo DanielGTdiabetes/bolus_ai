@@ -799,6 +799,14 @@ export async function exportUserData() {
   return data;
 }
 
+export async function fetchBotProactiveStatus() {
+  const response = await apiFetch("/api/bot/proactive/status");
+  const data = await toJson(response);
+  if (!response.ok) throw new Error(data.detail || "Error obteniendo estado del bot");
+  return data;
+}
+
+
 export async function importUserData(jsonData) {
   const response = await apiFetch("/api/data/import", {
     method: "POST",

@@ -57,6 +57,10 @@ api_router.include_router(injection_router, prefix="/injection", tags=["injectio
 from .bot_capabilities import router as bot_capabilities_router
 api_router.include_router(bot_capabilities_router)
 
+from .bot_status import router as bot_status_router
+api_router.include_router(bot_status_router, prefix="/bot/proactive", tags=["bot"])
+
+
 from .routes import dexcom as dexcom_router
 api_router.include_router(dexcom_router.router, prefix="/dexcom", tags=["dexcom"])
 
