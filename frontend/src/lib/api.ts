@@ -298,18 +298,6 @@ export async function testNightscout(config) {
   return data;
 }
 
-export async function saveNightscoutConfig(config) {
-  // Legacy support or usage of new endpoint if config matches new structure
-  // But strictly this function was PUT /api/nightscout/config (Legacy)
-  const response = await apiFetch("/api/nightscout/config", {
-    method: "PUT",
-    body: JSON.stringify(config),
-  });
-  const data = await toJson(response);
-  if (!response.ok) throw new Error(data.detail || "Error al guardar configuración");
-  return data;
-}
-
 export async function getNightscoutSecretStatus() {
   const response = await apiFetch("/api/nightscout/secret");
   const data = await toJson(response);
@@ -961,9 +949,14 @@ export async function getLearningLogs(limit = 20) {
   return data;
 }
 
-export async function updateSettings(settings) {
-  // Wrapper for putSettings to simplify usage
-  return putSettings(settings, settings.version);
+export async function updateSettings(settings, version) {
+  const resolvedVersion = version ?? settings?.version;
+  if (resolvedVersion === undefined || resolvedVersion === null) {
+    throw new Error("Falta la versión de configuración para guardar cambios.");
+  }
+  const cleanSettings = { ...settings };
+  if ("version" in cleanSettings) delete cleanSettings.version;
+  return putSettings(cleanSettings, resolvedVersion);
 }
 
 

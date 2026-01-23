@@ -4,12 +4,11 @@ import { BottomNav } from '../components/layout/BottomNav';
 import { Card, Button, Input } from '../components/ui/Atoms';
 import {
     getCalcParams, saveCalcParams,
-    getSplitSettings, saveSplitSettings,
-    getSettingsVersion
+    getSplitSettings, saveSplitSettings
 } from '../modules/core/store';
 import {
     getNightscoutSecretStatus, saveNightscoutSecret, testNightscout,
-    fetchHealth, exportUserData, importUserData, fetchAutosens,
+    exportUserData, importUserData, fetchAutosens,
     getSettings, updateSettings, getLearningLogs, testDexcom,
     fetchIngestLogs,
     getMlStatus,
@@ -89,6 +88,7 @@ function NightscoutPanel() {
     const [hasSecret, setHasSecret] = useState(false);
     const [status, setStatus] = useState({ msg: '', type: 'neutral' }); // neutral, success, error
     const [loading, setLoading] = useState(false);
+    const [errors, setErrors] = useState({ url: '', lookback: '' });
     const [filterConfig, setFilterConfig] = useState({
         enabled: false,
         night_start: "23:00",
@@ -115,7 +115,22 @@ function NightscoutPanel() {
         }).catch(err => console.warn(err));
     }, []);
 
+    const isValidNightscoutUrl = (value) => {
+        try {
+            const parsed = new URL(value);
+            return ["http:", "https:"].includes(parsed.protocol);
+        } catch {
+            return false;
+        }
+    };
+
     const handleTest = async () => {
+        const trimmedUrl = url.trim();
+        if ((secret || !hasSecret) && trimmedUrl && !isValidNightscoutUrl(trimmedUrl)) {
+            setErrors(prev => ({ ...prev, url: 'Introduce una URL válida (http/https).' }));
+            setStatus({ msg: '❌ URL inválida.', type: 'error' });
+            return;
+        }
         setStatus({ msg: 'Probando...', type: 'neutral' });
         try {
             // Test existing if secret is empty but configured, or test new input
@@ -125,7 +140,7 @@ function NightscoutPanel() {
                 res = await getNightscoutStatus();
                 res = { ok: res.ok, message: res.error || "Conectado (Server)" };
             } else {
-                res = await testNightscout({ url, token: secret });
+                res = await testNightscout({ url: trimmedUrl, token: secret });
             }
 
             setStatus({
@@ -138,7 +153,15 @@ function NightscoutPanel() {
     };
 
     const handleSave = async () => {
-        if (!url) return alert("URL requerida");
+        const trimmedUrl = url.trim();
+        if (!trimmedUrl) {
+            setErrors(prev => ({ ...prev, url: 'URL requerida.' }));
+            return;
+        }
+        if (!isValidNightscoutUrl(trimmedUrl)) {
+            setErrors(prev => ({ ...prev, url: 'Introduce una URL válida (http/https).' }));
+            return;
+        }
 
         // Confirmation logic if secret is empty but previously set
         if (!secret && hasSecret) {
@@ -156,10 +179,11 @@ function NightscoutPanel() {
         setStatus({ msg: 'Guardando...', type: 'neutral' });
 
         try {
-            await saveNightscoutSecret({ url, api_secret: secret, enabled: true });
+            await saveNightscoutSecret({ url: trimmedUrl, api_secret: secret, enabled: true });
             setStatus({ msg: '✅ Guardado seguro.', type: 'success' });
             setSecret('');
             setHasSecret(true); // Now we definitely have it
+            setErrors(prev => ({ ...prev, url: '' }));
         } catch (e) {
             setStatus({ msg: `❌ Error guardando: ${e.message}`, type: 'error' });
         } finally {
@@ -168,6 +192,12 @@ function NightscoutPanel() {
     };
 
     const handleSaveFilter = async () => {
+        const lookbackValue = Number(filterConfig.treatments_lookback_minutes);
+        if (!Number.isFinite(lookbackValue) || lookbackValue < 0 || lookbackValue > 1440) {
+            setErrors(prev => ({ ...prev, lookback: 'Usa un número entre 0 y 1440.' }));
+            setFilterStatus({ msg: '❌ Lookback inválido.', type: 'error' });
+            return;
+        }
         setSavingFilter(true);
         setFilterStatus({ msg: 'Guardando...', type: 'neutral' });
 
@@ -179,11 +209,12 @@ function NightscoutPanel() {
                 filter_compression: filterConfig.enabled,
                 filter_night_start: filterConfig.night_start,
                 filter_night_end: filterConfig.night_end,
-                treatments_lookback_minutes: Number(filterConfig.treatments_lookback_minutes || 120)
+                treatments_lookback_minutes: lookbackValue
             };
 
             await updateSettings({ ...newSettings, version: current.version });
             setFilterStatus({ msg: '✅ Filtro actualizado.', type: 'success' });
+            setErrors(prev => ({ ...prev, lookback: '' }));
         } catch (e) {
             if (e.isConflict) {
                 setFilterStatus({ msg: '❌ Conflicto de versión. Recarga e intenta de nuevo.', type: 'error' });
@@ -200,7 +231,16 @@ function NightscoutPanel() {
             <h3 style={{ marginTop: 0 }}>Conexión Nightscout</h3>
             <p className="text-muted text-sm">Tus credenciales se guardan encriptadas en la base de datos.</p>
 
-            <Input label="URL Nightscout" value={url} onChange={e => setUrl(e.target.value)} placeholder="https://mi-nightscout.herokuapp.com" />
+            <Input
+                label="URL Nightscout"
+                value={url}
+                onChange={e => {
+                    setUrl(e.target.value);
+                    if (errors.url) setErrors(prev => ({ ...prev, url: '' }));
+                }}
+                placeholder="https://mi-nightscout.herokuapp.com"
+            />
+            {errors.url && <div className="text-sm" style={{ color: '#b91c1c', marginTop: '-0.5rem' }}>{errors.url}</div>}
 
             <Input
                 label="API Secret / Token"
@@ -259,9 +299,14 @@ function NightscoutPanel() {
                             label="Lookback tratamientos (min)"
                             type="number"
                             min="0"
+                            max="1440"
                             value={filterConfig.treatments_lookback_minutes}
-                            onChange={e => setFilterConfig(prev => ({ ...prev, treatments_lookback_minutes: e.target.value }))}
+                            onChange={e => {
+                                setFilterConfig(prev => ({ ...prev, treatments_lookback_minutes: e.target.value }));
+                                if (errors.lookback) setErrors(prev => ({ ...prev, lookback: '' }));
+                            }}
                         />
+                        {errors.lookback && <div className="text-sm" style={{ color: '#b91c1c', marginTop: '-0.5rem' }}>{errors.lookback}</div>}
                         <p className="text-muted text-sm" style={{ margin: 0 }}>
                             Ajusta cuánto tiempo atrás se consideran tratamientos recientes para evitar falsos positivos.
                         </p>
@@ -328,7 +373,17 @@ function DexcomPanel() {
         try {
             const current = await getSettings();
             const newSettings = current.settings || {};
+            const existingDexcom = newSettings.dexcom || {};
+            if (config.enabled && !config.username) {
+                setStatus({ msg: '❌ Introduce el usuario Dexcom para activar el servicio.', type: 'error' });
+                return;
+            }
+            if (config.enabled && !config.password && !existingDexcom.password) {
+                setStatus({ msg: '❌ Introduce la contraseña Dexcom para activar el servicio.', type: 'error' });
+                return;
+            }
             newSettings.dexcom = {
+                ...existingDexcom,
                 enabled: config.enabled,
                 username: config.username,
                 region: config.region
