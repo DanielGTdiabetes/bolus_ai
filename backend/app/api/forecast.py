@@ -1190,7 +1190,36 @@ async def simulate_forecast(
                 else:
                     return settings.cr.dinner, int(settings.absorption.dinner)
 
+             # Identify rows that conflict/duplicate the Proposed Payload Carbs.
+             # Scenario: User enters 15g Carbs manually (params.carbs_g), but there is an "Orphan" 15g Carbs from MyFitnessPal in history.
+             # We should assume the manual entry COVERS the orphan, preventing double counting and ghost macros.
+             
+             skip_row_ids = set()
+             
+             # Check against the "Active Meal" proposed in params
+             proposed_carbs = getattr(payload.params, 'carbs_g', 0)
+             if proposed_carbs and proposed_carbs > 0:
+                 for row in rows:
+                     # Only check Carb-only entries (Orphans) that have no insulin associated
+                     if (getattr(row, 'insulin', 0) or 0) == 0 and (row.carbs and row.carbs > 0):
+                        r_time = row.created_at
+                        if r_time.tzinfo is None: r_time = r_time.replace(tzinfo=timezone.utc)
+                        r_diff_minutes = (datetime.now(timezone.utc) - r_time).total_seconds() / 60.0 # Positive minutes ago
+                        
+                        # Time check: If orphan is within 90 mins of "Now"
+                        if r_diff_minutes < 90:
+                            # Gram check: +/- 5g or +/- 15% tolerance
+                            diff_g = abs(proposed_carbs - row.carbs)
+                            if diff_g < 5.0 or diff_g < (proposed_carbs * 0.15):
+                                # Collision detected. Prefer the Payload (User Intent).
+                                skip_row_ids.add(id(row))
+                                # We only dedup ONE orphan per proposed meal to be safe
+                                break
+
              for row in rows:
+                if id(row) in skip_row_ids:
+                    continue
+                    
                 created_at = row.created_at
                 if created_at.tzinfo is None:
                     created_at = created_at.replace(tzinfo=timezone.utc)
