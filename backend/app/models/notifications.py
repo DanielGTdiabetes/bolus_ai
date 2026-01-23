@@ -24,6 +24,7 @@ class UserNotificationState(Base):
     seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 
 class PushSubscription(Base):
+    # @deprecated Legacy web-push storage; not used by the current notification UX.
     __tablename__ = "push_subscriptions"
     __table_args__ = (
         UniqueConstraint('user_id', 'endpoint', name='uq_push_user_endpoint'),

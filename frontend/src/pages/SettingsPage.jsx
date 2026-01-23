@@ -1968,7 +1968,7 @@ function LabsPanel() {
 
                     {mlStatus.percent_complete >= 100 ? (
                         <div style={{ marginTop: '0.8rem', fontSize: '0.85rem', color: '#15803d', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px' }}>
-                            ✨ ¡Datos suficientes! El modelo está listo para entrenar.
+                            ✅ Datos suficientes para iniciar entrenamiento (aún no entrenado).
                         </div>
                     ) : (
                         <div style={{ marginTop: '0.8rem', fontSize: '0.8rem', color: '#4ade80' }}>
@@ -1976,21 +1976,29 @@ function LabsPanel() {
                         </div>
                     )}
 
+                    <div style={{ marginTop: '0.6rem', fontSize: '0.75rem', color: '#166534' }}>
+                        El progreso indica disponibilidad de datos, no la calidad del modelo.
+                    </div>
+
                     {/* Validation Metrics */}
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.8rem', marginTop: '1rem', paddingTop: '1rem', borderTop: '1px dashed #bbf7d0' }}>
                         <div style={{ background: 'rgba(255,255,255,0.6)', padding: '0.6rem', borderRadius: '8px', textAlign: 'center' }}>
                             <div style={{ fontSize: '0.7rem', color: '#15803d', fontWeight: 600, marginBottom: '2px', textTransform: 'uppercase' }}>Acierto (30m)</div>
                             <div style={{ fontSize: '1.1rem', fontWeight: 800, color: '#166534' }}>
-                                {mlStatus.accuracy != null ? `${mlStatus.accuracy}%` : <span style={{ fontSize: '0.9rem', opacity: 0.6 }}>--</span>}
+                                {mlStatus.accuracy != null ? `${mlStatus.accuracy}%` : <span style={{ fontSize: '0.85rem', opacity: 0.7 }}>No calculado</span>}
                             </div>
                         </div>
                         <div style={{ background: 'rgba(255,255,255,0.6)', padding: '0.6rem', borderRadius: '8px', textAlign: 'center' }}>
                             <div style={{ fontSize: '0.7rem', color: '#15803d', fontWeight: 600, marginBottom: '2px', textTransform: 'uppercase' }}>Desviación</div>
                             <div style={{ fontSize: '1.1rem', fontWeight: 800, color: '#166534' }}>
-                                {mlStatus.mae != null ? `±${mlStatus.mae}` : <span style={{ fontSize: '0.9rem', opacity: 0.6 }}>--</span>}
+                                {mlStatus.mae != null ? `±${mlStatus.mae}` : <span style={{ fontSize: '0.85rem', opacity: 0.7 }}>No calculado</span>}
                             </div>
                             <div style={{ fontSize: '0.6rem', color: '#166534' }}>mg/dL</div>
                         </div>
+                    </div>
+
+                    <div style={{ marginTop: '0.6rem', fontSize: '0.7rem', color: '#166534' }}>
+                        Métricas pendientes de implementación.
                     </div>
                 </div>
             )}
@@ -1998,9 +2006,9 @@ function LabsPanel() {
             <div style={{ padding: '1rem', background: '#fff7ed', borderRadius: '8px', border: '1px solid #fed7aa', marginBottom: '1rem' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <div>
-                        <div style={{ fontWeight: 600, color: '#c2410c' }}>Aplicar Correcciones (Autonomy)</div>
+                        <div style={{ fontWeight: 600, color: '#c2410c' }}>Permitir que el bot proponga cambios</div>
                         <div style={{ fontSize: '0.8rem', color: '#9a3412', marginTop: '2px' }}>
-                            Permitir que la IA ajuste tus bolos automáticamente si la confianza es alta.
+                            El bot no aplica cambios automáticamente; solo sugiere para revisión.
                         </div>
                     </div>
                     <label className="switch warning">
@@ -2008,17 +2016,6 @@ function LabsPanel() {
                             type="checkbox"
                             checked={inner?.learning?.auto_apply_safe ?? false}
                             onChange={e => {
-                                if (e.target.checked) {
-                                    if (mlStatus.percent_complete < 100) {
-                                        alert("⛔ Datos insuficientes. Necesitas llegar al 100% de recolección para activar la autonomía.");
-                                        e.preventDefault();
-                                        return;
-                                    }
-                                    if (!window.confirm("⚠️ ¿Seguro? Esto permitirá a la IA modificar dosis. Requiere supervisión.")) {
-                                        e.preventDefault();
-                                        return;
-                                    }
-                                }
                                 handleUpdateAutonomy(e.target.checked);
                             }}
                         />
@@ -2026,8 +2023,8 @@ function LabsPanel() {
                     </label>
                 </div>
                 {inner?.learning?.auto_apply_safe && (
-                    <div className="fade-in" style={{ marginTop: '0.8rem', fontSize: '0.8rem', color: '#c2410c', background: '#ffedd5', padding: '0.5rem', borderRadius: '6px' }}>
-                        <strong>⚠️ PRECAUCIÓN:</strong> Modo autónomo activo. Revisa siempre los registros.
+                    <div className="fade-in" style={{ marginTop: '0.8rem', fontSize: '0.8rem', color: '#9a3412', background: '#ffedd5', padding: '0.5rem', borderRadius: '6px' }}>
+                        <strong>Nota:</strong> El bot puede proponer ajustes, pero no aplica cambios automáticamente.
                     </div>
                 )}
             </div>

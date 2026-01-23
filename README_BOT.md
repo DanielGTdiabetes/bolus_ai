@@ -9,6 +9,8 @@
 - URLs de respaldo/monitor:
   - `RENDER_EXTERNAL_URL` (URL alternativa de Render para alertas de caída NAS)
   - `NAS_PUBLIC_URL` (URL principal del NAS para alertas de recuperación)
+- URL pública para enlaces en notificaciones Telegram:
+  - `NAS_EXTERNAL_URL` (principal, NAS) o `RENDER_EXTERNAL_URL` (fallback).
 - Voz (opcional):
   - `ENABLE_TELEGRAM_VOICE=true`
   - `GEMINI_API_KEY` (obligatoria para voz, puede reutilizarse con `GOOGLE_API_KEY`)
