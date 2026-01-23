@@ -41,6 +41,39 @@ def test_cr_migration_logic():
     settings_c = UserSettings.migrate(raw_c)
     assert settings_c.cr.breakfast == 15.0
 
+def test_target_mid_migration_last_slot_wins_when_missing_mid():
+    raw = {
+        "breakfast": {"icr": 10, "target": 95},
+        "lunch": {"icr": 12, "target": 105},
+        "dinner": {"icr": 8, "target": 115},
+        "snack": {"icr": 15, "target": 125},
+    }
+    settings = UserSettings.migrate(raw)
+    assert settings.targets.breakfast == 95
+    assert settings.targets.lunch == 105
+    assert settings.targets.dinner == 115
+    assert settings.targets.snack == 125
+    assert settings.targets.mid == 125
+
+def test_target_mid_migration_preserves_explicit_mid():
+    raw = {
+        "targets": {"mid": 101},
+        "breakfast": {"icr": 10, "target": 95},
+        "lunch": {"icr": 12, "target": 105},
+        "dinner": {"icr": 8, "target": 115},
+        "snack": {"icr": 15, "target": 125},
+    }
+    settings = UserSettings.migrate(raw)
+    assert settings.targets.mid == 101
+
+def test_target_mid_migration_single_slot():
+    raw = {
+        "lunch": {"icr": 12, "target": 110},
+    }
+    settings = UserSettings.migrate(raw)
+    assert settings.targets.lunch == 110
+    assert settings.targets.mid == 110
+
 # --- TEST 2: Boolean Math ---
 @pytest.mark.skipif(recommend_bolus is None, reason="Legacy bolus module missing")
 def test_bolus_math_cr_definition():

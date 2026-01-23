@@ -302,6 +302,12 @@ class UserSettings(BaseModel):
         
         # Detect legacy format by checking for common slots
         if "lunch" in data and isinstance(data["lunch"], dict) and ("icr" in data["lunch"] or "isf" in data["lunch"]):
+            had_mid = (
+                "targets" in data
+                and isinstance(data["targets"], dict)
+                and "mid" in data["targets"]
+            )
+            last_slot_val = None
             new_cr = data.get("cr", {})
             new_cf = data.get("cf", {})
             
@@ -336,13 +342,16 @@ class UserSettings(BaseModel):
                                 if "targets" not in data or not isinstance(data["targets"], dict):
                                     data["targets"] = {}
                                 data["targets"][slot] = val
-                                if "mid" not in data["targets"]:
-                                    data["targets"]["mid"] = val
+                                last_slot_val = val
                         except: pass
             
             data["cr"] = new_cr
             data["cf"] = new_cf
             # new_cf is a dict {breakfast: 50, ...} which matches CorrectionFactors model
+            if not had_mid and last_slot_val is not None:
+                if "targets" not in data or not isinstance(data["targets"], dict):
+                    data["targets"] = {}
+                data["targets"]["mid"] = last_slot_val
 
         # Fallback: Check for root-level 'isf' (legacy key) if 'cf' is missing/partial
         if "isf" in data and isinstance(data["isf"], dict) and not data.get("cf"):
