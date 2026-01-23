@@ -6,6 +6,11 @@ export function MainGlucoseChart({ isLow, predictionData, chartHeight = 160, hid
     // ... (rest of state/effect - no changes needed to logic above return)
 
     // ... (logic)
+    const nightPatternApplied = Boolean(
+        predictionData?.night_pattern_applied ??
+        predictionData?.nightPatternApplied ??
+        false
+    );
 
     // Return JSX
     return (
