@@ -143,42 +143,94 @@ async def basal_reminder(username: str = "admin", chat_id: Optional[int] = None,
              target_h, target_m = map(int, item.time.split(":"))
              target_minutes = target_h * 60 + target_m
              
-             for t in recent_treatments:
-                 notes = (t.notes or "").lower()
-                 e_type = (t.eventType or "").lower()
+             # Reuseable verification logic
+             def check_treatment_match(t_obj):
+                 notes_t = (t_obj.notes or "").lower()
+                 type_t = (t_obj.eventType or "").lower()
                  keywords = ["basal", "larga", "lenta"]
                  if item.name and item.name.lower() not in ["basal", "default"]:
                      keywords.append(item.name.lower())
-                     
-                 is_basal_candidate = any(k in notes for k in keywords) or "basal" in e_type
                  
-                 if is_basal_candidate:
-                     match = True
-                     if len(schedules) > 1:
-                         t_local = t.created_at.astimezone(tz)
-                         t_minutes = t_local.hour * 60 + t_local.minute
-                         diff = abs(t_minutes - target_minutes)
-                         if diff > 180: # 3 hours
-                             match = False
+                 is_cand = any(k in notes_t for k in keywords) or "basal" in type_t
+                 if not is_cand: return False
+                 
+                 # Time Check
+                 if len(schedules) > 1:
+                     if not t_obj.created_at: return False
+                     # Ensure awareness
+                     t_dt = t_obj.created_at
+                     if t_dt.tzinfo is None:
+                         t_dt = t_dt.replace(tzinfo=timezone.utc)
+                     
+                     t_local = t_dt.astimezone(tz)
+                     t_min = t_local.hour * 60 + t_local.minute
+                     diff = abs(t_min - target_minutes)
+                     if diff > 180: return False # 3 hours
+                 
+                 return True
+
+             found_match_t = None
+             match_source = "external"
+             
+             # 1. Check DB Treatments (Nightscout Shadow)
+             for t in recent_treatments:
+                 if check_treatment_match(t):
+                     found_match_t = t
+                     match_source = f"treatments:{t.id}"
+                     logger.info(f"Basal '{item.name}' detected in DB (id={t.id}).")
+                     break
+            
+             # 2. Check Specific Basal Dose Table (App Manual Entry)
+             if not found_match_t:
+                 try:
+                     # Check basal_dose table for entry today
+                     latest_dose = await get_latest_basal_dose(username)
+                     if latest_dose:
+                        # Check date
+                        eff_from = latest_dose.get("effective_from") # date object
+                        created = latest_dose.get("created_at") # datetime
+                        
+                        is_today = False
+                        if eff_from and str(eff_from) == today_str:
+                            is_today = True
+                        elif created:
+                             if created.tzinfo is None:
+                                 created = created.replace(tzinfo=timezone.utc)
+                             c_local = created.astimezone(tz)
+                             if c_local.strftime("%Y-%m-%d") == today_str:
+                                 is_today = True
+                        
+                        if is_today:
+                             # We assume only 1 basal per day usually, or latest is sufficient.
+                             # If multiple schedules, we might need more granular checks but
+                             # basal_dose table structure seems to handle 'dose_u' and 'effective_from'.
+                             # It doesn't seem to have 'schedule_name' to distinguish Levemir/Lantus distinct shots?
+                             # But usually basal is once a day. If found, we mark as done.
+                             found_match_t = latest_dose
+                             match_source = f"basal_dose:{latest_dose.get('id')}"
+                             logger.info(f"Basal detected in `basal_dose` table (id={latest_dose.get('id')})")
                              
-                     if match:
-                         logger.info(f"Basal '{item.name}' detected externally (id={t.id}).")
-                         if not entry:
-                             events.append({
-                                "type": "basal_daily_status",
-                                "date": today_str,
-                                "schedule_id": item.id,
-                                "status": "done_detected",
-                                "detected_from": t.id,
-                                "updated_at": datetime.now(timezone.utc).isoformat()
-                             })
-                             store.save_events(events)
-                             entry = events[-1]
-                         else:
-                             evt_idx = events.index(entry)
-                             events[evt_idx]["status"] = "done_detected"
-                             store.save_events(events)
-                         break
+                 except Exception as exc:
+                     logger.warning(f"Basal repo check failed: {exc}")
+
+             # 3. Apply Match
+             if found_match_t:
+                 if not entry:
+                     events.append({
+                        "type": "basal_daily_status",
+                        "date": today_str,
+                        "schedule_id": item.id,
+                        "status": "done_detected",
+                        "detected_from": match_source,
+                        "updated_at": datetime.now(timezone.utc).isoformat()
+                     })
+                     store.save_events(events)
+                     entry = events[-1]
+                 else:
+                     evt_idx = events.index(entry)
+                     events[evt_idx]["status"] = "done_detected"
+                     events[evt_idx]["detected_from"] = match_source
+                     store.save_events(events)
 
         if entry:
             st = entry.get("status")
