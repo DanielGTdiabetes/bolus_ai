@@ -10,6 +10,10 @@ class TargetRange(BaseModel):
     low: int = 90
     mid: int = 100
     high: int = 120
+    breakfast: Optional[int] = None
+    lunch: Optional[int] = None
+    dinner: Optional[int] = None
+    snack: Optional[int] = None
 
 
 class MealDuration(BaseModel):
@@ -331,8 +335,9 @@ class UserSettings(BaseModel):
                             if 70 <= val <= 400:
                                 if "targets" not in data or not isinstance(data["targets"], dict):
                                     data["targets"] = {}
-                                # We update mid. Note: Last slot wins if they differ.
-                                data["targets"]["mid"] = val
+                                data["targets"][slot] = val
+                                if "mid" not in data["targets"]:
+                                    data["targets"]["mid"] = val
                         except: pass
             
             data["cr"] = new_cr
