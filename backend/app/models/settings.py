@@ -380,7 +380,7 @@ class UserSettings(BaseModel):
         if not isinstance(learning, dict):
             learning = {}
         if schema_version < 2:
-            learning["auto_apply_safe"] = False
+            learning.setdefault("auto_apply_safe", False)
             data["schema_version"] = 2
         elif "auto_apply_safe" not in learning:
             learning["auto_apply_safe"] = False
