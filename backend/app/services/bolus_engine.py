@@ -1,3 +1,4 @@
+import logging
 import math
 from typing import Optional
 
@@ -10,6 +11,23 @@ from app.models.bolus_v2 import (
 )
 from app.models.settings import UserSettings
 
+logger = logging.getLogger(__name__)
+
+
+def resolve_target(settings: UserSettings, meal_slot: Optional[str]) -> float:
+    targets = settings.targets
+    slot = meal_slot or "lunch"
+    slot_target = getattr(targets, slot, None)
+    if slot_target is not None:
+        logger.debug("Target resolved from targets.%s=%s", slot, slot_target)
+        return float(slot_target)
+    if targets.mid is not None:
+        logger.debug(
+            "Target fallback to targets.mid=%s for slot=%s", targets.mid, slot
+        )
+        return float(targets.mid)
+    logger.debug("Target fallback to default 100 for slot=%s", slot)
+    return 100.0
 
 def _round_step(value: float, step: float) -> float:
     if step <= 0:
@@ -341,7 +359,11 @@ def calculate_bolus_v2(
     meal_slot = request.meal_slot
     cr_base = request.cr_g_per_u or getattr(settings.cr, meal_slot, 10.0)
     isf_base = request.isf_mgdl_per_u or getattr(settings.cf, meal_slot, 30.0)
-    target = request.target_mgdl or settings.targets.mid
+    if request.target_mgdl is not None:
+        target = request.target_mgdl
+        logger.debug("Target override from request=%s", target)
+    else:
+        target = resolve_target(settings, meal_slot)
     
     inp = CalculationInput(
         carbs_g=request.carbs_g,
@@ -413,4 +435,3 @@ def calculate_bolus_v2(
         explain=res.breakdown,
         warnings=res.warnings
     )
-
