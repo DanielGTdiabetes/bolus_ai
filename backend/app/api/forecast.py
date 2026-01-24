@@ -1376,9 +1376,27 @@ async def simulate_forecast(
 
         # Apply Insulin Onset Delay (Physiological Lag)
         # Shifts all rapid boluses into the future by onset_min (e.g. 10m)
-        if payload.params.insulin_onset_minutes > 0:
+        # ONLY apply to "Current/Proposed" boluses (offset >= -1), not history.
+        
+        # 1. Determine Onset Value
+        onset_val = 10 # Default
+        
+        if payload.params.insulin_onset_minutes is not None:
+            # Trusted Source: Frontend
+            onset_val = payload.params.insulin_onset_minutes
+        elif user_settings and user_settings.insulin and user_settings.insulin.name:
+            # Fallback: Backend Inference from Settings
+            iname = (user_settings.insulin.name or "").lower()
+            if "fiasp" in iname or "lyumjev" in iname:
+                onset_val = 5
+            elif any(x in iname for x in ["novorapid", "aspart", "humalog", "lispro", "apidra"]):
+                onset_val = 15
+        
+        # 2. Apply Shift
+        if onset_val > 0:
             for bolus in payload.events.boluses:
-                bolus.time_offset_min += payload.params.insulin_onset_minutes
+                if bolus.time_offset_min >= -1:
+                    bolus.time_offset_min += onset_val
 
         # Validate logic? (Pydantic does structure, Engine does math)
         response = ForecastEngine.calculate_forecast(payload)

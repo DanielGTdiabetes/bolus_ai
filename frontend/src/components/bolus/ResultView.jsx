@@ -92,6 +92,7 @@ export function ResultView({
                     result,
                     nsConfig,
                     settingsAbsorption: settings?.absorption,
+                    settings, // Pass full settings for insulin type detection
                     mealMeta // Pass fat/protein
                 });
             }

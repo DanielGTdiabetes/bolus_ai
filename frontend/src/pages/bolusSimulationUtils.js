@@ -78,6 +78,7 @@ export function buildForecastPayload({
   insulinModel,
   carbAbsorption,
   basalDailyUnits,
+  insulinOnset,
   events
 }) {
   return {
@@ -91,6 +92,7 @@ export function buildForecastPayload({
       insulin_peak_minutes: peak,
       carb_absorption_minutes: carbAbsorption,
       insulin_model: insulinModel,
+      insulin_onset_minutes: insulinOnset,
       target_bg: targetMgdl,
       basal_daily_units: basalDailyUnits
     },

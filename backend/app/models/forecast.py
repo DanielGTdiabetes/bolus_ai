@@ -14,7 +14,7 @@ class SimulationParams(BaseModel):
     dia_minutes: int = Field(360, description="Duration of Insulin Action in minutes")
     carb_absorption_minutes: int = Field(180, description="Duration of Carb Absorption in minutes")
     insulin_peak_minutes: int = Field(75, description="Peak activity time of insulin (e.g. 75 for Rapid, 55 for Fiasp)")
-    insulin_onset_minutes: int = Field(10, description="Delay before insulin starts acting (physiological onset)")
+    insulin_onset_minutes: Optional[int] = Field(None, description="Delay before insulin starts acting (physiological onset). None = Auto-detect.")
     insulin_model: str = Field("linear", description="Type of insulin model: 'linear', 'exponential', 'fiasp', 'novorapid'")
     basal_daily_units: float = Field(0.0, description="Users typical daily basal dose for reference. If 0, assumes current active is correct.")
     
