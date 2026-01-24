@@ -325,3 +325,34 @@ class CarbCurves:
             return {'f': 0.3, 't_max_r': 40.0, 't_max_l': 120.0}
         else: # "med" or default
             return {'f': 0.7, 't_max_r': 45.0, 't_max_l': 90.0}
+
+    @staticmethod
+    def get_dynamic_carb_params(carbs_g: float, fat_g: float, profile_pref: str = "med") -> dict:
+        """
+        Dynamically calculates biexponential parameters based on fat content.
+        - Fat shifts the fast peak (t_max_r) and slow peak (t_max_l) to the right.
+        - Fat decreases the fast fraction (f).
+        """
+        # Base values from preference
+        base = CarbCurves.get_profile_params(profile_pref)
+        f = base['f']
+        t_max_r = base['t_max_r']
+        t_max_l = base['t_max_l']
+
+        # Modulate by Fat (capped at 50g for stability)
+        fat_eff = min(fat_g, 50.0)
+        
+        # 1. Shift peaks (Grasa desplaza el pico)
+        # Suavizado: 0.4 min/g para rápido, 0.6 min/g para lento
+        t_max_r += (0.4 * fat_eff)
+        t_max_l += (0.6 * fat_eff)
+
+        # 2. Decrease fast fraction
+        # Suavizado: -0.003 por gramo, con suelo relativo
+        f = max(base['f'] * 0.6, f - (0.003 * fat_eff))
+
+        return {
+            'f': f,
+            't_max_r': t_max_r,
+            't_max_l': t_max_l
+        }

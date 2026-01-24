@@ -316,13 +316,12 @@ class ForecastEngine:
                                         warnings.append(warning_msg)
 
                 # Calculate Rate with FINAL profile and grams
-                # We scale the biexponential peaks relative to the 180m (3h) baseline
-                # using the requested duration.
+                # MODIFICACIÓN: Usamos el modelo dinámico basado en GRASA (Opción A)
+                params_curve = CarbCurves.get_dynamic_carb_params(effective_grams, c.fat_g, profile_res["profile"])
+                
+                # Ajuste opcional por duración (si el usuario forzó una duración distinta a la estándar de 3h)
                 dur_m = c.absorption_minutes or req.params.carb_absorption_minutes or 180
                 scale_f = dur_m / 180.0
-                
-                params_curve = CarbCurves.get_profile_params(profile_res["profile"])
-                # Apply scaling to peaks
                 params_curve['t_max_r'] *= scale_f
                 params_curve['t_max_l'] *= scale_f
                 

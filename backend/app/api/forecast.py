@@ -618,14 +618,6 @@ async def get_current_forecast(
                  # Standardize to 5h (300min) for heavy meals
                  c.absorption_minutes = max(getattr(c, 'absorption_minutes', 0), 300)
 
-            # Case D: Standard Bolus Alignment
-            # If the carbs are < 240m (e.g. standard 3h) and there is a bolus,
-            # we increase to 240m (4h) to avoid the "tail hypo" cliff. 
-            elif c.grams > 10 and c.time_offset_min > -180:
-                 linked_bolus = any(b for b in boluses if abs(b.time_offset_min - c.time_offset_min) <= 60 and b.units > 0)
-                 if linked_bolus:
-                      # Update to 4h (240) to match the new 4h horizon and reasonable DIA tail
-                      c.absorption_minutes = max(getattr(c, 'absorption_minutes', 0) or 0, 240)
             pass
 
     # Flag for UI
@@ -768,10 +760,18 @@ async def get_current_forecast(
         avg_basal = 0.0
 
 
+    # Master Plan: Sincronización de DIA para Fiasp (Evita falsas hipos)
+    dia_val = user_settings.iob.dia_hours
+    dia_overridden = False
+    if user_settings.iob.curve.lower() == "fiasp" and dia_val < 5.0:
+        # Recomendación técnica: En simulación biexponencial, Fiasp necesita cola de 5.5h
+        dia_val = 5.5
+        dia_overridden = True
+
     sim_params = SimulationParams(
         isf=curr_isf,
         icr=curr_icr, 
-        dia_minutes=int(user_settings.iob.dia_hours * 60),
+        dia_minutes=int(dia_val * 60),
         carb_absorption_minutes=curr_abs,
         insulin_peak_minutes=user_settings.iob.peak_minutes,
         insulin_model=user_settings.iob.curve,
@@ -839,6 +839,16 @@ async def get_current_forecast(
     response = ForecastEngine.calculate_forecast(payload)
     response.slow_absorption_active = is_slow_absorption
     response.slow_absorption_reason = slow_reason
+    
+    # Transparency Metadata
+    if response.meta is None:
+        response.meta = {}
+    
+    response.meta.update({
+        "effective_dia_hours": dia_val,
+        "dia_overridden": dia_overridden,
+        "dia_reason": "fiasp_min_dia_for_sim" if dia_overridden else None
+    })
 
     # --- IOB/COB & ML Preparation ---
     iob_total = 0.0
