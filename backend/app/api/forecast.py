@@ -825,7 +825,7 @@ async def get_current_forecast(
     onset_val = sim_params.insulin_onset_minutes or 0
     if onset_val > 0:
         for bolus in boluses:
-            if bolus.time_offset_min >= -1:
+            if bolus.time_offset_min > 0:
                 bolus.time_offset_min += onset_val
 
     payload = ForecastSimulateRequest(
@@ -1438,7 +1438,7 @@ async def simulate_forecast(
         # 2. Apply Shift
         if onset_val > 0:
             for bolus in payload.events.boluses:
-                if bolus.time_offset_min >= -1:
+                if bolus.time_offset_min > 0:
                     bolus.time_offset_min += onset_val
 
         # Calculate Resistance Multiplier (If not provided) in /simulate
