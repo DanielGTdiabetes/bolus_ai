@@ -1325,12 +1325,23 @@ async def simulate_forecast(
                  print(f"Forecast Simulate Basal Error: {e}")
                  pass
         
+        # GUARD: Avoid Double Basal (Injections + Params)
+        # If we have explicit basal injections (which are modeled as decays), 
+        # we MUST disable the static 'basal_daily_units' (flat drift) to prevent double counting.
+        
+        basal_daily_before = payload.params.basal_daily_units or 0.0
+        
+        if payload.events.basal_injections and len(payload.events.basal_injections) > 0:
+            payload.params.basal_daily_units = 0.0
+            
+        basal_daily_after = payload.params.basal_daily_units or 0.0
+
         # Debug Logging for Basal
         import os
         if os.environ.get("PREDICTION_DEBUG", "false").lower() == "true":
              try:
                  count_basal = len(payload.events.basal_injections)
-                 print(f"DEBUG_FORECAST: basal_injected={count_basal > 0} count={count_basal} has_history={has_history}")
+                 print(f"DEBUG_FORECAST: basal_count={count_basal} daily_units_before={basal_daily_before:.2f} daily_units_after={basal_daily_after:.2f} has_history={has_history} start_bg={payload.start_bg}")
              except: pass
 
         # Validate logic? (Pydantic does structure, Engine does math)
