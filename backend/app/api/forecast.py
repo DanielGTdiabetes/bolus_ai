@@ -618,8 +618,14 @@ async def get_current_forecast(
                  # Standardize to 5h (300min) for heavy meals
                  c.absorption_minutes = max(getattr(c, 'absorption_minutes', 0), 300)
 
-            # Case C: Dual/Split in Notes (Manual override)
-            # We already set 360 in the loop above for 'dual' notes. 
+            # Case D: Standard Bolus Alignment
+            # If the carbs are < 240m (e.g. standard 3h) and there is a bolus,
+            # we increase to 240m (4h) to avoid the "tail hypo" cliff. 
+            elif c.grams > 10 and c.time_offset_min > -180:
+                 linked_bolus = any(b for b in boluses if abs(b.time_offset_min - c.time_offset_min) <= 60 and b.units > 0)
+                 if linked_bolus:
+                      # Update to 4h (240) to match the new 4h horizon and reasonable DIA tail
+                      c.absorption_minutes = max(getattr(c, 'absorption_minutes', 0) or 0, 240)
             pass
 
     # Flag for UI

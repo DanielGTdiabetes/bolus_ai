@@ -316,7 +316,16 @@ class ForecastEngine:
                                         warnings.append(warning_msg)
 
                 # Calculate Rate with FINAL profile and grams
+                # We scale the biexponential peaks relative to the 180m (3h) baseline
+                # using the requested duration.
+                dur_m = c.absorption_minutes or req.params.carb_absorption_minutes or 180
+                scale_f = dur_m / 180.0
+                
                 params_curve = CarbCurves.get_profile_params(profile_res["profile"])
+                # Apply scaling to peaks
+                params_curve['t_max_r'] *= scale_f
+                params_curve['t_max_l'] *= scale_f
+                
                 rate = CarbCurves.biexponential_absorption(t_since_meal, params_curve)
                 
                 step_carb_impact_rate += rate * effective_grams * this_cs
