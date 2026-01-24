@@ -1084,20 +1084,22 @@ async def simulate_forecast(
         # Strategy: Fetch DB events. If an event from DB is NOT in payload (by timestamp/match), add it.
         # Since payload usually only contains the "Proposed" bolus (offset 0), we can just append past events.
         
+        # Load User Settings (Always needed for context/fallbacks)
+        user_settings = None
+        try:
+             from app.services.settings_service import get_user_settings_service
+             from app.models.settings import UserSettings
+             
+             data = await get_user_settings_service(user.username, session)
+             if data and data.get("settings"):
+                 user_settings = UserSettings.migrate(data["settings"])
+        except Exception:
+             pass
+
         has_history = any(b.time_offset_min < -1 for b in payload.events.boluses)
         
         if not has_history:
-             # Load User Settings for Contextual Parameters
-             user_settings = None
-             try:
-                 from app.services.settings_service import get_user_settings_service
-                 from app.models.settings import UserSettings
-                 
-                 data = await get_user_settings_service(user.username, session)
-                 if data and data.get("settings"):
-                     user_settings = UserSettings.migrate(data["settings"])
-             except Exception:
-                 pass
+             # user_settings already loaded above
 
              cutoff = datetime.now(timezone.utc) - timedelta(hours=6)
              
@@ -1325,14 +1327,36 @@ async def simulate_forecast(
                  print(f"Forecast Simulate Basal Error: {e}")
                  pass
         
-        # GUARD: Avoid Double Basal (Injections + Params)
-        # If we have explicit basal injections (which are modeled as decays), 
-        # we MUST disable the static 'basal_daily_units' (flat drift) to prevent double counting.
+        # GUARD: Ensure Basal Reference (Liver Compensation)
+        # If we have basal injections (Active Insulin), we MUST have a matching 'basal_daily_units' (Reference).
+        # Otherwise, the engine sees Active Insulin against 0 Reference (Liver=0) -> Hypo (Crash).
+        # We calculate the daily total from the User Settings Schedule (The Reference) if the parameter is missing.
+        # DO NOT SUM HISTORY (Injections != Reference).
         
         basal_daily_before = payload.params.basal_daily_units or 0.0
         
-        if payload.events.basal_injections and len(payload.events.basal_injections) > 0:
-            payload.params.basal_daily_units = 0.0
+        if (payload.params.basal_daily_units or 0) < 0.1 and payload.events.basal_injections:
+            # Try to fetch from User Settings Schedule
+            ref_units = 0.0
+            if user_settings and user_settings.bot and user_settings.bot.proactive and user_settings.bot.proactive.basal:
+                 schedule = user_settings.bot.proactive.basal.schedule
+                 if schedule:
+                      ref_units = sum(item.units for item in schedule)
+            
+            # Fallback: TDD / 2
+            if ref_units <= 0 and user_settings and user_settings.tdd_u:
+                 ref_units = user_settings.tdd_u * 0.5
+            
+            # Fallback: Last Resort (Sum History but capped/averaged?) 
+            # No, if we have no settings, we prefer 0 drift (Crash if active) or safe default?
+            # If we set 0 here, it crashes. 
+            # If we use the injection sum as last resort, it might Drift Up (as verified in thought process).
+            # Drifting Up is safer than Crashing Down to 20.
+            # So as absolute last fallback, we use the injection sum (normalized roughly).
+            if ref_units <= 0:
+                 ref_units = sum(b.units for b in payload.events.basal_injections if b.time_offset_min > -1440)
+            
+            payload.params.basal_daily_units = ref_units
             
         basal_daily_after = payload.params.basal_daily_units or 0.0
 

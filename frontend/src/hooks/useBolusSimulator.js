@@ -108,6 +108,7 @@ export function useBolusSimulator() {
                 peak,
                 insulinModel,
                 carbAbsorption: (settingsAbsorption?.[slot] || 180),
+                basalDailyUnits: params.tdd_u ? (params.tdd_u * 0.5) : undefined,
                 events
             });
 
