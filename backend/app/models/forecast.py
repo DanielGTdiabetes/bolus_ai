@@ -143,4 +143,4 @@ class ForecastResponse(BaseModel):
     
     prediction_meta: Optional[PredictionMeta] = None
     meta: Optional[dict] = None
-
+    prediction_diagnostics: Optional[dict] = None

@@ -1,4 +1,5 @@
 import re
+import os
 from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Query
 from typing import Optional, List
@@ -14,7 +15,7 @@ from app.models.forecast import (
     NightPatternMeta,
 )
 from app.services.forecast_engine import ForecastEngine
-from app.core.security import get_current_user, get_current_user_optional, CurrentUser
+from app.core.security import get_current_user, get_current_user_optional, CurrentUser, require_admin
 from app.core.db import get_db_session
 from app.core.settings import Settings, get_settings
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -25,6 +26,7 @@ from app.services.nightscout_client import NightscoutClient
 from app.services.autosens_service import AutosensService
 from app.services.smart_filter import FilterConfig
 from app.models.basal import BasalEntry
+from app.services.forecast_diagnostics import run_forecast_sweep
 from app.services.dexcom_client import DexcomClient
 from app.services.store import DataStore
 from pathlib import Path
@@ -45,6 +47,47 @@ router = APIRouter()
 
 def _data_store(settings: Settings = Depends(get_settings)) -> DataStore:
     return DataStore(Path(settings.data.data_dir))
+
+
+@router.get("/diagnostics/sweep", summary="Run forecast sweep diagnostics")
+async def forecast_diagnostics_sweep(
+    user_id: str = Query("admin", description="User ID (username) to run diagnostics for."),
+    _: CurrentUser = Depends(require_admin),
+    session: AsyncSession = Depends(get_db_session),
+    settings: Settings = Depends(get_settings),
+):
+    if os.environ.get("FORECAST_DIAGNOSTICS", "0") != "1":
+        raise HTTPException(status_code=404, detail="Diagnostics disabled")
+
+    data = await get_user_settings_service(user_id, session)
+    if not data or not data.get("settings"):
+        raise HTTPException(status_code=404, detail="User settings not found")
+
+    user_settings = UserSettings.migrate(data["settings"])
+
+    from sqlalchemy import select  # Local import to match existing style
+    result = await session.execute(
+        select(BasalEntry)
+        .where(BasalEntry.user_id == user_id)
+        .order_by(BasalEntry.created_at.desc())
+        .limit(1)
+    )
+    basal_entry = result.scalars().first()
+
+    output_dir = settings.data.data_dir / "diagnostics"
+    sweep_result = run_forecast_sweep(
+        user_settings=user_settings,
+        user_id=user_id,
+        basal_entry=basal_entry,
+        output_dir=output_dir,
+        print_summary=False,
+    )
+
+    return {
+        "summary": sweep_result["summary"],
+        "csv_path": sweep_result["csv_path"],
+        "json_path": sweep_result["json_path"],
+    }
 
 @router.get("/current", response_model=ForecastResponse, summary="Get ambient forecast based on current status")
 async def get_current_forecast(

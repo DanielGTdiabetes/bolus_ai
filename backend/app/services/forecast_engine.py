@@ -1,5 +1,6 @@
 import math
 import logging
+import os
 from typing import List, Tuple, Dict, Optional
 from datetime import datetime, timezone
 
@@ -449,6 +450,49 @@ class ForecastEngine:
             time_to_min=time_to_min,
             ending_bg=round(ending_bg, 0)
         )
+
+        prediction_diagnostics = None
+        if os.environ.get("PREDICTION_DEBUG", "false").lower() == "true":
+            def get_nearest_bg(min_target: int) -> Optional[float]:
+                if not time_points:
+                    return None
+                nearest_idx = min(
+                    range(len(time_points)),
+                    key=lambda idx: abs(time_points[idx] - min_target),
+                )
+                return bg_values[nearest_idx]
+
+            bg_t15 = get_nearest_bg(15)
+            first_slope_0_15 = None
+            if bg_t15 is not None:
+                first_slope_0_15 = (bg_t15 - current_bg) / 15.0
+
+            prediction_diagnostics = {
+                "inputs": {
+                    "icr": req.params.icr,
+                    "isf": req.params.isf,
+                    "target": req.params.target_bg,
+                    "dia": req.params.dia_minutes,
+                    "peak": req.params.insulin_peak_minutes,
+                    "model": req.params.insulin_model,
+                    "onset": req.params.insulin_onset_minutes,
+                    "basal_daily_units": req.params.basal_daily_units,
+                },
+                "event_counts": {
+                    "boluses": len(req.events.boluses),
+                    "carbs": len(req.events.carbs),
+                    "basal_injections": len(req.events.basal_injections),
+                },
+                "key_points": {
+                    "bg_min": round(min_bg, 2),
+                    "bg_max": round(max_bg, 2),
+                    "bg_t30": get_nearest_bg(30),
+                    "bg_t60": get_nearest_bg(60),
+                    "bg_t120": get_nearest_bg(120),
+                    "bg_t180": get_nearest_bg(180),
+                    "first_slope_0_15": round(first_slope_0_15, 4) if first_slope_0_15 is not None else None,
+                },
+            }
         
         return ForecastResponse(
             series=series,
@@ -460,7 +504,8 @@ class ForecastEngine:
             absorption_confidence=chosen_confidence,
             absorption_reasons=chosen_reasons,
             slow_absorption_active=(chosen_profile == "slow"),
-            slow_absorption_reason=" ".join(chosen_reasons) if chosen_profile == "slow" else None
+            slow_absorption_reason=" ".join(chosen_reasons) if chosen_profile == "slow" else None,
+            prediction_diagnostics=prediction_diagnostics,
         )
     
     @staticmethod
