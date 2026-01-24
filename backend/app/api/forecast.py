@@ -789,6 +789,12 @@ async def get_current_forecast(
     if future_insulin_u and future_insulin_u > 0:
         use_momentum = False
 
+    # Apply Insulin Onset Delay (Physiological Lag)
+    # Shifts all rapid boluses into the future by onset_min (e.g. 10m)
+    if sim_params.insulin_onset_minutes > 0:
+        for bolus in boluses:
+            bolus.time_offset_min += sim_params.insulin_onset_minutes
+
     payload = ForecastSimulateRequest(
         start_bg=start_bg,
         params=sim_params,
@@ -1367,6 +1373,12 @@ async def simulate_forecast(
                  count_basal = len(payload.events.basal_injections)
                  print(f"DEBUG_FORECAST: basal_count={count_basal} daily_units_before={basal_daily_before:.2f} daily_units_after={basal_daily_after:.2f} has_history={has_history} start_bg={payload.start_bg}")
              except: pass
+
+        # Apply Insulin Onset Delay (Physiological Lag)
+        # Shifts all rapid boluses into the future by onset_min (e.g. 10m)
+        if payload.params.insulin_onset_minutes > 0:
+            for bolus in payload.events.boluses:
+                bolus.time_offset_min += payload.params.insulin_onset_minutes
 
         # Validate logic? (Pydantic does structure, Engine does math)
         response = ForecastEngine.calculate_forecast(payload)
