@@ -1,7 +1,7 @@
 
 import { useState, useCallback } from 'react';
 import { getIOBData, fetchTreatments, simulateForecast } from '../lib/api';
-import { buildHistoryFromSnapshot, shouldDegradeSimulation } from '../pages/bolusSimulationUtils';
+import { buildHistoryFromSnapshot, shouldDegradeSimulation, buildForecastPayload } from '../pages/bolusSimulationUtils';
 
 export function useBolusSimulator() {
     const [predictionData, setPredictionData] = useState(null);
@@ -99,19 +99,17 @@ export function useBolusSimulator() {
                 carbs: [...historyEvents.carbs, ...primaryCarbs]
             };
 
-            const payload = {
-                start_bg: bgVal,
-                horizon_minutes: 300,
-                params: {
-                    isf: isf,
-                    icr: icr,
-                    dia_minutes: dia * 60,
-                    insulin_peak_minutes: peak,
-                    carb_absorption_minutes: (settingsAbsorption?.[slot] || 180),
-                    insulin_model: insulinModel
-                },
-                events: events
-            };
+            const payload = buildForecastPayload({
+                bgVal,
+                targetMgdl,
+                isf,
+                icr,
+                dia,
+                peak,
+                insulinModel,
+                carbAbsorption: (settingsAbsorption?.[slot] || 180),
+                events
+            });
 
             const res = await simulateForecast(payload);
             setPredictionData(res);

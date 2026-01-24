@@ -6,17 +6,26 @@ export function shouldDegradeSimulation(iobStatus, cobStatus) {
 export function buildHistoryFromSnapshot(iobData, treatments = [], now = new Date()) {
   const events = { boluses: [], carbs: [] };
   const reference = now instanceof Date ? now : new Date(now);
+  const seenBoluses = new Set();
 
-  if (iobData && Array.isArray(iobData.breakdown)) {
+  const useBreakdown = iobData && Array.isArray(iobData.breakdown) && iobData.breakdown.length > 0;
+
+  if (useBreakdown) {
     iobData.breakdown.forEach((b) => {
       if (!b.ts || !b.units) return;
       const ts = new Date(b.ts);
       const offset = -1 * Math.round((reference.getTime() - ts.getTime()) / 60000);
-      events.boluses.push({
-        time_offset_min: offset,
-        units: b.units,
-        duration_minutes: b.duration || 0,
-      });
+
+      const key = `${offset.toFixed(1)}:${parseFloat(b.units).toFixed(2)}`;
+
+      if (!seenBoluses.has(key)) {
+        events.boluses.push({
+          time_offset_min: offset,
+          units: b.units,
+          duration_minutes: b.duration || 0,
+        });
+        seenBoluses.add(key);
+      }
     });
   }
 
@@ -27,14 +36,6 @@ export function buildHistoryFromSnapshot(iobData, treatments = [], now = new Dat
     const carbs = parseFloat(t.carbs || 0);
     const insulin = parseFloat(t.insulin || 0);
 
-    if (insulin > 0) {
-      events.boluses.push({
-        time_offset_min: offset,
-        units: insulin,
-        duration_minutes: t.duration || 0,
-      });
-    }
-
     if (carbs > 0 || t.fiber > 0) {
       events.carbs.push({
         time_offset_min: offset,
@@ -44,7 +45,53 @@ export function buildHistoryFromSnapshot(iobData, treatments = [], now = new Dat
         fiber_g: parseFloat(t.fiber || 0),
       });
     }
+
+    // Basal - explicitly ignore for bolus array
+    if (t.eventType === 'Basal') {
+      // Future: map to events.basal_injections if supported
+      return;
+    }
+
+    if (!useBreakdown && insulin > 0) {
+      const key = `${offset.toFixed(1)}:${insulin.toFixed(2)}`;
+      if (!seenBoluses.has(key)) {
+        events.boluses.push({
+          time_offset_min: offset,
+          units: insulin,
+          duration_minutes: t.duration || 0,
+        });
+        seenBoluses.add(key);
+      }
+    }
   });
 
   return events;
+}
+
+export function buildForecastPayload({
+  bgVal,
+  targetMgdl,
+  isf,
+  icr,
+  dia,
+  peak,
+  insulinModel,
+  carbAbsorption,
+  events
+}) {
+  return {
+    start_bg: bgVal,
+    units: 'mgdl',
+    horizon_minutes: 300,
+    params: {
+      isf: isf,
+      icr: icr,
+      dia_minutes: dia * 60,
+      insulin_peak_minutes: peak,
+      carb_absorption_minutes: carbAbsorption,
+      insulin_model: insulinModel,
+      target_bg: targetMgdl
+    },
+    events: events
+  };
 }
