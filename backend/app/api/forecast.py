@@ -790,31 +790,28 @@ async def get_current_forecast(
         use_momentum = False
 
     # Calculate Resistance Multiplier (If not provided)
-    # Based on Ratio of Current ICR vs Reference ICR (Lunch)
-    # e.g. Breakfast ICR 2.5, Lunch 9.0 -> Ratio 0.27 -> Multiplier 0.35 (Lower bound)
-    if sim_params.insulin_sensitivity_multiplier is None and user_settings and user_settings.cr:
+    # Based on Ratio of Current ISF vs Reference ISF (Lunch)
+    # e.g. Breakfast ISF 40, Lunch 100 -> Ratio 0.4 -> Multiplier 0.4 (Resistance)
+    if sim_params.insulin_sensitivity_multiplier is None and user_settings and user_settings.cf:
         try:
-            # Reference: Lunch ICR (Standard Baseline)
-            icr_ref = float(user_settings.cr.lunch or 10.0)
+            # Reference: Lunch ISF (Correction Factor)
+            isf_ref = float(user_settings.cf.lunch) if user_settings.cf.lunch else 0.0
             
-            # Current Slot ICR
-            # We need to re-derive slot or use passed params?
-            # Ideally we use the slot corresponding to "Now".
-            # We can use the 'curr_icr' variable which was resolved for the current time.
-            icr_slot = curr_icr 
+            # Current Slot ISF (Resolved for current time)
+            isf_slot = curr_isf 
             
-            if icr_ref > 0 and icr_slot > 0:
-                ratio = icr_slot / icr_ref
-                # Clamp: Min 0.35, Max 1.0
-                multiplier = max(0.35, min(1.0, ratio))
+            if isf_ref > 0 and isf_slot > 0:
+                ratio = isf_slot / isf_ref
+                # Clamp: Min 0.4 (High Resistance), Max 1.2 (High Sensitivity)
+                multiplier = max(0.4, min(1.2, ratio))
                 sim_params.insulin_sensitivity_multiplier = multiplier
                 
                 # Debug Logging
                 import os
                 if os.environ.get("PREDICTION_DEBUG", "false").lower() == "true":
-                    print(f"DEBUG_RESISTANCE: icr_ref={icr_ref} icr_slot={icr_slot} ratio={ratio:.2f} mult={multiplier:.2f}")
+                    print(f"DEBUG_RESISTANCE (ISF): isf_ref={isf_ref} isf_slot={isf_slot} ratio={ratio:.2f} mult={multiplier:.2f}")
         except Exception as e:
-            print(f"Resistance Calc Error: {e}")
+            print(f"Resistance Calc Error (ISF): {e}")
             pass
 
     # Apply Insulin Onset Delay (Physiological Lag)
@@ -1429,21 +1426,19 @@ async def simulate_forecast(
                     bolus.time_offset_min += onset_val
 
         # Calculate Resistance Multiplier (If not provided) in /simulate
-        if payload.params.insulin_sensitivity_multiplier is None and user_settings and user_settings.cr:
+        # Uses ISF (Correction Factor) as reference
+        if payload.params.insulin_sensitivity_multiplier is None and user_settings and user_settings.cf:
              try:
-                 # Reference: Lunch ICR (Standard Baseline)
-                 icr_ref = float(user_settings.cr.lunch or 10.0)
+                 # Reference: Lunch ISF
+                 isf_ref = float(user_settings.cf.lunch) if user_settings.cf.lunch else 0.0
                  
-                 # Current Slot ICR
-                 # For simulate, we need to resolve it via timestamp (now)
-                 h = datetime.now(timezone.utc).hour # Rough approx for now
-                 # Or verify if we can rely on payload.params.icr being the "current" one?
-                 # Yes, usually payload.params.icr IS the slot ICR.
-                 icr_slot = payload.params.icr
+                 # Current Slot ISF (Simulated)
+                 # In simulate endpoint, 'params.isf' is the effective ISF for the prediction
+                 isf_slot = payload.params.isf
                  
-                 if icr_ref > 0 and icr_slot > 0:
-                     ratio = icr_slot / icr_ref
-                     multiplier = max(0.35, min(1.0, ratio))
+                 if isf_ref > 0 and isf_slot > 0:
+                     ratio = isf_slot / isf_ref
+                     multiplier = max(0.4, min(1.2, ratio))
                      payload.params.insulin_sensitivity_multiplier = multiplier
              except Exception:
                  pass
