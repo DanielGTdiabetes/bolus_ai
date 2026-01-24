@@ -1,6 +1,7 @@
-# 🚀 Despliegue en Render (Guía Paso a Paso)
+# ☁️ Despliegue en Render (Modo Respaldo / Cloud)
 
-Esta guía explica cómo desplegar **Bolus AI** en Render de forma sencilla, incluso si no tienes conocimientos técnicos.
+Esta guía explica cómo desplegar **Bolus AI** en Render para que actúe como **Backup de Emergencia** o instancia secundaria.
+*Si buscas la configuración principal, ve a la [Guía NAS](./NAS_SETUP.md).*
 
 ## 1. Preparación del Repositorio
 Asegúrate de tener el código en un repositorio de **GitHub** o **GitLab**. Render se conectará a este repositorio para descargar y ejecutar la aplicación.

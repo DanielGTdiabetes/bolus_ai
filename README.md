@@ -24,28 +24,36 @@ Para una explicación completa de cómo funciona la aplicación, consulta nuestr
 - **📊 Gestión de Basal**: Análisis de "Amanecer" y eficacia nocturna.
 
 ---
-## 💻 Ejecución Local (Recomendado Desarrollo)
-Para trabajar en el proyecto sin consumir minutos de Render, usa nuestra guía de ejecución local con Backend (Python) y Frontend (Vite) separados.
+## 🏗 Arquitectura Híbrida (Alta Disponibilidad)
 
-👉 **[GUÍA DE EJECUCIÓN LOCAL](./GUIA_EJECUCION_LOCAL.md)**
+Bolus AI utiliza una arquitectura robusta de **Doble Instancia** para asegurar que nunca pierdas el servicio:
 
----
+1.  **🏠 NAS (Principal):** Tu servidor local (Docker) es la instancia maestra. Gestiona el Bot de Telegram principal, almacena datos localmente y funciona sin latencia.
+2.  **☁️ Render (Backup/Guardian):** Una instancia en la nube que monitoriza tu NAS. Si tu casa se queda sin internet o luz, puedes usar Render inmediatamente. Los datos se sincronizan automáticamente.
 
-## 🚀 Despliegue Rápido (Render)
-
-La forma más sencilla de tener tu propia instancia de Bolus AI es en **Render**. 
-
-👉 **[Consulta la Guía Detallada de Instalación en Render](./RENDER_SETUP.md)**
+### 📚 Guías de Despliegue
+- 👉 **[Instalación Principal en NAS](./NAS_SETUP.md)** (Recomendado)
+- 👉 **[Instalación de Respaldo en Render](./RENDER_SETUP.md)**
 
 ---
 
-## 🧩 Funciones Destacadas
+## 🤖 Doble Bot de Telegram
 
-### 🧠 Smart Input (Aprendizaje)
-El sistema aprende de tus comidas anteriores. Si escribes "Lentejas", la app recuperará automáticamente cuántos carbohidratos tenían la última vez y te permitirá ajustar la cantidad. Además, guarda un historial inteligente para futuras sugerencias de estrategia.
+Para soportar esta arquitectura, el sistema gestiona dos comportamientos del Bot:
+- **Bot Principal (NAS):** Procesa tus fotos, cálculos y recordatorios. Usa Webhooks para máxima velocidad.
+- **Bot Guardián (Render):** Monitoriza silenciósamente. Si detecta que el NAS cae, puede asumir el control o servir como punto de acceso de emergencia.
 
-### 📍 Rotación de Sitios (Body Map)
-Evita lipodistrofias usando el avatar visual. La app recuerda exactamente dónde te pinchaste la última vez (ej: "Muslo Izquierdo - Punto 2") y te sugiere el siguiente punto de rotación automáticamente.
+Consulta los detalles en: 👉 **[GUÍA DEL BOT TELEGRAM](./README_BOT.md)**
+
+---
+
+## ✨ Características Principales
+
+- **🧠 Autosens & IA:** Detección automática de sensibilidad y análisis de fotos de comida.
+- **🔄 Sincronización Bidireccional:** NAS -> Neon (Backup cada 4h) con "Válvula de Seguridad" para evitar sobrescrituras.
+- **📍 Mapa Corporal:** Rotación de sitios de inyección con memoria visual.
+- **🛡️ Regla de Oro V2:** Sistema anti-pánico inteligente.
+
 
 ### 📏 Truco del Bolígrafo (Calibración)
 Si habilitas el análisis de imagen, puedes colocar tu **pluma de insulina** (modelo NovoPen Echo Plus o similar, color rojo metálico) junto al plato. La IA sabe que mide exactamente **16.5 cm** y la usará para calibrar el volumen real de la comida.

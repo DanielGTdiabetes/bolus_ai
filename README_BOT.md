@@ -1,32 +1,42 @@
 # Telegram Bot (Asistente IA Proactivo)
 
-## Variables de entorno mínimas
+## 🏗 Arquitectura de Doble Bot (HA)
+El sistema está diseñado para tener **dos instancias** del bot corriendo simultáneamente sin conflictos:
+
+1.  **Bot Principal (NAS):** 
+    - **Estado:** Activo (Webhook).
+    - **Función:** Procesa todas las interacciones, fotos, audios y cálculos.
+    - **Requisito:** Debe tener `ENABLE_TELEGRAM_BOT=true` y `BOT_PUBLIC_URL` apuntando a tu IP/DDNS.
+
+2.  **Bot Guardián (Render):**
+    - **Estado:** Pasivo / Send-Only / Polling (Fallback).
+    - **Función:** Monitoriza la salud del NAS. Sirve como respaldo si el NAS pierde conexión.
+    - **Mecanismo:** Si el NAS mantiene el Webhook activo, el bot de Render no puede recibir mensajes (Telegram entrega solo a uno). Esto es **INTENCIONAL**. Render solo procesará mensajes si el Webhook del NAS falla o se elimina.
+
+---
+
+## Variables de entorno
+
+### Comunes (NAS y Render)
 - `ENABLE_TELEGRAM_BOT=true`
 - `TELEGRAM_BOT_TOKEN=<token>`
-- `ALLOWED_TELEGRAM_USER_ID=<id numérico>`
-- URL pública para webhook (prioridad): `BOT_PUBLIC_URL` > `RENDER_EXTERNAL_URL` > `PUBLIC_URL`. Si ninguna está presente, el bot usa **polling** automáticamente.
-- `TELEGRAM_WEBHOOK_SECRET=<secreto>`
-- URLs de respaldo/monitor:
-  - `RENDER_EXTERNAL_URL` (URL alternativa de Render para alertas de caída NAS)
-  - `NAS_PUBLIC_URL` (URL principal del NAS para alertas de recuperación)
-- URL pública para enlaces en notificaciones Telegram:
-  - `NAS_EXTERNAL_URL` (principal, NAS) o `RENDER_EXTERNAL_URL` (fallback).
-- Voz (opcional):
-  - `ENABLE_TELEGRAM_VOICE=true`
-  - `GEMINI_API_KEY` (obligatoria para voz, puede reutilizarse con `GOOGLE_API_KEY`)
-  - `GEMINI_TRANSCRIBE_MODEL` (opcional, default `gemini-2.0-flash-exp` - *Experimental, puede cambiar*)
-  - `MAX_VOICE_SECONDS` (default 45)
-  - `MAX_VOICE_MB` (default 10)
+- `ALLOWED_TELEGRAM_USER_ID=<id>`
+- `TELEGRAM_WEBHOOK_SECRET=<secreto>` (Vital para seguridad en Webhook)
 
-### Activar notas de voz (Gemini)
-1. Añade `GEMINI_API_KEY` (o `GOOGLE_API_KEY`). Si no defines `ENABLE_TELEGRAM_VOICE`, la voz se **autoactiva** cuando detecta la clave.
-2. (Opcional) Forzar encendido/apagado con `ENABLE_TELEGRAM_VOICE=true|false`. Ajusta `GEMINI_TRANSCRIBE_MODEL`, `MAX_VOICE_SECONDS` o `MAX_VOICE_MB` según tu despliegue.
-3. Reinicia el backend. Los logs de arranque indicarán si la voz está habilitada y el proveedor (Gemini).
-4. Envía una nota de voz en Telegram: si la transcripción es dudosa, recibirás confirmación con botones ✅/✏️/❌ antes de continuar.
+### Específicas del NAS (Principal)
+- `BOT_PUBLIC_URL`: URL pública de tu casa (ej. `https://mi-ddns.net`). **Fuerza el modo Webhook**.
+- `NAS_EXTERNAL_URL`: Igual que arriba, usada para generar links en los mensajes.
 
-## Modos de entrega
-- **Webhook**: si hay URL pública disponible. Se registra en `/api/webhook/telegram` con `TELEGRAM_WEBHOOK_SECRET`.
-- **Polling (fallback)**: si no hay URL pública. Intervalo y timeout configurables con `TELEGRAM_POLL_INTERVAL` y `TELEGRAM_POLL_TIMEOUT`. No bloquea FastAPI.
+### Específicas de Render (Backup)
+- `RENDER_EXTERNAL_URL`: URL de render (ej. `https://app.onrender.com`).
+- No definir `BOT_PUBLIC_URL` aquí para permitir que use la URL de Render automáticamente o caiga a Polling si el Webhook está ocupado por el NAS.
+
+---
+
+## Modos de entrega y Resolución de Conflictos
+- **Prioridad Webhook:** Si `BOT_PUBLIC_URL` está definida, el bot intentará registrar el Webhook.
+- **Fallback Polling:** Si el registro del Webhook falla o no hay URL pública, intentará usar Polling.
+- **Bot Conflict:** Si ves errores `Conflict: terminated by other getUpdates`, asegura que solo UNA instancia esté en Polling. En el diseño ideal, NAS está en Webhook y Render espera (o usa Polling con backoff).
 
 ### Webhook diagnóstico
 - Verifica estado rápido: `curl https://<tu-app>.onrender.com/api/health/bot`
