@@ -1121,6 +1121,7 @@ async def simulate_forecast(
                  last_row = None
                  for row in sorted_rows:
                      is_dup = False
+                     dt_diff = 999999 # Safety init
                      if last_row:
                          dt_diff = abs((row.created_at - last_row.created_at).total_seconds())
                          if dt_diff < 120:
@@ -1279,8 +1280,15 @@ async def simulate_forecast(
                         fiber_g=getattr(row, 'fiber', 0) or 0
                     ))
 
-             # Fetch Basal History for Simulation
+             # Basal fetching moved outside to ensure it runs even if history exists
+             pass
+
+        # 3. Fetch Basal History (Always try if missing from payload)
+        if not payload.events.basal_injections:
              try:
+                 from app.models.basal import BasalEntry
+                 from sqlalchemy import select
+                 
                  basal_cutoff = datetime.now(timezone.utc) - timedelta(hours=48)
                  stmt_basal = (
                      select(BasalEntry)
@@ -1301,6 +1309,12 @@ async def simulate_forecast(
                      dur = (row.effective_hours or 24) * 60
                      b_type = row.basal_type if row.basal_type else "glargine"
                      
+                     # Simple Dedupe (Safety)
+                     # Check if we already have this EXACT injection (time + units)
+                     # to avoid double insertion if logic runs twice or parallel merge
+                     # (Though we are inside 'if not basal_injections', so list is empty initially.
+                     # But loop continues, so we dedupe against *just added* items? No need.)
+                     
                      payload.events.basal_injections.append(ForecastBasalInjection(
                          time_offset_min=int(b_offset),
                          units=row.dose_u,
@@ -1310,6 +1324,14 @@ async def simulate_forecast(
              except Exception as e:
                  print(f"Forecast Simulate Basal Error: {e}")
                  pass
+        
+        # Debug Logging for Basal
+        import os
+        if os.environ.get("PREDICTION_DEBUG", "false").lower() == "true":
+             try:
+                 count_basal = len(payload.events.basal_injections)
+                 print(f"DEBUG_FORECAST: basal_injected={count_basal > 0} count={count_basal} has_history={has_history}")
+             except: pass
 
         # Validate logic? (Pydantic does structure, Engine does math)
         response = ForecastEngine.calculate_forecast(payload)
