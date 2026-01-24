@@ -791,12 +791,11 @@ async def get_current_forecast(
 
     # Apply Insulin Onset Delay (Physiological Lag)
     # Shifts all rapid boluses into the future by onset_min (e.g. 10m)
-    # Apply Insulin Onset Delay (Physiological Lag)
-    # Shifts all rapid boluses into the future by onset_min (e.g. 10m)
     onset_val = sim_params.insulin_onset_minutes or 0
     if onset_val > 0:
         for bolus in boluses:
-            bolus.time_offset_min += onset_val
+            if bolus.time_offset_min >= -1:
+                bolus.time_offset_min += onset_val
 
     payload = ForecastSimulateRequest(
         start_bg=start_bg,
