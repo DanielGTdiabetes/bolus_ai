@@ -183,7 +183,11 @@ class ForecastEngine:
                     rate = InsulinCurves.get_activity(t_since_inj, req.params.dia_minutes, req.params.insulin_peak_minutes, req.params.insulin_model)
                     total_insulin_activity += rate * b.units
             
-            step_insulin_drop = total_insulin_activity * isf * dt
+            # Apply Sensitivity Multiplier (Resistance)
+            # Default to 1.0 (Full Efficacy) if None
+            sens_multiplier = req.params.insulin_sensitivity_multiplier if req.params.insulin_sensitivity_multiplier is not None else 1.0
+            
+            step_insulin_drop = total_insulin_activity * isf * dt * sens_multiplier
             accum_insulin_impact -= step_insulin_drop
             
             # Carbs

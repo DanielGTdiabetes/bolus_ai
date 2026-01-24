@@ -789,6 +789,34 @@ async def get_current_forecast(
     if future_insulin_u and future_insulin_u > 0:
         use_momentum = False
 
+    # Calculate Resistance Multiplier (If not provided)
+    # Based on Ratio of Current ICR vs Reference ICR (Lunch)
+    # e.g. Breakfast ICR 2.5, Lunch 9.0 -> Ratio 0.27 -> Multiplier 0.35 (Lower bound)
+    if sim_params.insulin_sensitivity_multiplier is None and user_settings and user_settings.cr:
+        try:
+            # Reference: Lunch ICR (Standard Baseline)
+            icr_ref = float(user_settings.cr.lunch or 10.0)
+            
+            # Current Slot ICR
+            # We need to re-derive slot or use passed params?
+            # Ideally we use the slot corresponding to "Now".
+            # We can use the 'curr_icr' variable which was resolved for the current time.
+            icr_slot = curr_icr 
+            
+            if icr_ref > 0 and icr_slot > 0:
+                ratio = icr_slot / icr_ref
+                # Clamp: Min 0.35, Max 1.0
+                multiplier = max(0.35, min(1.0, ratio))
+                sim_params.insulin_sensitivity_multiplier = multiplier
+                
+                # Debug Logging
+                import os
+                if os.environ.get("PREDICTION_DEBUG", "false").lower() == "true":
+                    print(f"DEBUG_RESISTANCE: icr_ref={icr_ref} icr_slot={icr_slot} ratio={ratio:.2f} mult={multiplier:.2f}")
+        except Exception as e:
+            print(f"Resistance Calc Error: {e}")
+            pass
+
     # Apply Insulin Onset Delay (Physiological Lag)
     # Shifts all rapid boluses into the future by onset_min (e.g. 10m)
     onset_val = sim_params.insulin_onset_minutes or 0
@@ -1399,6 +1427,26 @@ async def simulate_forecast(
             for bolus in payload.events.boluses:
                 if bolus.time_offset_min >= -1:
                     bolus.time_offset_min += onset_val
+
+        # Calculate Resistance Multiplier (If not provided) in /simulate
+        if payload.params.insulin_sensitivity_multiplier is None and user_settings and user_settings.cr:
+             try:
+                 # Reference: Lunch ICR (Standard Baseline)
+                 icr_ref = float(user_settings.cr.lunch or 10.0)
+                 
+                 # Current Slot ICR
+                 # For simulate, we need to resolve it via timestamp (now)
+                 h = datetime.now(timezone.utc).hour # Rough approx for now
+                 # Or verify if we can rely on payload.params.icr being the "current" one?
+                 # Yes, usually payload.params.icr IS the slot ICR.
+                 icr_slot = payload.params.icr
+                 
+                 if icr_ref > 0 and icr_slot > 0:
+                     ratio = icr_slot / icr_ref
+                     multiplier = max(0.35, min(1.0, ratio))
+                     payload.params.insulin_sensitivity_multiplier = multiplier
+             except Exception:
+                 pass
 
         # Validate logic? (Pydantic does structure, Engine does math)
         response = ForecastEngine.calculate_forecast(payload)

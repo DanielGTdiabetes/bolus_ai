@@ -79,8 +79,28 @@ export function buildForecastPayload({
   carbAbsorption,
   basalDailyUnits,
   insulinOnset,
+  settings, // Add settings to calc multiplier
+  slot,
   events
 }) {
+  // Calculate Resistance Multiplier
+  // Logic: Ratio of Current Slot ICR / Lunch ICR (Reference)
+  let sensitivityMultiplier = 1.0;
+  if (settings && settings.cr && slot) {
+    try {
+      const icrRef = parseFloat(settings.cr.lunch || 10.0);
+      const icrSlot = parseFloat(settings.cr[slot] || icrRef);
+
+      if (icrRef > 0 && icrSlot > 0) {
+        const ratio = icrSlot / icrRef;
+        // Clamp: Min 0.35 (High Resistance), Max 1.0 (Normal)
+        sensitivityMultiplier = Math.min(1.0, Math.max(0.35, ratio));
+      }
+    } catch (e) {
+      console.warn("Error calculating sensitivity multiplier", e);
+    }
+  }
+
   return {
     start_bg: bgVal,
     units: 'mgdl',
@@ -93,6 +113,7 @@ export function buildForecastPayload({
       carb_absorption_minutes: carbAbsorption,
       insulin_model: insulinModel,
       insulin_onset_minutes: insulinOnset,
+      insulin_sensitivity_multiplier: sensitivityMultiplier,
       target_bg: targetMgdl,
       basal_daily_units: basalDailyUnits
     },

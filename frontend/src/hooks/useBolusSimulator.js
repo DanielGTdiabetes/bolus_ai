@@ -124,6 +124,8 @@ export function useBolusSimulator() {
                 carbAbsorption: (settingsAbsorption?.[slot] || 180),
                 basalDailyUnits: params.tdd_u ? (params.tdd_u * 0.5) : undefined,
                 insulinOnset,
+                settings: context.settings,
+                slot,
                 events
             });
 
