@@ -951,6 +951,38 @@ export async function getLearningLogs(limit = 20) {
   return data;
 }
 
+export async function getLearningSummary() {
+  const response = await apiFetch("/api/learning/summary");
+  const data = await toJson(response);
+  if (!response.ok) throw new Error(data.detail || "Error al obtener resumen de aprendizaje");
+  return data;
+}
+
+export async function getLearningClusters() {
+  const response = await apiFetch("/api/learning/clusters");
+  const data = await toJson(response);
+  if (!response.ok) throw new Error(data.detail || "Error al obtener clusters");
+  return data;
+}
+
+export async function getLearningClusterDetail(clusterKey: string) {
+  const response = await apiFetch(`/api/learning/clusters/${encodeURIComponent(clusterKey)}`);
+  const data = await toJson(response);
+  if (!response.ok) throw new Error(data.detail || "Error al obtener detalle del cluster");
+  return data;
+}
+
+export async function getLearningEvents(filters: { event_kind?: string; window_status?: string } = {}) {
+  const params = new URLSearchParams();
+  if (filters.event_kind) params.set("event_kind", filters.event_kind);
+  if (filters.window_status) params.set("window_status", filters.window_status);
+  const query = params.toString();
+  const response = await apiFetch(`/api/learning/events${query ? `?${query}` : ""}`);
+  const data = await toJson(response);
+  if (!response.ok) throw new Error(data.detail || "Error al obtener eventos de aprendizaje");
+  return data;
+}
+
 export async function updateSettings(settings, version) {
   const resolvedVersion = version ?? settings?.version;
   if (resolvedVersion === undefined || resolvedVersion === null) {

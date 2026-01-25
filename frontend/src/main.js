@@ -50,8 +50,8 @@ registerView('#/history', () => {
 registerView('#/notifications', () => {
   import('./bridge.jsx').then(({ mountReactPage }) => mountReactPage('notifications'));
 });
-registerView('#/patterns', () => {
-  import('./bridge.jsx').then(({ mountReactPage }) => mountReactPage('patterns'));
+registerView('#/learning', () => {
+  import('./bridge.jsx').then(({ mountReactPage }) => mountReactPage('learning'));
 });
 registerView('#/suggestions', () => {
   import('./bridge.jsx').then(({ mountReactPage }) => mountReactPage('suggestions'));

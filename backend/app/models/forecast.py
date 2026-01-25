@@ -48,9 +48,13 @@ class ForecastEventCarbs(BaseModel):
     fat_g: float = 0.0
     protein_g: float = 0.0
     absorption_minutes: Optional[int] = None # Override global absorption if set
+    absorption_peak_min: Optional[int] = None
+    absorption_tail_min: Optional[int] = None
+    absorption_shape: Optional[str] = None
     icr: Optional[float] = None # Specific ICR for this meal (g/U)
     carb_profile: Optional[str] = None # 'fast', 'med', 'slow' or None (auto)
     is_dessert: bool = False # Flag for dessert mode (forces fast absorption)
+    event_kind: Optional[str] = None
 
 class ForecastBasalInjection(BaseModel):
     time_offset_min: int = Field(0, description="Minutes from now (transaction time)")
@@ -149,4 +153,3 @@ class ForecastResponse(BaseModel):
     
     prediction_meta: Optional[PredictionMeta] = None
     meta: Optional[dict] = None
-

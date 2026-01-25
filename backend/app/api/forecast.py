@@ -1,3 +1,4 @@
+import logging
 import re
 from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -31,6 +32,14 @@ from pathlib import Path
 from app.services.iob import compute_iob_from_sources, compute_cob_from_sources
 from app.services.ml_inference_service import MLInferenceService
 from app.api.ml_features import build_runtime_features
+from app.services.meal_learning_service import (
+    EVENT_KIND_STANDARD,
+    classify_event_kind,
+    fetch_cluster_for_event,
+    should_use_learned_curve,
+)
+
+logger = logging.getLogger(__name__)
 
 from app.services.night_pattern import (
     LOCAL_TZ,
@@ -466,7 +475,8 @@ async def get_current_forecast(
                 carb_profile=getattr(row, "carb_profile", None),
                 fat_g=getattr(row, 'fat', 0) or 0,
                 protein_g=getattr(row, 'protein', 0) or 0,
-                fiber_g=getattr(row, 'fiber', 0) or 0
+                fiber_g=getattr(row, 'fiber', 0) or 0,
+                event_kind=classify_event_kind(row)[0],
             ))
 
         # Avoid double counting: ForecastEngine acts on fat/protein attached to the main carb event.
@@ -486,7 +496,8 @@ async def get_current_forecast(
                     carb_profile=getattr(row, "carb_profile", None),
                     fat_g=getattr(row, "fat", 0) or 0,
                     protein_g=getattr(row, "protein", 0) or 0,
-                    fiber_g=getattr(row, "fiber", 0) or 0
+                    fiber_g=getattr(row, "fiber", 0) or 0,
+                    event_kind=classify_event_kind(row)[0],
                 ))
 
 
@@ -621,6 +632,37 @@ async def get_current_forecast(
                  c.absorption_minutes = max(getattr(c, 'absorption_minutes', 0), 300)
 
             pass
+
+    # 3.6. Apply Learned Absorption Curves (Standard meals only)
+    if carbs and user_settings.learning and user_settings.learning.absorption_learning_enabled:
+        for c in carbs:
+            if c.event_kind != EVENT_KIND_STANDARD:
+                logger.info("Forecast uses base curve (event_kind=%s).", c.event_kind)
+                continue
+
+            cluster = await fetch_cluster_for_event(
+                session=session,
+                carb_profile=c.carb_profile,
+                tags=None,
+                carbs_g=c.grams,
+                protein_g=c.protein_g,
+                fat_g=c.fat_g,
+                fiber_g=c.fiber_g,
+                user_id=username,
+            )
+            if should_use_learned_curve(cluster):
+                c.absorption_minutes = cluster.absorption_duration_min or c.absorption_minutes
+                c.absorption_peak_min = cluster.peak_min
+                c.absorption_tail_min = cluster.tail_min
+                c.absorption_shape = cluster.shape
+                logger.info(
+                    "Forecast uses learned curve: cluster_key=%s n_ok=%s confidence=%s",
+                    cluster.cluster_key,
+                    cluster.n_ok,
+                    cluster.confidence,
+                )
+            else:
+                logger.info("Forecast uses base curve (no learned cluster).")
 
     # Flag for UI
     is_slow_absorption = False

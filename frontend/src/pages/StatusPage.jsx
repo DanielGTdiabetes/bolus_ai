@@ -2,34 +2,31 @@ import React, { useState, useEffect } from 'react';
 import { Header } from '../components/layout/Header';
 import { BottomNav } from '../components/layout/BottomNav';
 import { Card, Button } from '../components/ui/Atoms';
-import { fetchHealth, fetchAutosens, getLearningLogs, getSuggestions, getAnalysisSummary } from '../lib/api';
+import { fetchHealth, fetchAutosens, getLearningSummary, getSuggestions } from '../lib/api';
 import { navigate } from '../modules/core/navigation';
 
 export default function StatusPage() {
     const [loading, setLoading] = useState(true);
     const [health, setHealth] = useState(null);
     const [autosens, setAutosens] = useState(null);
-    const [logs, setLogs] = useState([]);
     const [suggestions, setSuggestions] = useState([]);
-    const [analysis, setAnalysis] = useState(null);
+    const [learningSummary, setLearningSummary] = useState(null);
 
     const refresh = async () => {
         setLoading(true);
         try {
             // Parallel fetches
-            const [h, a, l, s, an] = await Promise.allSettled([
+            const [h, a, s, summary] = await Promise.allSettled([
                 fetchHealth(),
                 fetchAutosens(),
-                getLearningLogs(10), // Limit 10 for dashboard
                 getSuggestions('pending'),
-                getAnalysisSummary(14)
+                getLearningSummary()
             ]);
 
             setHealth(h.status === 'fulfilled' ? h.value : { status: 'error', error: h.reason?.message });
             setAutosens(a.status === 'fulfilled' ? a.value : null);
-            setLogs(l.status === 'fulfilled' ? l.value : []);
             setSuggestions(s.status === 'fulfilled' ? s.value : []);
-            setAnalysis(an.status === 'fulfilled' ? an.value : null);
+            setLearningSummary(summary.status === 'fulfilled' ? summary.value : null);
 
         } catch (e) {
             console.error(e);
@@ -94,16 +91,16 @@ export default function StatusPage() {
                     )}
                 </Card>
 
-                {/* PATTERNS & SUGGESTIONS */}
+                {/* LEARNING & SUGGESTIONS */}
                 <Card title="Inteligencia">
                     <div className="stack" style={{ gap: '1rem' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingBottom: '0.5rem', borderBottom: '1px solid #f1f5f9' }}>
                             <div>
-                                <div style={{ fontWeight: 600 }}>Patrones</div>
-                                <div style={{ fontSize: '0.8rem', color: '#64748b' }}>Análisis de 14 días</div>
+                                <div style={{ fontWeight: 600 }}>Aprendizaje</div>
+                                <div style={{ fontSize: '0.8rem', color: '#64748b' }}>Timing de absorción</div>
                             </div>
-                            <Button variant="ghost" onClick={() => navigate('#/patterns')}>
-                                {analysis?.patterns_found?.length || 0} Detectados →
+                            <Button variant="ghost" onClick={() => navigate('#/learning')}>
+                                {learningSummary?.clusters_active || 0} Clusters →
                             </Button>
                         </div>
 
@@ -117,55 +114,6 @@ export default function StatusPage() {
                             </Button>
                         </div>
                     </div>
-                </Card>
-
-                {/* APRENDIZAJE */}
-                <Card title="Aprendizaje">
-                    <div style={{ marginBottom: '1rem' }}>
-                        <div style={{ fontSize: '0.9rem', color: '#64748b' }}>
-                            Historial de aprendizaje y feedback reciente.
-                        </div>
-                    </div>
-
-                    {logs.length === 0 ? (
-                        <div className="text-muted text-center p-4" style={{ fontSize: '0.9rem' }}>
-                            Sin datos recientes. Usa el sistema para generar aprendizaje.
-                        </div>
-                    ) : (
-                        <div className="stack" style={{ gap: '0.8rem' }}>
-                            {logs.map(log => (
-                                <div key={log.id} style={{
-                                    background: '#f8fafc',
-                                    border: '1px solid #e2e8f0',
-                                    borderRadius: '8px',
-                                    padding: '0.8rem',
-                                    display: 'flex',
-                                    justifyContent: 'space-between',
-                                    alignItems: 'center'
-                                }}>
-                                    <div>
-                                        <div style={{ fontWeight: 700, fontSize: '0.9rem', color: '#334155' }}>
-                                            {log.meal_name || 'Evento'}
-                                        </div>
-                                        <div style={{ fontSize: '0.75rem', color: '#64748b' }}>
-                                            {new Date(log.created_at).toLocaleString()}
-                                        </div>
-                                        <div style={{ fontSize: '0.8rem', color: '#475569', marginTop: '4px' }}>
-                                            {log.suggestion}
-                                        </div>
-                                    </div>
-                                    <div style={{ textAlign: 'right' }}>
-                                        {log.is_better || log.status === 'success' ? (
-                                            <span style={{ color: '#10b981', fontWeight: 700 }}>✅ OK</span>
-                                        ) : (
-                                            <span style={{ color: '#f59e0b', fontWeight: 700 }}>⚠️</span>
-                                        )}
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-                    )}
-
                 </Card>
 
                 <div style={{ textAlign: 'center', marginTop: '1rem' }}>

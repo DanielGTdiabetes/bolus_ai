@@ -90,6 +90,7 @@ class LearningConfig(BaseModel):
     weekly_cap_pct: int = Field(default=20, ge=10, le=30)
     # Preference only: controls whether the bot can propose changes, never auto-applies.
     auto_apply_safe: bool = False
+    absorption_learning_enabled: bool = True
     schedule: LearningSchedule = Field(default_factory=LearningSchedule)
 
 
