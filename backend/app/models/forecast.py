@@ -1,6 +1,6 @@
 from datetime import datetime
 from typing import List, Optional, Literal
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 # --- Sub-models ---
 
@@ -29,6 +29,12 @@ class SimulationParams(BaseModel):
     fiber_threshold: float = Field(5.0, description="Minimum fiber grams to trigger deduction")
     
     target_bg: float = Field(100.0, description="User's target BG (mid) for correction calculations")
+
+    @field_validator("warsaw_factor_simple")
+    def _validate_warsaw(cls, v: Optional[float]) -> Optional[float]:
+        if v is None or v <= 0:
+            return 0.1
+        return v
     
 class ForecastEventBolus(BaseModel):
     time_offset_min: int = Field(0, description="Minutes from now (0=now, negative=past)")
