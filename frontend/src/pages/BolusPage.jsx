@@ -113,6 +113,12 @@ export default function BolusPage() {
             setLearningHint(state.tempLearningHint);
             state.tempLearningHint = null;
         }
+        if (state.tempReason === 'restaurant_menu') {
+            setDualEnabled(true);
+            setAutoDualReason("Modo Restaurante (Bolo Dual sugerido)");
+            setAutoDualApplied(true);
+        }
+
         if (state.tempBolusKind) {
             setVisionBolusKind(state.tempBolusKind);
             state.tempBolusKind = null;
@@ -361,26 +367,26 @@ export default function BolusPage() {
                 {!result && (
                     <div className="stack fade-in">
 
-                    <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-                        <Button
-                            variant="secondary"
-                            className="text-sm"
-                            onClick={handleOpenImportModal}
-                        >
-                            Cargar importación
-                        </Button>
-                        <Button
-                            variant="outline"
-                            className="text-sm"
-                            style={{ marginLeft: '0.5rem' }}
-                            onClick={() => {
-                                resetMealContext();
-                                setManualEntryEnabled(true);
-                            }}
-                        >
-                            Nueva comida
-                        </Button>
-                    </div>
+                        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                            <Button
+                                variant="secondary"
+                                className="text-sm"
+                                onClick={handleOpenImportModal}
+                            >
+                                Cargar importación
+                            </Button>
+                            <Button
+                                variant="outline"
+                                className="text-sm"
+                                style={{ marginLeft: '0.5rem' }}
+                                onClick={() => {
+                                    resetMealContext();
+                                    setManualEntryEnabled(true);
+                                }}
+                            >
+                                Nueva comida
+                            </Button>
+                        </div>
 
 
 

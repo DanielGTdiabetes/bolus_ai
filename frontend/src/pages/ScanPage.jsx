@@ -50,7 +50,7 @@ export default function ScanPage() {
         navigate('#/bolus');
     };
 
-    const showRestaurantFlow = RESTAURANT_MODE_ENABLED && !useSimpleMode;
+    const showRestaurantFlow = !useSimpleMode;
     const headerTitle = showRestaurantFlow ? 'Sesión restaurante' : 'Escanear / Pesar';
 
     const handlePlateUpdate = (newEntries) => {
@@ -98,15 +98,19 @@ export default function ScanPage() {
                             setScanMode={setScanMode}
                         />
 
-                        <ScaleControl onDataReceived={() => setScale({ ...state.scale })} />
+                        {scanMode !== 'menu' && (
+                            <>
+                                <ScaleControl onDataReceived={() => setScale({ ...state.scale })} />
 
-                        <PlateBuilder
-                            entries={plateEntries}
-                            onUpdate={handlePlateUpdate}
-                            scaleGrams={scale.grams}
-                            scanMode={scanMode}
-                            onStartSession={handleStartSession}
-                        />
+                                <PlateBuilder
+                                    entries={plateEntries}
+                                    onUpdate={handlePlateUpdate}
+                                    scaleGrams={scale.grams}
+                                    scanMode={scanMode}
+                                    onStartSession={handleStartSession}
+                                />
+                            </>
+                        )}
                     </>
                 )}
             </main>
@@ -374,17 +378,15 @@ function CameraSection({ scaleGrams, plateEntries, onAddEntry, scanMode, setScan
                     <p style={{ color: '#475569', marginBottom: '1.5rem', lineHeight: '1.5' }}>
                         El modo <strong>Carta</strong> activa el flujo completo de restaurante:
                         <br />
-                        1. Escanea el menú
+                        1. Escanea o describe el menú
                         <br />
                         2. Planifica tu comida
                         <br />
                         3. Añade platos reales
                     </p>
-                    {RESTAURANT_MODE_ENABLED && (
-                        <Button onClick={() => navigate('#/restaurant')} style={{ width: '100%', padding: '1rem', fontSize: '1.1rem' }}>
-                            Iniciar Sesión Restaurante
-                        </Button>
-                    )}
+                    <Button onClick={() => setUseSimpleMode(false)} style={{ width: '100%', padding: '1rem', fontSize: '1.1rem', background: 'var(--primary)', color: 'white', fontWeight: 'bold', boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)' }}>
+                        📸 Escanear Menú y Comenzar
+                    </Button>
                 </div>
             ) : (
                 <>
