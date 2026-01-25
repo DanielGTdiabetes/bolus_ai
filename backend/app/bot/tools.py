@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Literal
 from pathlib import Path
 
 from pydantic import BaseModel, Field, ValidationError
@@ -122,6 +122,7 @@ class AddTreatmentRequest(BaseModel):
     fat: Optional[float] = None
     protein: Optional[float] = None
     fiber: Optional[float] = None
+    carb_profile: Optional[Literal["fast", "med", "slow"]] = None
     notes: Optional[str] = None
     replace_id: Optional[str] = None
     event_type: Optional[str] = None
@@ -470,6 +471,7 @@ async def calculate_bolus(
     fat: float = 0.0,
     protein: float = 0.0,
     fiber: float = 0.0,
+    carb_profile: Optional[Literal["fast", "med", "slow"]] = None,
     meal_type: Optional[str] = None,
     split: Optional[float] = None,
     extend_minutes: Optional[int] = None,
@@ -523,6 +525,7 @@ async def calculate_bolus(
         fiber_g=fiber,
         meal_slot=meal_slot,
         target_mgdl=target or user_settings.targets.mid,
+        carb_profile=carb_profile,
         alcohol=alcohol,
         confirm_iob_unknown=True,
         confirm_iob_stale=True,
@@ -669,7 +672,7 @@ async def simulate_whatif(carbs: float, horizon_minutes: int = 180) -> WhatIfRes
             cutoff_naive = cutoff.replace(tzinfo=None)
             
             query = text("""
-                SELECT created_at, carbs 
+                SELECT created_at, carbs, carb_profile
                 FROM treatments 
                 WHERE created_at > :cutoff 
                 AND carbs > 0
@@ -694,7 +697,8 @@ async def simulate_whatif(carbs: float, horizon_minutes: int = 180) -> WhatIfRes
                     history_events.append(ForecastEventCarbs(
                         time_offset_min=int(offset),
                         grams=carbs_val,
-                        absorption_minutes=180 # Default
+                        absorption_minutes=180, # Default
+                        carb_profile=r.carb_profile
                     ))
 
     except Exception as e:
@@ -1012,6 +1016,7 @@ async def add_treatment(tool_input: dict[str, Any]) -> AddTreatmentResult | Tool
                 fat=float(payload.fat or 0),
                 protein=float(payload.protein or 0),
                 fiber=float(payload.fiber or 0),
+                carb_profile=payload.carb_profile,
                 notes=notes,
                 entered_by="TelegramBot",
                 event_type=payload.event_type or ("Correction Bolus" if carbs == 0 else "Meal Bolus"),
@@ -1321,6 +1326,7 @@ AI_TOOL_DECLARATIONS = [
                 "fat": {"type": "NUMBER", "description": "Grasas (g)"},
                 "protein": {"type": "NUMBER", "description": "Proteínas (g)"},
                 "fiber": {"type": "NUMBER", "description": "Fibra (g)"},
+                "carb_profile": {"type": "STRING", "description": "Perfil de absorción: fast/med/slow (opcional)"},
                 "meal_type": {"type": "STRING", "description": "breakfast/lunch/dinner/snack"},
                 "split": {"type": "NUMBER", "description": "Porcentaje inicial si dual"},
                 "extend_minutes": {"type": "INTEGER", "description": "Minutos de extensión si aplica"},
@@ -1386,6 +1392,7 @@ AI_TOOL_DECLARATIONS = [
                 "fat": {"type": "NUMBER", "description": "Grasas (g)"},
                 "protein": {"type": "NUMBER", "description": "Proteínas (g)"},
                 "fiber": {"type": "NUMBER", "description": "Fibra (g)"},
+                "carb_profile": {"type": "STRING", "description": "Perfil de absorción: fast/med/slow (opcional)"},
                 "injection_site_id": {"type": "STRING", "description": "ID del sitio de inyección utilizado (opcional). Si se especifica, fuerza este sitio y actualiza la rotación."}
             },
         },

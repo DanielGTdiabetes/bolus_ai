@@ -463,6 +463,7 @@ async def get_current_forecast(
                 grams=row.carbs,
                 icr=evt_icr,
                 absorption_minutes=evt_abs,
+                carb_profile=getattr(row, "carb_profile", None),
                 fat_g=getattr(row, 'fat', 0) or 0,
                 protein_g=getattr(row, 'protein', 0) or 0,
                 fiber_g=getattr(row, 'fiber', 0) or 0
@@ -482,6 +483,7 @@ async def get_current_forecast(
                     grams=warsaw_equiv["grams"],
                     icr=evt_icr,
                     absorption_minutes=warsaw_equiv["absorption"],
+                    carb_profile=getattr(row, "carb_profile", None),
                     fat_g=getattr(row, "fat", 0) or 0,
                     protein_g=getattr(row, "protein", 0) or 0,
                     fiber_g=getattr(row, "fiber", 0) or 0
@@ -1328,6 +1330,7 @@ async def simulate_forecast(
                         grams=row.carbs,
                         icr=float(hist_icr), 
                         absorption_minutes=hist_abs,
+                        carb_profile=getattr(row, "carb_profile", None),
                         fat_g=getattr(row, 'fat', 0) or 0,
                         protein_g=getattr(row, 'protein', 0) or 0,
                         fiber_g=getattr(row, 'fiber', 0) or 0

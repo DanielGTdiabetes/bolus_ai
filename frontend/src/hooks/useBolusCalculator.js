@@ -77,7 +77,7 @@ export function useBolusCalculator() {
     const calculate = async (inputs) => {
         const {
             glucose, carbs, slot, correctionOnly, dessertMode, dualEnabled,
-            alcoholEnabled, exercise, overrideParams,
+            alcoholEnabled, exercise, overrideParams, carbProfile,
             orphanContext, mealMeta // orphanContext = { isUsing, orphanData }, mealMeta = { fat, protein... from Ref }
         } = inputs;
 
@@ -147,6 +147,7 @@ export function useBolusCalculator() {
                 bg_mgdl: isNaN(bgVal) ? null : bgVal,
                 meal_slot: slot,
                 target_mgdl: slotParams.target,
+                carb_profile: carbProfile ?? null,
                 cr_g_per_u: finalIcr,
                 isf_mgdl_per_u: finalIsf,
                 dia_hours: mealParams.dia_hours || 4.0,
@@ -205,7 +206,7 @@ export function useBolusCalculator() {
             carbs, glucose, foodName,
             orphanContext, mealMeta, // { fat, protein, fiber, items }
             date, nsConfig,
-            alcoholEnabled,
+            alcoholEnabled, carbProfile,
             plateItems
         } = saveParams;
 
@@ -251,6 +252,7 @@ export function useBolusCalculator() {
                 fat: usedFat,
                 protein: usedProt,
                 fiber: usedFiber,
+                carb_profile: carbProfile ?? null,
                 insulin: finalInsulin,
                 linked_ingestion: linkedIngestion,
                 ingestion_id: ingestionId || null,

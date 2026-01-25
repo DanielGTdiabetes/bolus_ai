@@ -46,6 +46,7 @@ class BolusRequestV2(BaseModel):
     bg_mgdl: Optional[float] = Field(default=None, ge=0)
     meal_slot: Literal["breakfast", "lunch", "dinner", "snack"] = "lunch"
     target_mgdl: Optional[float] = Field(default=None, ge=60)
+    carb_profile: Optional[Literal["fast", "med", "slow"]] = None
     
     # Stateless configuration injection
     nightscout: Optional[NightscoutConfigSimple] = None
