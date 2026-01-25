@@ -124,15 +124,56 @@ function CameraSection({ scaleGrams, plateEntries, onAddEntry, scanMode, setScan
     const [msg, setMsg] = useState(null);
     const cameraInputRef = useRef(null);
     const galleryInputRef = useRef(null);
+    const requestIdRef = useRef(0);
+    const abortRef = useRef(null);
 
     const [imageDescription, setImageDescription] = useState('');
 
     // Removed local scanMode state
     const [detectedItems, setDetectedItems] = useState([]); // For menu mode
+    const MAX_IMAGE_MB = 6;
+    const allowedTypes = ["image/jpeg", "image/png", "image/webp"];
+
+    const abortInFlight = () => {
+        if (abortRef.current) {
+            abortRef.current.abort();
+            abortRef.current = null;
+        }
+    };
+
+    const beginRequest = () => {
+        abortInFlight();
+        const requestId = requestIdRef.current + 1;
+        requestIdRef.current = requestId;
+        const controller = new AbortController();
+        abortRef.current = controller;
+        return { requestId, controller };
+    };
+
+    const cancelCurrent = () => {
+        const cancelId = requestIdRef.current;
+        abortInFlight();
+        requestIdRef.current = cancelId + 1;
+        setAnalyzing(false);
+        setMsg('⏹️ Análisis cancelado.');
+    };
+
+    useEffect(() => {
+        return () => abortInFlight();
+    }, []);
 
     const handleFile = async (e) => {
         const file = e.target.files?.[0];
         if (!file) return;
+        e.target.value = '';
+        if (file.type && !allowedTypes.includes(file.type)) {
+            setMsg('⚠️ Formato no compatible. Usa JPG, PNG o WEBP.');
+            return;
+        }
+        if (file.size > MAX_IMAGE_MB * 1024 * 1024) {
+            setMsg(`⚠️ Imagen demasiado grande (máx ${MAX_IMAGE_MB}MB).`);
+            return;
+        }
 
         // Preview
         const reader = new FileReader();
@@ -141,6 +182,8 @@ function CameraSection({ scaleGrams, plateEntries, onAddEntry, scanMode, setScan
             state.currentImageBase64 = ev.target.result; // Store globally if needed
         };
         reader.readAsDataURL(file);
+
+        const { requestId, controller } = beginRequest();
 
         setAnalyzing(true);
         setMsg(null);
@@ -155,11 +198,12 @@ function CameraSection({ scaleGrams, plateEntries, onAddEntry, scanMode, setScan
 
             if (scanMode === 'menu') {
                 // Specialized Menu Analysis
-                result = await analyzeMenuImage(file);
+                result = await analyzeMenuImage(file, { signal: controller.signal });
                 // Standardize keys for existing UI if needed, but we mostly use result.items
                 // Store full result globally for "Restaurant Session" start
                 state.lastMenuResult = result;
 
+                if (requestId !== requestIdRef.current) return;
                 if (result.items && result.items.length > 0) {
                     setDetectedItems(result.items);
                     setMsg('👇 Selecciona los platos que vas a pedir');
@@ -182,9 +226,10 @@ function CameraSection({ scaleGrams, plateEntries, onAddEntry, scanMode, setScan
                     options.image_description = imageDescription.trim();
                 }
 
-                result = await estimateCarbsFromImage(file, options);
+                result = await estimateCarbsFromImage(file, { ...options, signal: controller.signal });
             }
 
+            if (requestId !== requestIdRef.current) return;
             // Calculate total fat/protein from items if available
             const totalFat = (result.items || []).reduce((sum, i) => sum + (i.fat_g || 0), 0);
             const totalProt = (result.items || []).reduce((sum, i) => sum + (i.protein_g || 0), 0);
@@ -207,6 +252,13 @@ function CameraSection({ scaleGrams, plateEntries, onAddEntry, scanMode, setScan
                 }
 
                 let msgText = `✅ Añadido: ${result.carbs_estimate_g}g`;
+                const cautionNotes = [];
+                if (result.confidence === 'low') {
+                    cautionNotes.push('baja confianza');
+                }
+                if (result.needs_user_input && result.needs_user_input.length > 0) {
+                    cautionNotes.push(result.needs_user_input[0].question);
+                }
                 if (totalFat > 5 || totalProt > 5) {
                     msgText += ` (G:${Math.round(totalFat)}, P:${Math.round(totalProt)})`;
                 }
@@ -217,6 +269,9 @@ function CameraSection({ scaleGrams, plateEntries, onAddEntry, scanMode, setScan
                 else if (result.learning_hint && result.learning_hint.suggest_extended) {
                     msgText += " 🧠 Memoria Sugiere Dual";
                 }
+                if (cautionNotes.length > 0) {
+                    msgText = `⚠️ ${msgText} · ${cautionNotes.join(" / ")}`;
+                }
 
                 setMsg(msgText);
                 setTimeout(() => setMsg(null), 3000);
@@ -226,9 +281,17 @@ function CameraSection({ scaleGrams, plateEntries, onAddEntry, scanMode, setScan
             }
 
         } catch (err) {
-            setMsg(`❌ Error: ${err.message}`);
+            if (requestId !== requestIdRef.current) return;
+            if (err?.name === 'AbortError') {
+                setMsg('⏹️ Análisis cancelado.');
+            } else {
+                setMsg(`❌ Error: ${err.message}`);
+            }
         } finally {
-            setAnalyzing(false);
+            if (requestId === requestIdRef.current) {
+                setAnalyzing(false);
+                abortRef.current = null;
+            }
             // Optional: clear description after success? Maybe user wants to keep it if it failed?
             // Keeping it for now.
         }
@@ -373,12 +436,38 @@ function CameraSection({ scaleGrams, plateEntries, onAddEntry, scanMode, setScan
                         />
                     </div>
 
-                    {msg && <div style={{ textAlign: 'center', padding: '0.5rem', marginTop: '0.5rem', background: msg.startsWith('❌') ? '#fee2e2' : '#dcfce7', color: msg.startsWith('❌') ? '#991b1b' : '#166534', borderRadius: '8px' }}>{msg}</div>}
+                    {msg && (
+                        <div
+                            style={{
+                                textAlign: 'center',
+                                padding: '0.5rem',
+                                marginTop: '0.5rem',
+                                background: msg.startsWith('❌') ? '#fee2e2' : msg.startsWith('⚠️') || msg.startsWith('⏹️') ? '#fef3c7' : '#dcfce7',
+                                color: msg.startsWith('❌') ? '#991b1b' : msg.startsWith('⚠️') || msg.startsWith('⏹️') ? '#92400e' : '#166534',
+                                borderRadius: '8px'
+                            }}
+                        >
+                            {msg}
+                        </div>
+                    )}
 
                     <div className="vision-actions" style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem' }}>
-                        <Button onClick={() => cameraInputRef.current.click()} style={{ flex: 1 }}>📷 Cámara</Button>
-                        <Button variant="secondary" onClick={() => galleryInputRef.current.click()} style={{ flex: 1 }}>🖼️ Galería</Button>
+                        <Button onClick={() => cameraInputRef.current.click()} style={{ flex: 1 }} disabled={analyzing}>📷 Cámara</Button>
+                        <Button variant="secondary" onClick={() => galleryInputRef.current.click()} style={{ flex: 1 }} disabled={analyzing}>🖼️ Galería</Button>
+                        {analyzing && (
+                            <Button
+                                variant="ghost"
+                                onClick={() => {
+                                    cancelCurrent();
+                                }}
+                                style={{ flex: 1 }}
+                            >
+                                Cancelar
+                            </Button>
+                        )}
                     </div>
+
+                    {/* Manual test: Start scan A, cancel; start scan B immediately; confirm UI stays analyzing B without showing canceled from A. */}
 
                     <input type="file" ref={cameraInputRef} accept="image/*" capture="environment" hidden onChange={handleFile} />
                     <input type="file" ref={galleryInputRef} accept="image/*" hidden onChange={handleFile} />

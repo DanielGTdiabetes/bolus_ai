@@ -336,6 +336,7 @@ interface VisionOptions {
   round_step_u?: number;
   existing_items?: string;
   image_description?: string;
+  signal?: AbortSignal;
 }
 
 export async function estimateCarbsFromImage(file: File, options: VisionOptions = {}) {
@@ -375,6 +376,7 @@ export async function estimateCarbsFromImage(file: File, options: VisionOptions 
     method: "POST",
     headers,
     body: formData,
+    signal: options.signal,
   });
 
   const data = await toJson(response);
