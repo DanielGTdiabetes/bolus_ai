@@ -598,6 +598,9 @@ export function RestaurantSession() {
               <div style={{ fontWeight: 700, color: '#0f172a' }}>
                 Acción sugerida: {session.suggestedAction.type}
               </div>
+              <div style={{ color: '#64748b', fontSize: '0.85rem', marginTop: '0.25rem' }}>
+                Esta es una sugerencia. No se aplica automáticamente y requiere confirmación manual.
+              </div>
               {session.suggestedAction.type === 'ADD_INSULIN' && (
                 <div style={{ color: '#334155', marginTop: '0.25rem' }}>
                   Micro-bolo recomendado: {session.suggestedAction.units} U
@@ -624,4 +627,3 @@ export function RestaurantSession() {
     </div>
   );
 }
-

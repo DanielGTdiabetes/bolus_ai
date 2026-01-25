@@ -7,13 +7,14 @@ function parseJsonResponse(response) {
     .then((data) => ({ ok: response.ok, data, status: response.status }));
 }
 
-export async function analyzeMenuImage(imageFile) {
+export async function analyzeMenuImage(imageFile, options = {}) {
   const formData = new FormData();
   formData.append('image', imageFile);
 
   const response = await apiFetch('/api/restaurant/analyze_menu', {
     method: 'POST',
     body: formData,
+    signal: options.signal,
   });
 
   const { ok, data } = await parseJsonResponse(response);
@@ -23,13 +24,14 @@ export async function analyzeMenuImage(imageFile) {
   return data;
 }
 
-export async function analyzeMenuText(textDescription) {
+export async function analyzeMenuText(textDescription, options = {}) {
   const formData = new FormData();
   formData.append('description', textDescription);
 
   const response = await apiFetch('/api/restaurant/analyze_menu_text', {
     method: 'POST',
     body: formData,
+    signal: options.signal,
   });
 
   const { ok, data } = await parseJsonResponse(response);
@@ -39,7 +41,7 @@ export async function analyzeMenuText(textDescription) {
   return data;
 }
 
-export async function comparePlateImage({ imageFile, expectedCarbs }) {
+export async function comparePlateImage({ imageFile, expectedCarbs, signal }) {
   const formData = new FormData();
   if (imageFile) {
     formData.append('image', imageFile);
@@ -49,6 +51,7 @@ export async function comparePlateImage({ imageFile, expectedCarbs }) {
   const response = await apiFetch('/api/restaurant/compare_plate', {
     method: 'POST',
     body: formData,
+    signal,
   });
 
   const { ok, data } = await parseJsonResponse(response);
@@ -58,13 +61,14 @@ export async function comparePlateImage({ imageFile, expectedCarbs }) {
   return data;
 }
 
-export async function analyzePlateImage(imageFile) {
+export async function analyzePlateImage(imageFile, options = {}) {
   const formData = new FormData();
   formData.append('image', imageFile);
 
   const response = await apiFetch('/api/restaurant/analyze_plate', {
     method: 'POST',
     body: formData,
+    signal: options.signal,
   });
 
   const { ok, data } = await parseJsonResponse(response);
@@ -74,7 +78,7 @@ export async function analyzePlateImage(imageFile) {
   return data;
 }
 
-export async function calculateRestaurantAdjustment({ expectedCarbs, actualCarbs, confidence }) {
+export async function calculateRestaurantAdjustment({ expectedCarbs, actualCarbs, confidence, signal }) {
   const formData = new FormData();
   formData.append('expectedCarbs', expectedCarbs);
   formData.append('actualCarbs', actualCarbs);
@@ -85,6 +89,7 @@ export async function calculateRestaurantAdjustment({ expectedCarbs, actualCarbs
   const response = await apiFetch('/api/restaurant/compare_plate', {
     method: 'POST',
     body: formData,
+    signal,
   });
 
   const { ok, data } = await parseJsonResponse(response);

@@ -1,10 +1,11 @@
 import logging
 import time
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status, Request, Response
 from pydantic import BaseModel
 from app.core.security import get_current_user, CurrentUser
 from app.core.settings import get_settings, Settings
@@ -48,7 +49,7 @@ def _check_rate_limit(username: str):
     if len(valid) >= 50:
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail="Rate limit exceeded (10 images / 10 min)"
+            detail="Rate limit exceeded (50 images / 10 min)"
         )
     
     valid.append(now)
@@ -83,6 +84,8 @@ def get_vision_status():
 
 @router.post("/estimate", response_model=VisionEstimateResponse, summary="Estimate carbs from image")
 async def estimate_from_image(
+    request: Request,
+    response: Response,
     image: UploadFile = File(...),
     # Optional fields form-encoded
     meal_slot: Optional[str] = Form("lunch"),
@@ -117,8 +120,10 @@ async def estimate_from_image(
     store: DataStore = Depends(_data_store),
 ):
     try:
+        request_id = request.headers.get("X-Request-Id") or str(uuid.uuid4())
+        response.headers["X-Request-Id"] = request_id
         start_ts = time.time()
-        logger.info(f"Vision Request Received: user={current_user.username}")
+        logger.info("Vision Request Received: user=%s request_id=%s", current_user.username, request_id)
         username = current_user.username
         _check_rate_limit(username)
 
@@ -156,8 +161,8 @@ async def estimate_from_image(
              raise HTTPException(status_code=413, detail=f"Image too large (> {settings.vision.max_image_mb}MB)")
 
         logger.info(
-            "Vision Analysis Start: provider=%s, user=%s, size=%.2fMB, slot=%s, plate_weight_grams=%s",
-            provider, username, size_mb, meal_slot, effective_weight
+            "Vision Analysis Start: provider=%s, user=%s, request_id=%s, size=%.2fMB, slot=%s, plate_weight_grams=%s",
+            provider, username, request_id, size_mb, meal_slot, effective_weight
         )
 
         # 2. Vision Estimation
@@ -179,12 +184,15 @@ async def estimate_from_image(
         try:
             estimate = await estimate_meal_from_image(content, image.content_type, hints, settings)
             duration = (time.time() - start_ts) * 1000
-            logger.info(f"Vision Analysis Success: user={username}, carbs={estimate.carbs_estimate_g}g, time={duration:.0f}ms")
+            logger.info(
+                "Vision Analysis Success: user=%s request_id=%s carbs=%.1fg time=%.0fms",
+                username, request_id, estimate.carbs_estimate_g, duration
+            )
         except RuntimeError as e:
-            logger.error(f"Vision Analysis Error: {e}")
+            logger.error("Vision Analysis Error: request_id=%s error=%s", request_id, e)
             raise HTTPException(status_code=503, detail=str(e))
         except Exception as e:
-            logger.exception("Unexpected error in vision analysis")
+            logger.exception("Unexpected error in vision analysis request_id=%s", request_id)
             raise HTTPException(status_code=500, detail="Internal server error during analysis")
 
         # 3. Bolus Calculation Context
@@ -206,7 +214,7 @@ async def estimate_from_image(
             eff_ns_token = nightscout_token if nightscout_token else ns_config.token
             
             if eff_ns_url:
-                logger.info(f"Vision trying to fetch BG from NS: {eff_ns_url}")
+                logger.info("Vision trying to fetch BG from NS: request_id=%s url=%s", request_id, eff_ns_url)
                 try:
                     ns_client_iob = NightscoutClient(
                         base_url=eff_ns_url,
@@ -216,9 +224,9 @@ async def estimate_from_image(
                     sgv = await ns_client_iob.get_latest_sgv()
                     resolved_bg = float(sgv.sgv)
                     ns_source = "nightscout"
-                    logger.info(f"Vision NS Success: {resolved_bg} mg/dL")
+                    logger.info("Vision NS Success: request_id=%s bg_mgdl=%.1f", request_id, resolved_bg)
                 except Exception as e:
-                    logger.error(f"Vision NS Fetch Failed: {e}")
+                    logger.error("Vision NS Fetch Failed: request_id=%s error=%s", request_id, e)
                     pass
                 finally:
                     if 'ns_client_iob' in locals():

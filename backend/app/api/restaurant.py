@@ -1,6 +1,7 @@
 import logging
+import uuid
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status, Request, Response
 
 from app.core.security import CurrentUser, get_current_user
 from app.core.settings import Settings, get_settings
@@ -31,6 +32,10 @@ def _ensure_gemini_enabled(settings: Settings):
     if not get_google_api_key():
         raise HTTPException(status_code=501, detail="missing_google_api_key: Gemini API Key not configured")
 
+def _attach_request_id(request: Request, response: Response) -> str:
+    request_id = request.headers.get("X-Request-Id") or str(uuid.uuid4())
+    response.headers["X-Request-Id"] = request_id
+    return request_id
 
 from app.core.db import get_db_session
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -72,39 +77,55 @@ async def _resolve_settings(base_settings: Settings, user: CurrentUser, session:
 
 @router.post("/analyze_menu", response_model=RestaurantMenuResult, summary="Analyze restaurant menu")
 async def analyze_menu(
+    request: Request,
+    response: Response,
     image: UploadFile = File(...),
     current_user: CurrentUser = Depends(get_current_user),
     base_settings: Settings = Depends(get_settings),
     session: AsyncSession = Depends(get_db_session),
 ):
+    request_id = _attach_request_id(request, response)
     settings = await _resolve_settings(base_settings, current_user, session)
     _ensure_gemini_enabled(settings)
     _validate_image(image, settings)
 
     content = await image.read()
     size_mb = len(content) / (1024 * 1024)
-    logger.info("Restaurant analyze_menu user=%s size=%.2fMB", current_user.username, size_mb)
+    logger.info(
+        "Restaurant analyze_menu user=%s request_id=%s size=%.2fMB",
+        current_user.username,
+        request_id,
+        size_mb,
+    )
 
     try:
         return await analyze_menu_with_gemini(content, image.content_type)
     except RuntimeError as exc:
-        logger.error("Restaurant analyze error: %s", exc)
+        logger.error("Restaurant analyze error: request_id=%s error=%s", request_id, exc)
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
     except Exception as exc:  # pragma: no cover
-        logger.exception("Unexpected error in analyze_menu")
+        logger.exception("Unexpected error in analyze_menu request_id=%s", request_id)
         raise HTTPException(status_code=500, detail="Internal error during menu analysis") from exc
 
 
 @router.post("/analyze_menu_text", response_model=RestaurantMenuResult, summary="Analyze restaurant menu from text")
 async def analyze_menu_text(
+    request: Request,
+    response: Response,
     description: str = Form(...),
     current_user: CurrentUser = Depends(get_current_user),
     base_settings: Settings = Depends(get_settings),
     session: AsyncSession = Depends(get_db_session),
 ):
+    request_id = _attach_request_id(request, response)
     settings = await _resolve_settings(base_settings, current_user, session)
     _ensure_gemini_enabled(settings)
-    logger.info("Restaurant analyze_menu_text user=%s length=%d", current_user.username, len(description))
+    logger.info(
+        "Restaurant analyze_menu_text user=%s request_id=%s length=%d",
+        current_user.username,
+        request_id,
+        len(description),
+    )
 
     # Lazy import to avoid circular dep if any (standard pattern matches other endpoints)
     from app.services.restaurant import analyze_menu_text_with_gemini
@@ -112,40 +133,50 @@ async def analyze_menu_text(
     try:
         return await analyze_menu_text_with_gemini(description)
     except RuntimeError as exc:
-        logger.error("Restaurant analyze text error: %s", exc)
+        logger.error("Restaurant analyze text error: request_id=%s error=%s", request_id, exc)
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
     except Exception as exc: 
-        logger.exception("Unexpected error in analyze_menu_text")
+        logger.exception("Unexpected error in analyze_menu_text request_id=%s", request_id)
         raise HTTPException(status_code=500, detail="Internal error during text menu analysis") from exc
 
 
 @router.post("/analyze_plate", response_model=RestaurantPlateEstimate, summary="Analyze individual plate")
 async def analyze_plate(
+    request: Request,
+    response: Response,
     image: UploadFile = File(...),
     current_user: CurrentUser = Depends(get_current_user),
     base_settings: Settings = Depends(get_settings),
     session: AsyncSession = Depends(get_db_session),
 ):
+    request_id = _attach_request_id(request, response)
     settings = await _resolve_settings(base_settings, current_user, session)
     _ensure_gemini_enabled(settings)
     _validate_image(image, settings)
 
     content = await image.read()
     size_mb = len(content) / (1024 * 1024)
-    logger.info("Restaurant analyze_plate user=%s size=%.2fMB", current_user.username, size_mb)
+    logger.info(
+        "Restaurant analyze_plate user=%s request_id=%s size=%.2fMB",
+        current_user.username,
+        request_id,
+        size_mb,
+    )
 
     try:
         return await analyze_plate_with_gemini(content, image.content_type)
     except RuntimeError as exc:
-        logger.error("Restaurant plate analyze error: %s", exc)
+        logger.error("Restaurant plate analyze error: request_id=%s error=%s", request_id, exc)
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
     except Exception as exc:  # pragma: no cover
-        logger.exception("Unexpected error in analyze_plate")
+        logger.exception("Unexpected error in analyze_plate request_id=%s", request_id)
         raise HTTPException(status_code=500, detail="Internal error during plate analysis") from exc
 
 
 @router.post("/compare_plate", response_model=RestaurantPlateResult, summary="Compare served plate vs expected")
 async def compare_plate(
+    request: Request,
+    response: Response,
     image: UploadFile | None = File(None),
     expected_carbs: float = Form(..., alias="expectedCarbs"),
     actual_carbs: float | None = Form(None, alias="actualCarbs"),
@@ -154,13 +185,18 @@ async def compare_plate(
     base_settings: Settings = Depends(get_settings),
     session: AsyncSession = Depends(get_db_session),
 ):
+    request_id = _attach_request_id(request, response)
     settings = await _resolve_settings(base_settings, current_user, session)
     if image is None and actual_carbs is None:
         raise HTTPException(status_code=400, detail="image_or_actual_required")
 
     if image is None and actual_carbs is not None:
         logger.info(
-            "Restaurant guardrails-only user=%s expected=%.1f actual=%.1f", current_user.username, expected_carbs, actual_carbs
+            "Restaurant guardrails-only user=%s request_id=%s expected=%.1f actual=%.1f",
+            current_user.username,
+            request_id,
+            expected_carbs,
+            actual_carbs,
         )
         try:
             return guardrails_from_totals(
@@ -171,7 +207,7 @@ async def compare_plate(
                 reasoning_short="Ajuste total de sesión",
             )
         except RuntimeError as exc:
-            logger.error("Restaurant guardrail error: %s", exc)
+            logger.error("Restaurant guardrail error: request_id=%s error=%s", request_id, exc)
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     _ensure_gemini_enabled(settings)
@@ -179,8 +215,9 @@ async def compare_plate(
     content = await image.read()
     size_mb = len(content) / (1024 * 1024)
     logger.info(
-        "Restaurant compare_plate user=%s size=%.2fMB expected=%.1f",
+        "Restaurant compare_plate user=%s request_id=%s size=%.2fMB expected=%.1f",
         current_user.username,
+        request_id,
         size_mb,
         expected_carbs,
     )
@@ -188,10 +225,10 @@ async def compare_plate(
     try:
         return await compare_plate_with_gemini(content, image.content_type, expected_carbs, confidence_override=confidence)
     except RuntimeError as exc:
-        logger.error("Restaurant compare error: %s", exc)
+        logger.error("Restaurant compare error: request_id=%s error=%s", request_id, exc)
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
     except Exception as exc:  # pragma: no cover
-        logger.exception("Unexpected error in compare_plate")
+        logger.exception("Unexpected error in compare_plate request_id=%s", request_id)
         raise HTTPException(status_code=500, detail="Internal error during plate comparison") from exc
 
 # --- Persistence Endpoints ---
@@ -221,10 +258,13 @@ class FinalizeSessionRequest(BaseModel):
 
 @router.post("/session/start", summary="Start a new persistent restaurant session")
 async def start_session(
+    request: Request,
+    response: Response,
     data: CreateSessionRequest,
     current_user: CurrentUser = Depends(get_current_user),
 ):
     try:
+        request_id = _attach_request_id(request, response)
         # Pydantic v2 usually returns str for UUID if coerced, but let's be safe
         uid = str(current_user.id) if hasattr(current_user, 'id') else current_user.username
         
@@ -241,16 +281,19 @@ async def start_session(
             return {"status": "ok", "mode": "memory", "warning": "Persistence not available"}
         return {"status": "ok", "mode": "db", "sessionId": str(session.id)}
     except Exception as e:
-        logger.error(f"Error starting session: {e}", exc_info=True)
+        logger.error("Error starting session request_id=%s error=%s", request_id, e, exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/session/{session_id}/plate", summary="Add plate to session")
 async def add_plate_to_session(
+    request: Request,
+    response: Response,
     session_id: str,
     data: AddPlateRequest,
     current_user: CurrentUser = Depends(get_current_user),
 ):
     try:
+        request_id = _attach_request_id(request, response)
         updated = await RestaurantDBService.add_plate(
             session_id=session_id,
             plate_data=data.model_dump()
@@ -261,16 +304,19 @@ async def add_plate_to_session(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error adding plate: {e}", exc_info=True)
+        logger.error("Error adding plate request_id=%s error=%s", request_id, e, exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/session/{session_id}/finalize", summary="Finalize session")
 async def finalize_session(
+    request: Request,
+    response: Response,
     session_id: str,
     data: FinalizeSessionRequest,
     current_user: CurrentUser = Depends(get_current_user),
 ):
     try:
+        request_id = _attach_request_id(request, response)
         updated = await RestaurantDBService.finalize_session(
             session_id=session_id,
             outcome_score=data.outcomeScore
@@ -281,5 +327,5 @@ async def finalize_session(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error finalizing: {e}", exc_info=True)
+        logger.error("Error finalizing request_id=%s error=%s", request_id, e, exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
