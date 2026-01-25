@@ -71,7 +71,17 @@ def classify_event_kind(treatment: Treatment, bolus_payload: Optional[dict] = No
         return EVENT_KIND_CARBS_ONLY, "Carbs sin insulina (<=0.1u)"
 
     notes = (getattr(treatment, "notes", "") or "").lower()
-    event_type = (getattr(treatment, "event_type", "") or "").lower()
+    raw_event_type = (
+        getattr(treatment, "event_type", None)
+        or getattr(treatment, "eventType", None)
+        or ""
+    )
+    event_type = str(raw_event_type or "").lower()
+    payload_event_type = ""
+    if bolus_payload:
+        payload_event_type = str(
+            bolus_payload.get("event_type") or bolus_payload.get("eventType") or ""
+        ).lower()
     duration = float(getattr(treatment, "duration", 0) or 0)
 
     dual_flags = []
@@ -81,6 +91,8 @@ def classify_event_kind(treatment: Treatment, bolus_payload: Optional[dict] = No
         dual_flags.append("nota dual/extended/split")
     if any(k in event_type for k in ("dual", "extended", "combo", "split")):
         dual_flags.append("event_type dual/extended/split")
+    if any(k in payload_event_type for k in ("dual", "extended", "combo", "split")):
+        dual_flags.append("payload event_type dual/extended/split")
     if bolus_payload:
         if bolus_payload.get("extended") or bolus_payload.get("dual") or bolus_payload.get("split"):
             dual_flags.append("payload dual/extended/split")

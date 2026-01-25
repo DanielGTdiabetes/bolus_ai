@@ -83,9 +83,14 @@ def _bucket_key(dt_local: datetime, bucket_minutes: int) -> str:
 
 
 def _is_hypo_treatment(treatment: Treatment) -> bool:
-    event_type = (treatment.event_type or "").lower()
-    notes = (treatment.notes or "").lower()
-    return any(key in event_type for key in ("hypo", "low", "carb correction")) or any(
+    event_type = (
+        getattr(treatment, "event_type", None)
+        or getattr(treatment, "eventType", None)
+        or ""
+    )
+    event_type_lower = str(event_type or "").lower()
+    notes = (getattr(treatment, "notes", "") or "").lower()
+    return any(key in event_type_lower for key in ("hypo", "low", "carb correction")) or any(
         key in notes for key in ("hypo", "low", "glucose tabs", "dextrose")
     )
 

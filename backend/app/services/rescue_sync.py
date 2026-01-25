@@ -1,5 +1,6 @@
 
 import logging
+import traceback
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -12,6 +13,19 @@ from app.services.nightscout_client import NightscoutClient
 from app.services.nightscout_secrets_service import get_ns_config
 
 logger = logging.getLogger(__name__)
+
+
+def _safe_get_ns_field(treatment, *names, default=None):
+    for name in names:
+        if hasattr(treatment, name):
+            value = getattr(treatment, name)
+            if value is not None:
+                return value
+        if isinstance(treatment, dict) and name in treatment:
+            value = treatment.get(name)
+            if value is not None:
+                return value
+    return default
 
 
 async def _get_single_user_id(session) -> Optional[str]:
@@ -54,63 +68,96 @@ async def run_rescue_sync(hours: int = 6):
                 logger.info("🚑 No recent treatments found in Nightscout.")
                 return
 
-            count_new = 0
+            fetched = len(treatments)
+            processed = 0
+            skipped = 0
             
             for t_ns in treatments:
-                # 2. Check existence (by ID or approximate match?)
-                # Nightscout IDs are usually Mongo ObjectIDs.
-                # If created in Render/BolusAI, they might be UUIDs.
-                
-                # Try finding by ID first
-                stmt = select(Treatment).where(Treatment.id == t_ns.id)
-                res = await session.execute(stmt)
-                existing = res.scalars().first()
-                
-                if existing:
-                    # Optional: Update if modified? 
-                    # For safety in rescue, we assume NS is truth for recent data.
-                    # But if we blindly overwrite, we might lose local notes?
-                    # Let's skip if exists for now, unless we want to be very aggressive.
-                    continue
-                
-                # Check for "fuzzy" duplicate (same time, same insulin/carbs) to avoid
-                # re-importing something that has a different ID but same data.
-                # Window: +/- 1 minute
-                delta_window = timedelta(minutes=1)
-                t_msg_time = t_ns.created_at.replace(tzinfo=None)
-                
-                stmt_fuzzy = select(Treatment).where(
-                    Treatment.created_at >= t_msg_time - delta_window,
-                    Treatment.created_at <= t_msg_time + delta_window,
-                    Treatment.insulin == t_ns.insulin,
-                    Treatment.carbs == t_ns.carbs
-                )
-                res_fuzzy = await session.execute(stmt_fuzzy)
-                fuzzy = res_fuzzy.scalars().first()
-                
-                if fuzzy:
-                    continue
+                try:
+                    # 2. Check existence (by ID or approximate match?)
+                    # Nightscout IDs are usually Mongo ObjectIDs.
+                    # If created in Render/BolusAI, they might be UUIDs.
+                    ns_id = _safe_get_ns_field(t_ns, "id", "_id")
+                    if not ns_id:
+                        skipped += 1
+                        continue
 
-                # 3. Insert New
-                new_t = Treatment(
-                    id=t_ns.id, # Keep NS ID/UUID
-                    user_id="admin", # Default owner
-                    event_type=t_ns.event_type or "Bolus",
-                    created_at=t_msg_time,
-                    insulin=t_ns.insulin,
-                    carbs=t_ns.carbs,
-                    fat=t_ns.fat,
-                    protein=t_ns.protein,
-                    fiber=t_ns.fiber, # If supported by schema
-                    notes=f"{t_ns.notes or ''} [Rescue]",
-                    entered_by=t_ns.entered_by or "NightscoutRescue",
-                    is_uploaded=True # It came from NS, so it is uploaded
-                )
-                session.add(new_t)
-                count_new += 1
+                    stmt = select(Treatment).where(Treatment.id == ns_id)
+                    res = await session.execute(stmt)
+                    existing = res.scalars().first()
+                    
+                    if existing:
+                        skipped += 1
+                        continue
+                    
+                    # Check for "fuzzy" duplicate (same time, same insulin/carbs) to avoid
+                    # re-importing something that has a different ID but same data.
+                    # Window: +/- 1 minute
+                    delta_window = timedelta(minutes=1)
+                    created_at = _safe_get_ns_field(t_ns, "created_at", "timestamp")
+                    if not created_at:
+                        skipped += 1
+                        continue
+                    if isinstance(created_at, datetime):
+                        t_msg_time = created_at.replace(tzinfo=None)
+                    else:
+                        skipped += 1
+                        continue
+                    insulin = _safe_get_ns_field(t_ns, "insulin", default=0.0)
+                    carbs = _safe_get_ns_field(t_ns, "carbs", default=0.0)
+                    
+                    stmt_fuzzy = select(Treatment).where(
+                        Treatment.created_at >= t_msg_time - delta_window,
+                        Treatment.created_at <= t_msg_time + delta_window,
+                        Treatment.insulin == insulin,
+                        Treatment.carbs == carbs,
+                    )
+                    res_fuzzy = await session.execute(stmt_fuzzy)
+                    fuzzy = res_fuzzy.scalars().first()
+                    
+                    if fuzzy:
+                        skipped += 1
+                        continue
+
+                    event_type = _safe_get_ns_field(t_ns, "event_type", "eventType", default="Bolus")
+                    notes = _safe_get_ns_field(t_ns, "notes", default="")
+                    entered_by = _safe_get_ns_field(t_ns, "entered_by", "enteredBy", default="NightscoutRescue")
+
+                    # 3. Insert New
+                    new_t = Treatment(
+                        id=ns_id, # Keep NS ID/UUID
+                        user_id="admin", # Default owner
+                        event_type=event_type or "Bolus",
+                        created_at=t_msg_time,
+                        insulin=insulin,
+                        carbs=carbs,
+                        fat=_safe_get_ns_field(t_ns, "fat", default=0.0),
+                        protein=_safe_get_ns_field(t_ns, "protein", default=0.0),
+                        fiber=_safe_get_ns_field(t_ns, "fiber", default=0.0), # If supported by schema
+                        notes=f"{notes or ''} [Rescue]",
+                        entered_by=entered_by or "NightscoutRescue",
+                        is_uploaded=True # It came from NS, so it is uploaded
+                    )
+                    session.add(new_t)
+                    processed += 1
+                except Exception as item_exc:
+                    skipped += 1
+                    t_id = _safe_get_ns_field(t_ns, "id", "_id", default="unknown")
+                    tb_short = traceback.format_exc(limit=2)
+                    logger.error(
+                        "🚑 Rescue Sync item failed: treatment_id=%s error=%s traceback=%s",
+                        t_id,
+                        item_exc,
+                        tb_short,
+                    )
             
             await session.commit()
-            logger.info(f"🚑 Rescue Sync Completed: {count_new} new treatments imported.")
+            logger.info(
+                "Rescue Sync completed: fetched %s, processed %s, skipped %s",
+                fetched,
+                processed,
+                skipped,
+            )
 
         except Exception as e:
             logger.error(f"🚑 Rescue Sync Failed: {e}")
