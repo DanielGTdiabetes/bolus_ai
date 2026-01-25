@@ -237,7 +237,7 @@ class ForecastEngine:
                         # Factor 1.0 => 100kcal = 10g eCarbs.
                         # Factor 0.5 => 100kcal = 5g eCarbs (Safety).
                         
-                        w_factor = req.params.warsaw_factor_simple if req.params.warsaw_factor_simple > 0 else 0.1
+                        w_factor = req.params.warsaw_factor_simple if (req.params.warsaw_factor_simple is not None and req.params.warsaw_factor_simple > 0) else 0.1
                         fpu_count = kcal_from_fp / 100.0
                         fpu_grams = fpu_count * 10.0 * w_factor
                         
