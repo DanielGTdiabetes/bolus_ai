@@ -192,6 +192,8 @@ export function RestaurantSession() {
     }
   };
 
+  const [portion, setPortion] = useState(1);
+
   const handleAddPlateCapture = async (file) => {
     setError('');
     setStatusMessage('');
@@ -202,14 +204,23 @@ export function RestaurantSession() {
     setPlateLoading(true);
     try {
       const result = await analyzePlateImage(file);
+
+      // Apply Portion Scaling
+      const factor = portion;
+      const scaledCarbs = Math.round((result.carbs ?? 0) * factor);
+      const scaledFat = Math.round((result.fat ?? 0) * factor);
+      const scaledProtein = Math.round((result.protein ?? 0) * factor);
+
+      const portionLabel = factor === 1 ? '' : factor === 0.5 ? '(1/2)' : factor === 0.33 ? '(1/3)' : '(Picoteo)';
+
       const plate = {
         id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}`,
-        carbs: result.carbs ?? 0,
-        fat: result.fat ?? 0,
-        protein: result.protein ?? 0,
+        carbs: scaledCarbs,
+        fat: scaledFat,
+        protein: scaledProtein,
         confidence: result.confidence ?? null,
         warnings: result.warnings || [],
-        reasoning_short: result.reasoning_short || '',
+        reasoning_short: `${portionLabel} ${result.reasoning_short || ''}`.trim(),
         capturedAt: new Date().toISOString(),
       };
 
@@ -223,7 +234,7 @@ export function RestaurantSession() {
             confidence: plate.confidence,
             warnings: plate.warnings,
             reasoning_short: plate.reasoning_short,
-            name: "Plato escaneado"
+            name: `Plato escaneado ${portionLabel}`
           });
         }
       } catch (err) {
@@ -239,7 +250,8 @@ export function RestaurantSession() {
         finalizedAt: null,
         menuWarnings: Array.from(new Set([...(prev.menuWarnings || []), ...(result.warnings || [])])),
       }));
-      setStatusMessage('Plato añadido a la sesión.');
+      setStatusMessage(`Plato añadido ${portionLabel}.`);
+      setPortion(1); // Reset to full portion after add
     } catch (err) {
       setError(err.message);
     } finally {
@@ -525,9 +537,35 @@ export function RestaurantSession() {
             />
           </div>
 
+
+          <div style={{ marginBottom: '0.8rem' }}>
+            <label style={{ fontSize: '0.85rem', fontWeight: 600, color: '#444' }}>¿Cuánto comerás de este plato?</label>
+            <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.4rem' }}>
+              {[1, 0.5, 0.33, 0.25].map((p) => (
+                <button
+                  key={p}
+                  onClick={() => setPortion(p)}
+                  style={{
+                    flex: 1,
+                    padding: '0.4rem',
+                    borderRadius: '8px',
+                    border: portion === p ? '2px solid var(--primary)' : '1px solid #e2e8f0',
+                    background: portion === p ? '#eff6ff' : '#f8fafc',
+                    color: portion === p ? 'var(--primary)' : '#64748b',
+                    fontWeight: portion === p ? 800 : 500,
+                    fontSize: '0.85rem',
+                    cursor: 'pointer'
+                  }}
+                >
+                  {p === 1 ? 'Todo' : p === 0.5 ? 'Mitad' : p === 0.33 ? '1/3' : 'Pica'}
+                </button>
+              ))}
+            </div>
+          </div>
+
           <div style={{ marginTop: '0.75rem', display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
             <CameraCapture
-              buttonLabel={plateLoading ? 'Analizando...' : 'Añadir plato'}
+              buttonLabel={plateLoading ? 'Analizando...' : `Añadir plato (${portion === 1 ? 'Entero' : portion === 0.5 ? 'Mitad' : 'Ración'})`}
               onCapture={handleAddPlateCapture}
               disabled={plateLoading}
               variant="primary"
@@ -536,6 +574,7 @@ export function RestaurantSession() {
               {closing ? 'Calculando...' : 'Terminar'}
             </Button>
           </div>
+
 
           <div style={{ marginTop: '1rem', borderTop: '1px solid #e2e8f0', paddingTop: '0.75rem' }}>
             <strong style={{ color: '#0f172a' }}>Platos</strong>
