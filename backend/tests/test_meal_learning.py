@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
@@ -123,6 +124,28 @@ def test_classify_event_kind_variants():
         is_uploaded=False,
         nightscout_id=None,
     )
+    kind, _ = classify_event_kind(standard)
+    assert kind == EVENT_KIND_STANDARD
+
+
+def test_classify_event_kind_without_event_type_uses_fallbacks():
+    correction = SimpleNamespace(carbs=0.5, insulin=1.2, notes=None, duration=0)
+    kind, _ = classify_event_kind(correction)
+    assert kind == EVENT_KIND_CORRECTION
+
+    carbs_only = SimpleNamespace(carbs=20, insulin=0.05, notes=None, duration=0)
+    kind, _ = classify_event_kind(carbs_only)
+    assert kind == EVENT_KIND_CARBS_ONLY
+
+    dual = SimpleNamespace(carbs=60, insulin=6, notes="split", duration=30)
+    kind, _ = classify_event_kind(dual)
+    assert kind == EVENT_KIND_DUAL
+
+    payload_dual = SimpleNamespace(carbs=45, insulin=4, notes=None, duration=0)
+    kind, _ = classify_event_kind(payload_dual, bolus_payload={"extended_units": 1.5})
+    assert kind == EVENT_KIND_DUAL
+
+    standard = SimpleNamespace(carbs=45, insulin=4, notes=None, duration=0)
     kind, _ = classify_event_kind(standard)
     assert kind == EVENT_KIND_STANDARD
 
