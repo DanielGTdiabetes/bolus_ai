@@ -40,6 +40,7 @@ export function buildHistoryFromSnapshot(iobData, treatments = [], now = new Dat
       events.carbs.push({
         time_offset_min: offset,
         grams: carbs,
+        carb_profile: t.carb_profile ?? null,
         fat_g: parseFloat(t.fat || 0),
         protein_g: parseFloat(t.protein || 0),
         fiber_g: parseFloat(t.fiber || 0),

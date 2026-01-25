@@ -166,6 +166,9 @@ async def migrate_schema(conn):
         # 4. fiber (treatments)
         await conn.execute(text("ALTER TABLE treatments ADD COLUMN IF NOT EXISTS fiber FLOAT DEFAULT 0.0"))
 
+        # 4a. carb_profile (treatments)
+        await conn.execute(text("ALTER TABLE treatments ADD COLUMN IF NOT EXISTS carb_profile VARCHAR"))
+
         # 4b. draft_id (treatments)
         await conn.execute(text("ALTER TABLE treatments ADD COLUMN IF NOT EXISTS draft_id VARCHAR"))
         await conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_treatments_draft_id ON treatments (draft_id)"))

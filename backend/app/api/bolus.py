@@ -155,6 +155,7 @@ class BolusAcceptRequest(BaseModel):
     fat: float = Field(default=0, ge=0)
     protein: float = Field(default=0, ge=0)
     fiber: float = Field(default=0, ge=0)
+    carb_profile: Optional[Literal["fast", "med", "slow"]] = None
     linked_ingestion: bool = False
     ingestion_id: Optional[str] = None
     created_at: str
@@ -252,6 +253,7 @@ async def save_treatment(
         user_id=user.username,
         insulin=payload.insulin,
         carbs=payload.carbs,
+        carb_profile=payload.carb_profile,
         notes=payload.notes,
         entered_by=payload.enteredBy,
         event_type="Correction Bolus" if original_carbs == 0 else "Meal Bolus",

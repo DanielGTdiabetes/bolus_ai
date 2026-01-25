@@ -81,6 +81,7 @@ async def get_recent_treatments_db(
                     fat=row.fat,
                     protein=row.protein,
                     fiber=row.fiber,
+                    carb_profile=row.carb_profile,
                     notes=row.notes
                 ))
             

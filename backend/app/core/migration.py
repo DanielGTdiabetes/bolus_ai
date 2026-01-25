@@ -114,6 +114,7 @@ async def ensure_treatment_columns(engine: AsyncEngine):
             ("fiber", "FLOAT DEFAULT 0"),
             ("fat", "FLOAT DEFAULT 0"),
             ("protein", "FLOAT DEFAULT 0"),
+            ("carb_profile", "VARCHAR"),
             ("notes", "TEXT"),
             ("is_uploaded", "BOOLEAN DEFAULT FALSE"),
             ("nightscout_id", "VARCHAR")

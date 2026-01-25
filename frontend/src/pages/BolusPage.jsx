@@ -328,6 +328,7 @@ export default function BolusPage() {
             glucose, carbs, slot, correctionOnly, dessertMode, dualEnabled,
             alcoholEnabled, exercise: { planned: exerciseEnabled, minutes: exerciseMinutes, intensity: exerciseIntensity },
             overrideParams: override,
+            carbProfile,
             orphanContext: { isUsing: isUsingOrphan, data: orphanCarbs },
             mealMeta: mealMetaRef.current
         });
@@ -340,6 +341,7 @@ export default function BolusPage() {
             orphanContext: { isUsing: isUsingOrphan, data: orphanCarbs },
             mealMeta: mealMetaRef.current,
             date, nsConfig, alcoholEnabled,
+            carbProfile,
             plateItems
         });
     };
@@ -569,6 +571,9 @@ export default function BolusPage() {
                                             </div>
                                         </div>
                                     )}
+                                    <div style={{ fontSize: '0.7rem', color: '#94a3b8' }}>
+                                        Afecta pronóstico/avisos y queda registrada en el tratamiento.
+                                    </div>
                                 </div>
                             )}
 

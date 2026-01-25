@@ -526,6 +526,7 @@ async def get_treatments_server(
                     "fat": getattr(row, 'fat', 0), # Added
                     "protein": getattr(row, 'protein', 0), # Added
                     "fiber": getattr(row, 'fiber', 0), # Added
+                    "carb_profile": getattr(row, "carb_profile", None),
                     "notes": row.notes,
                     "enteredBy": row.entered_by,
                     "is_uploaded": row.is_uploaded,
@@ -744,6 +745,7 @@ class TreatmentUpdate(BaseModel):
     fat: Optional[float] = None
     protein: Optional[float] = None
     fiber: Optional[float] = None
+    carb_profile: Optional[str] = None
     created_at: Optional[str] = None # ISO format
     notes: Optional[str] = None
 
@@ -784,6 +786,7 @@ async def update_treatment(
              if payload.fat is not None: db_item.fat = payload.fat
              if payload.protein is not None: db_item.protein = payload.protein
              if payload.fiber is not None: db_item.fiber = payload.fiber
+             if payload.carb_profile is not None: db_item.carb_profile = payload.carb_profile
              if payload.notes is not None: db_item.notes = payload.notes
              if payload.created_at:
                  try:
@@ -849,6 +852,7 @@ async def update_treatment(
                  if payload.fat is not None: ns_payload["fat"] = payload.fat
                  if payload.protein is not None: ns_payload["protein"] = payload.protein
                  if payload.fiber is not None: ns_payload["fiber"] = payload.fiber
+                 if payload.carb_profile is not None: ns_payload["carb_profile"] = payload.carb_profile
                  if payload.notes is not None: ns_payload["notes"] = payload.notes
                  if payload.created_at: ns_payload["created_at"] = payload.created_at
                  
