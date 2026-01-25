@@ -35,7 +35,7 @@ export default function ScanPage() {
         state.tempFat = totalFat;
         state.tempProtein = totalProt;
         state.tempItems = plateEntries.map(e => e.name);
-        state.tempReason = "restaurant_kickoff";
+        state.tempReason = "restaurant_menu";
 
         // Mark for BolusPage to start session
         state.tempRestaurantSession = {
@@ -324,7 +324,7 @@ function CameraSection({ scaleGrams, plateEntries, onAddEntry, scanMode, setScan
         state.tempFat = totalFat;
         state.tempProtein = totalProt;
         state.tempItems = plateEntries.map(e => e.name);
-        state.tempReason = "restaurant_kickoff";
+        state.tempReason = "restaurant_menu";
 
         // Mark for BolusPage to start session
         state.tempRestaurantSession = {
