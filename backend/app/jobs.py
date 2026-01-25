@@ -184,6 +184,59 @@ async def _run_learning_evaluation_task():
 async def run_learning_evaluation():
     return await jobs_state.run_job("learning_eval", _run_learning_evaluation_task)
 
+
+async def _run_meal_learning_task():
+    """
+    Background Task: Evaluates meal experiences and updates absorption clusters.
+    """
+    from app.core.db import get_engine
+    from sqlalchemy.ext.asyncio import AsyncSession
+    from sqlalchemy import text
+    from app.services.meal_learning_service import MealLearningService
+    from app.services.nightscout_secrets_service import get_ns_config
+    from app.services.nightscout_client import NightscoutClient
+    from app.services.settings_service import get_user_settings_service
+    from app.models.settings import UserSettings
+
+    logger.info("Running Meal Learning Job...")
+    engine = get_engine()
+    if not engine:
+        logger.warning("No DB engine for meal learning.")
+        return
+
+    users = []
+    async with engine.connect() as conn:
+        res = await conn.execute(text("SELECT username FROM users"))
+        users = [{"username": r[0]} for r in res.fetchall()]
+
+    async with AsyncSession(engine) as session:
+        svc = MealLearningService(session)
+        for user in users:
+            username = user.get("username")
+            if not username:
+                continue
+
+            settings_payload = await get_user_settings_service(username, session)
+            if not settings_payload or not settings_payload.get("settings"):
+                continue
+            user_settings = UserSettings.migrate(settings_payload["settings"])
+
+            ns_cfg = await get_ns_config(session, username)
+            if not ns_cfg or not ns_cfg.url:
+                continue
+
+            client = NightscoutClient(ns_cfg.url, ns_cfg.api_secret, timeout_seconds=10)
+            try:
+                await svc.evaluate_treatments(username, user_settings, ns_client=client)
+            finally:
+                await client.aclose()
+
+    logger.info("Meal Learning Job Completed.")
+
+
+async def run_meal_learning():
+    return await jobs_state.run_job("meal_learning", _run_meal_learning_task)
+
 async def _run_ml_training_snapshot_task() -> None:
     """
     Background Task: Collects ML training snapshots for all users.
@@ -309,6 +362,10 @@ def setup_periodic_tasks():
     learning_trigger = CronTrigger(minute='*/30')
     schedule_task(run_learning_evaluation, learning_trigger, "learning_eval")
     jobs_state.refresh_next_run("learning_eval")
+
+    meal_learning_trigger = CronTrigger(minute='*/30')
+    schedule_task(run_meal_learning, meal_learning_trigger, "meal_learning")
+    jobs_state.refresh_next_run("meal_learning")
 
     # Run ML training snapshot every 5 mins
     ml_training_trigger = CronTrigger(minute='*/5')

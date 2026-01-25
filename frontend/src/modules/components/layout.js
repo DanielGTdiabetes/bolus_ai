@@ -69,7 +69,7 @@ export function renderBottomNav(activeTab = 'home') {
     { id: 'bolus', icon: '💉', label: 'Bolo', hash: '#/bolus' },
     { id: 'basal', icon: '📉', label: 'Basal', hash: '#/basal' },
     { id: 'history', icon: '⏱️', label: 'Hist.', hash: '#/history' },
-    { id: 'patterns', icon: '📊', label: 'Patrones', hash: '#/patterns' },
+    { id: 'learning', icon: '🧠', label: 'Aprendizaje', hash: '#/learning' },
     { id: 'suggestions', icon: '💡', label: 'Suger.', hash: '#/suggestions' },
     { id: 'settings', icon: '⚙️', label: 'Ajustes', hash: '#/settings' }
   ];

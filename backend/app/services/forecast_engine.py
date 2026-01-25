@@ -83,8 +83,22 @@ class ForecastEngine:
                  params = CarbCurves.get_biexponential_params(c.grams, c.fiber_g, c.fat_g, c.protein_g)
                  r = CarbCurves.biexponential_absorption(t_since, params)
              else:
-                 dur = c.absorption_minutes or req.params.carb_absorption_minutes
-                 r = CarbCurves.variable_absorption(t_since, dur, peak_min=dur/2)
+                dur = c.absorption_minutes or req.params.carb_absorption_minutes
+                peak = c.absorption_peak_min or (dur / 2 if dur else 60)
+                if not c.absorption_minutes and c.absorption_peak_min and c.absorption_tail_min:
+                    dur = c.absorption_peak_min + c.absorption_tail_min
+                shape = (c.absorption_shape or "triangle").lower()
+                if shape == "linear":
+                    r = CarbCurves.linear_absorption(t_since, dur)
+                elif shape == "biexponential":
+                    params = {
+                        "f": 0.6,
+                        "t_max_r": peak,
+                        "t_max_l": max(peak + (c.absorption_tail_min or peak), peak * 2),
+                    }
+                    r = CarbCurves.biexponential_absorption(t_since, params)
+                else:
+                    r = CarbCurves.variable_absorption(t_since, dur, peak_min=peak)
              # Resolve CS
              this_icr = c.icr if c.icr and c.icr > 0 else req.params.icr
              this_cs = (req.params.isf / this_icr) if this_icr > 0 else 0.0

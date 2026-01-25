@@ -265,6 +265,69 @@ async def migrate_schema(conn):
                 PRIMARY KEY (feature_time, user_id)
             )
         """))
+
+        # 12. meal_experiences (Learning - absorption timing)
+        await conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS meal_experiences (
+                id VARCHAR PRIMARY KEY,
+                treatment_id VARCHAR NOT NULL,
+                created_at TIMESTAMP NOT NULL,
+                user_id VARCHAR NOT NULL,
+                meal_type VARCHAR,
+                carbs_g FLOAT DEFAULT 0.0,
+                protein_g FLOAT DEFAULT 0.0,
+                fat_g FLOAT DEFAULT 0.0,
+                fiber_g FLOAT DEFAULT 0.0,
+                tags_json JSON,
+                carb_profile VARCHAR,
+                event_kind VARCHAR NOT NULL,
+                window_status VARCHAR NOT NULL,
+                discard_reason TEXT,
+                bg_start FLOAT,
+                bg_peak FLOAT,
+                bg_min FLOAT,
+                bg_end_2h FLOAT,
+                bg_end_3h FLOAT,
+                bg_end_5h FLOAT,
+                delta_2h FLOAT,
+                delta_3h FLOAT,
+                delta_5h FLOAT,
+                score FLOAT,
+                event_kind_reason TEXT,
+                data_quality_json JSON
+            )
+        """))
+        await conn.execute(text("ALTER TABLE meal_experiences ADD COLUMN IF NOT EXISTS user_id VARCHAR"))
+        await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_meal_experiences_treatment_id ON meal_experiences (treatment_id)"))
+        await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_meal_experiences_created_at ON meal_experiences (created_at)"))
+        await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_meal_experiences_user_id ON meal_experiences (user_id)"))
+        await conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_meal_experiences_user_treatment ON meal_experiences (user_id, treatment_id)"))
+
+        # 13. meal_clusters (Learning clusters for absorption timing)
+        await conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS meal_clusters (
+                id VARCHAR PRIMARY KEY,
+                cluster_key VARCHAR UNIQUE NOT NULL,
+                user_id VARCHAR NOT NULL,
+                carb_profile VARCHAR,
+                tags_key VARCHAR,
+                centroid_carbs FLOAT DEFAULT 0.0,
+                centroid_protein FLOAT DEFAULT 0.0,
+                centroid_fat FLOAT DEFAULT 0.0,
+                centroid_fiber FLOAT DEFAULT 0.0,
+                n_ok INTEGER DEFAULT 0,
+                n_discarded INTEGER DEFAULT 0,
+                confidence VARCHAR DEFAULT 'low',
+                absorption_duration_min INTEGER,
+                peak_min INTEGER,
+                tail_min INTEGER,
+                shape VARCHAR,
+                last_updated_at TIMESTAMP
+            )
+        """))
+        await conn.execute(text("ALTER TABLE meal_clusters ADD COLUMN IF NOT EXISTS user_id VARCHAR"))
+        await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_meal_clusters_cluster_key ON meal_clusters (cluster_key)"))
+        await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_meal_clusters_user_id ON meal_clusters (user_id)"))
         
         # Ensure migration for existing tables that only have feature_time as PK
         try:
