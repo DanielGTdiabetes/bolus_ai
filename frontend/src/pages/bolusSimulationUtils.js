@@ -115,7 +115,12 @@ export function buildForecastPayload({
       insulin_onset_minutes: insulinOnset,
       insulin_sensitivity_multiplier: sensitivityMultiplier,
       target_bg: targetMgdl,
-      basal_daily_units: basalDailyUnits
+      basal_daily_units: basalDailyUnits,
+      // Warsaw Params (Only send if enabled, otherwise use backend logic)
+      ...(settings?.warsaw?.enabled ? {
+        warsaw_factor_simple: settings.warsaw.safety_factor,
+        warsaw_trigger: settings.warsaw.trigger_threshold_kcal
+      } : {})
     },
     events: events
   };

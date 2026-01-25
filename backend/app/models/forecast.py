@@ -20,8 +20,8 @@ class SimulationParams(BaseModel):
     basal_daily_units: float = Field(0.0, description="Users typical daily basal dose for reference. If 0, assumes current active is correct.")
     
     # User Preferences
-    warsaw_factor_simple: float = Field(0.1, description="Kcal to Carbs conversion factor for Simple Mode (def: 0.1 = 10g per 100kcal)")
-    warsaw_trigger: int = Field(500, description="Kcal trigger for Dual Mode")
+    warsaw_factor_simple: Optional[float] = Field(None, description="Kcal to Carbs conversion factor for Simple Mode (def: None = use User Settings or 1.0)")
+    warsaw_trigger: Optional[int] = Field(None, description="Kcal trigger for Dual Mode (def: None = use User Settings)")
 
     # Fiber Preferences
     use_fiber_deduction: bool = Field(False, description="Subtract fiber from total carbs")
@@ -120,7 +120,7 @@ class ForecastResponse(BaseModel):
     series: List[ForecastPoint]
     baseline_series: Optional[List[ForecastPoint]] = None # Comparison series (e.g., without future bolus)
     components: Optional[List[ComponentImpact]] = None
-    components: Optional[List[ComponentImpact]] = None
+
     summary: ForecastSummary
     
     quality: Literal["high", "medium", "low"] = "high"

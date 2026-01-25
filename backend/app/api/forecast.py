@@ -776,12 +776,14 @@ async def get_current_forecast(
         insulin_peak_minutes=user_settings.iob.peak_minutes,
         insulin_model=user_settings.iob.curve,
         basal_daily_units=avg_basal,
-        warsaw_factor_simple=user_settings.warsaw.safety_factor if user_settings.warsaw else 1.0, # Default to 1.0 for Trust logic
-        warsaw_trigger=user_settings.warsaw.trigger_threshold_kcal if user_settings.warsaw else 50,
+        # Warsaw Params handled by resolver
         use_fiber_deduction=user_settings.calculator.subtract_fiber if user_settings.calculator else False,
         fiber_factor=user_settings.calculator.fiber_factor if user_settings.calculator else 0.0,
         target_bg=float(user_settings.targets.mid) if (user_settings and user_settings.targets) else 110.0
     )
+    
+    from app.services.forecast_params_resolver import resolve_warsaw_params
+    resolve_warsaw_params(sim_params, user_settings)
     
     # Import locally if not at top, or ensure top imports are enough
     # MomentumConfig is in app.models.forecast
@@ -1458,6 +1460,13 @@ async def simulate_forecast(
                      payload.params.insulin_sensitivity_multiplier = multiplier
              except Exception:
                  pass
+
+
+        
+        # Resolve Warsaw Params (Authoritative Source)
+        # Guarantees consistency between /current and /simulate
+        from app.services.forecast_params_resolver import resolve_warsaw_params
+        resolve_warsaw_params(payload.params, user_settings)
 
         # Validate logic? (Pydantic does structure, Engine does math)
         response = ForecastEngine.calculate_forecast(payload)
