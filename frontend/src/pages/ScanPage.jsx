@@ -2,10 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Header } from '../components/layout/Header';
 import { BottomNav } from '../components/layout/BottomNav';
 import { Card, Button } from '../components/ui/Atoms';
-import {
-    estimateCarbsFromImage, connectScale, disconnectScale,
-    tare, setOnData
-} from '../lib/api';
+import { estimateCarbsFromImage } from '../lib/api';
 import { analyzeMenuImage } from '../lib/restaurantApi';
 import { state } from '../modules/core/store';
 import { navigate } from '../modules/core/navigation';
