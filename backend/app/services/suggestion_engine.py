@@ -11,15 +11,104 @@ from app.services.pattern_analysis import get_summary_service
 logger = logging.getLogger(__name__)
 
 from app.models.settings import UserSettings
+from app.services.nightscout_client import NightscoutClient
+from app.services.nightscout_secrets_service import get_ns_config
+from app.services.isf_analysis_service import IsfAnalysisService
 
-async def generate_suggestions_service(
+async def generate_isf_suggestions(
     user_id: str,
     days: int,
     db: AsyncSession,
-    settings: UserSettings = None
+    settings: UserSettings
 ) -> dict:
+    """
+    Analyzes ISF using IsfAnalysisService and creates suggestions if needed.
+    """
+    created_count = 0
+    skipped_count = 0
     
-    # 1. Get Pattern Summary
+    # 1. Setup Client
+    ns_cfg = await get_ns_config(db, user_id)
+    if not ns_cfg or not ns_cfg.url:
+        return {"created": 0, "skipped": 0, "status": "no_ns_config"}
+        
+    client = NightscoutClient(ns_cfg.url, ns_cfg.api_secret, timeout_seconds=30)
+    
+    try:
+        # 2. Setup Analysis
+        # Profile construction from UserSettings
+        current_cf = {
+            "breakfast": getattr(settings.cf, "breakfast", 30.0),
+            "lunch": getattr(settings.cf, "lunch", 30.0),
+            "dinner": getattr(settings.cf, "dinner", 30.0)
+        }
+        profile_settings = {
+            "dia_hours": getattr(settings.iob, "dia_hours", 4.0),
+            "curve": getattr(settings.iob, "curve", "bilinear"),
+            "peak_minutes": getattr(settings.iob, "peak_minutes", 75)
+        }
+        
+        service = IsfAnalysisService(client, current_cf, profile_settings, db_session=db)
+        
+        # 3. Run Analysis
+        # Use days provided, default to 14 if too small? ISF needs data.
+        # analysis_days = max(days, 7) 
+        result = await service.run_analysis(user_id, days=days)
+        
+        # 4. Process Results
+        actionable = [b for b in result.buckets if b.status in ["strong_drop", "weak_drop"] and b.confidence == "high"]
+        
+        for item in actionable:
+            direction = "decrease" if item.suggestion_type == "decrease" else "increase"
+            
+            # Check existing
+            stmt = select(ParameterSuggestion).where(
+                ParameterSuggestion.user_id == user_id,
+                ParameterSuggestion.meal_slot == item.bucket_name,
+                ParameterSuggestion.parameter == "isf",
+                ParameterSuggestion.status == "pending"
+            )
+            existing = await db.execute(stmt)
+            if existing.scalars().first():
+                skipped_count += 1
+                continue
+                
+            # Create
+            reason_text = f"Análisis ISF ({item.label}): Detectado cambio significativo. "
+            if direction == "increase":
+                reason_text += "La insulina está cayendo MÁS de lo esperado (Sensible). Se sugiere subir factor."
+            else:
+                reason_text += "La insulina está cayendo MENOS de lo esperado (Resistente). Se sugiere bajar factor."
+            
+            new_sug = ParameterSuggestion(
+                user_id=user_id,
+                meal_slot=item.bucket_name,
+                parameter="isf",
+                direction=direction,
+                reason=reason_text,
+                evidence={
+                    "source": "isf_analysis_service",
+                    "change_ratio": item.change_ratio,
+                    "confidence": item.confidence,
+                    "old_isf": item.current_isf,
+                    "new_isf": item.suggested_isf,
+                    "median_observed": item.median_isf,
+                    "days_analyzed": days
+                },
+                status="pending",
+                created_at=datetime.utcnow()
+            )
+            db.add(new_sug)
+            created_count += 1
+            
+    except Exception as e:
+        logger.error(f"ISF Generation failed for {user_id}: {e}")
+        return {"created": created_count, "skipped": skipped_count, "error": str(e)}
+    finally:
+        await client.aclose()
+        
+    return {"created": created_count, "skipped": skipped_count}
+
     summary = await get_summary_service(user_id, days, db, settings=settings)
     by_meal = summary.get("by_meal", {})
     
@@ -109,6 +198,16 @@ async def generate_suggestions_service(
                 )
                 db.add(new_sug)
                 created_count += 1
+    
+    # 3. ISF Analysis Integration
+    # Only run if settings available (needed for profile/targets)
+    if settings:
+        try:
+            isf_res = await generate_isf_suggestions(user_id, days, db, settings)
+            created_count += isf_res.get("created", 0)
+            skipped_count += isf_res.get("skipped", 0)
+        except Exception as e:
+            logger.error(f"Failed to generate ISF suggestions: {e}")
                 
     await db.commit()
     return {"created": created_count, "skipped": skipped_count, "days": days}

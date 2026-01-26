@@ -1886,95 +1886,57 @@ async def check_isf_suggestions(username: str = "admin", chat_id: Optional[int] 
     chat_id = chat_id or await _get_chat_id()
     if not chat_id: return
     
-    # 2. Prepare Analysis Service
-    # We need NS Client and Profile from Settings
-    client = get_nightscout_client(user_settings)
-    if not client: return
+    # 2. Run Generation (Unified Engine)
+    from app.core.db import SessionLocal
+    from app.services.suggestion_engine import generate_suggestions_service
+    from app.models.suggestion import ParameterSuggestion
+    from sqlalchemy import select
     
-    # Construct simplistic profile for analysis
-    current_cf = {
-        "breakfast": getattr(user_settings.cf, "breakfast", 30.0),
-        "lunch": getattr(user_settings.cf, "lunch", 30.0),
-        "dinner": getattr(user_settings.cf, "dinner", 30.0)
-    }
-    profile_settings = {
-        "dia_hours": getattr(user_settings.iob, "dia_hours", 4.0),
-        "curve": getattr(user_settings.iob, "curve", "bilinear"),
-        "peak_minutes": getattr(user_settings.iob, "peak_minutes", 75)
-    }
-
-    service = IsfAnalysisService(client, current_cf, profile_settings)
+    created_count = 0
     
     try:
-        # Run 14 day analysis
-        result: IsfAnalysisResponse = await service.run_analysis(username, days=14)
-        
-        # 3. Check for actionable items
-        actionable = []
-        for bucket in result.buckets:
-            if bucket.status in ["strong_drop", "weak_drop"] and bucket.confidence == "high":
-                actionable.append(bucket)
-                
-        if not actionable:
-            if trigger == "manual":
-                await _send(None, chat_id, "✅ Análisis completado. Sin cambios sugeridos.", log_context="isf_check_manual")
-            return
-
-        # 4. Persistence & Notification with Buttons
-        from app.core.db import SessionLocal
-        from app.models.suggestion import ParameterSuggestion
-
         async with SessionLocal() as session:
-            for item in actionable:
-                # Create Suggestion Record
-                direction = "decrease" if item.suggestion_type == "decrease" else "increase"
-                slot_map = {"breakfast": "breakfast", "lunch": "lunch", "dinner": "dinner"} 
-                # bucket labels matching settings slots roughly. item.label might be "Desayuno" or bucket key.
-                # item.label comes from result.buckets. Let's assume bucket key mapping.
-                # Actually item is IsfBucketResult. 
-                # We need to map the bucket time to the settings key correctly.
-                # In proactive.py earlier we passed current_cf keys. 
-                # Let's hope item.label corresponds or we map based on item.bucket_name
-                # Simplify: pass the slot name if available.
+            # Run generation (includes ISF now)
+            # Use 14 days for robust ISF
+            stats = await generate_suggestions_service(username, 14, session, settings=user_settings)
+            created_count = stats.get("created", 0)
+            
+            # 3. Notify NEW Pending Suggestions
+            # We look for suggestions created in the last 5 minutes to notify
+            cutoff = datetime.utcnow() - timedelta(minutes=5)
+            stmt = select(ParameterSuggestion).where(
+                ParameterSuggestion.user_id == username,
+                ParameterSuggestion.status == "pending",
+                ParameterSuggestion.created_at >= cutoff,
+                ParameterSuggestion.parameter == "isf" # Focus on ISF as per job name, or all? Job name is isf_check.
+            )
+            res = await session.execute(stmt)
+            new_items = res.scalars().all()
+            
+            if not new_items:
+                if trigger == "manual":
+                    await _send(None, chat_id, "✅ Análisis completado. Sin cambios sugeridos.", log_context="isf_check_manual")
+                return
+
+            for sug in new_items:
+                # Format Notification
+                item_label = sug.meal_slot
+                suggested_val = sug.evidence.get("new_isf", "?")
+                current_val = sug.evidence.get("old_isf", "?")
+                confidence = sug.evidence.get("confidence", "medium")
                 
-                # Check persistence to avoid dupes
-                match_id = f"isf_analysis_{item.bucket_name}_{datetime.utcnow().date()}"
-                
-                # Create DB Entry
-                sug = ParameterSuggestion(
-                    user_id=username,
-                    meal_slot=item.bucket_name, # ensure uses English keys like 'breakfast'
-                    parameter="isf",
-                    direction=direction,
-                    reason=item.status,
-                    evidence={
-                        "source": "isf_analysis_service",
-                        "change_ratio": item.change_ratio,
-                        "confidence": item.confidence,
-                        "old_isf": item.current_isf,
-                        "new_isf": item.suggested_isf
-                    },
-                    status="pending"
-                )
-                session.add(sug)
-                await session.commit()
-                await session.refresh(sug)
-                
-                # Send Individual Message with Actions
-                emoji = "🔴" if direction == "decrease" else "🔵"
+                emoji = "🔴" if sug.direction == "decrease" else "🔵"
                 msg = (
-                    f"📉 **Análisis {item.label}**\n"
-                    f"{emoji} Cambio detectado.\n"
-                    f"ISF actual: `{item.current_isf}`\n"
-                    f"Sugerido: **{item.suggested_isf}**\n"
-                    f"Confianza: {item.confidence}"
+                    f"📉 **Sugerencia ISF: {item_label}**\n"
+                    f"{emoji} {sug.reason}\n"
+                    f"Actual: `{current_val}` -> Sugerido: **{suggested_val}**\n"
+                    f"Confianza: {confidence}"
                 )
                 
                 keyboard = [
                     [
-                        # Re-use autosens_confirm logic as it updates ISF genericly
-                        InlineKeyboardButton(f"✅ Aceptar ({item.suggested_isf})", 
-                                           callback_data=f"autosens_confirm|{sug.id}|{item.suggested_isf}|{item.bucket_name}"),
+                        InlineKeyboardButton(f"✅ Aceptar ({suggested_val})", 
+                                           callback_data=f"autosens_confirm|{sug.id}|{suggested_val}|{sug.meal_slot}"),
                         InlineKeyboardButton("❌ Descartar", callback_data=f"autosens_cancel|{sug.id}")
                     ]
                 ]
@@ -1986,16 +1948,15 @@ async def check_isf_suggestions(username: str = "admin", chat_id: Optional[int] 
                     log_context="isf_check_notification",
                     reply_markup=InlineKeyboardMarkup(keyboard)
                 )
+                
+            # Update cooldown
+            cooldowns.touch("isf_check")
 
-        # Update cooldown
-        cooldowns.touch("isf_check")
-        
     except Exception as e:
         logger.error(f"ISF Check failed: {e}")
         if trigger == "manual":
              await _send(None, chat_id, f"⚠️ Error analizando ISF: {e}", log_context="isf_check_error")
-    finally:
-        await client.aclose()
+
 
 
 async def check_app_notifications(username: str = "admin", chat_id: Optional[int] = None, trigger: str = "auto") -> None:
