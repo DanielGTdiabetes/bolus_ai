@@ -661,12 +661,20 @@ async def get_current_forecast(
                     cluster.n_ok,
                     cluster.confidence,
                 )
+                c._learned = True
             else:
                 logger.info("Forecast uses base curve (no learned cluster).")
 
     # Flag for UI
     is_slow_absorption = False
     slow_reason = None
+    
+    # Check if learning was applied to any carb
+    used_learning = False
+    for c in carbs:
+        if getattr(c, '_learned', False):
+             used_learning = True
+             break
     
     if future_insulin_u and future_insulin_u > 0:
         is_slow_absorption = True
@@ -888,6 +896,11 @@ async def get_current_forecast(
     response = ForecastEngine.calculate_forecast(payload)
     response.slow_absorption_active = is_slow_absorption
     response.slow_absorption_reason = slow_reason
+    
+    if used_learning:
+        if not response.absorption_reasons: response.absorption_reasons = []
+        response.absorption_reasons.append("Curva Aprendida (IA)")
+        response.absorption_confidence = "high"
     
     # Transparency Metadata
     if response.meta is None:
