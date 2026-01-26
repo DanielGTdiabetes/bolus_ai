@@ -292,7 +292,17 @@ async def get_status_context(username: str = "admin", user_settings: Optional[Us
             bg_val = float(ns_sgv.sgv)
             direction = ns_sgv.direction or None
             delta = ns_sgv.delta
-            timestamp_str = ts.isoformat()
+            
+            from app.utils.timezone import to_local, ZoneInfo
+            target_tz = None
+            if user_settings.timezone:
+                try:
+                    target_tz = ZoneInfo(user_settings.timezone)
+                except:
+                    pass
+
+            timestamp_str = to_local(ts, tz=target_tz).isoformat()
+            
             quality = "live"
             ns_age_min = age_min
             
@@ -325,7 +335,8 @@ async def get_status_context(username: str = "admin", user_settings: Optional[Us
                          bg_val = float(dx_reading.sgv)
                          direction = dx_reading.trend
                          delta = None # Dexcom client might not give delta easily
-                         timestamp_str = dx_reading.date.isoformat()
+                         from app.utils.timezone import to_local
+                         timestamp_str = to_local(dx_reading.date, tz=target_tz).isoformat()
                          quality = "live"
                          # We abuse 'source' to indicate origin? BotContext source defaults to 'unknown'
                          # We can encode it in quality or just assume live.
