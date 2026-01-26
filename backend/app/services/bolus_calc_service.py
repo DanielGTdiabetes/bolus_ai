@@ -174,7 +174,7 @@ async def calculate_bolus_stateless_service(
             invalid_limits = (
                 user_settings.max_bolus_u <= 0
                 or user_settings.max_correction_u < 0
-                or user_settings.round_step_u <= 0
+                or user_settings.round_step_u < 0
             )
             invalid_ratios = any(
                 getattr(user_settings.cr, slot, 0) <= 0
