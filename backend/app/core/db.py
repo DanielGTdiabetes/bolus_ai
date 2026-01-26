@@ -1,4 +1,5 @@
 import logging
+import os
 import uuid
 from typing import AsyncGenerator, Optional, List, Any
 from datetime import datetime
@@ -24,6 +25,18 @@ _in_memory_store = {
     "checkins": [],
     "isf_runs": [],
 }
+
+
+def _url_has_search_path(url: str) -> bool:
+    try:
+        parsed = make_url(url)
+        query = dict(parsed.query)
+    except Exception:
+        return False
+    if "search_path" in query:
+        return True
+    options = query.get("options", "")
+    return "search_path" in options
 
 def init_db():
     settings = get_settings()
@@ -55,7 +68,13 @@ def init_db():
             # Remove channel_binding (often unsupported kwarg for asyncpg via SA)
             if "channel_binding" in q:
                 q.pop("channel_binding")
-                
+
+            schema_name = os.environ.get("DATABASE_SCHEMA")
+            if schema_name:
+                connect_args.setdefault("server_settings", {})["search_path"] = schema_name
+            elif not _url_has_search_path(url):
+                connect_args.setdefault("server_settings", {})["search_path"] = "public"
+
             u = u._replace(query=q)
             _async_engine = create_async_engine(
                 u,

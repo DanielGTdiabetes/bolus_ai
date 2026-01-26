@@ -1,4 +1,5 @@
 import asyncio
+import os
 from logging.config import fileConfig
 
 from sqlalchemy import pool
@@ -18,7 +19,6 @@ config = context.config
 
 # ----------------ADDED FOR RENDER----------------
 # Iterate DB URL from Environment if present
-import os
 db_url = os.environ.get("DATABASE_URL")
 if db_url:
     # Ensure correct driver for asyncpg
@@ -123,6 +123,18 @@ async def run_async_migrations() -> None:
             new_query = urlencode(q, doseq=True)
             u = u._replace(query=new_query)
             section["sqlalchemy.url"] = urlunparse(u)
+
+    schema_name = os.environ.get("DATABASE_SCHEMA")
+    if schema_name:
+        connect_args.setdefault("server_settings", {})["search_path"] = schema_name
+    elif current_url:
+        from urllib.parse import urlparse, parse_qs
+
+        query = parse_qs(urlparse(current_url).query)
+        options = " ".join(query.get("options", []))
+        has_search_path = "search_path" in query or "search_path" in options
+        if not has_search_path:
+            connect_args.setdefault("server_settings", {})["search_path"] = "public"
 
     connectable = async_engine_from_config(
         section,
