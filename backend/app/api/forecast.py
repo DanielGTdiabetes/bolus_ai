@@ -882,6 +882,9 @@ async def get_current_forecast(
         recent_bg_series=recent_bg_series if recent_bg_series else None
     )
     
+    # Force 5h Horizon (User Request)
+    payload.horizon_minutes = 300
+    
     response = ForecastEngine.calculate_forecast(payload)
     response.slow_absorption_active = is_slow_absorption
     response.slow_absorption_reason = slow_reason
@@ -1485,7 +1488,8 @@ async def simulate_forecast(
         # 2. Apply Shift
         if onset_val > 0:
             for bolus in payload.events.boluses:
-                if bolus.time_offset_min > 0:
+                # Include boluses at t=0 (Now) or slightly past to ensure lag is applied
+                if bolus.time_offset_min >= -1:
                     bolus.time_offset_min += onset_val
 
         # Calculate Resistance Multiplier (If not provided) in /simulate

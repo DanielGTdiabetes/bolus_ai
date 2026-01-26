@@ -105,7 +105,7 @@ export function buildForecastPayload({
   return {
     start_bg: bgVal,
     units: 'mgdl',
-    horizon_minutes: 240,
+    horizon_minutes: 300,
     params: {
       isf: isf,
       icr: icr,

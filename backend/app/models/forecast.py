@@ -72,7 +72,7 @@ class ForecastEvents(BaseModel):
 class ForecastSimulateRequest(BaseModel):
     start_bg: float = Field(..., description="Current Blood Glucose in mg/dL")
     units: Literal["mgdl", "mmol"] = "mgdl"
-    horizon_minutes: int = Field(240, description="How far ahead to predict")
+    horizon_minutes: int = Field(300, description="How far ahead to predict")
     step_minutes: int = Field(5, description="Granularity of the prediction series")
     
     momentum: Optional[MomentumConfig] = None
