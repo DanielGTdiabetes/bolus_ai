@@ -78,7 +78,7 @@ export default function ForecastPage() {
 
                 <div className="card" style={{ padding: '1rem', marginBottom: '1rem' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-                        <h2 style={{ fontSize: '1.2rem', margin: 0, color: '#1e293b' }}>Simulación a 6 Horas</h2>
+                        <h2 style={{ fontSize: '1.2rem', margin: 0, color: '#1e293b' }}>Simulación a 5 Horas</h2>
                         <button onClick={loadForecast} disabled={loading} style={{ background: 'none', border: 'none', color: loading ? '#94a3b8' : '#3b82f6', cursor: loading ? 'wait' : 'pointer' }}>
                             {loading ? '⏳ Cargando...' : '🔄 Actualizar'}
                         </button>
@@ -103,7 +103,7 @@ export default function ForecastPage() {
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1rem' }}>
                                 <StatTile label="Mínimo Estimado" value={prediction.summary.min_bg} unit="mg/dL" color={prediction.summary.min_bg < 70 ? '#ef4444' : '#3b82f6'} />
                                 <StatTile label="Máximo Estimado" value={prediction.summary.max_bg} unit="mg/dL" color={prediction.summary.max_bg > 180 ? '#f59e0b' : '#3b82f6'} />
-                                <StatTile label="Glucosa Final (6h)" value={prediction.summary.ending_bg} unit="mg/dL" />
+                                <StatTile label="Glucosa Final (5h)" value={prediction.summary.ending_bg} unit="mg/dL" />
                                 <StatTile label="Tiempo al Mínimo" value={prediction.summary.time_to_min ? `en ${prediction.summary.time_to_min} min` : '--'} />
                             </div>
 
