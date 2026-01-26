@@ -88,6 +88,12 @@ def _smart_round(
     Safety Override:
     - If BG < 100, DISABLE 'Ceil' behavior. Enforce 'Floor' or 'Nearest'.
     """
+    if step <= 0:
+        explain.append(
+            "   (Techne) Round step <= 0; skipping Techne rounding."
+        )
+        return value
+
     standard = round(value / step) * step
     
     # Map Trend
