@@ -61,6 +61,11 @@ async def generate_isf_suggestions(
         for item in actionable:
             direction = "decrease" if item.suggestion_type == "decrease" else "increase"
             
+            # Check trivial change
+            if abs(item.current_isf - item.suggested_isf) < 1.0:
+                skipped_count += 1
+                continue
+
             # Check existing
             stmt = select(ParameterSuggestion).where(
                 ParameterSuggestion.user_id == user_id,
@@ -178,6 +183,30 @@ async def generate_suggestions_service(
                     "days": days,
                     "quality_ok": True
                 }
+
+                # Calculate Proposed Value (if settings available)
+                if settings and suggestion_type == "icr":
+                    current_val = getattr(settings.cr, meal_slot, None)
+                    if current_val:
+                        evidence["current_value"] = float(current_val)
+                        # High BG (Short) -> Stronger Ratio (Lower CR)
+                        if short_ratio >= 0.60:
+                            # Decrease by 10%
+                            proposed = round(current_val * 0.9, 1)
+                            if proposed >= current_val: proposed = current_val - 0.5 # Force diff
+                            evidence["suggested_value"] = max(2.0, proposed)
+                        
+                        # Low BG (Over) -> Weaker Ratio (Higher CR)
+                        elif over_ratio >= 0.60:
+                             # Increase by 10%
+                            proposed = round(current_val * 1.1, 1)
+                            if proposed <= current_val: proposed = current_val + 0.5
+                            evidence["suggested_value"] = proposed
+
+                        # Filter trivial
+                        if abs(evidence.get("suggested_value", 0) - evidence.get("current_value", 0)) < 0.1:
+                            continue
+                
                 
                 # Check for existing pending
                 # We only allow one pending suggestion per slot+param

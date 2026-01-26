@@ -98,7 +98,16 @@ function PendingView() {
             return;
         }
         const currentVal = settings[item.meal_slot][item.parameter];
-        setSelectedItem({ ...item, currentVal, newVal: currentVal });
+
+        let initialNewVal = currentVal;
+        // Prioritize backend suggestion if available
+        if (item.evidence?.suggested_value) {
+            initialNewVal = item.evidence.suggested_value;
+        } else if (item.evidence?.new_isf) {
+            initialNewVal = item.evidence.new_isf;
+        }
+
+        setSelectedItem({ ...item, currentVal, newVal: initialNewVal });
         setModalOpen(true);
     };
 
@@ -199,7 +208,7 @@ function SuggestionCard({ item, onAccept, onReject }) {
 }
 
 function AcceptModal({ item, onClose, onConfirm }) {
-    const [val, setVal] = useState(item.currentVal);
+    const [val, setVal] = useState(item.newVal !== undefined ? item.newVal : item.currentVal);
     const [saving, setSaving] = useState(false);
 
     const handleSave = async () => {
