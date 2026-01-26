@@ -109,6 +109,13 @@ async def generate_isf_suggestions(
         
     return {"created": created_count, "skipped": skipped_count}
 
+async def generate_suggestions_service(
+    user_id: str,
+    days: int,
+    db: AsyncSession,
+    settings: UserSettings = None
+) -> dict:
+    
     summary = await get_summary_service(user_id, days, db, settings=settings)
     by_meal = summary.get("by_meal", {})
     
