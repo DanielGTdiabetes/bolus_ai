@@ -14,13 +14,21 @@ from app.models.iob import SourceStatus
 from app.models.settings import UserSettings
 from app.services.autosens_service import AutosensService
 from app.services.bolus_engine import calculate_bolus_v2
-from app.services.iob import compute_cob_from_sources, compute_iob_from_sources
+from app.services import iob as iob_service
 from app.services.nightscout_client import NightscoutClient
 from app.services.nightscout_secrets_service import get_ns_config
 from app.services.smart_filter import CompressionDetector, FilterConfig
 from app.services.store import DataStore
 
 logger = logging.getLogger(__name__)
+
+
+async def compute_iob_from_sources(*args, **kwargs):
+    return await iob_service.compute_iob_from_sources(*args, **kwargs)
+
+
+async def compute_cob_from_sources(*args, **kwargs):
+    return await iob_service.compute_cob_from_sources(*args, **kwargs)
 
 
 async def calculate_bolus_stateless_service(
@@ -162,6 +170,20 @@ async def calculate_bolus_stateless_service(
             except Exception as e:
                 logger.warning(f"Failed to load settings from DB for bolus: {e}")
 
+        if user_settings:
+            invalid_limits = (
+                user_settings.max_bolus_u <= 0
+                or user_settings.max_correction_u < 0
+                or user_settings.round_step_u <= 0
+            )
+            invalid_ratios = any(
+                getattr(user_settings.cr, slot, 0) <= 0
+                for slot in ("breakfast", "lunch", "dinner", "snack")
+            )
+            if invalid_limits or invalid_ratios:
+                logger.warning("Invalid settings from DB for bolus; using stored defaults.")
+                user_settings = None
+
         if not user_settings:
             user_settings = store.load_settings()
 
@@ -269,7 +291,13 @@ async def calculate_bolus_stateless_service(
 
         except Exception as e:
             logger.error(f"Nightscout fetch failed in calc: {e}")
+            resolved_bg = None
             bg_source = "none"
+            bg_trend = None
+            bg_age_minutes = None
+            bg_is_stale = False
+            glucose_status.source = "none"
+            glucose_status.status = "unavailable"
 
     db_events = []
     if session:
