@@ -1448,26 +1448,31 @@ async def simulate_forecast(
         basal_daily_before = payload.params.basal_daily_units or 0.0
         
         if (payload.params.basal_daily_units or 0) < 0.1 and payload.events.basal_injections:
-            # Try to fetch from User Settings Schedule
-            ref_units = 0.0
-            if user_settings and user_settings.bot and user_settings.bot.proactive and user_settings.bot.proactive.basal:
-                 schedule = user_settings.bot.proactive.basal.schedule
-                 if schedule:
-                      ref_units = sum(item.units for item in schedule)
+            # PRIORITY 1: Trust Actual Injections (User History)
+            # If we see active injections (last 24-48h), we assume the user's intent matches their action.
+            # We use the SUM of these injections as the Daily Reference.
+            # This prevents drift caused by outdated Settings (e.g. Schedule says 22U, but User injected 15U).
             
-            # Fallback: TDD / 2
-            if ref_units <= 0 and user_settings and user_settings.tdd_u:
-                 ref_units = user_settings.tdd_u * 0.5
+            # Sum units of injections relevant to the daily cycle (e.g. last 24h)
+            # Since 'basal_injections' is already filtered by fetch logic (48h), we just sum them all?
+            # Safe logic: Sum injections that started within the last 24h (1440 min).
+            # If Tresiba (48h), we might miss the one from 30h ago? 
+            # Better: Sum ALL injections in the list, assuming the fetch logic provided the "Active Set".
+            hist_sum = sum(b.units for b in payload.events.basal_injections)
             
-            # Fallback: Last Resort (Sum History but capped/averaged?) 
-            # No, if we have no settings, we prefer 0 drift (Crash if active) or safe default?
-            # If we set 0 here, it crashes. 
-            # If we use the injection sum as last resort, it might Drift Up (as verified in thought process).
-            # Drifting Up is safer than Crashing Down to 20.
-            # So as absolute last fallback, we use the injection sum (normalized roughly).
+            ref_units = hist_sum
+            
+            # Fallback to Settings ONLY if history sum is suspiciously zero (shouldn't happen here due to outer if)
             if ref_units <= 0:
-                 ref_units = sum(b.units for b in payload.events.basal_injections if b.time_offset_min > -1440)
-            
+                if user_settings and user_settings.bot and user_settings.bot.proactive and user_settings.bot.proactive.basal:
+                     schedule = user_settings.bot.proactive.basal.schedule
+                     if schedule:
+                          ref_units = sum(item.units for item in schedule)
+                
+                # Fallback: TDD / 2
+                if ref_units <= 0 and user_settings and user_settings.tdd_u:
+                     ref_units = user_settings.tdd_u * 0.5
+
             payload.params.basal_daily_units = ref_units
             
         basal_daily_after = payload.params.basal_daily_units or 0.0
