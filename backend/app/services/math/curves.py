@@ -58,6 +58,15 @@ class InterpolatedCurves:
         points = cls._DATA.get(key)
         if not points: return 0.0
         
+        # Scale logic: Stretch/Compress curve to fit duration_override
+        original_max = points[-1][0]
+        scale_factor = 1.0
+        
+        if duration_override and duration_override > 0 and abs(duration_override - original_max) > 1.0:
+            scale_factor = duration_override / original_max
+            # Transform user time (e.g. 330m) to curve time (e.g. 300m)
+            t_min = t_min / scale_factor
+        
         if t_min < 0: return 0.0
         if t_min > points[-1][0]: return 0.0
         
@@ -73,7 +82,9 @@ class InterpolatedCurves:
                 cls._ensure_cache(key)
                 cache = cls._CACHE[key]
                 if cache['total_area'] > 0:
-                    return val / cache['total_area']
+                    base_val = val / cache['total_area']
+                    # Amplitude must be inversely scaled to preserve Area=1 (Wider curve = Lower peak)
+                    return base_val / scale_factor
                 return 0.0
                 
         return 0.0
@@ -83,6 +94,11 @@ class InterpolatedCurves:
         cls._ensure_cache(key)
         cache = cls._CACHE.get(key)
         if not cache: return 0.0
+        
+        # Scale logic for IOB
+        if duration_override and duration_override > 0 and abs(duration_override - cache['max_time']) > 1.0:
+            scale_factor = duration_override / cache['max_time']
+            t_min = t_min / scale_factor
         
         if t_min <= 0: return 1.0
         if t_min >= cache['max_time']: return 0.0
