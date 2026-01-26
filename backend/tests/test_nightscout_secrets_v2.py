@@ -11,6 +11,7 @@ from app.core.security import get_current_user
 from app.core.db import get_db_session
 from app.models.nightscout_secrets import NightscoutSecrets
 from app.services.nightscout_secrets_service import upsert_ns_config
+from app.api import nightscout as nightscout_api
 
 # Mock User
 async def mock_get_current_user():
@@ -145,9 +146,28 @@ def test_ns_status_endpoint_with_config(mock_ns_status_deps):
 # Test Treatments endpoint
 def test_ns_treatments_endpoint_not_configured(mock_ns_status_deps):
     mock_ns_status_deps.return_value = None
-    response = client.get("/api/nightscout/treatments")
-    assert response.status_code == 200
-    assert response.json() == []
+
+    async def _mock_db_session():
+        empty_result = MagicMock()
+        empty_result.scalars.return_value.all.return_value = []
+        session = MagicMock(spec=AsyncSession)
+        session.execute = AsyncMock(return_value=empty_result)
+        yield session
+
+    def _mock_data_store():
+        store = MagicMock()
+        store.load_events.return_value = []
+        return store
+
+    app.dependency_overrides[get_db_session] = _mock_db_session
+    app.dependency_overrides[nightscout_api._data_store] = _mock_data_store
+    try:
+        response = client.get("/api/nightscout/treatments")
+        assert response.status_code == 200
+        assert response.json() == []
+    finally:
+        app.dependency_overrides.pop(get_db_session, None)
+        app.dependency_overrides.pop(nightscout_api._data_store, None)
 
 def test_ns_treatments_endpoint_configured(mock_ns_status_deps):
     config = MagicMock()
@@ -156,8 +176,26 @@ def test_ns_treatments_endpoint_configured(mock_ns_status_deps):
     config.api_secret = "shh"
     mock_ns_status_deps.return_value = config
     
+    async def _mock_db_session():
+        empty_result = MagicMock()
+        empty_result.scalars.return_value.all.return_value = []
+        session = MagicMock(spec=AsyncSession)
+        session.execute = AsyncMock(return_value=empty_result)
+        yield session
+
+    def _mock_data_store():
+        store = MagicMock()
+        store.load_events.return_value = []
+        return store
+
+    app.dependency_overrides[get_db_session] = _mock_db_session
+    app.dependency_overrides[nightscout_api._data_store] = _mock_data_store
     with patch("app.api.nightscout.NightscoutClient") as MockClient:
-        response = client.get("/api/nightscout/treatments?count=5")
-        assert response.status_code == 200
-        assert response.json() == []  # Empty list mocked
-        MockClient.assert_not_called()
+        try:
+            response = client.get("/api/nightscout/treatments?count=5")
+            assert response.status_code == 200
+            assert response.json() == []  # Empty list mocked
+            MockClient.assert_not_called()
+        finally:
+            app.dependency_overrides.pop(get_db_session, None)
+            app.dependency_overrides.pop(nightscout_api._data_store, None)

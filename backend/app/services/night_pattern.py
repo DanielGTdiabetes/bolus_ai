@@ -49,6 +49,7 @@ class NightPatternContext:
     sustained_rise: bool
     slow_digestion_signal: bool
     last_meal_high_fat_protein: bool
+    draft_active: bool = False
 
 
 def _parse_time_str(value: str) -> time:
