@@ -1200,6 +1200,22 @@ async def _process_text_input_internal(update: Update, context: ContextTypes.DEF
 
 
 
+    # 0. Intercept Basal Edit
+    if context.user_data.get("editing_basal"):
+        try:
+            val = float(text.replace(",", "."))
+            del context.user_data["editing_basal"]
+            
+            kb = [
+                [InlineKeyboardButton(f"✅ Confirmar {val} U", callback_data=f"basal_confirm|{val}")],
+                [InlineKeyboardButton("❌ Cancelar", callback_data="basal_cancel")]
+            ]
+            await reply_text(update, context, f"¿Registrar Basal: **{val} U**?", reply_markup=InlineKeyboardMarkup(kb), parse_mode="Markdown")
+            return
+        except ValueError:
+            await reply_text(update, context, "⚠️ Introduce un número válido.")
+            return
+
     if cmd in ["status", "estado"]:
         res = await tools.execute_tool("get_status_context", {})
         if isinstance(res, tools.ToolError):
@@ -3312,6 +3328,19 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                  except: pass
                  
              suggested_u = basal_conf.expected_units or 0.0
+             
+             # Auto-detect historical basal if not configured
+             if suggested_u == 0.0:
+                 try:
+                     async with SessionLocal() as session:
+                         from sqlalchemy import text as sql_text
+                         # Finds last treatment with 'basal' in any form
+                         stmt = sql_text("SELECT insulin FROM treatments WHERE (event_type ILIKE '%basal%' OR notes ILIKE '%basal%') AND insulin > 0 ORDER BY created_at DESC LIMIT 1")
+                         row = (await session.execute(stmt)).fetchone()
+                         if row:
+                             suggested_u = float(row.insulin)
+                 except Exception as ex:
+                     logger.warning(f"Failed to auto-detect basal: {ex}")
              
              msg_text = ""
              

@@ -668,7 +668,7 @@ async def handle_event(username: str, chat_id: int, event_type: str, payload: Di
         buttons = [
             [InlineKeyboardButton("✅ Registrar", callback_data="basal_yes")],
             [InlineKeyboardButton("⏰ 15 min", callback_data="basal_later"),
-             InlineKeyboardButton("❌ No hoy", callback_data="basal_no")]
+             InlineKeyboardButton("❌ Omitir hoy", callback_data="basal_no")]
         ]
 
         health.record_event(event_type, True, "sent_basal_reminder")
