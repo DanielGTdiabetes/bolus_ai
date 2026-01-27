@@ -159,6 +159,9 @@ class ForecastEngine:
         accum_carb_impact = 0.0
         accum_basal_impact = 0.0
         
+        # PR1 Debug
+        anti_panic_debug_meta = None
+
         for i in range(1, len(time_points)):
             t = time_points[i]
             prev_t = time_points[i-1]
@@ -387,8 +390,9 @@ class ForecastEngine:
                     # Integral of decaying slope
                     dev_val_at_t = deviation_slope * dt_eff - (deviation_slope * (dt_eff**2) / (2 * momentum_duration))
 
-            # --- 3. Advanced Anti-Panic Gating (The "Golden Rule" V2) ---
+            # --- 3. Advanced Anti-Panic Gating (The "Golden Rule" V3 - Smooth) ---
             # Replaces fixed 1-hour amortization with intelligent meal-linked gating.
+            # Now with PROGRESSIVE release (PR1) to avoid jumps.
             
             insulin_net = accum_insulin_impact
             carb_net = accum_carb_impact
@@ -397,44 +401,44 @@ class ForecastEngine:
             current_predicted_bg = current_bg + dev_val_at_t + insulin_net + carb_net + accum_basal_impact
 
             # GATING CRITERIA:
-            # 1. Carbs >= threshold (10g)
-            # 2. Associated bolus in +/- 15 min
-            # 3. Not a pure correction (c.grams > 0)
+            # 1. Carbs >= threshold (2g)
+            # 2. Associated bolus in +/- 90 min
             
             is_linked_meal = False
             linked_carbs = 0.0
             linked_bolus_u = 0.0
             
             for c in req.events.carbs:
-                if c.grams >= 2: # Lower to 2g
+                if c.grams >= 2: 
                     for b in req.events.boluses:
-                        if abs(b.time_offset_min - c.time_offset_min) <= 90: # Widen to 90
+                        if abs(b.time_offset_min - c.time_offset_min) <= 90:
                             is_linked_meal = True
                             linked_carbs += c.grams
                             linked_bolus_u += b.units
             
-            # If linked meal detected and we are in the early phase (decays over 120 mins)
-            if is_linked_meal and t < 120:
-                # Calculate physics-based drop
-                net_drop = abs(insulin_net) - carb_net
-                
-                if net_drop > 0:
-                    # Safety Guards: Disable damping if risks are detected
-                    # A) Fast drop in simulation
-                    instant_slope = (current_predicted_bg - series[-1].bg) if series else 0
-                    
-                    # B) Predicted BG is already low
-                    is_low_risk = current_predicted_bg < 80
-                    
-                    # C) Reality is already dropping fast (momentum)
-                    is_fast_dropping = deviation_slope < -2.5
-                    
-                    if not (is_low_risk or is_fast_dropping):
-                        # Apply decay damping factor (1.0 at 90m, ~0.6 at start)
-                        # Decays progressively to avoid sudden jumps.
-                        damp_factor = 0.6 + (0.4 * (t / 90.0))
-                        insulin_net *= damp_factor
+            # Use helper for logic
+            scale_factor, debug_info = ForecastEngine._compute_anti_panic_scale(
+                t_min=t,
+                is_linked_meal=is_linked_meal,
+                deviation_slope=deviation_slope,
+                predicted_bg=current_predicted_bg
+            )
+            
+            if scale_factor < 1.0:
+                 insulin_net *= scale_factor
+                 
+            # Store debug info for analysis (only first point or aggregated?)
+            # We will store the detailed debug for the FIRST point where gating is significant, or the last point.
+            # To avoid noise, let's put it in meta key 'anti_panic_trace' only if debug is requested or random sample.
+            # Implementation requirement: "Añadir al resultado... estos campos". 
+            # We'll collect the debug of the current t and overwrite, so we see the latest state (or state at t=30/60).
+            # Better: Save the debug info of t=30 (typical impact point) to the summary debug.
+            if t == 30 and debug_info.get("applied", False):
+                 anti_panic_debug_meta = {"anti_panic_trace": debug_info}
 
+            # Update components with debug info visibility if needed (hacky to put in momentum but we have specific fields)
+            # For now just apply the scale.
+            
             # Combine
             net_bg = current_bg + dev_val_at_t + insulin_net + carb_net + accum_basal_impact
             
@@ -490,7 +494,8 @@ class ForecastEngine:
             absorption_confidence=chosen_confidence,
             absorption_reasons=chosen_reasons,
             slow_absorption_active=(chosen_profile == "slow"),
-            slow_absorption_reason=" ".join(chosen_reasons) if chosen_profile == "slow" else None
+            slow_absorption_reason=" ".join(chosen_reasons) if chosen_profile == "slow" else None,
+            meta=anti_panic_debug_meta
         )
     
     @staticmethod
@@ -621,4 +626,86 @@ class ForecastEngine:
             "profile": profile,
             "confidence": confidence,
             "reasons": reasons
+        }
+
+    @staticmethod
+    def _compute_anti_panic_scale(t_min: int, is_linked_meal: bool, deviation_slope: float, predicted_bg: float) -> Tuple[float, dict]:
+        """
+        Calculates insulin scaling factor (0.6 to 1.0) to prevent 'false lows' post-meal.
+        Uses progressive release based on slope severity and hypo risk.
+        Returns: (scale_factor, debug_info_dict)
+        """
+        # Default: No scaling (1.0)
+        base_scale = 1.0
+        final_scale = 1.0
+        applied = False
+        slope_release = 0.0
+        hypo_release = 0.0
+        
+        # 1. Scope Check: Only applied if Linked Meal and early in simulation
+        if is_linked_meal and t_min < 120:
+            applied = True
+            
+            # 2. Base Ramp (Time-based recovery)
+            # Starts at 0.6, recovers to 1.0 linearly over 90 mins
+            # y = 0.6 + 0.4 * (t/90)
+            # IF t >= 90, base_scale -> 1.0
+            if t_min >= 90:
+                base_scale = 1.0
+            else:
+                base_scale = 0.6 + (0.4 * (t_min / 90.0))
+            
+            # If base_scale is already 1.0, we are done
+            if base_scale >= 1.0:
+                final_scale = 1.0
+            else:
+                # 3. Progressive Release Rules
+                
+                # A) Slope Sensitivity (Momentum)
+                # Range: [-1.0 (No Release) to -2.5 (Full Release)]
+                # If slope is -1.5, we release partially.
+                # Formula: release = (threshold_start - current) / (threshold_start - threshold_end)
+                slope_start = -1.0
+                slope_end = -2.5
+                
+                if deviation_slope >= slope_start:
+                    slope_release = 0.0
+                elif deviation_slope <= slope_end:
+                    slope_release = 1.0
+                else:
+                    slope_release = (slope_start - deviation_slope) / (slope_start - slope_end)
+                
+                # B) Hypo Risk Sensitivity
+                # Range: [90.0 (No Release) to 80.0 (Full Release)]
+                hypo_start = 90.0
+                hypo_end = 80.0
+                
+                if predicted_bg >= hypo_start:
+                    hypo_release = 0.0
+                elif predicted_bg <= hypo_end:
+                    hypo_release = 1.0
+                else:
+                    hypo_release = (hypo_start - predicted_bg) / (hypo_start - hypo_end)
+                
+                # Combine: Take the strongest reason to release
+                max_release = max(slope_release, hypo_release)
+                
+                # Interpolate: base_scale -> 1.0
+                # final = base + (1.0 - base) * release
+                final_scale = base_scale + (1.0 - base_scale) * max_release
+                
+                # Safety clamp
+                final_scale = min(1.0, max(0.0, final_scale))
+
+        return final_scale, {
+            "applied": applied,
+            "t_min": t_min,
+            "anti_panic_base_scale": round(base_scale, 3),
+            "anti_panic_final_scale": round(final_scale, 3),
+            "deviation_slope": round(deviation_slope, 3),
+            "min_bg_pred": round(predicted_bg, 1),
+            "release_components": {
+                "slope_release": round(slope_release, 3),
+                "hypo_release": round(hypo_release, 3)
+            }
         }
