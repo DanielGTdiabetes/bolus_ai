@@ -389,6 +389,26 @@ class UserSettings(BaseModel):
             if val in ["fiasp", "novorapid", "linear", "exponential"]:
                 data["iob"]["curve"] = val
 
+        # 3b. Map dia_hours (legacy root) to iob.dia_hours
+        # Frontend sends "dia_hours" in root, but Validated Model expects iob.dia_hours
+        candidates = ["dia_hours", "insulin_duration", "dia"]
+        found_dia = None
+        for k in candidates:
+            if k in data:
+                try:
+                    val = float(data[k])
+                    if val > 0:
+                        found_dia = val
+                        break
+                except: pass
+        
+        if found_dia:
+            if "iob" not in data or not isinstance(data["iob"], dict):
+                data["iob"] = {}
+            # Only overwrite if not explicitly set in 'iob' object to avoid regression
+            if "dia_hours" not in data["iob"]:
+                data["iob"]["dia_hours"] = found_dia
+
         # 4. Autonomy preference migration (schema v2)
         schema_version = int(data.get("schema_version", 1) or 1)
         learning = data.get("learning", {})
