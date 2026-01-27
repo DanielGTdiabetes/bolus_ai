@@ -833,6 +833,35 @@ async def get_current_forecast(
         fiber_factor=user_settings.calculator.fiber_factor if user_settings.calculator else 0.0,
         target_bg=float(user_settings.targets.mid) if (user_settings and user_settings.targets) else 110.0
     )
+
+    # --- NEUTRAL BASAL DRIFT LOGIC (Anti-Bias) ---
+    # Detects if user is stable/low with no active events, and neutralizes the artificial basal drift.
+    try:
+        # 1. Check BG & Trend
+        nb_safe_bg = start_bg <= (sim_params.target_bg + 40) # Tolerant margin
+        
+        nb_slope = 0.0
+        if recent_bg_series and len(recent_bg_series) >= 3:
+            nb_slope = trend_slope_from_series(recent_bg_series)
+        
+        nb_trend_ok = nb_slope <= 0.2 # Negative or slightly flat
+        
+        # 2. Check Active Events (Proxies)
+        # We assume 5h for bolus tail and 3h for carb impact for this safety check
+        nb_active_bolus = sum(b.units for b in boluses if b.time_offset_min > -300)
+        nb_active_carbs = sum(c.grams for c in carbs if c.time_offset_min > -180)
+        
+        nb_empty_iob = nb_active_bolus < 0.5
+        nb_empty_cob = nb_active_carbs < 5.0
+        
+        # 3. Check Sufficient Basal (Don't hide total lack of basal)
+        nb_has_basal = (sim_params.basal_daily_units > 1.0)
+        
+        if nb_safe_bg and nb_trend_ok and nb_empty_iob and nb_empty_cob and nb_has_basal:
+            sim_params.basal_drift_handling = "neutral"
+            
+    except Exception as nb_e:
+        print(f"Neutral Basal Check Error: {nb_e}")
     
     from app.services.forecast_params_resolver import resolve_warsaw_params
     resolve_warsaw_params(sim_params, user_settings)
@@ -1529,6 +1558,27 @@ async def simulate_forecast(
         # Guarantees consistency between /current and /simulate
         from app.services.forecast_params_resolver import resolve_warsaw_params
         resolve_warsaw_params(payload.params, user_settings)
+
+        # --- NEUTRAL BASAL DRIFT LOGIC (Simulate Endpoint) ---
+        if getattr(payload.params, 'basal_drift_handling', 'standard') == 'standard':
+             try:
+                 sim_start_bg = payload.start_bg
+                 sim_target = payload.params.target_bg or 100
+                 
+                 nb_slope = 0.0
+                 if payload.recent_bg_series and len(payload.recent_bg_series) >= 3:
+                      # trend_slope_from_series is available at module level
+                      nb_slope = trend_slope_from_series(payload.recent_bg_series)
+                 
+                 # Conditions: Safe BG + Flat/Down Trend + Empty Events + Has Basal
+                 if (sim_start_bg <= sim_target + 40 and 
+                     nb_slope <= 0.2 and 
+                     sum(b.units for b in payload.events.boluses if b.time_offset_min > -300) < 0.5 and 
+                     sum(c.grams for c in payload.events.carbs if c.time_offset_min > -180) < 5.0 and
+                     (payload.params.basal_daily_units or 0) > 1.0):
+                      
+                      payload.params.basal_drift_handling = "neutral"
+             except Exception: pass
 
         # Validate logic? (Pydantic does structure, Engine does math)
         response = ForecastEngine.calculate_forecast(payload)

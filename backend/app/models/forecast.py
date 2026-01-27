@@ -30,6 +30,9 @@ class SimulationParams(BaseModel):
     
     target_bg: float = Field(100.0, description="User's target BG (mid) for correction calculations")
 
+    # Drift Handling
+    basal_drift_handling: Literal["standard", "neutral", "alert_only"] = Field("standard", description="Strategy for basal drift: 'standard' (diff), 'neutral' (no impact if active), 'alert_only' (only drift if empty)")
+
     @field_validator("warsaw_factor_simple")
     def _validate_warsaw(cls, v: Optional[float]) -> Optional[float]:
         if v is None or v <= 0:

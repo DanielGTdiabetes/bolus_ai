@@ -368,7 +368,11 @@ class ForecastEngine:
             # Impact is inverted: More insulin = Drop (-), Less = Rise (+)
             # net_insulin = (Active - Required)
             # impact = -1 * net_insulin * ISF
-            step_basal_impact = -1 * (rate_at_t - reference_rate) * isf * dt
+            drift_mode = getattr(req.params, 'basal_drift_handling', 'standard')
+            if drift_mode == 'neutral':
+                 step_basal_impact = 0.0
+            else:
+                 step_basal_impact = -1 * (rate_at_t - reference_rate) * isf * dt
             accum_basal_impact += step_basal_impact
 
             # --- 2. Deviation Impact (Hybrid Correction) ---
