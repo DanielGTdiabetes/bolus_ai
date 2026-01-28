@@ -254,7 +254,8 @@ class ForecastEngine:
                 if c.fat_g > 0 or c.protein_g > 0:
                     kcal_from_fp = (c.fat_g * 9) + (c.protein_g * 4)
                     # Only apply if significant (>50 kcal) to avoid noise
-                    if kcal_from_fp > 50:
+                    trigger = req.params.warsaw_trigger if req.params.warsaw_trigger is not None else 50
+                    if kcal_from_fp > trigger:
                         # Convert to equivalent grams (eCarbs) using Warsaw Setting
                         # Formula: (Kcal / 100) * 10 * Factor
                         # Factor 1.0 => 100kcal = 10g eCarbs.
@@ -262,6 +263,7 @@ class ForecastEngine:
                         
                         # Hotfix: Normalize w_factor
                         w = req.params.warsaw_factor_simple
+                        # Default to 0.1 if user setting is missing or zero, but respect setting if present
                         if w is None or w <= 0:
                             w = 0.1
                         w_factor = w
