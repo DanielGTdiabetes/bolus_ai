@@ -319,7 +319,8 @@ class ForecastEngine:
                                 
                                 # If we have room to grow FPU
                                 # Increase tolerance to 5.0x to handle aggressive factor 1.0 logic
-                                if (effective_grams + diff_grams) <= (c.grams + max_fpu_grams * 6.0): 
+                                # Cap: limit expansion to 3.0x (reduced from 6.0x for safety)
+                                if (effective_grams + diff_grams) <= (c.grams + max_fpu_grams * 3.0): 
                                     reasons_append = f" (+{diff_grams:.1f}g Auto-Ajuste por Bolo)"
                                     if chosen_profile == profile_res["profile"]:
                                         chosen_reasons.append(reasons_append)
@@ -337,7 +338,7 @@ class ForecastEngine:
 
                                 else:
                                     # Overdose detected (Surplus > Capacity)
-                                    top_cap = c.grams + max_fpu_grams * 6.0
+                                    top_cap = c.grams + max_fpu_grams * 3.0
                                     warning_msg = f"Auditoría: Bolo ({linked_bolus_u}U) excede capacidad de absorción ({top_cap:.0f}g est.)."
                                     if warning_msg not in warnings:
                                         warnings.append(warning_msg)
@@ -391,10 +392,16 @@ class ForecastEngine:
             
             dev_val_at_t = 0.0
             if deviation_slope != 0:
-                dt_eff = min(t, momentum_duration)
-                if dt_eff > 0:
-                    # Integral of decaying slope
-                    dev_val_at_t = deviation_slope * dt_eff - (deviation_slope * (dt_eff**2) / (2 * momentum_duration))
+                # Exponential Decay Integral (More physically robust)
+                # deviation(t) = Slope * exp(-t/tau)
+                # Integrated: Slope * tau * (1 - exp(-t/tau))
+                # We use momentum_duration as tau (time constant)
+                
+                tau = momentum_duration
+                if tau > 0:
+                     dev_val_at_t = deviation_slope * tau * (1 - math.exp(-t / tau))
+                else:
+                     dev_val_at_t = 0.0
 
             # --- 3. Advanced Anti-Panic Gating (The "Golden Rule" V3 - Smooth) ---
             # Replaces fixed 1-hour amortization with intelligent meal-linked gating.
