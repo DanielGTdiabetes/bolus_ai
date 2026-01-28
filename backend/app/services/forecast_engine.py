@@ -119,7 +119,13 @@ class ForecastEngine:
         if req.params.basal_daily_units > 0:
              reference_rate = req.params.basal_daily_units / 1440.0
              
-        net_basal_activity = basal_rate_0 - reference_rate
+        # Apply drift_mode logic to initial slope calculation (FIX: Avoid phantom rises)
+        drift_mode = getattr(req.params, 'basal_drift_handling', 'standard')
+        
+        if drift_mode == 'neutral':
+             net_basal_activity = 0.0
+        else:
+             net_basal_activity = basal_rate_0 - reference_rate
 
         # Net Model Slope (mg/dL per min)
         # Insulin drops (negative), Carbs rise (positive)
