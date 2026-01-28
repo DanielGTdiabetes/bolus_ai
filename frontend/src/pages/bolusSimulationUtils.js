@@ -116,7 +116,7 @@ export function buildForecastPayload({
       insulin_onset_minutes: insulinOnset,
       insulin_sensitivity_multiplier: sensitivityMultiplier,
       target_bg: targetMgdl,
-      basal_daily_units: basalDailyUnits,
+      basal_daily_units: 0, // ERROR FIX: Force 0 to avoid massive spike (Simulator assumes missing basal if we send this but no history)
       // Warsaw Params (Only send if enabled, otherwise use backend logic)
       ...(settings?.warsaw?.enabled ? {
         warsaw_factor_simple: settings.warsaw.safety_factor,

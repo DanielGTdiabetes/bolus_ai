@@ -162,6 +162,10 @@ export function useBolusCalculator() {
                 ignore_iob: dessertMode,
                 alcohol: alcoholEnabled,
                 exercise: exercise || { planned: false, minutes: 0, intensity: 'moderate' },
+                // SC-Compat: Use override if explicit > Use Settings > Default False (Strict User Control)
+                enable_autosens: overrideParams?.useAutosens !== undefined
+                    ? overrideParams.useAutosens
+                    : (mealParams.autosens?.enabled || false),
                 autosens_ratio: (overrideParams?.useAutosens ? (state.autosens?.ratio || 1.0) : 1.0),
                 autosens_reason: state.autosens?.reason || null
             };

@@ -100,6 +100,7 @@ async def calculate_bolus_stateless_service(
 
     elif payload.cr_g_per_u:
         from app.models.settings import (
+            AutosensConfig,
             CalculatorConfig,
             CorrectionFactors,
             IOBConfig,
@@ -153,6 +154,9 @@ async def calculate_bolus_stateless_service(
             nightscout=ns_settings,
             warsaw=warsaw_settings,
             calculator=calc_config,
+            autosens=AutosensConfig(enabled=payload.enable_autosens)
+            if payload.enable_autosens is not None
+            else AutosensConfig(),
             max_bolus_u=payload.max_bolus_u or 10.0,
             max_correction_u=payload.max_correction_u or 5.0,
             round_step_u=payload.round_step_u or 0.05,
