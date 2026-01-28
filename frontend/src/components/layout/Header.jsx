@@ -1,13 +1,14 @@
 import React, { useState } from 'react';
 import { useStore } from '../../hooks/useStore';
 import { navigate } from '../../modules/core/navigation';
-import { logout } from '../../lib/api';
+import { getNotificationsSummary, logout } from '../../lib/api';
 
 export function Header({ title = "Bolus AI", showBack = false, notificationActive = false, onNotificationClick }) {
     const user = useStore(s => s.user);
     const dbMode = useStore(s => s.dbMode);
     const [menuOpen, setMenuOpen] = useState(false);
     const [hasSupplyWarning, setHasSupplyWarning] = useState(false);
+    const [hasBackendNotifications, setHasBackendNotifications] = useState(false);
 
     React.useEffect(() => {
         const check = () => {
@@ -34,7 +35,18 @@ export function Header({ title = "Bolus AI", showBack = false, notificationActiv
                 return false;
             } catch { return false; }
         };
+
+        const checkBackend = async () => {
+            try {
+                const summary = await getNotificationsSummary();
+                setHasBackendNotifications(summary && summary.items && summary.items.length > 0);
+            } catch {
+                // Silent fail
+            }
+        };
+
         setHasSupplyWarning(check());
+        checkBackend();
 
         // Listen for storage events to update immediately if forecast changes
         const handleStorage = () => setHasSupplyWarning(check());
@@ -42,9 +54,13 @@ export function Header({ title = "Bolus AI", showBack = false, notificationActiv
         // Custom event for same-window updates
         window.addEventListener('forecast-update', handleStorage);
 
+        // Interval for backend notifications (every 60s)
+        const interval = setInterval(checkBackend, 60000);
+
         return () => {
             window.removeEventListener('storage', handleStorage);
             window.removeEventListener('forecast-update', handleStorage);
+            clearInterval(interval);
         };
     }, []);
 
@@ -53,15 +69,7 @@ export function Header({ title = "Bolus AI", showBack = false, notificationActiv
             onNotificationClick();
         } else {
             // Default: Check where to go
-            if (hasSupplyWarning) {
-                // If sick mode or supplies, show notifications page or specific?
-                // Let's go to supplies if that's the issue?
-                // Actually, standard behavior: Go to Notifications Page.
-                // We will create/ensure that page exists.
-                navigate('#/notifications');
-            } else {
-                navigate('#/notifications');
-            }
+            navigate('#/notifications');
         }
     };
 
@@ -123,7 +131,7 @@ export function Header({ title = "Bolus AI", showBack = false, notificationActiv
 
                 <div className="header-action" style={{ position: 'relative' }}>
                     <button className="ghost" onClick={handleNotifClick}>🔔</button>
-                    {(notificationActive || hasSupplyWarning) && (
+                    {(notificationActive || hasSupplyWarning || hasBackendNotifications) && (
                         <div style={{
                             position: 'absolute', top: '8px', right: '8px', width: '10px', height: '10px',
                             background: '#ef4444', borderRadius: '50%', border: '2px solid white'
