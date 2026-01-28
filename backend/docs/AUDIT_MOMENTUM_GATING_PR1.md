@@ -63,3 +63,12 @@ Se han añadido tests unitarios en `tests/test_forecast_anti_panic.py` que cubre
 
 - `app/services/forecast_engine.py`: Refactorización de la lógica y extracción de `_compute_anti_panic_scale`.
 - `tests/test_forecast_anti_panic.py`: Nuevos tests.
+
+## PR2: Fix feedback hypo_release
+
+Se identificó una realimentación positiva ("feedback loop") donde la decisión de liberar la protección Anti-Panic por riesgo de hipoglucemia (`hypo_release`) se tomaba basándose en la predicción "cruda" (sin protección). Esto provocaba que, partiendo de niveles normales (ej. 110 mg/dL), el "dip" inicial de la insulina activara la alerta de hipoglucemia, desactivando la protección y causando una caída artificial en la gráfica.
+
+**Solución:** Ahora se calcula una predicción "segura" (`predicted_bg_safety`) aplicando la protección base (rampa temporal) antes de evaluar el riesgo. Esto asegura que la protección solo se desactive si la hipoglucemia es inminente *incluso* con la protección activada.
+
+- **Impacto:** Elimina falsas hipoglucemias en rangos normales sin ocultar hipoglucemias reales profundas.
+- **Verificación:** Test `test_feedback_loop_fix` en `tests/test_forecast_anti_panic_pr2.py`.

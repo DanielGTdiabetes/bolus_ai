@@ -416,12 +416,30 @@ class ForecastEngine:
                             linked_carbs += c.grams
                             linked_bolus_u += b.units
             
-            # Use helper for logic
+            # PR2 FIX: Feedback Loop Prevention
+            # We must calculate hypo_release based on the GATED prediction, not the raw one.
+            # Otherwise, raw insulin dips trigger the release, cancelling the protection.
+            
+            predicted_bg_for_release = current_predicted_bg
+            
+            if is_linked_meal and t < 120:
+                 # Calculate pure time-based ramp (Base Scale) locally for the check
+                check_base_scale = 1.0
+                if t >= 90:
+                    check_base_scale = 1.0
+                else:
+                    check_base_scale = 0.6 + (0.4 * (t / 90.0))
+                
+                # Apply to insulin ONLY for the check (not final application yet)
+                insulin_net_check = insulin_net * check_base_scale
+                predicted_bg_for_release = current_bg + dev_val_at_t + insulin_net_check + carb_net + accum_basal_impact
+
+            # Use helper for logic with SAFE prediction
             scale_factor, debug_info = ForecastEngine._compute_anti_panic_scale(
                 t_min=t,
                 is_linked_meal=is_linked_meal,
                 deviation_slope=deviation_slope,
-                predicted_bg=current_predicted_bg
+                predicted_bg=predicted_bg_for_release
             )
             
             if scale_factor < 1.0:
@@ -703,7 +721,7 @@ class ForecastEngine:
             "anti_panic_base_scale": round(base_scale, 3),
             "anti_panic_final_scale": round(final_scale, 3),
             "deviation_slope": round(deviation_slope, 3),
-            "min_bg_pred": round(predicted_bg, 1),
+            "predicted_bg_for_release": round(predicted_bg, 1),
             "release_components": {
                 "slope_release": round(slope_release, 3),
                 "hypo_release": round(hypo_release, 3)
