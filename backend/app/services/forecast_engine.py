@@ -149,6 +149,32 @@ class ForecastEngine:
         # Increase momentum influence duration for smoother blending (~30 mins)
         # Reduced from 45 to 30 to limit projection of short-term noise
         momentum_duration = 30 
+        
+        # --- FIX: MOMENTUM SUPPRESSION ON INTERVENTION ---
+        # If the user just injected a Bolus (Active Intervention), we should NOT assume the 
+        # previous trend (Momentum) continues. The Bolus changes the system state.
+        # We dampen the deviation slope to trust the Physics Model (Bolus+Carbs) more than the past Trend.
+        
+        recent_bolus_sum = 0.0
+        for b in req.events.boluses:
+             # Check for boluses in the last 20 mins or immediate future (now)
+             if b.time_offset_min >= -20:
+                 recent_bolus_sum += b.units
+                 
+        if recent_bolus_sum > 1.5: # Significant bolus > 1.5U
+             # Dampen the Deviation logic.
+             # If deviation is highly positive (Rising faster than model), squelch it.
+             # If deviation is negative (Dropping faster), keep it (Safety).
+             
+             if deviation_slope > 0.5:
+                 logger.info(f"Damping positive deviation ({deviation_slope:.2f}) due to recent bolus ({recent_bolus_sum}U)")
+                 deviation_slope *= 0.2 # 80% reduction
+                 warnings.append("Tendencia previa ignorada por nuevo bolo.")
+             
+             # Also reset momentum duration to fade out faster
+             momentum_duration = 15
+             
+        # ------------------------------------------------- 
 
         # C. Simulation Loop
         
