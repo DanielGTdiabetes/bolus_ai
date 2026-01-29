@@ -56,6 +56,11 @@ def init_db():
             if "channel_binding" in q:
                 q.pop("channel_binding")
                 
+            # FORCE SCHEMA for asyncpg in Render
+            if "server_settings" not in connect_args:
+                connect_args["server_settings"] = {}
+            connect_args["server_settings"]["search_path"] = "public"
+
             u = u._replace(query=q)
             _async_engine = create_async_engine(
                 u,
