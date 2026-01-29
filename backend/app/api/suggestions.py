@@ -9,6 +9,11 @@ import uuid
 from app.core.db import get_db_session
 from app.core.security import get_current_user
 from app.services.suggestion_engine import generate_suggestions_service, get_suggestions_service, resolve_suggestion_service
+from app.services.settings_service import get_user_settings_service, update_user_settings_service
+from app.models.settings import UserSettings
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/suggestions", tags=["suggestions"])
 
@@ -92,6 +97,49 @@ async def accept_suggestion(
     user=Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session)
 ):
+    
+    # 1. Attempt to apply settings change if provided
+    if payload.proposed_change:
+        try:
+            pc = payload.proposed_change
+            slot = pc.get("meal_slot")
+            param = pc.get("parameter")
+            val = pc.get("new_value")
+            
+            if slot and param and val is not None:
+                # Fetch current
+                s_data = await get_user_settings_service(user.id, db)
+                if s_data and s_data.get("settings"):
+                    current_settings = UserSettings.migrate(s_data["settings"])
+                    ver = s_data.get("version", 0)
+                    
+                    updated = False
+                    # Map params (frontend uses 'icr', 'isf', 'target')
+                    if param == "icr" and hasattr(current_settings.cr, slot):
+                        setattr(current_settings.cr, slot, float(val))
+                        updated = True
+                    elif param == "isf" and hasattr(current_settings.cf, slot):
+                        setattr(current_settings.cf, slot, float(val))
+                        updated = True
+                    elif param == "target":
+                        # Try specific slot first, else ignored or global logic needed (schema v2 has per-slot targets)
+                        if hasattr(current_settings.targets, slot):
+                            # Slot specific target (if supported by model)
+                            # UserSettings.targets is TargetRange which has breakfast, lunch etc optional
+                            setattr(current_settings.targets, slot, int(float(val)))
+                            updated = True
+                    
+                    if updated:
+                        new_dict = current_settings.model_dump()
+                        # Save
+                        await update_user_settings_service(user.id, new_dict, ver, db)
+                        logger.info(f"Auto-applied suggestion settings change for {user.id}: {slot} {param} -> {val}")
+
+        except Exception as e:
+            logger.error(f"Failed to auto-apply suggestion settings: {e}")
+            # We continue to resolve the suggestion even if settings update fails
+            # preventing the UI from getting stuck, but logging the error.
+
     res = await resolve_suggestion_service(id, user.id, "accept", payload.note, db, payload.proposed_change)
     if not res:
         raise HTTPException(status_code=404, detail="Suggestion not found")
