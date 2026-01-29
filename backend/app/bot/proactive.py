@@ -251,6 +251,70 @@ async def basal_reminder(username: str = "admin", chat_id: Optional[int] = None,
         try:
             target_h, target_m = map(int, item.time.split(":"))
             target_dt = now_local.replace(hour=target_h, minute=target_m, second=0, microsecond=0)
+
+            # --- Smart Timing Logic (Avg + 30m Margin) ---
+            try:
+                # Fetch deeper history for trends (5 days)
+                # We limit to what's reasonable, reusing treatment retrieval
+                h_treatments = await get_recent_treatments_db(hours=120, username=username)
+                h_minutes = []
+                target_day_min = target_h * 60 + target_m
+                
+                # Keywords for detection (reuse basic ones)
+                smart_keywords = ["basal", "lenta", "larga"]
+                if item.name.lower() not in ["basal", "default"]:
+                    smart_keywords.append(item.name.lower())
+
+                for t in h_treatments:
+                    if t.insulin > 0:
+                        # Check basal
+                        t_type = (t.eventType or "").lower()
+                        t_notes = (t.notes or "").lower()
+                        is_b = any(k in t_notes for k in smart_keywords) or "basal" in t_type
+                        
+                        if is_b:
+                            # Parse Time
+                             if t.created_at.tzinfo is None:
+                                 t_utc = t.created_at.replace(tzinfo=timezone.utc)
+                             else:
+                                 t_utc = t.created_at
+                             
+                             t_loc = t_utc.astimezone(tz)
+                             
+                             # Check if strictly "today" (ignore today for historical avg calculation to be stable?)
+                             # Actually we want Previous Days average. If we include today (and it's done), it skews?
+                             # But we are in "Reminder" calculation, so we assume today is NOT done yet.
+                             # If today WAS done, we would have returned earlier in the function.
+                             # So history implies "previous days".
+                             
+                             t_m = t_loc.hour * 60 + t_loc.minute
+                             
+                             # Slot Filter (+/- 4h from default) to avoid mixing morning/night doses
+                             # Use circular difference to handle midnight wrapping (e.g. 23:00 vs 01:00)
+                             diff_min = abs(t_m - target_day_min)
+                             circular_diff = min(diff_min, 1440 - diff_min)
+                             
+                             if circular_diff <= 240:
+                                 h_minutes.append(t_m)
+                                 
+                if len(h_minutes) >= 2:
+                    avg_min = sum(h_minutes) / len(h_minutes)
+                    # User Request: "Give a margin... warn me at 5:15" (if avg is 4:45)
+                    # We add 30 mins to the average.
+                    smart_min = avg_min + 35 # 30m margin + 5m buffer
+                    
+                    s_h = int(smart_min // 60) % 24
+                    s_m = int(smart_min % 60)
+                    
+                    smart_dt = now_local.replace(hour=s_h, minute=s_m, second=0, microsecond=0)
+                    
+                    logger.info(f"Smart Basal: History Avg={int(avg_min//60):02d}:{int(avg_min%60):02d} (n={len(h_minutes)}). New Target={s_h:02d}:{s_m:02d}")
+                    target_dt = smart_dt
+
+            except Exception as smart_e:
+                logger.warning(f"Smart Basal calc failed: {smart_e}")
+            # ---------------------------------------------
+            
             
             diff_min = (now_local - target_dt).total_seconds() / 60.0
             
