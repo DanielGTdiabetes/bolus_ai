@@ -3308,7 +3308,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
          await edit_message_text_safe(query, f"{query.message.text}\n\n❌ Cancelado.")
          return
 
-    if data == "basal_yes":
+    if data.startswith("basal_yes"):
          # Start Registration Logic
          try:
              user_settings = await get_bot_user_settings()
@@ -3329,7 +3329,13 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                  
              suggested_u = basal_conf.expected_units or 0.0
              
-             # Auto-detect historical basal if not configured
+             # Check for passed units in callback
+             if "|" in data:
+                 try:
+                    suggested_u = float(data.split("|")[1])
+                 except: pass
+
+             # Auto-detect historical basal if not configured AND no valid override
              if suggested_u == 0.0:
                  try:
                      async with SessionLocal() as session:

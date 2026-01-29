@@ -662,11 +662,13 @@ async def handle_event(username: str, chat_id: int, event_type: str, payload: Di
             health.record_event(event_type, False, f"silenced_recent({event_type}, remaining={silence_res.remaining_min})")
             return None
 
+        suggested_u = float(payload.get("expected_units") or 0.0)
+        
         # Format Message
-        text = "💉 **Basal**\n\n¿Te has puesto la basal de hoy?"
+        text = f"💉 **Basal**\n\n¿Te has puesto la basal de hoy? ({suggested_u} U)"
         
         buttons = [
-            [InlineKeyboardButton("✅ Registrar", callback_data="basal_yes")],
+            [InlineKeyboardButton("✅ Registrar", callback_data=f"basal_yes|{suggested_u}")],
             [InlineKeyboardButton("⏰ 15 min", callback_data="basal_later"),
              InlineKeyboardButton("❌ Omitir hoy", callback_data="basal_no")]
         ]

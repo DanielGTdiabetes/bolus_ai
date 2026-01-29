@@ -163,7 +163,7 @@ async def compute_iob_from_sources(
                 params = {"cutoff": cutoff_naive}
                 if user_id:
                     query = text("""
-                        SELECT created_at, insulin 
+                        SELECT created_at, insulin, event_type, notes
                         FROM treatments 
                         WHERE created_at > :cutoff 
                         AND insulin > 0
@@ -172,7 +172,7 @@ async def compute_iob_from_sources(
                     params["user_id"] = user_id
                 else:
                     query = text("""
-                        SELECT created_at, insulin 
+                        SELECT created_at, insulin, event_type, notes
                         FROM treatments 
                         WHERE created_at > :cutoff 
                         AND insulin > 0
@@ -183,6 +183,14 @@ async def compute_iob_from_sources(
                 
                 for r in rows:
                     if r.created_at and r.insulin:
+                        # Filter out Basal
+                        evt_type = (getattr(r, "event_type", "") or "").lower()
+                        notes_val = (getattr(r, "notes", "") or "").lower()
+                        
+                        # Exclude obvious basal entries
+                        if "basal" in evt_type or "basal" in notes_val or "lenta" in notes_val:
+                            continue
+
                         ts_iso = r.created_at.replace(tzinfo=timezone.utc).isoformat() if r.created_at.tzinfo is None else r.created_at.isoformat()
                         db_boluses.append({
                             "ts": ts_iso,

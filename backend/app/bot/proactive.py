@@ -271,13 +271,26 @@ async def basal_reminder(username: str = "admin", chat_id: Optional[int] = None,
             continue
 
         # 6. Execute Trigger
+        suggested_units = item.units
+        latest_dose_ctx = None
+
+        if suggested_units <= 0.01:
+             try:
+                 found_latest = await get_latest_basal_dose(username)
+                 if found_latest and found_latest.get("dose_u"):
+                     suggested_units = float(found_latest.get("dose_u"))
+                     latest_dose_ctx = found_latest
+             except Exception as e:
+                 logger.warning(f"Failed to fetch latest basal for suggestion: {e}")
+
         payload = {
             "persistence_status": entry.get("status") if entry else None,
             "today_str": today_str,
             "schedule_id": item.id,
             "schedule_name": item.name,
             "scheduled_time": item.time,
-            "expected_units": item.units,
+            "expected_units": suggested_units,
+            "last_dose": latest_dose_ctx,
             "hours_late": max(0, diff_min / 60.0),
             # CRITICAL FIX: Explicit status object for Router
             "basal_status": {
@@ -330,6 +343,8 @@ async def basal_reminder(username: str = "admin", chat_id: Optional[int] = None,
             # but we can update our last status if we know it wasn't sent.
             # record_proactive_status("basal", False, "router_skipped") # Optional
             pass
+    return
+
     # 0. Load Config
     try:
         user_settings = await context_builder.get_bot_user_settings_safe()
