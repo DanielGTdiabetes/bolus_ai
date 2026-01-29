@@ -71,7 +71,12 @@ def run_migrations_offline() -> None:
 
 
 def do_run_migrations(connection: Connection) -> None:
-    context.configure(connection=connection, target_metadata=target_metadata)
+    context.configure(
+        connection=connection, 
+        target_metadata=target_metadata,
+        version_table_schema="public", # Force schema for asyncpg
+        include_schemas=False # Ensure we only touch what we expect
+    )
 
     with context.begin_transaction():
         context.run_migrations()
