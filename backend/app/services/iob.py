@@ -73,6 +73,13 @@ def _boluses_from_events(events: list[dict]) -> list[dict[str, float]]:
     for event in events:
         if event.get("type") != "bolus":
             continue
+            
+        # Filter Basal
+        evt_type = (event.get("eventType") or "").lower()
+        notes = (event.get("notes") or "").lower()
+        if "basal" in evt_type or "basal" in notes or "lenta" in notes:
+            continue
+            
         units = float(event.get("units", 0))
         ts = event.get("ts")
         if units > 0 and ts:
