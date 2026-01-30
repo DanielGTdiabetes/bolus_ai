@@ -85,7 +85,7 @@ async def log_treatment(
                 "carb_profile": carb_profile,
                 "notes": notes,
                 "enteredBy": entered_by,
-                "type": "bolus",
+                "type": "basal" if "basal" in event_type.lower() else "bolus",
                 "ts": created_iso,
                 "units": insulin,
             }
