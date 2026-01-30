@@ -191,13 +191,17 @@ def _calculate_core(inp: CalculationInput) -> CalculationResult:
     if eff_carbs > 0:
         meal_u = eff_carbs / cr
         
+        base_info = ""
+        if abs(effective_ratio - 1.0) > 0.01:
+            base_info = f" (Base {inp.cr:.1f})"
+
         if is_high_fiber:
             # Split 50% to later
             fiber_extension_u = meal_u * 0.5
             meal_u -= fiber_extension_u
-            explain.append(f"A) Comida (Fibra Alta): {eff_carbs:.1f}g / {cr:.1f} = {meal_u:.2f} U (Inmediata) + {fiber_extension_u:.2f} U (Extendida)")
+            explain.append(f"A) Comida (Fibra Alta): {eff_carbs:.1f}g / {cr:.1f}{base_info} = {meal_u:.2f} U (Inmediata) + {fiber_extension_u:.2f} U (Extendida)")
         else:
-            explain.append(f"A) Comida: {eff_carbs:.1f}g / {cr:.1f} = {meal_u:.2f} U")
+            explain.append(f"A) Comida: {eff_carbs:.1f}g / {cr:.1f}{base_info} = {meal_u:.2f} U")
     else:
         explain.append("A) Comida: 0g")
 
@@ -264,7 +268,10 @@ def _calculate_core(inp: CalculationInput) -> CalculationResult:
             explain.append(f"   Corrección limitada a {inp.max_correction_u} U (calc: {corr_u:.2f})")
             corr_u = inp.max_correction_u
             
-        explain.append(f"B) Corrección: ({inp.bg_mgdl:.0f} - {inp.target_mgdl:.0f}) / {isf:.0f} = {corr_u:.2f} U")
+        base_info = ""
+        if abs(effective_ratio - 1.0) > 0.01:
+            base_info = f" (Base {inp.isf:.0f})"
+        explain.append(f"B) Corrección: ({inp.bg_mgdl:.0f} - {inp.target_mgdl:.0f}) / {isf:.0f}{base_info} = {corr_u:.2f} U")
         if inp.bg_mgdl < 70: warnings.append("Glucosa baja. Corrección negativa.")
     else:
         explain.append("B) Corrección: 0 U (Falta glucosa o antigua)")
