@@ -335,6 +335,30 @@ async def run_ml_training():
     await jobs_state.run_job("ml_training", _run_ml_training_task)
 
 
+async def _run_ml_model_sync_task() -> None:
+    """
+    Background Task: Checks DB for newer ML models and downloads them.
+    Useful for Render instances to stay in sync with NAS.
+    """
+    from app.core.db import get_engine
+    from sqlalchemy.ext.asyncio import AsyncSession
+    from app.services.ml_inference_service import MLInferenceService
+    
+    logger.info("Running ML Model Sync Job...")
+    engine = get_engine()
+    if not engine:
+        return
+
+    async with AsyncSession(engine) as session:
+        try:
+             await MLInferenceService.get_instance().sync_models_from_db(session)
+        except Exception as e:
+             logger.error(f"ML Model Sync Job Failed: {e}")
+
+async def run_ml_model_sync():
+    await jobs_state.run_job("ml_model_sync", _run_ml_model_sync_task)
+
+
 def setup_periodic_tasks():
     init_scheduler()
     
@@ -451,3 +475,8 @@ def setup_periodic_tasks():
         ml_train_trigger = CronTrigger(hour=3, minute=0)
         schedule_task(run_ml_training, ml_train_trigger, "ml_training")
         jobs_state.refresh_next_run("ml_training")
+
+        # ML Model Sync: Every 30 minutes
+        ml_sync_trigger = CronTrigger(minute='*/30')
+        schedule_task(run_ml_model_sync, ml_sync_trigger, "ml_model_sync")
+        jobs_state.refresh_next_run("ml_model_sync")
