@@ -147,6 +147,23 @@ async def _background_startup_jobs():
         except Exception as e:
             logger.error(f"Startup Rescue Sync failed: {e}")
 
+        # 1. DOWNLOAD MODELS: Sync ML from DB (for Render/Ephemeral instances)
+        try:
+            from app.core.db import get_engine
+            from sqlalchemy.ext.asyncio import AsyncSession
+            from app.services.ml_inference_service import MLInferenceService
+            
+            # Create a dedicated session for sync
+            session_maker = get_engine() 
+            # Note: get_engine returns 'engine', we need sessionmaker or manual session
+            # Actually get_engine returns AsyncEngine. We can use AsyncSession(engine)
+            engine = get_engine()
+            async with AsyncSession(engine) as session:
+                 logger.info("🧠 ML: Checking for brain updates in Database...")
+                 await MLInferenceService.get_instance().sync_models_from_db(session)
+        except Exception as e:
+             logger.error(f"Startup ML Sync failed: {e}")
+
     try:
         # DB is already init
         from app.core.datastore import UserStore

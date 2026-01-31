@@ -12,6 +12,7 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.settings import get_settings
 from app.services.ml_inference_service import MLInferenceService
+from app.models.ml_store import MLModelStore
 
 try:
     from catboost import CatBoostRegressor
@@ -83,6 +84,34 @@ class MLTrainerService:
         
         df.reset_index(inplace=True)
         return df
+
+
+    async def _safe_create_store_table(self):
+        """Create MLModelStore table if not exists (raw SQL to avoid Alembic issues)"""
+        try:
+            # Check if table exists
+            table_name = MLModelStore.__tablename__
+            check_sql = text(f"SELECT to_regclass('public.{table_name}')")
+            res = await self.session.execute(check_sql)
+            if res.scalar():
+                return
+
+            logger.info("ML: Auto-creating storage table...")
+            create_sql = text(f"""
+            CREATE TABLE IF NOT EXISTS {table_name} (
+                model_name VARCHAR NOT NULL,
+                user_id VARCHAR NOT NULL,
+                model_data BYTEA NOT NULL,
+                version VARCHAR,
+                updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                PRIMARY KEY (model_name, user_id)
+            );
+            """)
+            await self.session.execute(create_sql)
+            await self.session.commit()
+        except Exception as e:
+            logger.warning(f"ML: Could not ensure table: {e}")
+            # Ignore error, maybe existing or permissions
 
     async def train_user_model(self, user_id: str) -> Dict[str, Any]:
         """
@@ -228,8 +257,9 @@ class MLTrainerService:
              return {"status": "rejected", "reason": f"Quality too low (MAE {avg_mae:.1f} > {ml_cfg.model_quality_max_rmse})"}
 
         # 9. Save Metadata
+        version = f"v1-{datetime.now().strftime('%Y%m%d%H%M')}"
         meta = {
-            "version": f"v1-{datetime.now().strftime('%Y%m%d%H%M')}",
+            "version": version,
             "created_at": datetime.now().isoformat(),
             "created_at_ts": datetime.now(timezone.utc).timestamp(),
             "user_id": user_id,
@@ -243,9 +273,38 @@ class MLTrainerService:
         with open(out_dir / "metadata.json", "w") as f:
             json.dump(meta, f, indent=2)
             
-        logger.info("ML: Training completed successfully. Model State: ACTIVE.")
+        logger.info("ML: Training completed successfully. Uploading to DB...")
+
+        # 10. Persist to DB (for Render Sync)
+        await self._safe_create_store_table()
         
-        # 10. Reload Inference Service
+        # 10.1 Upload Metadata
+        meta_json_str = json.dumps(meta).encode('utf-8')
+        await self.session.merge(MLModelStore(
+            model_name="metadata.json",
+            user_id=user_id,
+            model_data=meta_json_str,
+            version=version
+        ))
+
+        # 10.2 Upload Models
+        for h in metrics.keys(): # Only upload success horizons
+            fname = f"catboost_residual_{h}m_p50.cbm"
+            fpath = out_dir / fname
+            if fpath.exists():
+                with open(fpath, "rb") as f:
+                    bin_data = f.read()
+                await self.session.merge(MLModelStore(
+                    model_name=fname,
+                    user_id=user_id,
+                    model_data=bin_data,
+                    version=version
+                ))
+        
+        await self.session.commit()
+        logger.info("ML: Models synced to Database (accessible by Render)")
+
+        # 11. Reload Inference Service
         svc.load_models(force_reload=True)
         
         return {"status": "success", "metadata": meta}

@@ -16,6 +16,10 @@ try:
 except ImportError:
     HAS_CATBOOST = False
 
+from sqlalchemy import select, text
+from sqlalchemy.ext.asyncio import AsyncSession
+from app.models.ml_store import MLModelStore
+
 from app.core.settings import get_settings
 from app.models.forecast import ForecastPoint
 
@@ -87,6 +91,81 @@ class MLInferenceService:
                     return d
         
         return None
+
+
+    async def sync_models_from_db(self, session: AsyncSession):
+        """
+        Check DB for a newer model version and download it if found.
+        Use raw SQL check first to avoid errors if table doesn't exist yet.
+        """
+        try:
+            # Check table existence first
+            check = await session.execute(text(f"SELECT to_regclass('public.{MLModelStore.__tablename__}')"))
+            if not check.scalar():
+                logger.info("ML Sync: Table not found in DB. Skipping sync.")
+                return
+
+            # Get latest version from DB
+            stmt = select(MLModelStore).where(MLModelStore.model_name == 'metadata.json').order_by(MLModelStore.updated_at.desc()).limit(1)
+            res = await session.execute(stmt)
+            row = res.scalar_one_or_none()
+            
+            if not row:
+                logger.info("ML Sync: No trained models in DB yet.")
+                return
+
+            db_version = row.version
+            
+            # Compare with local
+            if self._metadata and self._metadata.get("version") == db_version:
+                logger.info(f"ML Sync: Local model {db_version} is up to date.")
+                return
+
+            logger.info(f"ML Sync: Found newer model {db_version} in DB. Downloading...")
+            
+            # Download all files for this user/version
+            # Simple approach: Get all files for this user
+            user_id = row.user_id # Assume model fits user
+            files_stmt = select(MLModelStore).where(MLModelStore.user_id == user_id).where(MLModelStore.version == db_version)
+            files_res = await session.execute(files_stmt)
+            files = files_res.scalars().all()
+            
+            # Target Dir
+            # Force use of local writable dir
+            target_dir = Path("ml_training_output")
+            if self.settings.ml.model_dir:
+                target_dir = Path(self.settings.ml.model_dir)
+            
+            if not target_dir.is_absolute():
+                 base = Path(__file__).resolve().parent.parent.parent
+                 target_dir = base / target_dir
+            
+            target_dir.mkdir(parents=True, exist_ok=True)
+            
+            for file_row in files:
+                out_path = target_dir / file_row.model_name
+                # If metadata, parse json
+                if file_row.model_name == "metadata.json":
+                     # meta is bytes, decode
+                     try:
+                         data_str = file_row.model_data.decode('utf-8')
+                         # validate json
+                         json.loads(data_str)
+                         with open(out_path, "w") as f:
+                             f.write(data_str)
+                     except:
+                         with open(out_path, "wb") as f:
+                             f.write(file_row.model_data)
+                else:
+                    with open(out_path, "wb") as f:
+                        f.write(file_row.model_data)
+            
+            logger.info(f"ML Sync: Successfully downloaded model {db_version}.")
+            # Trigger reload
+            self.load_models(force_reload=True)
+            
+        except Exception as e:
+            logger.error(f"ML Sync Failed: {e}")
 
     def load_models(self, force_reload: bool = False):
         if self.models_loaded and not force_reload:
