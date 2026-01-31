@@ -369,6 +369,7 @@ def merge_settings(env_config: dict[str, Any], file_config: dict[str, Any]) -> d
     merged["database"] = {**file_config.get("database", {}), **env_config.get("database", {})}
     merged["dexcom"] = {**file_config.get("dexcom", {}), **env_config.get("dexcom", {})}
     merged["night_pattern"] = {**file_config.get("night_pattern", {}), **env_config.get("night_pattern", {})}
+    merged["ml"] = {**file_config.get("ml", {}), **env_config.get("ml", {})}
     
     # Root level setting merge
     if "emergency_mode" in env_config:
