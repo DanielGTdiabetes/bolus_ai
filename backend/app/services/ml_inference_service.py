@@ -303,34 +303,28 @@ class MLInferenceService:
             else:
                 row[f"baseline_bg_{h}m"] = np.nan
 
-        # Remove non-feature columns that shouldn't be passed to CatBoost
-        non_feature_cols = [
-            "feature_time", "user_id", "source_ns_enabled",
-            "source_ns_treatments_count", "source_db_treatments_count",
-            "source_overlap_count", "source_conflict_count"
-        ]
-        for col in non_feature_cols:
-            row.pop(col, None)
+        # IMPORTANT: Only use features that the model was trained with
+        # Training uses: bg_mgdl, trend, iob_u, cob_g, basal_active_u,
+        # basal_total_24h, bolus_total_3h, carbs_total_3h,
+        # exercise_minutes_6h, hour_of_day, day_of_week + baseline_bg_Xm
+        allowed_features = {
+            "bg_mgdl", "trend", "iob_u", "cob_g", "basal_active_u",
+            "basal_total_24h", "bolus_total_3h", "carbs_total_3h",
+            "exercise_minutes_6h", "hour_of_day", "day_of_week"
+        }
+        # Add baseline columns dynamically
+        for h in horizons:
+            allowed_features.add(f"baseline_bg_{h}m")
 
-        # Convert boolean flags to int (CatBoost expects numeric)
-        bool_cols = [
-            "flag_bg_missing", "flag_bg_stale", "flag_iob_unavailable",
-            "flag_cob_unavailable", "flag_source_conflict"
-        ]
-        for col in bool_cols:
-            if col in row and isinstance(row[col], bool):
-                row[col] = 1 if row[col] else 0
+        # Filter row to only include allowed features
+        row = {k: v for k, v in row.items() if k in allowed_features}
 
         # Convert to DataFrame (CatBoost expectation)
         df_row = pd.DataFrame([row])
 
-        # Ensure categorical columns are strings
-        cat_cols = [
-            "trend", "iob_status", "cob_status", "source_consistency_status"
-        ]
-        for col in cat_cols:
-            if col in df_row.columns:
-                df_row[col] = df_row[col].fillna("unknown").astype(str)
+        # Ensure categorical column is string (only 'trend' was used as categorical in training)
+        if "trend" in df_row.columns:
+            df_row["trend"] = df_row["trend"].fillna("Flat").astype(str)
         
         # Run Inference per horizon
         residuals_p50 = {}
