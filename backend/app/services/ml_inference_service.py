@@ -303,9 +303,27 @@ class MLInferenceService:
             else:
                 row[f"baseline_bg_{h}m"] = np.nan
 
+        # Remove non-feature columns that shouldn't be passed to CatBoost
+        non_feature_cols = [
+            "feature_time", "user_id", "source_ns_enabled",
+            "source_ns_treatments_count", "source_db_treatments_count",
+            "source_overlap_count", "source_conflict_count"
+        ]
+        for col in non_feature_cols:
+            row.pop(col, None)
+
+        # Convert boolean flags to int (CatBoost expects numeric)
+        bool_cols = [
+            "flag_bg_missing", "flag_bg_stale", "flag_iob_unavailable",
+            "flag_cob_unavailable", "flag_source_conflict"
+        ]
+        for col in bool_cols:
+            if col in row and isinstance(row[col], bool):
+                row[col] = 1 if row[col] else 0
+
         # Convert to DataFrame (CatBoost expectation)
         df_row = pd.DataFrame([row])
-        
+
         # Ensure categorical columns are strings
         cat_cols = [
             "trend", "iob_status", "cob_status", "source_consistency_status"
