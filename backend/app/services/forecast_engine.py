@@ -485,7 +485,12 @@ class ForecastEngine:
             
             if scale_factor < 1.0:
                  insulin_net *= scale_factor
-                 
+                 # Añadir warning visible cuando la amortiguación es significativa (>15%)
+                 if scale_factor < 0.85 and t == 30:
+                     warning_msg = f"⚠️ Predicción amortiguada post-comida (protección anti-hipo activa, escala {scale_factor:.0%}). Monitoriza de cerca."
+                     if warning_msg not in warnings:
+                         warnings.append(warning_msg)
+
             # Store debug info for analysis (only first point or aggregated?)
             # We will store the detailed debug for the FIRST point where gating is significant, or the last point.
             # To avoid noise, let's put it in meta key 'anti_panic_trace' only if debug is requested or random sample.

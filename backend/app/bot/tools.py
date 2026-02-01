@@ -734,7 +734,7 @@ async def simulate_whatif(carbs: float, horizon_minutes: int = 180) -> WhatIfRes
         dia_minutes=int(user_settings.iob.dia_hours * 60),
         carb_absorption_minutes=180,
         insulin_peak_minutes=user_settings.iob.peak_minutes,
-        insulin_model="linear",
+        insulin_model=getattr(user_settings.iob, 'insulin_model', 'fiasp') or 'fiasp',
     )
     req = ForecastSimulateRequest(
         start_bg=status.bg_mgdl,
@@ -1717,11 +1717,15 @@ async def execute_tool(name: str, args: Dict[str, Any]) -> Any:
         if name == "calculate_bolus":
             return await calculate_bolus(
                 carbs=float(args.get("carbs")),
+                fat=float(args.get("fat", 0)),
+                protein=float(args.get("protein", 0)),
                 fiber=float(args.get("fiber", 0)),
+                carb_profile=args.get("carb_profile"),
                 meal_type=args.get("meal_type"),
                 split=args.get("split"),
                 extend_minutes=args.get("extend_minutes"),
                 alcohol=bool(args.get("alcohol", False)),
+                target=args.get("target"),
             )
         if name == "calculate_correction":
             return await calculate_correction(target_bg=args.get("target_bg"))

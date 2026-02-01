@@ -216,8 +216,8 @@ async def handle_text(username: str, chat_id: int, user_text: str, context_data:
         # Round 0: Send User Text
         response = await chat.send_message_async(user_text)
         
-        # Round 1 & 2: Check for function calls
-        for _ in range(2):
+        # Round 1-4: Check for function calls (increased from 2 for complex queries)
+        for _ in range(4):
             call = None
             if response.candidates and response.candidates[0].content.parts:
                 for part in response.candidates[0].content.parts:

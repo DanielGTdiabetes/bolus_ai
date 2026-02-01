@@ -2,6 +2,7 @@
 import logging
 import os # Added for env var
 import json
+import threading
 import numpy as np
 import pandas as pd
 from pathlib import Path
@@ -38,6 +39,7 @@ class MLPredictionResult:
 
 class MLInferenceService:
     _instance = None
+    _lock = threading.Lock()
     _models: Dict[int, Dict[str, Any]] = {}  # {horizon: {'p10': model, 'p50': model, 'p90': model}}
     _model_version: Optional[str] = None
     _metadata: Optional[Dict] = None
@@ -45,7 +47,10 @@ class MLInferenceService:
     @classmethod
     def get_instance(cls):
         if cls._instance is None:
-            cls._instance = MLInferenceService()
+            with cls._lock:
+                # Double-check locking pattern
+                if cls._instance is None:
+                    cls._instance = MLInferenceService()
         return cls._instance
 
     def __init__(self):
