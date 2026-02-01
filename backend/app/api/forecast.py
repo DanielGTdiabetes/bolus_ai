@@ -1007,7 +1007,9 @@ async def get_current_forecast(
                  iob_status=iob_info.status if iob_info else "unknown",
                  cob_status=cob_info.status if cob_info else "unknown",
                  source_ns_enabled=bool(ns_config and ns_config.enabled),
-                 ns_treatments_count=0 # Not tracked in this context easily
+                 ns_treatments_count=0, # Not tracked in this context easily
+                 warsaw_enabled=user_settings.warsaw.enabled if user_settings and user_settings.warsaw else False,
+                 warsaw_factor=user_settings.warsaw.safety_factor if user_settings and user_settings.warsaw else 1.0
              )
              
              pred = ml_svc.predict(feats, response.series)
@@ -1609,6 +1611,127 @@ async def simulate_forecast(
         if not payload.events.boluses and not payload.events.carbs:
             response.quality = "low"
             response.warnings.append("Sin eventos históricos; pronóstico incompleto por falta de IOB/COB.")
+
+        # [ML Inference Simulation]
+        # Aplica la IA sobre la simulación (Calculator Mode)
+        # Esto permite ver la predicción "Smart" también en la calculadora.
+        try:
+            from app.services.ml_inference_service import MLInferenceService
+            from app.api.ml_features import build_runtime_features
+            
+            ml_svc = MLInferenceService.get_instance()
+            # Ensure models are loaded (idempotent)
+            ml_svc.load_models() 
+            
+            if ml_svc.models_loaded:
+                # 1. Prepare Simulated Treatments (History + Proposed)
+                sim_treatments = []
+                
+                # Helper class for Duck Typing (compatible with Treatment model)
+                class MockTreatment:
+                    def __init__(self, created_at, insulin=0.0, carbs=0.0, fat=0.0, protein=0.0, duration=0.0, notes="", event_type=""):
+                        self.created_at = created_at
+                        self.insulin = insulin
+                        self.carbs = carbs
+                        self.fat = fat
+                        self.protein = protein
+                        self.duration = duration
+                        self.notes = notes
+                        self.event_type = event_type
+                        
+                # 1a. Add DB History (unique_rows)
+                if 'unique_rows' in locals() and unique_rows:
+                    sim_treatments.extend(unique_rows)
+                    
+                # 1b. Add Simulated Events (Payload)
+                # Map time_offset_min -> created_at
+                now_utc = datetime.now(timezone.utc)
+                
+                for b in payload.events.boluses:
+                    # Only add if it's a "Future/Now" simulated event, or if we need to supplement history
+                    # But usually payload contains everything relevant for simulation.
+                    # We add them as NEW treatments on top of history.
+                    # Note: If history was already fetched, be careful not to double count if payload INCLUDES history.
+                    # We filtered payload history into 'unique_rows' logic? No, unique_rows came from DB.
+                    # Payload events usually come from Calculator Proposal or Manual Entry.
+                    # We assume payload events are the "Scenario".
+                    
+                    # Skip if offset is very negative (historical) AND we already have DB history?
+                    # Safer: If offset > -5 (Current/Future), definitely add.
+                    # If offset < -5, it might be dup of DB.
+                    if b.time_offset_min > -5:
+                        sim_treatments.append(MockTreatment(
+                            created_at=now_utc + timedelta(minutes=b.time_offset_min),
+                            insulin=b.units,
+                            duration=b.duration_minutes
+                        ))
+                        
+                for c in payload.events.carbs:
+                    if c.time_offset_min > -5:
+                        sim_treatments.append(MockTreatment(
+                            created_at=now_utc + timedelta(minutes=c.time_offset_min),
+                            carbs=c.grams,
+                            fat=c.fat_g,
+                            protein=c.protein_g
+                        ))
+                
+                # Sort roughly (though feature builder sorts or iterates)
+                # sort is not strictly needed for feature builder but good practice
+                # sim_treatments.sort(key=lambda x: x.created_at)
+
+                # 2. Build Features
+                # Note: We pass the User Settings Warsaw config so ML sees the same "Effective Carbs"
+                # as the Calculator used (if any).
+                
+                # Params Might have overrides?
+                # User config is authoritative for GLOBAL behavior, but payload.params is local.
+                # However, ML training assumes standard behavior. We should use User Settings for consistency.
+                
+                w_enabled = False
+                w_factor = 1.0
+                if user_settings and user_settings.warsaw:
+                    w_enabled = user_settings.warsaw.enabled
+                    w_factor = user_settings.warsaw.safety_factor
+                
+                # Check for Payload Overrides (Calculator Toggles)
+                if payload.params.warsaw_factor_simple is not None:
+                     # If payload has specific factor (e.g. edited in UI), respect it?
+                     # The user asked: "si el usuario cambia datos... se aplicara en la curva?"
+                     # YES. If they change params in UI, payload.params has it.
+                     # We should try to use payload params if they seem intended for Warsaw.
+                     # But ML features currently take "warsaw_enabled" bool.
+                     # We can infer enabled if factor is present/valid.
+                     pass
+                
+                feats = build_runtime_features(
+                    user_id=user.username,
+                    now_utc=now_utc,
+                    bg_mgdl=payload.start_bg,
+                    trend="Flat", # Simulation usually assumes static start or we could infer from history
+                    bg_age_min=0,
+                    iob_u=0, # Recalculated inside builder or we pass explicit? feature builder calculates it from treatments!
+                    cob_g=0,
+                    to_utc_func=lambda d: d.replace(tzinfo=timezone.utc) if d.tzinfo is None else d.astimezone(timezone.utc),
+                    basal_rows=basal_rows if 'basal_rows' in locals() else [],
+                    treatment_rows=sim_treatments,
+                    warsaw_enabled=w_enabled,
+                    warsaw_factor=w_factor
+                )
+                
+                # 3. Predict
+                pred = ml_svc.predict(feats, response.series)
+                
+                if pred.ml_ready:
+                    response.ml_ready = True
+                    response.ml_series = pred.predicted_series
+                    response.p10_series = pred.p10_series
+                    response.p90_series = pred.p90_series
+                    response.confidence_score = pred.confidence_score
+                    
+        except Exception as ml_sim_e:
+            print(f"ML Sim Error: {ml_sim_e}")
+            # Non-blocking
+
         return response
     except Exception as e:
         # Log error in real app

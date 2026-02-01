@@ -51,7 +51,10 @@ def build_runtime_features(
     iob_status: str = "ok",
     cob_status: str = "ok",
     source_ns_enabled: bool = False,
-    ns_treatments_count: int = 0
+    ns_treatments_count: int = 0,
+    # Config
+    warsaw_enabled: bool = False,
+    warsaw_factor: float = 1.0
 ) -> Dict[str, Any]:
     """
     Constructs the feature vector for ML inference at runtime.
@@ -87,11 +90,28 @@ def build_runtime_features(
             if minutes_ago <= 360:
                 bolus_total_6h += float(row.insulin)
         
-        if row.carbs:
+        # Calculate Effective Carbs (Raw Carbs + Warsaw Fat/Protein)
+        raw_carbs = float(row.carbs or 0)
+        fat_g = float(getattr(row, 'fat', 0) or 0)
+        prot_g = float(getattr(row, 'protein', 0) or 0)
+        
+        effective_carbs = raw_carbs
+
+        if warsaw_enabled and (fat_g > 0 or prot_g > 0):
+             # Warsaw Method: 100kcal Fat/Prot = 10g Carbs (Standard Factor 1.0)
+             kcal_fp = (fat_g * 9) + (prot_g * 4)
+             # Only apply if significant (>50 kcal matches calculator)
+             if kcal_fp > 50:
+                 fpu_count = kcal_fp / 100.0
+                 # Apply user safety factor
+                 extra_carbs = fpu_count * 10.0 * warsaw_factor
+                 effective_carbs += extra_carbs
+
+        if effective_carbs > 0:
             if minutes_ago <= 180:
-                carbs_total_3h += float(row.carbs)
+                carbs_total_3h += effective_carbs
             if minutes_ago <= 360:
-                carbs_total_6h += float(row.carbs)
+                carbs_total_6h += effective_carbs
                 
         # Basal in Treatments (rare but possible)
         if row.insulin and _is_basal_treatment(row):
