@@ -205,12 +205,14 @@ class MLTrainerService:
             if target_col not in df_train.columns: continue
             
             # Subset valid data
-            train_subset = df_train.dropna(subset=[target_col] + feature_cols)
+            # Subset valid data
+            valid_cols = [c for c in ([target_col] + feature_cols) if c in df_train.columns]
+            train_subset = df_train.dropna(subset=valid_cols)
             if len(train_subset) < 500: # Min samples per horizon
                 logger.warning(f"ML: Not enough aligned samples for H{h} ({len(train_subset)})")
                 continue
                 
-            X = train_subset[feature_cols]
+            X = train_subset[[c for c in feature_cols if c in train_subset.columns]]
             y = train_subset[target_col]
             
             # Treat categorical
