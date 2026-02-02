@@ -28,14 +28,14 @@ from app.core.db import get_session_factory
 
 # Sidecar dependencies
 from pathlib import Path
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone, timedelta, date
 from app.core.settings import get_settings
 from app.services.store import DataStore
 from app.services.nightscout_client import NightscoutClient
 from app.services.dexcom_client import DexcomClient
 from app.services.iob import compute_iob_from_sources, compute_cob_from_sources
 from app.bot.bolus_client import calculate_bolus_for_bot
-from app.services.basal_repo import get_latest_basal_dose
+from app.services.basal_repo import get_latest_basal_dose, upsert_basal_dose
 from app.models.bolus_v2 import BolusRequestV2, BolusResponseV2
 from app.bot.capabilities.registry import build_registry, Permission
 
@@ -3406,26 +3406,34 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                  # Or better: if checking fails, we shouldn't block user from living.
                  pass
 
-             # Add Treatment
-             add_res = await tools.add_treatment({
-                 "insulin": units,
-                 "carbs": 0,
-                 "notes": "Basal (Bot Reminder)",
-                 "event_type": "Basal"
-             })
+             # Save to basal_dose table (NOT treatments) to avoid IOB contamination
+             basal_res = await upsert_basal_dose(
+                 user_id=username,
+                 dose_u=units,
+                 effective_from=date.today(),
+                 created_at=datetime.now(timezone.utc)
+             )
 
-             
-             if isinstance(add_res, tools.ToolError):
-                 raise Exception(add_res.message)
-                 
+             if not basal_res:
+                 raise Exception("Error guardando dosis basal en DB")
+
+             # Rotate injection site for basal
+             rotation_site = None
+             try:
+                 from app.services.async_injection_manager import AsyncInjectionManager
+                 mgr = AsyncInjectionManager(username)
+                 rotation_site = await mgr.rotate_site("basal")
+             except Exception as rot_e:
+                 logger.warning(f"Basal rotation failed: {rot_e}")
+
              # Mark Done
              await _update_basal_event("done")
              health.record_action("action_basal_register_done", True, f"units={units}")
-             
+
              success_txt = f"{query.message.text}\n\n✅ Registrada: **{units} U**"
-             
-             if getattr(add_res, "injection_site", None):
-                 site = add_res.injection_site
+
+             site = rotation_site
+             if site:
                  success_txt += f"\n📍 Rotado: {site['name']} {site['emoji']}"
                  
                  # Send Image Logic (Basal)
