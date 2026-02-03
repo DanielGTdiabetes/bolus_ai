@@ -360,13 +360,22 @@ async def calculate_bolus_stateless_service(
 
     if should_run_autosens and session:
         try:
-            from app.services.dynamic_isf_service import DynamicISFService
+            from app.services.dynamic_isf_service import DynamicISFService, TDDDebugInfo
 
-            tdd_ratio = await DynamicISFService.calculate_dynamic_ratio(
+            # Get TDD ratio with debug info
+            tdd_result = await DynamicISFService.calculate_dynamic_ratio(
                 username=user.username,
                 session=session,
                 settings=user_settings,
+                return_debug=True,
             )
+
+            # Handle both return types (with or without debug)
+            if isinstance(tdd_result, tuple):
+                tdd_ratio, tdd_debug = tdd_result
+            else:
+                tdd_ratio = tdd_result
+                tdd_debug = None
 
             local_ratio = 1.0
             local_reason = ""
@@ -384,18 +393,30 @@ async def calculate_bolus_stateless_service(
             except Exception:
                 pass
 
-            autosens_ratio = tdd_ratio * local_ratio
-
+            # Calculate hybrid ratio
+            raw_hybrid = tdd_ratio * local_ratio
             autosens_ratio = max(
                 user_settings.autosens.min_ratio,
-                min(user_settings.autosens.max_ratio, autosens_ratio),
+                min(user_settings.autosens.max_ratio, raw_hybrid),
             )
 
+            # Build detailed reason string
             autosens_reason = (
                 f"Híbrido: TDD {tdd_ratio:.2f}x * Local {local_ratio:.2f}x"
             )
 
-            logger.info("Hybrid Autosens: %s (%s)", autosens_ratio, autosens_reason)
+            # Add debug info if available
+            if tdd_debug:
+                autosens_reason += (
+                    f" [TDD: Recent={tdd_debug.recent_tdd:.1f}U, "
+                    f"Base={tdd_debug.baseline_tdd:.1f}U, "
+                    f"Basal src={tdd_debug.basal_source}]"
+                )
+
+            logger.info(
+                "Hybrid Autosens: ratio=%.2f (raw=%.3f), TDD=%.2f, Local=%.2f",
+                autosens_ratio, raw_hybrid, tdd_ratio, local_ratio
+            )
         except Exception as e:
             logger.error(f"Hybrid Autosens failed: {e}")
             autosens_reason = "Error (usando 1.0)"
