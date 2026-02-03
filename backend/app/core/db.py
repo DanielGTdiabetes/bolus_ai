@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import uuid
 from typing import AsyncGenerator, Optional, List, Any
@@ -12,6 +13,55 @@ from sqlalchemy.pool import NullPool, StaticPool
 from app.core.settings import get_settings
 
 logger = logging.getLogger("uvicorn")
+
+# Retry configuration for database connection
+DB_RETRY_ATTEMPTS = 10
+DB_RETRY_DELAY_SECONDS = 3
+
+
+async def wait_for_db_ready(max_attempts: int = DB_RETRY_ATTEMPTS, delay: float = DB_RETRY_DELAY_SECONDS) -> bool:
+    """
+    Wait for database to be ready by attempting a simple connection.
+    Returns True if connection succeeded, raises exception after max attempts.
+    """
+    if not _async_engine:
+        logger.warning("No database engine configured")
+        return False
+
+    last_error = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            async with _async_engine.connect() as conn:
+                await conn.execute(text("SELECT 1"))
+                logger.info(f"✅ Database connection established (attempt {attempt})")
+                return True
+        except Exception as e:
+            last_error = e
+            error_msg = str(e).lower()
+
+            is_transient = any(phrase in error_msg for phrase in [
+                "shutting down",
+                "connection refused",
+                "could not connect",
+                "connection reset",
+                "timeout",
+                "not ready",
+                "starting up",
+            ])
+
+            if is_transient and attempt < max_attempts:
+                logger.warning(
+                    f"⏳ Database not ready (attempt {attempt}/{max_attempts}): {type(e).__name__}. "
+                    f"Retrying in {delay}s..."
+                )
+                await asyncio.sleep(delay)
+            else:
+                logger.error(f"❌ Database connection failed after {attempt} attempts: {e}")
+                raise
+
+    if last_error:
+        raise last_error
+    return False
 
 class Base(DeclarativeBase):
     pass
@@ -397,13 +447,48 @@ async def migrate_schema(conn):
         # Don't raise, allow app to try and start, but the error will be in logs.
 
 async def create_tables():
-    if _async_engine:
-        # We use a non-begin connection to have more control over commits if needed
-        async with _async_engine.connect() as conn:
-            # Create all (only creates new tables)
-            await conn.run_sync(Base.metadata.create_all)
-            # Apply column migrations
-            await migrate_schema(conn)
+    """Create database tables with retry logic for container startup."""
+    if not _async_engine:
+        logger.warning("No database engine configured, skipping table creation")
+        return
+
+    last_error = None
+    for attempt in range(1, DB_RETRY_ATTEMPTS + 1):
+        try:
+            async with _async_engine.connect() as conn:
+                # Create all (only creates new tables)
+                await conn.run_sync(Base.metadata.create_all)
+                # Apply column migrations
+                await migrate_schema(conn)
+                logger.info(f"✅ Database tables created (attempt {attempt})")
+                return
+        except Exception as e:
+            last_error = e
+            error_msg = str(e).lower()
+
+            # Check if it's a transient connection error
+            is_transient = any(phrase in error_msg for phrase in [
+                "shutting down",
+                "connection refused",
+                "could not connect",
+                "connection reset",
+                "timeout",
+                "not ready",
+            ])
+
+            if is_transient and attempt < DB_RETRY_ATTEMPTS:
+                logger.warning(
+                    f"⏳ Database not ready (attempt {attempt}/{DB_RETRY_ATTEMPTS}): {e}. "
+                    f"Retrying in {DB_RETRY_DELAY_SECONDS}s..."
+                )
+                await asyncio.sleep(DB_RETRY_DELAY_SECONDS)
+            else:
+                # Non-transient error or last attempt
+                raise
+
+    # Should not reach here, but just in case
+    if last_error:
+        raise last_error
 
 # Abstraction for partial Repository pattern or Session usage
 # To keep it compatible with Dependency Injection:

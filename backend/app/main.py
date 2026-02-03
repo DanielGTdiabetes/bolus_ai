@@ -103,16 +103,19 @@ async def startup_event() -> None:
     # Ensure models are loaded before creating tables
     import app.models 
 
-    from app.core.db import init_db, create_tables, get_engine
+    from app.core.db import init_db, create_tables, get_engine, wait_for_db_ready
     from app.services.auth_repo import init_auth_db
     init_db()
-    
+
     # --- Critical Initialization (Sync) ---
     # We await DB init to ensure tables exist before serving requests.
     try:
-        logger.info("⏳ Waiting for Database...")
-        # AUDIT FIX: Removed auto-creation in favor of Alembic migrations.
-        await create_tables() 
+        logger.info("⏳ Waiting for Database to be ready...")
+        # Wait for database with retry (handles container startup race condition)
+        await wait_for_db_ready()
+
+        # Now create tables (also has internal retry)
+        await create_tables()
         await init_auth_db()
         
         # Schema fixes

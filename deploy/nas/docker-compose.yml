@@ -43,7 +43,8 @@ services:
     ports:
       - "${APP_PORT:-8000}:8000"
     depends_on:
-      - db
+      db:
+        condition: service_healthy
     restart: unless-stopped
 
     # ===== LIMITES (NAS 16GB) =====
