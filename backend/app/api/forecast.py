@@ -13,6 +13,7 @@ from app.models.forecast import (
     ForecastBasalInjection,
     PredictionMeta,
     NightPatternMeta,
+    ForecastSummary,
 )
 from app.services.forecast_engine import ForecastEngine
 from app.core.security import get_current_user, get_current_user_optional, CurrentUser
@@ -1134,6 +1135,35 @@ async def get_current_forecast(
                 context,
             )
             response.series = adjusted_series
+
+            # Recalcular summary con la serie ajustada
+            if adjustment != 0 and adjusted_series:
+                bg_values = [p.bg for p in adjusted_series]
+                time_points = [p.t_min for p in adjusted_series]
+                min_bg = min(bg_values)
+                max_bg = max(bg_values)
+                ending_bg = bg_values[-1]
+                min_idx = bg_values.index(min_bg)
+                time_to_min = time_points[min_idx]
+
+                def get_bg_at(min_target):
+                    try:
+                        idx = time_points.index(min_target)
+                        return bg_values[idx]
+                    except ValueError:
+                        return None
+
+                response.summary = ForecastSummary(
+                    bg_now=response.summary.bg_now,
+                    bg_30m=get_bg_at(30),
+                    bg_2h=get_bg_at(120),
+                    bg_4h=get_bg_at(240),
+                    min_bg=round(min_bg, 0),
+                    max_bg=round(max_bg, 0),
+                    time_to_min=time_to_min,
+                    ending_bg=round(ending_bg, 0),
+                )
+
             if response.baseline_series and adjustment != 0:
                 response.baseline_series = [
                     ForecastPoint(t_min=point.t_min, bg=round(point.bg + adjustment, 1))
