@@ -481,11 +481,16 @@ class ForecastEngine:
 
             if is_linked_meal and t < 120:
                 # Calculate pure time-based ramp (Base Scale) locally for the check
+                # TWO PHASE: Mas conservador en primeros 30 min cuando carbs apenas absorben
                 check_base_scale = 1.0
                 if t >= 90:
                     check_base_scale = 1.0
+                elif t >= 30:
+                    # Phase 2: 0.6 → 1.0 linealmente de t=30 a t=90
+                    check_base_scale = 0.6 + (0.4 * ((t - 30) / 60.0))
                 else:
-                    check_base_scale = 0.6 + (0.4 * (t / 90.0))
+                    # Phase 1: 0.35 → 0.6 linealmente de t=0 a t=30
+                    check_base_scale = 0.35 + (0.25 * (t / 30.0))
 
                 # Apply to insulin ONLY for the check (not final application yet)
                 insulin_net_check = insulin_net * check_base_scale
@@ -748,14 +753,18 @@ class ForecastEngine:
             applied = True
             gating_type = "meal"
 
-            # 2. Base Ramp (Time-based recovery)
-            # Starts at 0.6, recovers to 1.0 linearly over 90 mins
-            # y = 0.6 + 0.4 * (t/90)
-            # IF t >= 90, base_scale -> 1.0
+            # 2. Base Ramp (Time-based recovery) - TWO PHASE
+            # Phase 1 (t=0-30): Escala 0.35 → 0.6 (muy conservador, carbs apenas absorben)
+            # Phase 2 (t=30-90): Escala 0.6 → 1.0 (gradual hacia impacto completo)
+            # Esto compensa el desbalance de timing: insulina actua ~16x mas rapido que carbs inicialmente
             if t_min >= 90:
                 base_scale = 1.0
+            elif t_min >= 30:
+                # Phase 2: 0.6 → 1.0 linealmente de t=30 a t=90
+                base_scale = 0.6 + (0.4 * ((t_min - 30) / 60.0))
             else:
-                base_scale = 0.6 + (0.4 * (t_min / 90.0))
+                # Phase 1: 0.35 → 0.6 linealmente de t=0 a t=30
+                base_scale = 0.35 + (0.25 * (t_min / 30.0))
 
             # If base_scale is already 1.0, we are done
             if base_scale >= 1.0:
