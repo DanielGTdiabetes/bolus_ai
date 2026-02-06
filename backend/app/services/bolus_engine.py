@@ -297,6 +297,36 @@ def _calculate_core(inp: CalculationInput) -> CalculationResult:
         if fiber_extension_u > 0:
             explain.append(f"   (Fibra Dual): {fiber_extension_u:.2f} U programadas para extensión.")
 
+    # --- 4b. Bolus Stacking Warning ---
+    if inp.min_bolus_interval_min > 0 and inp.last_bolus_minutes is not None:
+        if inp.last_bolus_minutes < inp.min_bolus_interval_min:
+            time_remaining = inp.min_bolus_interval_min - inp.last_bolus_minutes
+            warnings.append(
+                f"⚠️ STACKING: Último bolo hace {inp.last_bolus_minutes} min "
+                f"(mínimo recomendado: {inp.min_bolus_interval_min} min). "
+                f"Espera {time_remaining} min más para evitar apilamiento de insulina."
+            )
+
+    # --- 4c. Max IOB Ceiling ---
+    if inp.max_iob_u is not None and inp.max_iob_u > 0:
+        projected_iob = inp.iob_u + upfront_net + later_base
+        if projected_iob > inp.max_iob_u:
+            allowed = max(0.0, inp.max_iob_u - inp.iob_u)
+            excess = (upfront_net + later_base) - allowed
+            # Reduce upfront first, then later
+            if upfront_net > allowed:
+                upfront_net = allowed
+                later_base = 0.0
+            else:
+                later_base = max(0.0, allowed - upfront_net)
+            explain.append(
+                f"⚠️ IOB Máximo: Bolo reducido para no superar {inp.max_iob_u:.1f} U de IOB "
+                f"(IOB actual: {inp.iob_u:.1f} U, permitido: {allowed:.1f} U, recortado: {excess:.1f} U)"
+            )
+            warnings.append(
+                f"Bolo recortado por techo de IOB ({inp.max_iob_u:.1f} U)."
+            )
+
     # --- 5. Exercise ---
     final_upfront = upfront_net
     final_later = later_base
@@ -403,7 +433,10 @@ def calculate_bolus_v2(
         techne_max_step=settings.techne.max_step_change,
         ignore_iob=request.ignore_iob,
         alcohol_mode=request.alcohol,
-        strategy=request.strategy
+        strategy=request.strategy,
+        max_iob_u=getattr(settings, 'max_iob_u', None),
+        min_bolus_interval_min=getattr(settings, 'min_bolus_interval_min', 0),
+        last_bolus_minutes=getattr(request, 'last_bolus_minutes', None),
     )
     
     # 2. Call Core (Pure Math)

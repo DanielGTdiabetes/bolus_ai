@@ -18,7 +18,9 @@ from app.services.forecast_engine import ForecastEngine
 
 logger = logging.getLogger(__name__)
 
-LOCAL_TZ = ZoneInfo("Europe/Madrid")
+from app.utils.timezone import get_user_timezone
+
+LOCAL_TZ = get_user_timezone()
 
 
 @dataclass

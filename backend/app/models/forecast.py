@@ -8,6 +8,10 @@ class MomentumConfig(BaseModel):
     enabled: bool = True
     lookback_points: int = 3 # Number of recent BG points to use for slope calculation
 
+class BasalScheduleEntry(BaseModel):
+    hour: int = Field(..., ge=0, le=23, description="Hour of day (0-23)")
+    rate_u_per_h: float = Field(..., ge=0, description="Basal rate in U/hour for this hour")
+
 class SimulationParams(BaseModel):
     isf: float = Field(..., description="Insulin Sensitivity Factor (mg/dL / U)")
     icr: float = Field(..., description="Insulin Carb Ratio (g / U)")
@@ -18,6 +22,8 @@ class SimulationParams(BaseModel):
     insulin_model: str = Field("linear", description="Type of insulin model: 'linear', 'exponential', 'fiasp', 'novorapid'")
     insulin_sensitivity_multiplier: Optional[float] = Field(None, description="Global multiplier for insulin efficacy (<1.0 = resistance)")
     basal_daily_units: float = Field(0.0, description="Users typical daily basal dose for reference. If 0, assumes current active is correct.")
+    basal_schedule: Optional[List[BasalScheduleEntry]] = Field(None, description="Hourly basal rate schedule (0-23h). If set, overrides flat basal_daily_units/1440 reference rate.")
+    simulation_start_hour: Optional[int] = Field(None, ge=0, le=23, description="Current hour of day for basal schedule lookup. If None, uses UTC hour.")
     
     # User Preferences
     warsaw_factor_simple: Optional[float] = Field(None, description="Kcal to Carbs conversion factor for Simple Mode (def: None = use User Settings or 1.0)")

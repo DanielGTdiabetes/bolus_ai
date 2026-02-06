@@ -275,6 +275,8 @@ class UserSettings(BaseModel):
     cr: MealFactors = Field(default_factory=MealFactors)
     max_bolus_u: float = 10.0
     max_correction_u: float = 5.0
+    max_iob_u: Optional[float] = Field(default=None, ge=0, description="Max allowed IOB ceiling (U). If bolus would exceed this, it's reduced. None = no limit.")
+    min_bolus_interval_min: int = Field(default=0, ge=0, description="Minimum minutes between boluses. 0 = no stacking check.")
     round_step_u: float = 0.5
     tdd_u: Optional[float] = Field(default=None, ge=1.0, description="Total Daily Dose typical (U)")
     iob: IOBConfig = Field(default_factory=IOBConfig)
