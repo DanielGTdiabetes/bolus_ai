@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-Bolus AI is an intelligent diabetes management assistant that calculates insulin boluses, analyzes food photos with AI vision, and synchronizes with Nightscout. It features a dual-architecture deployment model: a primary NAS instance (home server) and a cloud-based Render backup, with bidirectional sync.
+Bolus AI is an intelligent diabetes management assistant that calculates insulin boluses, analyzes food photos with AI vision, and synchronizes with Nightscout. It features a dual-architecture deployment model: a primary NAS instance (Docker via Portainer) and a cloud-based Render + Neon backup, with periodic DB sync from NAS to Neon and automatic failover detection.
 
 ## Tech Stack
 
@@ -150,9 +150,10 @@ async def calculate(
 
 ### Database
 
-- Primary: PostgreSQL with `asyncpg` (production)
-- Fallback: SQLite with `aiosqlite` (tests, local dev, Render ephemeral)
-- Migrations: Alembic (`backend/alembic/`) + startup schema fixes in `app/core/migration.py`
+- **NAS:** Local PostgreSQL with `asyncpg` (source of truth)
+- **Render:** Neon PostgreSQL with `asyncpg` (cloud backup, synced from NAS every 4h)
+- **Tests/local dev:** SQLite with `aiosqlite` (via conftest.py)
+- **Migrations:** Alembic (`backend/alembic/`) + idempotent startup schema fixes in `app/core/migration.py`
 - All DB access is async via `AsyncSession`
 
 ### Startup Sequence (`app/main.py`)
@@ -224,12 +225,50 @@ EMERGENCY_MODE=false
 - **Pydantic v2:** Used for all request/response schemas and settings
 - **SQLAlchemy 2.0:** Declarative models with `Mapped[]` type annotations
 
-## Dual-Instance Architecture
+## Dual-Instance Architecture (HA / Failover)
 
-- **NAS (primary):** Webhook-based Telegram, persistent Docker volumes, local network
-- **Render (backup):** Polling-based Telegram, 1GB attached disk, automatic failover
-- **Leader election:** `BotLeaderLock` model prevents both instances running the bot simultaneously
-- **Sync:** Bidirectional sync every 4 hours with safety valve (no overwrites)
+### Instances
+
+| | NAS (primary) | Render (backup) |
+|---|---|---|
+| **Hosting** | Docker container via Portainer on home NAS | Render.com cloud service |
+| **Database** | Local PostgreSQL | Neon (cloud PostgreSQL) |
+| **Telegram bot** | Dedicated bot token, always POLLING mode | Separate bot token, DISABLED (send-only) in standby |
+| **State** | Always active, runs all background jobs | Standby by default; activates on NAS failure |
+| **Disk** | Persistent Docker volumes | 1GB attached disk (`/var/data`) |
+
+### Two Telegram Bots
+
+There are **two separate Telegram bots** (each with its own token):
+- **NAS bot:** Always active in POLLING mode (`forced_polling_on_prem`)
+- **Render bot:** Disabled (send-only) in normal operation; activates as WEBHOOK or POLLING when `EMERGENCY_MODE=true`
+
+Bot mode selection logic (`bot/service.py`):
+- `RENDER` env var detected + `EMERGENCY_MODE=false` → `BotMode.DISABLED` (send-only for alerts)
+- `RENDER` env var detected + `EMERGENCY_MODE=true` → `BotMode.WEBHOOK` or `BotMode.POLLING`
+- NAS (no `RENDER` env var) → `BotMode.POLLING` always
+
+### Database Sync (NAS → Neon)
+
+- A `bolus_backup_cron` container in the NAS Docker stack runs `scripts/migration/backup_to_neon.sh` every 4 hours
+- Syncs the NAS database to Neon (unidirectional: NAS → Neon)
+- **Safety valve:** Before syncing, checks if Neon has `treatment_audit_log` records created during Emergency Mode in the last 24h. If detected, the backup **aborts** and sends a critical Telegram alert to prevent overwriting emergency data
+
+### Failover Flow
+
+1. Render app periodically checks NAS health via the Stability Monitor (`app/services/stability_monitor.py`)
+2. If NAS is detected as down, the Render bot sends a Telegram alert
+3. **Manual activation:** Set `EMERGENCY_MODE=true` in Render environment variables (auto-restarts the service)
+4. Render bot activates fully, processes Telegram commands, runs only the Stability Monitor job (all other periodic jobs disabled)
+5. On NAS recovery: set `EMERGENCY_MODE=false` on Render, NAS resumes via rescue sync from Nightscout (`rescue_sync.py` fetches last 6h of treatments to restore IOB/COB)
+
+### Leader Lock (BotLeaderLock)
+
+Database-backed distributed lock (`app/bot/leader_lock.py`, model in `app/models/bot_leader_lock.py`) prevents both bots from processing messages simultaneously:
+- Lock has a TTL with heartbeat renewal (every half-TTL)
+- If the leader dies, the lock expires and the other instance can acquire it ("stolen")
+- On shutdown, the lock is released immediately
+- A **webhook guardian** task runs every 15s to detect and delete rogue webhooks from a competing instance
 
 ## Safety Design
 
