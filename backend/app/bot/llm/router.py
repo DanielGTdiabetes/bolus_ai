@@ -572,9 +572,9 @@ async def handle_event(username: str, chat_id: int, event_type: str, payload: Di
         # Time Formatting
         try:
             from datetime import datetime
-            import zoneinfo
+            from app.utils.timezone import get_user_timezone
             dt = datetime.fromisoformat(bolus_at.replace("Z", "+00:00"))
-            tz = zoneinfo.ZoneInfo("Europe/Madrid")
+            tz = get_user_timezone()
             dt_local = dt.astimezone(tz)
             time_str = dt_local.strftime("%H:%M")
         except Exception:

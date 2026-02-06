@@ -112,8 +112,8 @@ async def basal_reminder(username: str = "admin", chat_id: Optional[int] = None,
     store = DataStore(Path(global_settings.data.data_dir))
     events = store.load_events()
     
-    import zoneinfo
-    tz = zoneinfo.ZoneInfo("Europe/Madrid")
+    from app.utils.timezone import get_user_timezone
+    tz = get_user_timezone()
     now_local = datetime.now(tz)
     today_str = now_local.strftime("%Y-%m-%d")
 
@@ -450,8 +450,8 @@ async def basal_reminder(username: str = "admin", chat_id: Optional[int] = None,
     store = DataStore(Path(global_settings.data.data_dir))
     events = store.load_events()
     
-    import zoneinfo
-    tz = zoneinfo.ZoneInfo("Europe/Madrid")
+    from app.utils.timezone import get_user_timezone
+    tz = get_user_timezone()
     now_local = datetime.now(tz)
     today_str = now_local.strftime("%Y-%m-%d")
 
@@ -1454,11 +1454,8 @@ async def post_meal_feedback(username: str = "admin", chat_id: Optional[int] = N
     in_hypo = False
     in_hyper = False
     
-    import zoneinfo
-    try:
-        tz_local = zoneinfo.ZoneInfo("Europe/Madrid")
-    except Exception:
-        tz_local = timezone.utc
+    from app.utils.timezone import get_user_timezone
+    tz_local = get_user_timezone()
     
     for i, v in enumerate(values_chrono):
         ts_ms = dates_chrono[i]

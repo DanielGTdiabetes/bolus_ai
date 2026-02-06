@@ -56,6 +56,11 @@ class CalculationInput:
     techne_max_step: float = 0.5
     ignore_iob: bool = False # Dessert mode
     strategy: str = "auto" # "auto", "normal"
+
+    # IOB ceiling & stacking
+    max_iob_u: Optional[float] = None  # None = no limit
+    min_bolus_interval_min: int = 0  # 0 = no stacking check
+    last_bolus_minutes: Optional[int] = None
     
 @dataclass
 class CalculationResult:

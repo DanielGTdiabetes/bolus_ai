@@ -4,13 +4,46 @@ from typing import List, Tuple, Dict, Optional
 from datetime import datetime, timezone
 
 from app.models.forecast import (
-    ForecastSimulateRequest, ForecastResponse, 
-    ForecastPoint, ComponentImpact, ForecastSummary
+    ForecastSimulateRequest, ForecastResponse,
+    ForecastPoint, ComponentImpact, ForecastSummary,
+    BasalScheduleEntry,
 )
 from app.services.math.curves import InsulinCurves, CarbCurves
 from app.services.math.basal import BasalModels
 
 logger = logging.getLogger(__name__)
+
+
+def _get_reference_rate_at(t_min: float, params) -> float:
+    """
+    Returns the expected basal reference rate (U/min) at simulation time t_min.
+    If a basal_schedule is provided, uses the hourly rate for that time of day.
+    Otherwise falls back to flat daily average (basal_daily_units / 1440).
+    """
+    schedule = getattr(params, 'basal_schedule', None)
+    if schedule and len(schedule) > 0:
+        start_hour = params.simulation_start_hour
+        if start_hour is None:
+            start_hour = datetime.now(timezone.utc).hour
+        # Calculate the hour at simulation time t_min
+        minutes_from_start = start_hour * 60 + t_min
+        hour_of_day = int((minutes_from_start / 60) % 24)
+        # Build lookup dict: hour -> rate_u_per_h
+        rate_map = {entry.hour: entry.rate_u_per_h for entry in schedule}
+        # Find matching hour, fall back to nearest lower hour
+        rate_u_h = rate_map.get(hour_of_day)
+        if rate_u_h is None:
+            sorted_hours = sorted(rate_map.keys())
+            chosen = sorted_hours[-1]  # wrap: use last entry
+            for h in sorted_hours:
+                if h <= hour_of_day:
+                    chosen = h
+            rate_u_h = rate_map[chosen]
+        return rate_u_h / 60.0  # Convert U/hour to U/min
+    # Flat fallback
+    if params.basal_daily_units > 0:
+        return params.basal_daily_units / 1440.0
+    return 0.0
 
 class ForecastEngine:
     
@@ -115,10 +148,8 @@ class ForecastEngine:
                 t_since = 0 - b.time_offset_min
                 basal_rate_0 += BasalModels.get_activity(t_since, b.duration_minutes or 1440, b.type, b.units)
         
-        reference_rate = 0.0
-        if req.params.basal_daily_units > 0:
-             reference_rate = req.params.basal_daily_units / 1440.0
-             
+        reference_rate = _get_reference_rate_at(0, req.params)
+
         # Apply drift_mode logic to initial slope calculation (FIX: Avoid phantom rises)
         drift_mode = getattr(req.params, 'basal_drift_handling', 'standard')
         
@@ -393,9 +424,7 @@ class ForecastEngine:
             # If Active < Reference -> Net negative insulin -> BG Rises.
             # If Active > Reference -> Net positive insulin -> BG Drops.
             
-            reference_rate = 0.0
-            if req.params.basal_daily_units > 0:
-                 reference_rate = req.params.basal_daily_units / 1440.0
+            reference_rate = _get_reference_rate_at(t_mid, req.params)
             
             rate_at_t = 0.0
             if req.events.basal_injections:
@@ -479,18 +508,25 @@ class ForecastEngine:
             
             predicted_bg_for_release = current_predicted_bg
 
-            if is_linked_meal and t < 120:
-                # Calculate pure time-based ramp (Base Scale) locally for the check
-                # TWO PHASE: Mas conservador en primeros 30 min cuando carbs apenas absorben
+            # Profile-aware timing for release check
+            _ap_timings = {
+                "fast": {"phase1_end": 15, "full_release": 45},
+                "med":  {"phase1_end": 30, "full_release": 90},
+                "slow": {"phase1_end": 45, "full_release": 120},
+            }
+            _ap_t = _ap_timings.get(chosen_profile, _ap_timings["med"])
+            _ap_p1 = _ap_t["phase1_end"]
+            _ap_fr = _ap_t["full_release"]
+
+            if is_linked_meal and t < _ap_fr + 30:
                 check_base_scale = 1.0
-                if t >= 90:
+                if t >= _ap_fr:
                     check_base_scale = 1.0
-                elif t >= 30:
-                    # Phase 2: 0.6 → 1.0 linealmente de t=30 a t=90
-                    check_base_scale = 0.6 + (0.4 * ((t - 30) / 60.0))
+                elif t >= _ap_p1:
+                    _phase2_dur = float(_ap_fr - _ap_p1)
+                    check_base_scale = 0.6 + (0.4 * ((t - _ap_p1) / _phase2_dur))
                 else:
-                    # Phase 1: 0.35 → 0.6 linealmente de t=0 a t=30
-                    check_base_scale = 0.35 + (0.25 * (t / 30.0))
+                    check_base_scale = 0.35 + (0.25 * (t / float(_ap_p1)))
 
                 # Apply to insulin ONLY for the check (not final application yet)
                 insulin_net_check = insulin_net * check_base_scale
@@ -514,7 +550,8 @@ class ForecastEngine:
                 is_linked_meal=is_linked_meal,
                 is_orphan_bolus=is_orphan_bolus,
                 deviation_slope=deviation_slope,
-                predicted_bg=predicted_bg_for_release
+                predicted_bg=predicted_bg_for_release,
+                carb_profile=chosen_profile,
             )
             
             if scale_factor < 1.0:
@@ -730,10 +767,15 @@ class ForecastEngine:
         }
 
     @staticmethod
-    def _compute_anti_panic_scale(t_min: int, is_linked_meal: bool, deviation_slope: float, predicted_bg: float, is_orphan_bolus: bool = False) -> Tuple[float, dict]:
+    def _compute_anti_panic_scale(t_min: int, is_linked_meal: bool, deviation_slope: float, predicted_bg: float, is_orphan_bolus: bool = False, carb_profile: str = "med") -> Tuple[float, dict]:
         """
-        Calculates insulin scaling factor (0.6 to 1.0) to prevent 'false lows' post-meal or post-bolus.
+        Calculates insulin scaling factor (0.35-1.0) to prevent 'false lows' post-meal or post-bolus.
         Uses progressive release based on slope severity and hypo risk.
+
+        Profile-aware dampening durations:
+        - fast: Phase 1 ends at 15 min, full release at 45 min (fast carbs absorb quickly)
+        - med:  Phase 1 ends at 30 min, full release at 90 min (default)
+        - slow: Phase 1 ends at 45 min, full release at 120 min (high-fat meals absorb slowly)
 
         Para bolos huérfanos (correcciones sin comida), aplica gating más suave:
         - Escala: 0.75 → 1.0 en 60 minutos (vs 0.6 → 1.0 en 90 min para comidas)
@@ -748,23 +790,31 @@ class ForecastEngine:
         hypo_release = 0.0
         gating_type = None
 
+        # Profile-aware timing parameters
+        profile_timings = {
+            "fast": {"phase1_end": 15, "full_release": 45},
+            "med":  {"phase1_end": 30, "full_release": 90},
+            "slow": {"phase1_end": 45, "full_release": 120},
+        }
+        timings = profile_timings.get(carb_profile, profile_timings["med"])
+        phase1_end = timings["phase1_end"]
+        full_release = timings["full_release"]
+
         # 1. Scope Check: Applied if Linked Meal OR Orphan Bolus, early in simulation
-        if is_linked_meal and t_min < 120:
+        if is_linked_meal and t_min < full_release + 30:
             applied = True
             gating_type = "meal"
 
-            # 2. Base Ramp (Time-based recovery) - TWO PHASE
-            # Phase 1 (t=0-30): Escala 0.35 → 0.6 (muy conservador, carbs apenas absorben)
-            # Phase 2 (t=30-90): Escala 0.6 → 1.0 (gradual hacia impacto completo)
-            # Esto compensa el desbalance de timing: insulina actua ~16x mas rapido que carbs inicialmente
-            if t_min >= 90:
+            # 2. Base Ramp (Time-based recovery) - TWO PHASE (profile-aware)
+            # Phase 1 (t=0 to phase1_end): 0.35 → 0.6
+            # Phase 2 (phase1_end to full_release): 0.6 → 1.0
+            if t_min >= full_release:
                 base_scale = 1.0
-            elif t_min >= 30:
-                # Phase 2: 0.6 → 1.0 linealmente de t=30 a t=90
-                base_scale = 0.6 + (0.4 * ((t_min - 30) / 60.0))
+            elif t_min >= phase1_end:
+                phase2_duration = float(full_release - phase1_end)
+                base_scale = 0.6 + (0.4 * ((t_min - phase1_end) / phase2_duration))
             else:
-                # Phase 1: 0.35 → 0.6 linealmente de t=0 a t=30
-                base_scale = 0.35 + (0.25 * (t_min / 30.0))
+                base_scale = 0.35 + (0.25 * (t_min / float(phase1_end)))
 
             # If base_scale is already 1.0, we are done
             if base_scale >= 1.0:
