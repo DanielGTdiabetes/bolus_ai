@@ -9,18 +9,22 @@ from typing import Optional, Union
 # Default to Europe/Madrid as requested for this user context
 DEFAULT_TIMEZONE = "Europe/Madrid"
 
-# Module-level cache for the user's configured timezone (set at startup or settings load)
-_cached_user_tz: Optional[str] = None
+# Module-level cache for the users' configured timezones (set at startup or settings load)
+_cached_user_tz: dict[str, str] = {}
 
 
-def set_user_timezone(tz_name: str) -> None:
+def set_user_timezone(tz_name: str, username: str = "admin") -> None:
     """Cache the user's timezone from settings for synchronous access."""
-    global _cached_user_tz
+    if not username:
+        return
+    if not tz_name:
+        _cached_user_tz.pop(username, None)
+        return
     try:
         ZoneInfo(tz_name)  # validate it's a real IANA timezone
-        _cached_user_tz = tz_name
+        _cached_user_tz[username] = tz_name
     except (KeyError, Exception):
-        _cached_user_tz = None
+        _cached_user_tz.pop(username, None)
 
 
 def get_user_timezone(username: str = "admin") -> ZoneInfo:
@@ -28,7 +32,7 @@ def get_user_timezone(username: str = "admin") -> ZoneInfo:
     Returns the user's timezone.
     Uses cached value from settings if available, otherwise falls back to DEFAULT_TIMEZONE.
     """
-    tz_name = _cached_user_tz or DEFAULT_TIMEZONE
+    tz_name = _cached_user_tz.get(username, DEFAULT_TIMEZONE)
     try:
         return ZoneInfo(tz_name)
     except Exception:
