@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, ComposedChart, Line } from 'recharts';
 import { getGlucoseEntries, getLocalNsConfig } from '../../lib/api';
 
-export function MainGlucoseChart({ isLow, predictionData, chartHeight = 160, hideLegend = false }) {
+export function MainGlucoseChart({ isLow, predictionData, chartHeight = 160, hideLegend = false, historyHours = 2 }) {
     const [data, setData] = useState([]);
     const [loading, setLoading] = useState(true);
 
@@ -13,8 +13,9 @@ export function MainGlucoseChart({ isLow, predictionData, chartHeight = 160, hid
                 const config = getLocalNsConfig();
                 // Fetch simple glucose history (24h or so, but let's limit to recent reasonable window for chart)
                 // Assuming getGlucoseEntries handles basic fetch.
-                // Fetch simple glucose history (24h to ensure full coverage for 6h chart)
-                const entries = await getGlucoseEntries(288);
+                // Fetch glucose history based on historyHours prop
+                const entriesToFetch = Math.ceil(historyHours * 48); // ~48 entries per hour (every 5 min * safety margin)
+                const entries = await getGlucoseEntries(entriesToFetch);
 
                 if (mounted) {
                     if (entries && entries.length > 0) {
@@ -22,9 +23,9 @@ export function MainGlucoseChart({ isLow, predictionData, chartHeight = 160, hid
                         // API returns newest first usually. Reverse for chart (Time ascending).
                         const sorted = [...entries].sort((a, b) => a.date - b.date);
 
-                        // Filter to last 6 hours to match forecast context usually
+                        // Filter to historyHours to match context
                         const now = Date.now();
-                        const cutoff = now - (6 * 60 * 60 * 1000);
+                        const cutoff = now - (historyHours * 60 * 60 * 1000);
                         const recent = sorted.filter(e => e.date > cutoff);
 
                         const mapped = recent.map(e => ({
@@ -47,7 +48,7 @@ export function MainGlucoseChart({ isLow, predictionData, chartHeight = 160, hid
         }
         load();
         return () => { mounted = false; };
-    }, []);
+    }, [historyHours]);
 
     // Combining Logic: Historical + Prediction
     const chartData = React.useMemo(() => {
