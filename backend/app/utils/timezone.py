@@ -9,18 +9,32 @@ from typing import Optional, Union
 # Default to Europe/Madrid as requested for this user context
 DEFAULT_TIMEZONE = "Europe/Madrid"
 
+# Module-level cache for the users' configured timezones (set at startup or settings load)
+_cached_user_tz: dict[str, str] = {}
+
+
+def set_user_timezone(tz_name: str, username: str = "admin") -> None:
+    """Cache the user's timezone from settings for synchronous access."""
+    if not username:
+        return
+    if not tz_name:
+        _cached_user_tz.pop(username, None)
+        return
+    try:
+        ZoneInfo(tz_name)  # validate it's a real IANA timezone
+        _cached_user_tz[username] = tz_name
+    except (KeyError, Exception):
+        _cached_user_tz.pop(username, None)
+
+
 def get_user_timezone(username: str = "admin") -> ZoneInfo:
     """
     Returns the user's timezone.
-    Attempts to resolving from UserSettings, otherwise falls back to DEFAULT_TIMEZONE.
+    Uses cached value from settings if available, otherwise falls back to DEFAULT_TIMEZONE.
     """
+    tz_name = _cached_user_tz.get(username, DEFAULT_TIMEZONE)
     try:
-        # Optimization: Try to read from environment or cached settings if possible?
-        # For now, we stick to default or safe fallback to avoid sync I/O in async path if possible
-        # BUT: to respect user settings we need to know the user's pref.
-        # Since this is a synchronous util, we can't easily await async DB.
-        # We rely on the DEFAULT_TIMEZONE for now, or if passed explicitly in 'to_local'
-        return ZoneInfo(DEFAULT_TIMEZONE)
+        return ZoneInfo(tz_name)
     except Exception:
         return ZoneInfo("UTC")
 

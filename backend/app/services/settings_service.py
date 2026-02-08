@@ -5,8 +5,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from app.models.settings import UserSettingsDB, UserSettings
+from app.utils.timezone import set_user_timezone
 
 logger = logging.getLogger(__name__)
+
+
+def _sync_timezone_cache(user_id: str, settings_dict: dict) -> None:
+    """Update the timezone module cache when user settings change."""
+    tz = None
+    if isinstance(settings_dict, dict):
+        tz = settings_dict.get("timezone")
+    if tz:
+        set_user_timezone(tz, user_id)
 
 async def get_user_settings_service(user_id: str, db: AsyncSession):
     stmt = select(UserSettingsDB).where(UserSettingsDB.user_id == user_id)
@@ -18,7 +28,8 @@ async def get_user_settings_service(user_id: str, db: AsyncSession):
             "version": 0,
             "updated_at": None
         }
-        
+
+    _sync_timezone_cache(user_id, row.settings)
     return {
         "settings": row.settings,
         "version": row.version,
@@ -68,8 +79,9 @@ async def update_user_settings_service(user_id: str, new_settings: dict, client_
         row.settings = new_settings
         row.version = row.version + 1
         row.updated_at = datetime.now(timezone.utc)
-        
+
         await db.commit()
+        _sync_timezone_cache(user_id, new_settings)
         return {"settings": row.settings, "version": row.version, "updated_at": row.updated_at}
 
 async def import_user_settings_service(user_id: str, settings: dict, db: AsyncSession):

@@ -462,8 +462,8 @@ async def ingest_nutrition(
                             if clean_ts.tzinfo is not None:
                                 item_ts = clean_ts.astimezone(timezone.utc)
                             else:
-                                from zoneinfo import ZoneInfo
-                                tz_local = ZoneInfo("Europe/Madrid")
+                                from app.utils.timezone import get_user_timezone
+                                tz_local = get_user_timezone()
                                 item_ts = clean_ts.replace(tzinfo=tz_local).astimezone(timezone.utc)
                             break
                         except ValueError:
@@ -475,8 +475,8 @@ async def ingest_nutrition(
                             clean_str = ts_str.replace("Z", "+00:00")
                             parsed = datetime.fromisoformat(clean_str)
                             if parsed.tzinfo is None:
-                                from zoneinfo import ZoneInfo
-                                parsed = parsed.replace(tzinfo=ZoneInfo("Europe/Madrid"))
+                                from app.utils.timezone import get_user_timezone
+                                parsed = parsed.replace(tzinfo=get_user_timezone())
                             item_ts = parsed.astimezone(timezone.utc)
                         except Exception:
                             pass

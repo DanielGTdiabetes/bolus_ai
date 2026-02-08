@@ -4,13 +4,46 @@ from typing import List, Tuple, Dict, Optional
 from datetime import datetime, timezone
 
 from app.models.forecast import (
-    ForecastSimulateRequest, ForecastResponse, 
-    ForecastPoint, ComponentImpact, ForecastSummary
+    ForecastSimulateRequest, ForecastResponse,
+    ForecastPoint, ComponentImpact, ForecastSummary,
+    BasalScheduleEntry,
 )
 from app.services.math.curves import InsulinCurves, CarbCurves
 from app.services.math.basal import BasalModels
 
 logger = logging.getLogger(__name__)
+
+
+def _get_reference_rate_at(t_min: float, params) -> float:
+    """
+    Returns the expected basal reference rate (U/min) at simulation time t_min.
+    If a basal_schedule is provided, uses the hourly rate for that time of day.
+    Otherwise falls back to flat daily average (basal_daily_units / 1440).
+    """
+    schedule = getattr(params, 'basal_schedule', None)
+    if schedule and len(schedule) > 0:
+        start_hour = params.simulation_start_hour
+        if start_hour is None:
+            start_hour = datetime.now(timezone.utc).hour
+        # Calculate the hour at simulation time t_min
+        minutes_from_start = start_hour * 60 + t_min
+        hour_of_day = int((minutes_from_start / 60) % 24)
+        # Build lookup dict: hour -> rate_u_per_h
+        rate_map = {entry.hour: entry.rate_u_per_h for entry in schedule}
+        # Find matching hour, fall back to nearest lower hour
+        rate_u_h = rate_map.get(hour_of_day)
+        if rate_u_h is None:
+            sorted_hours = sorted(rate_map.keys())
+            chosen = sorted_hours[-1]  # wrap: use last entry
+            for h in sorted_hours:
+                if h <= hour_of_day:
+                    chosen = h
+            rate_u_h = rate_map[chosen]
+        return rate_u_h / 60.0  # Convert U/hour to U/min
+    # Flat fallback
+    if params.basal_daily_units > 0:
+        return params.basal_daily_units / 1440.0
+    return 0.0
 
 class ForecastEngine:
     
@@ -115,10 +148,8 @@ class ForecastEngine:
                 t_since = 0 - b.time_offset_min
                 basal_rate_0 += BasalModels.get_activity(t_since, b.duration_minutes or 1440, b.type, b.units)
         
-        reference_rate = 0.0
-        if req.params.basal_daily_units > 0:
-             reference_rate = req.params.basal_daily_units / 1440.0
-             
+        reference_rate = _get_reference_rate_at(0, req.params)
+
         # Apply drift_mode logic to initial slope calculation (FIX: Avoid phantom rises)
         drift_mode = getattr(req.params, 'basal_drift_handling', 'standard')
         
@@ -393,9 +424,7 @@ class ForecastEngine:
             # If Active < Reference -> Net negative insulin -> BG Rises.
             # If Active > Reference -> Net positive insulin -> BG Drops.
             
-            reference_rate = 0.0
-            if req.params.basal_daily_units > 0:
-                 reference_rate = req.params.basal_daily_units / 1440.0
+            reference_rate = _get_reference_rate_at(t_mid, req.params)
             
             rate_at_t = 0.0
             if req.events.basal_injections:
@@ -448,30 +477,70 @@ class ForecastEngine:
             is_linked_meal = False
             linked_carbs = 0.0
             linked_bolus_u = 0.0
-            
+
             for c in req.events.carbs:
-                if c.grams >= 2: 
+                if c.grams >= 2:
                     for b in req.events.boluses:
                         if abs(b.time_offset_min - c.time_offset_min) <= 90:
                             is_linked_meal = True
                             linked_carbs += c.grams
                             linked_bolus_u += b.units
+
+            # Detectar bolos huérfanos (correcciones sin comida vinculada)
+            # Un bolo es huérfano si está en los últimos 90 min sin carbos asociados
+            is_orphan_bolus = False
+            orphan_bolus_units = 0.0
+            if not is_linked_meal:
+                for b in req.events.boluses:
+                    if -90 <= b.time_offset_min <= 0:  # Bolo reciente (últimos 90 min)
+                        has_linked_carbs = False
+                        for c in req.events.carbs:
+                            if c.grams >= 2 and abs(b.time_offset_min - c.time_offset_min) <= 90:
+                                has_linked_carbs = True
+                                break
+                        if not has_linked_carbs:
+                            is_orphan_bolus = True
+                            orphan_bolus_units += b.units
             
             # PR2 FIX: Feedback Loop Prevention
             # We must calculate hypo_release based on the GATED prediction, not the raw one.
             # Otherwise, raw insulin dips trigger the release, cancelling the protection.
             
             predicted_bg_for_release = current_predicted_bg
-            
-            if is_linked_meal and t < 120:
-                 # Calculate pure time-based ramp (Base Scale) locally for the check
+
+            # Profile-aware timing for release check
+            _ap_timings = {
+                "fast": {"phase1_end": 15, "full_release": 45},
+                "med":  {"phase1_end": 30, "full_release": 90},
+                "slow": {"phase1_end": 45, "full_release": 120},
+            }
+            _ap_t = _ap_timings.get(chosen_profile, _ap_timings["med"])
+            _ap_p1 = _ap_t["phase1_end"]
+            _ap_fr = _ap_t["full_release"]
+
+            if is_linked_meal and t < _ap_fr + 30:
                 check_base_scale = 1.0
-                if t >= 90:
+                if t >= _ap_fr:
+                    check_base_scale = 1.0
+                elif t >= _ap_p1:
+                    _phase2_dur = float(_ap_fr - _ap_p1)
+                    check_base_scale = 0.6 + (0.4 * ((t - _ap_p1) / _phase2_dur))
+                else:
+                    check_base_scale = 0.35 + (0.25 * (t / float(_ap_p1)))
+
+                # Apply to insulin ONLY for the check (not final application yet)
+                insulin_net_check = insulin_net * check_base_scale
+                predicted_bg_for_release = current_bg + dev_val_at_t + insulin_net_check + carb_net + accum_basal_impact
+
+            elif is_orphan_bolus and t < 90:
+                # Gating más suave para bolos huérfanos (correcciones sin comida)
+                # Escala: 0.75 → 1.0 en 60 minutos (más agresivo que con comida pero con protección)
+                check_base_scale = 1.0
+                if t >= 60:
                     check_base_scale = 1.0
                 else:
-                    check_base_scale = 0.6 + (0.4 * (t / 90.0))
-                
-                # Apply to insulin ONLY for the check (not final application yet)
+                    check_base_scale = 0.75 + (0.25 * (t / 60.0))
+
                 insulin_net_check = insulin_net * check_base_scale
                 predicted_bg_for_release = current_bg + dev_val_at_t + insulin_net_check + carb_net + accum_basal_impact
 
@@ -479,17 +548,22 @@ class ForecastEngine:
             scale_factor, debug_info = ForecastEngine._compute_anti_panic_scale(
                 t_min=t,
                 is_linked_meal=is_linked_meal,
+                is_orphan_bolus=is_orphan_bolus,
                 deviation_slope=deviation_slope,
-                predicted_bg=predicted_bg_for_release
+                predicted_bg=predicted_bg_for_release,
+                carb_profile=chosen_profile,
             )
             
             if scale_factor < 1.0:
-                 insulin_net *= scale_factor
-                 # Añadir warning visible cuando la amortiguación es significativa (>15%)
-                 if scale_factor < 0.85 and t == 30:
-                     warning_msg = f"⚠️ Predicción amortiguada post-comida (protección anti-hipo activa, escala {scale_factor:.0%}). Monitoriza de cerca."
-                     if warning_msg not in warnings:
-                         warnings.append(warning_msg)
+                insulin_net *= scale_factor
+                # Añadir warning visible cuando la amortiguación es significativa (>15%)
+                if scale_factor < 0.85 and t == 30:
+                    if is_linked_meal:
+                        warning_msg = f"Prediccion amortiguada post-comida (proteccion anti-hipo activa, escala {scale_factor:.0%}). Monitoriza de cerca."
+                    else:
+                        warning_msg = f"Prediccion amortiguada post-bolo (proteccion anti-hipo activa, escala {scale_factor:.0%}). Monitoriza de cerca."
+                    if warning_msg not in warnings:
+                        warnings.append(warning_msg)
 
             # Store debug info for analysis (only first point or aggregated?)
             # We will store the detailed debug for the FIRST point where gating is significant, or the last point.
@@ -693,10 +767,19 @@ class ForecastEngine:
         }
 
     @staticmethod
-    def _compute_anti_panic_scale(t_min: int, is_linked_meal: bool, deviation_slope: float, predicted_bg: float) -> Tuple[float, dict]:
+    def _compute_anti_panic_scale(t_min: int, is_linked_meal: bool, deviation_slope: float, predicted_bg: float, is_orphan_bolus: bool = False, carb_profile: str = "med") -> Tuple[float, dict]:
         """
-        Calculates insulin scaling factor (0.6 to 1.0) to prevent 'false lows' post-meal.
+        Calculates insulin scaling factor (0.35-1.0) to prevent 'false lows' post-meal or post-bolus.
         Uses progressive release based on slope severity and hypo risk.
+
+        Profile-aware dampening durations:
+        - fast: Phase 1 ends at 15 min, full release at 45 min (fast carbs absorb quickly)
+        - med:  Phase 1 ends at 30 min, full release at 90 min (default)
+        - slow: Phase 1 ends at 45 min, full release at 120 min (high-fat meals absorb slowly)
+
+        Para bolos huérfanos (correcciones sin comida), aplica gating más suave:
+        - Escala: 0.75 → 1.0 en 60 minutos (vs 0.6 → 1.0 en 90 min para comidas)
+
         Returns: (scale_factor, debug_info_dict)
         """
         # Default: No scaling (1.0)
@@ -705,64 +788,119 @@ class ForecastEngine:
         applied = False
         slope_release = 0.0
         hypo_release = 0.0
-        
-        # 1. Scope Check: Only applied if Linked Meal and early in simulation
-        if is_linked_meal and t_min < 120:
+        gating_type = None
+
+        # Profile-aware timing parameters
+        profile_timings = {
+            "fast": {"phase1_end": 15, "full_release": 45},
+            "med":  {"phase1_end": 30, "full_release": 90},
+            "slow": {"phase1_end": 45, "full_release": 120},
+        }
+        timings = profile_timings.get(carb_profile, profile_timings["med"])
+        phase1_end = timings["phase1_end"]
+        full_release = timings["full_release"]
+
+        # 1. Scope Check: Applied if Linked Meal OR Orphan Bolus, early in simulation
+        if is_linked_meal and t_min < full_release + 30:
             applied = True
-            
-            # 2. Base Ramp (Time-based recovery)
-            # Starts at 0.6, recovers to 1.0 linearly over 90 mins
-            # y = 0.6 + 0.4 * (t/90)
-            # IF t >= 90, base_scale -> 1.0
-            if t_min >= 90:
+            gating_type = "meal"
+
+            # 2. Base Ramp (Time-based recovery) - TWO PHASE (profile-aware)
+            # Phase 1 (t=0 to phase1_end): 0.35 → 0.6
+            # Phase 2 (phase1_end to full_release): 0.6 → 1.0
+            if t_min >= full_release:
                 base_scale = 1.0
+            elif t_min >= phase1_end:
+                phase2_duration = float(full_release - phase1_end)
+                base_scale = 0.6 + (0.4 * ((t_min - phase1_end) / phase2_duration))
             else:
-                base_scale = 0.6 + (0.4 * (t_min / 90.0))
-            
+                base_scale = 0.35 + (0.25 * (t_min / float(phase1_end)))
+
             # If base_scale is already 1.0, we are done
             if base_scale >= 1.0:
                 final_scale = 1.0
             else:
                 # 3. Progressive Release Rules
-                
+
                 # A) Slope Sensitivity (Momentum)
                 # Range: [-1.0 (No Release) to -2.5 (Full Release)]
                 # If slope is -1.5, we release partially.
                 # Formula: release = (threshold_start - current) / (threshold_start - threshold_end)
                 slope_start = -1.0
                 slope_end = -2.5
-                
+
                 if deviation_slope >= slope_start:
                     slope_release = 0.0
                 elif deviation_slope <= slope_end:
                     slope_release = 1.0
                 else:
                     slope_release = (slope_start - deviation_slope) / (slope_start - slope_end)
-                
+
                 # B) Hypo Risk Sensitivity
                 # Range: [90.0 (No Release) to 80.0 (Full Release)]
                 hypo_start = 90.0
                 hypo_end = 80.0
-                
+
                 if predicted_bg >= hypo_start:
                     hypo_release = 0.0
                 elif predicted_bg <= hypo_end:
                     hypo_release = 1.0
                 else:
                     hypo_release = (hypo_start - predicted_bg) / (hypo_start - hypo_end)
-                
+
                 # Combine: Take the strongest reason to release
                 max_release = max(slope_release, hypo_release)
-                
+
                 # Interpolate: base_scale -> 1.0
                 # final = base + (1.0 - base) * release
                 final_scale = base_scale + (1.0 - base_scale) * max_release
-                
+
                 # Safety clamp
+                final_scale = min(1.0, max(0.0, final_scale))
+
+        elif is_orphan_bolus and t_min < 90:
+            # Gating para bolos huérfanos (correcciones sin comida)
+            # Más suave que para comidas: 0.75 → 1.0 en 60 minutos
+            applied = True
+            gating_type = "orphan_bolus"
+
+            if t_min >= 60:
+                base_scale = 1.0
+            else:
+                base_scale = 0.75 + (0.25 * (t_min / 60.0))
+
+            if base_scale >= 1.0:
+                final_scale = 1.0
+            else:
+                # Progressive Release Rules (mismas reglas pero con umbrales más suaves)
+                slope_start = -0.5  # Más sensible al slope negativo
+                slope_end = -2.0
+
+                if deviation_slope >= slope_start:
+                    slope_release = 0.0
+                elif deviation_slope <= slope_end:
+                    slope_release = 1.0
+                else:
+                    slope_release = (slope_start - deviation_slope) / (slope_start - slope_end)
+
+                # Hypo Risk (mismos umbrales)
+                hypo_start = 90.0
+                hypo_end = 80.0
+
+                if predicted_bg >= hypo_start:
+                    hypo_release = 0.0
+                elif predicted_bg <= hypo_end:
+                    hypo_release = 1.0
+                else:
+                    hypo_release = (hypo_start - predicted_bg) / (hypo_start - hypo_end)
+
+                max_release = max(slope_release, hypo_release)
+                final_scale = base_scale + (1.0 - base_scale) * max_release
                 final_scale = min(1.0, max(0.0, final_scale))
 
         return final_scale, {
             "applied": applied,
+            "gating_type": gating_type,
             "t_min": t_min,
             "anti_panic_base_scale": round(base_scale, 3),
             "anti_panic_final_scale": round(final_scale, 3),
