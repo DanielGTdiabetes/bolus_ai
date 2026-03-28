@@ -335,17 +335,16 @@ async def basal_reminder(username: str = "admin", chat_id: Optional[int] = None,
             continue
 
         # 6. Execute Trigger
-        suggested_units = item.units
+        suggested_units = item.units  # fallback si no hay historial en BD
         latest_dose_ctx = None
 
-        if suggested_units <= 0.01:
-             try:
-                 found_latest = await get_latest_basal_dose(username)
-                 if found_latest and found_latest.get("dose_u"):
-                     suggested_units = float(found_latest.get("dose_u"))
-                     latest_dose_ctx = found_latest
-             except Exception as e:
-                 logger.warning(f"Failed to fetch latest basal for suggestion: {e}")
+        try:
+            found_latest = await get_latest_basal_dose(username)
+            if found_latest and found_latest.get("dose_u"):
+                suggested_units = float(found_latest.get("dose_u"))  # siempre usar el ultimo registro real
+                latest_dose_ctx = found_latest
+        except Exception as e:
+            logger.warning(f"Failed to fetch latest basal for suggestion: {e}")
 
         payload = {
             "persistence_status": entry.get("status") if entry else None,
