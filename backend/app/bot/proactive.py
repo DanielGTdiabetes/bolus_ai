@@ -70,9 +70,11 @@ def get_proactive_status():
 async def basal_reminder(username: str = "admin", chat_id: Optional[int] = None, force: bool = False) -> None:
     # 0. Load Config
     try:
-        user_settings = await context_builder.get_bot_user_settings_safe()
+        user_settings, resolved_user = await context_builder.get_bot_user_settings_with_user()
         basal_conf = user_settings.bot.proactive.basal
         global_settings = get_settings()
+        # Use resolved user_id for DB queries (matches how doses are saved)
+        username = resolved_user or username
     except Exception as e:
         record_proactive_status("basal", False, f"config_load_error: {e}")
         health.record_action("job:basal", False, error=f"config_load_error: {e}")

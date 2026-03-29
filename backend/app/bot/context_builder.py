@@ -25,6 +25,12 @@ async def get_bot_user_settings_safe() -> UserSettings:
     logger.info("CtxBuilder using settings for user_id='%s'", resolved_user)
     return resolved_settings
 
+async def get_bot_user_settings_with_user() -> tuple:
+    """Same as get_bot_user_settings_safe but also returns resolved user_id."""
+    resolved_settings, resolved_user = await resolve_bot_user_settings()
+    logger.info("CtxBuilder using settings for user_id='%s'", resolved_user)
+    return resolved_settings, resolved_user
+
 async def build_context(username: str, chat_id: int) -> Dict[str, Any]:
     """
     Aggregates realtime context for the AI.

@@ -3386,17 +3386,21 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
              try:
                  user_settings, resolved_user_id = await get_bot_user_settings_with_user_id()
                  username = _resolve_bolus_user_id(user_settings, resolved_user_id)
-                 last_basal, mins_ago = await get_latest_basal_dose(username)
-                 
-                 # If we found a basal injected in the last 20 hours, we might want to be careful.
-                 # But specifically for the "Race Condition", we care about VERY recent.
-                 # However, if user already logged "Basal" today, we should block.
-                 # Let's say: if logged < 12h ago, Assume it's the daily dose.
+                 last_basal = await get_latest_basal_dose(username)
+
+                 # Calculate minutes since last basal dose
+                 mins_ago = 9999
+                 if last_basal and last_basal.get("created_at"):
+                     created = last_basal["created_at"]
+                     if hasattr(created, 'timestamp'):
+                         now_utc = datetime.now(timezone.utc)
+                         created_aware = created if created.tzinfo else created.replace(tzinfo=timezone.utc)
+                         mins_ago = (now_utc - created_aware).total_seconds() / 60.0
+
                  if last_basal and mins_ago < 720: # 12 hours
-                     # It's highly likely they already put it
-                     logger.warning(f"Guardrail blocked basal: Found one {mins_ago}m ago")
-                     await _update_basal_event("done") # Mark as done so we don't ask again
-                     health.record_action("basal_guardrail_block", True, f"found_recent_{mins_ago}m")
+                     logger.warning(f"Guardrail blocked basal: Found one {mins_ago:.0f}m ago")
+                     await _update_basal_event("done")
+                     health.record_action("basal_guardrail_block", True, f"found_recent_{int(mins_ago)}m")
                      await edit_message_text_safe(query, f"{query.message.text}\n\n⚠️ **Ya registrada**\nHe visto una basal reciente ({int(mins_ago)} min). No la duplico.")
                      return
              except Exception as e:
