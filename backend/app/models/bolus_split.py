@@ -50,6 +50,9 @@ class BolusParams(BaseModel):
     round_step_u: float = Field(0.5, gt=0)
     max_bolus_u: float = Field(20.0, gt=0)
     stale_bg_minutes: int = Field(15, gt=0)
+    dia_hours: float = Field(4.0, gt=0)
+    insulin_curve: str = "walsh"
+    peak_minutes: int = 75
 
 class NightscoutConn(BaseModel):
     url: str

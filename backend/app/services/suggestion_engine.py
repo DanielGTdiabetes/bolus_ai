@@ -135,14 +135,14 @@ async def generate_suggestions_service(
             total_valid = counts["short"] + counts["ok"] + counts["over"]
             total_total = total_valid + counts["unavailable_iob"]
             
-            # Min Sample
-            if total_valid < 5:
+            # Min Sample (relajado de 5 a 3)
+            if total_valid < 3:
                 continue
                 
-            # Quality Check <= 30% unavailable
+            # Quality Check <= 50% unavailable (relajado de 30%)
             if total_total > 0:
                 bad_ratio = counts["unavailable_iob"] / total_total
-                if bad_ratio > 0.30:
+                if bad_ratio > 0.50:
                     continue
             
             short_ratio = counts["short"] / total_valid
@@ -152,8 +152,8 @@ async def generate_suggestions_service(
             direction = None
             reason_text = ""
             
-            # Logic Mapping
-            if short_ratio >= 0.60:
+            # Logic Mapping (relajado de 60% a 50%)
+            if short_ratio >= 0.50:
                 # Short = High BG
                 if window_key in ["2h", "3h"]:
                     suggestion_type = "icr"
@@ -190,14 +190,14 @@ async def generate_suggestions_service(
                     if current_val:
                         evidence["current_value"] = float(current_val)
                         # High BG (Short) -> Stronger Ratio (Lower CR)
-                        if short_ratio >= 0.60:
+                        if short_ratio >= 0.50:
                             # Decrease by 10%
                             proposed = round(current_val * 0.9, 1)
                             if proposed >= current_val: proposed = current_val - 0.5 # Force diff
                             evidence["suggested_value"] = max(2.0, proposed)
                         
                         # Low BG (Over) -> Weaker Ratio (Higher CR)
-                        elif over_ratio >= 0.60:
+                        elif over_ratio >= 0.50:
                              # Increase by 10%
                             proposed = round(current_val * 1.1, 1)
                             if proposed <= current_val: proposed = current_val + 0.5

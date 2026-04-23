@@ -66,4 +66,8 @@ api_router.include_router(bot_status_router, prefix="/bot/proactive", tags=["bot
 from .routes import dexcom as dexcom_router
 api_router.include_router(dexcom_router.router, prefix="/dexcom", tags=["dexcom"])
 
+from .ml import router as ml_router
+api_router.include_router(ml_router, prefix="/ml", tags=["ml"])
+
+
 __all__ = ["api_router"]

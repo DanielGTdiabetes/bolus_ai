@@ -30,6 +30,7 @@ class CalcSettings(BaseModel):
     snack: Optional[MealSlotProfile] = None
     dia_hours: float = Field(default=4.0, ge=2, le=8)
     insulin_model: str = "linear" # Added
+    insulin_peak_minutes: Optional[int] = Field(default=None, ge=30, le=120)
     round_step_u: float = Field(default=0.1, gt=0)
     max_bolus_u: float = 15.0 # Global safety limit
     max_correction_u: float = 5.0 # Global safety limit
@@ -75,6 +76,7 @@ class BolusRequestV2(BaseModel):
     warsaw_trigger_threshold_kcal: Optional[int] = Field(default=None, ge=0)
     confirm_iob_unknown: bool = Field(default=False, description="Confirmar cálculo sin IOB disponible")
     confirm_iob_stale: bool = Field(default=False, description="Confirmar cálculo con IOB obsoleto")
+    manual_iob_u: Optional[float] = Field(default=None, ge=0, le=30, description="IOB manual cuando el sistema no puede calcularlo")
     
     # Strategy Flags
     ignore_iob: bool = Field(default=False, description="Modo Comida Grasa: Ignorar IOB para calcular corrección (Micro-bolos reactivos)")

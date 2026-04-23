@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Header } from '../components/layout/Header';
 import { BottomNav } from '../components/layout/BottomNav';
 import { Card, Button } from '../components/ui/Atoms';
-import { fetchHealth, fetchAutosens, getLearningSummary, getSuggestions } from '../lib/api';
+import { fetchHealth, fetchAutosens, getLearningSummary, getSuggestions, fetchMLStatus } from '../lib/api';
 import { navigate } from '../modules/core/navigation';
 
 export default function StatusPage() {
@@ -11,22 +11,25 @@ export default function StatusPage() {
     const [autosens, setAutosens] = useState(null);
     const [suggestions, setSuggestions] = useState([]);
     const [learningSummary, setLearningSummary] = useState(null);
+    const [mlStatus, setMlStatus] = useState(null);
 
     const refresh = async () => {
         setLoading(true);
         try {
             // Parallel fetches
-            const [h, a, s, summary] = await Promise.allSettled([
+            const [h, a, s, summary, ml] = await Promise.allSettled([
                 fetchHealth(),
                 fetchAutosens(),
                 getSuggestions('pending'),
-                getLearningSummary()
+                getLearningSummary(),
+                fetchMLStatus()
             ]);
 
             setHealth(h.status === 'fulfilled' ? h.value : { status: 'error', error: h.reason?.message });
             setAutosens(a.status === 'fulfilled' ? a.value : null);
             setSuggestions(s.status === 'fulfilled' ? s.value : []);
             setLearningSummary(summary.status === 'fulfilled' ? summary.value : null);
+            setMlStatus(ml.status === 'fulfilled' ? ml.value : null);
 
         } catch (e) {
             console.error(e);
@@ -114,6 +117,35 @@ export default function StatusPage() {
                             </Button>
                         </div>
                     </div>
+                </Card>
+
+                {/* ML STATUS */}
+                <Card title="Machine Learning (CatBoost)">
+                    {mlStatus ? (
+                        <div>
+                            <div style={{ display: 'flex', alignItems: 'center', marginBottom: '0.5rem' }}>
+                                <StatusDot status={mlStatus.models_loaded ? 'ok' : 'warning'} />
+                                <span style={{ fontWeight: 600 }}>
+                                    {mlStatus.models_loaded ? 'Modelos cargados' : 'Sin modelos'}
+                                </span>
+                            </div>
+                            {mlStatus.models_loaded && (
+                                <div style={{ fontSize: '0.85rem', color: '#475569', marginBottom: '0.5rem' }}>
+                                    <div>📦 Versión: <strong>{mlStatus.model_version || 'N/A'}</strong></div>
+                                    <div>📊 Snapshots: <strong>{mlStatus.snapshot_count || 0}</strong></div>
+                                    <div>📈 MAE: <strong>{mlStatus.avg_mae ? mlStatus.avg_mae.toFixed(1) : 'N/A'}</strong></div>
+                                    <div>🎯 Cuantiles: <strong>{mlStatus.has_quantile_bands ? 'p10/p50/p90' : 'p50 solo'}</strong></div>
+                                </div>
+                            )}
+                            {!mlStatus.models_loaded && (
+                                <div style={{ fontSize: '0.85rem', color: '#64748b' }}>
+                                    El sistema está recolectando datos. Se necesitan ≥1000 snapshots para entrenar.
+                                </div>
+                            )}
+                        </div>
+                    ) : (
+                        <div className="text-muted">Cargando...</div>
+                    )}
                 </Card>
 
                 <div style={{ textAlign: 'center', marginTop: '1rem' }}>

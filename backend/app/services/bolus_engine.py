@@ -146,12 +146,8 @@ def _calculate_core(inp: CalculationInput) -> CalculationResult:
     warnings = []
     
     # --- 1. Autosens ---
-    # Calc effective ratio (clamped)
-    sug_ratio = inp.autosens_ratio
-    if sug_ratio < 0.7: sug_ratio = 0.7
-    if sug_ratio > 1.3: sug_ratio = 1.3
-    
-    effective_ratio = sug_ratio 
+    # Ratio ya viene clampeado desde bolus_calc_service (usa user_settings.autosens bounds)
+    effective_ratio = inp.autosens_ratio 
     
     # Advice Log
     if abs(effective_ratio - 1.0) > 0.01:
@@ -372,6 +368,14 @@ def _calculate_core(inp: CalculationInput) -> CalculationResult:
         explain.append("⛔ SEGURIDAD: HIPO DETECTADA. BOLO 0.")
         warnings.append("PELIGRO: Hipo. Bolo cancelado.")
         
+    # Duration: Warsaw (fat/protein) = 240min, Fibra sola = 120min
+    if warsaw_later_u > 0:
+        duration_min = 240
+    elif fiber_extension_u > 0:
+        duration_min = 120
+    else:
+        duration_min = 0
+
     return CalculationResult(
         total_u=final_total,
         meal_u=meal_u, # This includes simple warsaw
@@ -380,7 +384,7 @@ def _calculate_core(inp: CalculationInput) -> CalculationResult:
         warnings=warnings,
         upfront_u=final_upfront,
         later_u=final_later,
-        duration_min=240 if final_later > 0 else 0 # 4 hours default for Warsaw Dual
+        duration_min=duration_min
     )
 
 def calculate_bolus_v2(

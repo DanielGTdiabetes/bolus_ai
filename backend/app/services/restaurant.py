@@ -421,7 +421,7 @@ async def analyze_plate_with_gemini(image_bytes: bytes, mime_type: str) -> Resta
     )
 
 
-def _apply_guardrails(result: RestaurantPlateResult) -> RestaurantPlateResult:
+def _apply_guardrails(result: RestaurantPlateResult, user_isf: Optional[float] = None) -> RestaurantPlateResult:
     warnings = list(result.warnings or [])
     action = SuggestedAction(type="NO_ACTION")
     delta = result.deltaCarbs or 0
@@ -433,7 +433,9 @@ def _apply_guardrails(result: RestaurantPlateResult) -> RestaurantPlateResult:
         return result
 
     if delta > DELTA_ACTION_THRESHOLD:
-        units = round(delta / 15, 2)
+        # Usar ISF del usuario si disponible, sino fallback a 15
+        isf = user_isf if user_isf and user_isf > 0 else 15.0
+        units = round(delta / isf, 2)
         units = min(max(units, 0.0), DEFAULT_MAX_MICRO_BOLUS_U)
         if delta >= LARGE_DELTA:
             warnings.append("Delta alto: usar micro-ajustes y vigilar glucosa.")
@@ -456,6 +458,7 @@ def guardrails_from_totals(
     confidence: Optional[float] = None,
     base_warnings: Optional[list[str]] = None,
     reasoning_short: str | None = None,
+    user_isf: Optional[float] = None,
 ) -> RestaurantPlateResult:
     warnings = _normalize_warnings(base_warnings)
     try:
@@ -477,7 +480,7 @@ def guardrails_from_totals(
         reasoning_short=reasoning_short or "Ajuste agregado de sesión restaurante",
         warnings=warnings,
     )
-    return _apply_guardrails(result)
+    return _apply_guardrails(result, user_isf)
 
 
 async def compare_plate_with_gemini(

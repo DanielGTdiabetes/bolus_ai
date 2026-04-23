@@ -924,6 +924,13 @@ export async function fetchAutosens() {
   return data;
 }
 
+export async function fetchMLStatus() {
+  const response = await apiFetch("/api/ml/status");
+  const data = await toJson(response);
+  if (!response.ok) throw new Error(data.detail || "Error al obtener estado ML");
+  return data;
+}
+
 
 export async function simulateForecast(payload) {
   const response = await apiFetch("/api/forecast/simulate", {

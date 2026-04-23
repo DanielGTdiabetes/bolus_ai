@@ -152,15 +152,15 @@ async def recalc_second(req: RecalcSecondRequest) -> RecalcSecondResponse:
             # The user provided example JSON for request params and it did NOT have DIA. 
             # I will use default DIA=4h.
             
-            treatments = await client.get_recent_treatments(hours=5) # 5h to be safe for 4h DIA
+            treatments = await client.get_recent_treatments(hours=5)
             
             # Convert to format expected by compute_iob
             boluses_list = _boluses_from_treatments(treatments)
             
             profile = InsulinActionProfile(
-                dia_hours=4.0, 
-                curve="walsh", 
-                peak_minutes=75
+                dia_hours=req.params.dia_hours,
+                curve=req.params.insulin_curve,
+                peak_minutes=req.params.peak_minutes
             )
             
             now = datetime.now(timezone.utc)

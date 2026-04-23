@@ -25,38 +25,16 @@ export async function analyzeMenuImage(imageFile, options = {}) {
 }
 
 export async function analyzeMenuText(textDescription, options = {}) {
-  const formData = new FormData();
-  formData.append('description', textDescription);
-
   const response = await apiFetch('/api/restaurant/analyze_menu_text', {
     method: 'POST',
-    body: formData,
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ description: textDescription }),
     signal: options.signal,
   });
 
   const { ok, data } = await parseJsonResponse(response);
   if (!ok) {
     throw new Error(data.detail || 'No se pudo analizar el texto del menú');
-  }
-  return data;
-}
-
-export async function comparePlateImage({ imageFile, expectedCarbs, signal }) {
-  const formData = new FormData();
-  if (imageFile) {
-    formData.append('image', imageFile);
-  }
-  formData.append('expectedCarbs', expectedCarbs);
-
-  const response = await apiFetch('/api/restaurant/compare_plate', {
-    method: 'POST',
-    body: formData,
-    signal,
-  });
-
-  const { ok, data } = await parseJsonResponse(response);
-  if (!ok) {
-    throw new Error(data.detail || 'No se pudo comparar el plato');
   }
   return data;
 }
@@ -79,16 +57,10 @@ export async function analyzePlateImage(imageFile, options = {}) {
 }
 
 export async function calculateRestaurantAdjustment({ expectedCarbs, actualCarbs, confidence, signal }) {
-  const formData = new FormData();
-  formData.append('expectedCarbs', expectedCarbs);
-  formData.append('actualCarbs', actualCarbs);
-  if (confidence !== undefined && confidence !== null) {
-    formData.append('confidence', confidence);
-  }
-
   const response = await apiFetch('/api/restaurant/compare_plate', {
     method: 'POST',
-    body: formData,
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ expectedCarbs, actualCarbs, confidence }),
     signal,
   });
 

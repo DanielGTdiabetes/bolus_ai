@@ -38,9 +38,16 @@ from app.bot.bolus_client import calculate_bolus_for_bot
 from app.services.basal_repo import get_latest_basal_dose, upsert_basal_dose
 from app.models.bolus_v2 import BolusRequestV2, BolusResponseV2
 from app.bot.capabilities.registry import build_registry, Permission
+from app.bot.snapshot_store import SnapshotStore
 
+_snapshot_store: Optional[SnapshotStore] = None
 
-SNAPSHOT_STORAGE: Dict[str, Any] = {}
+def _get_snapshot_store() -> SnapshotStore:
+    global _snapshot_store
+    if _snapshot_store is None:
+        data_dir = Path(get_settings().data.data_dir)
+        _snapshot_store = SnapshotStore(data_dir)
+    return _snapshot_store
 
 EXERCISE_FLOW_TTL_SECONDS = 15 * 60
 EXERCISE_LEVEL_LABELS = {
@@ -147,7 +154,7 @@ def _log_bolus_keyboard_build(
 ) -> None:
     user_id = getattr(update.effective_user, "id", None) if update else None
     chat_id = getattr(update.effective_chat, "id", None) if update else None
-    has_bolus_context = request_id in SNAPSHOT_STORAGE
+    has_bolus_context = request_id in _get_snapshot_store()
     buttons = _keyboard_button_texts(keyboard)
     logger.info(
         "bot_bolus_keyboard_build start: user_id=%s chat_id=%s has_bolus_context=%s bolus_mode=%s buttons=%s",
@@ -1117,7 +1124,7 @@ async def _process_text_input_internal(update: Update, context: ContextTypes.DEF
             
             # Update Snapshot
             req_id = editing_meal_id
-            snap = SNAPSHOT_STORAGE.get(req_id)
+            snap = _get_snapshot_store().get(req_id)
             if snap and "rec" in snap:
                 snap["carbs"] = c_val
                 snap["fat"] = f_val
@@ -1322,7 +1329,7 @@ async def _process_text_input_internal(update: Update, context: ContextTypes.DEF
         p = bot_reply.pending_action
         p["timestamp"] = datetime.now().timestamp()
         p = await _hydrate_bolus_snapshot(p)
-        SNAPSHOT_STORAGE[p["id"]] = p
+        _get_snapshot_store().set(p["id"], p)
         
     # 4. Send Reply
     if bot_reply.buttons:
@@ -1480,7 +1487,7 @@ async def _handle_add_treatment_tool(update: Update, context: ContextTypes.DEFAU
     )
 
     # 4. Save Snapshot
-    SNAPSHOT_STORAGE[request_id] = {
+    _get_snapshot_store().set(request_id, {
         "rec": rec,
         "carbs": carbs,
         "fat": fat,
@@ -1492,8 +1499,8 @@ async def _handle_add_treatment_tool(update: Update, context: ContextTypes.DEFAU
         "source": "CalculateBolus",
         "ts": datetime.now(),
         "payload": req_v2
-    }
-    logger.info(f"Snapshot saved for request_{request_id}. Keys: {len(SNAPSHOT_STORAGE)}")
+    })
+    logger.info(f"Snapshot saved for request_{request_id}. Keys: {len(_get_snapshot_store())}")
     
     # 5. Send Card
     # ---------------------------------------------------------
@@ -1539,7 +1546,7 @@ async def _apply_exercise_recalculation(
     source: str,
     query: Optional[Any] = None,
 ) -> None:
-    snapshot = SNAPSHOT_STORAGE.get(request_id)
+    snapshot = _get_snapshot_store().get(request_id)
     if not snapshot:
         await reply_text(update, context, "⚠️ Sesión caducada. Recalcula el bolo.")
         return
@@ -2475,7 +2482,7 @@ async def on_new_meal_received(carbs: float, fat: float, protein: float, fiber: 
     )
 
     # Store Snapshot
-    SNAPSHOT_STORAGE[request_id] = {
+    _get_snapshot_store().set(request_id, {
         "rec": rec,
         "carbs": carbs,
         "fat": fat,
@@ -2486,7 +2493,7 @@ async def on_new_meal_received(carbs: float, fat: float, protein: float, fiber: 
         "user_id": resolved_user_id,
         "ts": datetime.now(),
         "payload": req_v2,
-    }
+    })
 
     # 3. Message (Strict Format matching Core Engine)
     # -----------------------------------------------------
@@ -2608,14 +2615,14 @@ async def _handle_snapshot_callback(query, data: str) -> None:
             request_id = data.split("_")[-1]
             is_accept = "accept_bolus_" in data
 
-        snapshot = SNAPSHOT_STORAGE.get(request_id)
+        snapshot = _get_snapshot_store().get(request_id)
         
         if not snapshot:
             # Try looking up by full data just in case it was stored weirdly
-            snapshot = SNAPSHOT_STORAGE.get(data)
+            snapshot = _get_snapshot_store().get(data)
         
         if not snapshot:
-            logger.warning(f"Snapshot missing for req={request_id}. Available count={len(SNAPSHOT_STORAGE)}")
+            logger.warning(f"Snapshot missing for req={request_id}. Available count={len(_get_snapshot_store())}")
             
             # --- Active Plan Recovery Logic ---
             if is_accept and units_override is not None:
@@ -2656,7 +2663,7 @@ async def _handle_snapshot_callback(query, data: str) -> None:
              else:
                   await edit_message_text_safe(query, f"{base_text}\n\n❌ Descartado.")
              
-             SNAPSHOT_STORAGE.pop(request_id, None)
+             _get_snapshot_store().pop(request_id, None)
              return
             
         rec = snapshot.get("rec")
@@ -2780,7 +2787,7 @@ async def _handle_snapshot_callback(query, data: str) -> None:
              ])
 
         await edit_message_text_safe(query, text=success_msg, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb_post) if kb_post else None)
-        SNAPSHOT_STORAGE.pop(request_id, None)
+        _get_snapshot_store().pop(request_id, None)
         health.record_action(f"callback:accept:{request_id}", True)
 
     except Exception as e:
@@ -2937,7 +2944,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     # --- Exercise Flow ---
     if data.startswith("exercise_start|"):
         _, req_id = data.split("|")
-        snapshot = SNAPSHOT_STORAGE.get(req_id)
+        snapshot = _get_snapshot_store().get(req_id)
         if not snapshot:
             await query.answer("Sesión caducada")
             return
@@ -3111,7 +3118,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 context.user_data["editing_meal_request"] = req_id
                 
                 # Fetch snapshot for current values display?
-                snap = SNAPSHOT_STORAGE.get(req_id)
+                snap = _get_snapshot_store().get(req_id)
                 current_info = ""
                 if snap:
                      c = snap.get("carbs", 0)
@@ -3148,7 +3155,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             try:
                 # set_slot|slot|req_id
                 _, slot, req_id = data.split("|")
-                snapshot = SNAPSHOT_STORAGE.get(req_id)
+                snapshot = _get_snapshot_store().get(req_id)
                 if not snapshot or "rec" not in snapshot:
                     await query.answer("Sesión caducada")
                     return
@@ -3548,7 +3555,7 @@ async def _handle_voice_callback(update: Update, context: ContextTypes.DEFAULT_T
                 p = bot_reply.pending_action
                 p["timestamp"] = datetime.now().timestamp()
                 p = await _hydrate_bolus_snapshot(p)
-                SNAPSHOT_STORAGE[p["id"]] = p
+                _get_snapshot_store().set(p["id"], p)
             
             if bot_reply.buttons:
                 reply_markup = InlineKeyboardMarkup(bot_reply.buttons)

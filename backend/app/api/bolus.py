@@ -292,11 +292,14 @@ async def save_treatment(
                      s_data = await get_user_settings_service(u_id, task_session)
                      if not s_data: return
                      us = UserSettings.migrate(s_data["settings"])
-                     
+
                      if not us.autosens.enabled: return # Respect Global Switch
-                     
-                     # Double check to prevent "risk" even if code was called
-                     if not us.autosens.enabled: return
+
+                     compression_config = FilterConfig(
+                         enabled=us.nightscout.filter_compression,
+                         night_start_hour=us.nightscout.filter_night_start_hour,
+                         night_end_hour=us.nightscout.filter_night_end_hour,
+                     )
                      res = await AutosensService.calculate_autosens(
                          u_id,
                          task_session,
@@ -305,22 +308,20 @@ async def save_treatment(
                      )
                      ratio = res.ratio
                      
-                     # Threshold: Deviating at least 1% to avoid pure noise. 
-                     # We rely mainly on the absolute unit difference below for significance.
-                     if 0.99 <= ratio <= 1.01:
-                         return # Pure noise
-                         
+                     # Threshold: Deviating at least 5% (relajado de 1% para más señales)
+                     if 0.95 <= ratio <= 1.05:
+                         return # Ruido mínimo
+
                      # Determine Slot
                      slot = get_current_meal_slot(us)
                      current_isf = getattr(us.cf, slot, 30.0)
-                     
+
                      # Calcs
-                     # new_isf = current / ratio
                      new_isf = round(current_isf / ratio, 1)
-                     
-                     if abs(current_isf - new_isf) < 1.0:
-                         logger.info(f"Autosens advisor skipped: {current_isf}->{new_isf} diff < 1.0")
-                         return # Rounding makes it irrelevant
+
+                     if abs(current_isf - new_isf) < 0.5:
+                         logger.info(f"Autosens advisor skipped: {current_isf}->{new_isf} diff < 0.5")
+                         return # Cambio irrelevante
                      
                      # Create Suggestion Record (App Notification)
                      match_key = f"autosens_{slot}_{datetime.utcnow().date()}"
@@ -350,18 +351,24 @@ async def save_treatment(
                      await task_session.commit()
                      await task_session.refresh(sug)
                      
-                     # Notify via Bot (Telegram)
+                     # Notify via Bot (Telegram) — no falla si bot no disponible
                      from app.core import config
+                     from app.bot.service import _bot_app
                      chat_id = config.get_allowed_telegram_user_id()
-                     if chat_id:
-                         await send_autosens_alert(
-                             chat_id=int(chat_id),
-                             ratio=ratio,
-                             slot=slot,
-                             old_isf=current_isf,
-                             new_isf=new_isf,
-                             suggestion_id=str(sug.id)
-                         )
+                     if chat_id and _bot_app:
+                          try:
+                              await send_autosens_alert(
+                                  chat_id=int(chat_id),
+                                  ratio=ratio,
+                                  slot=slot,
+                                  old_isf=current_isf,
+                                  new_isf=new_isf,
+                                  suggestion_id=str(sug.id)
+                              )
+                          except Exception as bot_err:
+                              logger.warning(f"Autosens alert via bot failed: {bot_err}")
+                     else:
+                          logger.info("Autosens suggestion created but bot not available for notification")
                          
              except Exception as ex:
                  logger.error(f"Autosens advisor background task failed: {ex}")

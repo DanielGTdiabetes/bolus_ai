@@ -164,6 +164,8 @@ async def _background_startup_jobs():
             async with AsyncSession(engine) as session:
                  logger.info("🧠 ML: Checking for brain updates in Database...")
                  await MLInferenceService.get_instance().sync_models_from_db(session)
+                 # Cargar modelos en memoria (p50, p10, p90)
+                 MLInferenceService.get_instance().load_models()
         except Exception as e:
              logger.error(f"Startup ML Sync failed: {e}")
 

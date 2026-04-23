@@ -71,7 +71,7 @@ async def calculate_bolus_stateless_service(
         iob_settings = IOBConfig(
             dia_hours=payload.settings.dia_hours,
             curve=c_model,
-            peak_minutes=payload.settings.insulin_peak_minutes,
+            peak_minutes=payload.settings.insulin_peak_minutes or 75,
         )
 
         ns_settings = NightscoutConfig(
@@ -481,19 +481,46 @@ async def calculate_bolus_stateless_service(
                 },
             )
 
-        iob_for_calc = iob_u if iob_u is not None else 0.0
+        # IOB incierto: no asumir 0.0 (peligro de sobredosis)
         if iob_info.status in ["unavailable", "stale"]:
-            flag = (
-                "IOB_ASSUMED_ZERO_DUE_TO_UNAVAILABLE"
-                if iob_info.status == "unavailable"
-                else "IOB_ASSUMED_ZERO_DUE_TO_STALE"
-            )
-            assumptions.append(flag)
-            iob_info.assumptions.append(flag)
-            iob_for_calc = 0.0
-            iob_warning = (
-                iob_warning or "IOB no disponible; se asumió 0 U tras confirmación explícita."
-            )
+            if payload.manual_iob_u is not None:
+                iob_for_calc = payload.manual_iob_u
+                flag = "IOB_MANUAL_OVERRIDE"
+                assumptions.append(flag)
+                iob_info.assumptions.append(flag)
+                iob_warning = f"IOB manual del usuario: {iob_for_calc:.2f} U"
+                logger.info(f"Manual IOB override: {iob_for_calc} U (status={iob_info.status})")
+            else:
+                raise HTTPException(
+                    status_code=424,
+                    detail={
+                        "error_code": "IOB_UNCERTAIN",
+                        "message": "IOB no disponible. Introduce tu IOB estimado manualmente o espera a que el sistema se recupere.",
+                        "requires_confirmation": True,
+                        "required_flag": "manual_iob_u",
+                        "iob": iob_info.model_dump(),
+                        "cob": cob_info.model_dump(),
+                        "treatments_source": iob_info.treatments_source_status.source
+                        if iob_info.treatments_source_status
+                        else "unknown",
+                        "glucose_source": bg_source or "unknown",
+                        "safe_alternatives": ["manual_mode", "wait_for_recovery"],
+                    },
+                )
+        else:
+            if iob_u is None:
+                raise HTTPException(
+                    status_code=424,
+                    detail={
+                        "error_code": "IOB_UNCERTAIN",
+                        "message": "IOB no disponible. Introduce tu IOB estimado manualmente o espera a que el sistema se recupere.",
+                        "required_flag": "manual_iob_u",
+                        "iob": iob_info.model_dump(),
+                        "cob": cob_info.model_dump(),
+                        "safe_alternatives": ["manual_mode", "wait_for_recovery"],
+                    },
+                )
+            iob_for_calc = iob_u
 
         glucose_info = GlucoseUsed(
             mgdl=resolved_bg,

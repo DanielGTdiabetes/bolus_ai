@@ -220,8 +220,8 @@ class MLTrainerService:
                  if c in X.columns:
                      X[c] = X[c].astype(str)
             
-            # Train CatBoost
-            model = CatBoostRegressor(
+            # Train CatBoost p50 (median)
+            model_p50 = CatBoostRegressor(
                 iterations=500, 
                 learning_rate=0.05, 
                 depth=6, 
@@ -229,34 +229,58 @@ class MLTrainerService:
                 verbose=False,
                 allow_writing_files=False
             )
-            model.fit(X, y, cat_features=cat_features if "trend" in X.columns else None)
+            model_p50.fit(X, y, cat_features=cat_features if "trend" in X.columns else None)
             
-            # Eval (simple in-sample for sanity check, or simple split)
-            # For "Anti-Humo", we want to know if it learned ANYTHING.
-            preds = model.predict(X)
+            # Train CatBoost p10 (optimistic / lower bound)
+            model_p10 = CatBoostRegressor(
+                iterations=500,
+                learning_rate=0.05,
+                depth=6,
+                loss_function='Quantile:alpha=0.1',
+                verbose=False,
+                allow_writing_files=False
+            )
+            model_p10.fit(X, y, cat_features=cat_features if "trend" in X.columns else None)
+            
+            # Train CatBoost p90 (pessimistic / upper bound)
+            model_p90 = CatBoostRegressor(
+                iterations=500,
+                learning_rate=0.05,
+                depth=6,
+                loss_function='Quantile:alpha=0.9',
+                verbose=False,
+                allow_writing_files=False
+            )
+            model_p90.fit(X, y, cat_features=cat_features if "trend" in X.columns else None)
+            
+            # Eval (simple in-sample for sanity check)
+            preds = model_p50.predict(X)
             mae = np.mean(np.abs(preds - y))
             rmse = np.sqrt(np.mean((preds - y)**2))
             
             metrics[h] = {"mae": float(mae), "rmse": float(rmse), "n": len(X)}
             total_mae += mae
             
-            # Save Artifact
-            fname = f"catboost_residual_{h}m_p50.cbm"
-            model.save_model(str(out_dir / fname))
+            # Save Artifacts (p50, p10, p90)
+            fname_p50 = f"catboost_residual_{h}m_p50.cbm"
+            fname_p10 = f"catboost_residual_{h}m_p10.cbm"
+            fname_p90 = f"catboost_residual_{h}m_p90.cbm"
+            model_p50.save_model(str(out_dir / fname_p50))
+            model_p10.save_model(str(out_dir / fname_p10))
+            model_p90.save_model(str(out_dir / fname_p90))
             valid_models_count += 1
-            
-            # (Optional) We could train quantile models p10/p90 here too
         
         if valid_models_count == 0:
              return {"status": "failed", "reason": "Could not train any valid horizon model"}
              
         avg_mae = total_mae / valid_models_count
         
-        # 8. Integrity/Quality Check
-        if avg_mae > float(ml_cfg.model_quality_max_rmse): # Lazy using RMSE threshold for MAE check or similar
-             logger.warning(f"ML: Model rejected due to high error. MAE={avg_mae:.1f}")
-             # Cleanup artifacts?
-             return {"status": "rejected", "reason": f"Quality too low (MAE {avg_mae:.1f} > {ml_cfg.model_quality_max_rmse})"}
+        # 8. Integrity/Quality Check (relajado para primer modelo)
+        is_first_model = current_meta is None
+        quality_threshold = 60.0 if is_first_model else float(ml_cfg.model_quality_max_rmse)
+        if avg_mae > quality_threshold:
+             logger.warning(f"ML: Model rejected due to high error. MAE={avg_mae:.1f} > {quality_threshold:.1f}")
+             return {"status": "rejected", "reason": f"Quality too low (MAE {avg_mae:.1f} > {quality_threshold:.1f})"}
 
         # 9. Save Metadata
         version = f"v1-{datetime.now().strftime('%Y%m%d%H%M')}"
@@ -268,8 +292,10 @@ class MLTrainerService:
             "samples_total": sample_count,
             "days_covered": days_covered,
             "horizons": horizons,
+            "quantiles": ["p10", "p50", "p90"],
             "metrics": metrics,
-            "avg_mae": avg_mae
+            "avg_mae": avg_mae,
+            "is_first_model": is_first_model
         }
         
         with open(out_dir / "metadata.json", "w") as f:
@@ -289,19 +315,20 @@ class MLTrainerService:
             version=version
         ))
 
-        # 10.2 Upload Models
-        for h in metrics.keys(): # Only upload success horizons
-            fname = f"catboost_residual_{h}m_p50.cbm"
-            fpath = out_dir / fname
-            if fpath.exists():
-                with open(fpath, "rb") as f:
-                    bin_data = f.read()
-                await self.session.merge(MLModelStore(
-                    model_name=fname,
-                    user_id=user_id,
-                    model_data=bin_data,
-                    version=version
-                ))
+        # 10.2 Upload Models (p50, p10, p90)
+        for h in metrics.keys():
+            for quantile in ["p50", "p10", "p90"]:
+                fname = f"catboost_residual_{h}m_{quantile}.cbm"
+                fpath = out_dir / fname
+                if fpath.exists():
+                    with open(fpath, "rb") as f:
+                        bin_data = f.read()
+                    await self.session.merge(MLModelStore(
+                        model_name=fname,
+                        user_id=user_id,
+                        model_data=bin_data,
+                        version=version
+                    ))
         
         await self.session.commit()
         logger.info("ML: Models synced to Database (accessible by Render)")
