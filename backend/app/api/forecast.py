@@ -839,24 +839,24 @@ async def get_current_forecast(
     # Detects if user is stable/low with no active events, and neutralizes the artificial basal drift.
     try:
         # 1. Check BG & Trend
-        nb_safe_bg = start_bg <= (sim_params.target_bg + 40) # Tolerant margin
-        
+        nb_safe_bg = start_bg is not None and start_bg <= ((sim_params.target_bg or 110.0) + 40)
+
         nb_slope = 0.0
         if recent_bg_series and len(recent_bg_series) >= 3:
             nb_slope = trend_slope_from_series(recent_bg_series)
-        
-        nb_trend_ok = nb_slope <= 0.2 # Negative or slightly flat
-        
+
+        nb_trend_ok = (nb_slope or 0.0) <= 0.2 # Negative or slightly flat
+
         # 2. Check Active Events (Proxies)
         # We assume 5h for bolus tail and 3h for carb impact for this safety check
-        nb_active_bolus = sum(b.units for b in boluses if b.time_offset_min > -300)
-        nb_active_carbs = sum(c.grams for c in carbs if c.time_offset_min > -180)
-        
+        nb_active_bolus = sum((b.units or 0) for b in boluses if b.time_offset_min > -300)
+        nb_active_carbs = sum((c.grams or 0) for c in carbs if c.time_offset_min > -180)
+
         nb_empty_iob = nb_active_bolus < 0.5
         nb_empty_cob = nb_active_carbs < 5.0
-        
+
         # 3. Check Sufficient Basal (Don't hide total lack of basal)
-        nb_has_basal = (sim_params.basal_daily_units > 1.0)
+        nb_has_basal = ((sim_params.basal_daily_units or 0) > 1.0)
         
         if nb_safe_bg and nb_trend_ok and nb_empty_iob and nb_empty_cob and nb_has_basal:
             sim_params.basal_drift_handling = "neutral"
