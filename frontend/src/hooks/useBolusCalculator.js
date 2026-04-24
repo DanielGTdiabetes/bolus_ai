@@ -73,7 +73,17 @@ export function useBolusCalculator() {
             applyCalcOutcome(res, meta || {});
             setConfirmRequest(null);
         } catch (err) {
-            alert("Error: " + (err?.message || "No se pudo confirmar sin IOB."));
+            const code = err?.error_code || err?.payload?.error_code;
+            if (code === "IOB_UNCERTAIN") {
+                setConfirmRequest({
+                    code,
+                    mode: "manual_iob",
+                    requiredFlag: "manual_iob_u",
+                    detail: err?.payload || {}
+                });
+            } else {
+                alert("Error: " + (err?.message || "No se pudo confirmar sin IOB."));
+            }
         } finally {
             setCalculating(false);
         }
