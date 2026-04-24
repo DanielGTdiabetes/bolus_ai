@@ -52,12 +52,23 @@ export function useBolusCalculator() {
         }
     };
 
-    const confirmCalculation = async () => {
+    const confirmCalculation = async (manualIobValue) => {
         if (!pendingCalcContext || !confirmRequest) return;
         setCalculating(true);
         try {
             const { payload, useSplit, splitSettings, meta } = pendingCalcContext;
-            const flaggedPayload = { ...payload, [confirmRequest.requiredFlag || "confirm_iob_unknown"]: true };
+            let flaggedPayload;
+            if (confirmRequest.mode === "manual_iob") {
+                const iobVal = parseFloat(manualIobValue);
+                if (isNaN(iobVal) || iobVal < 0) {
+                    alert("Introduce un valor de IOB válido (≥ 0).");
+                    setCalculating(false);
+                    return;
+                }
+                flaggedPayload = { ...payload, manual_iob_u: iobVal };
+            } else {
+                flaggedPayload = { ...payload, [confirmRequest.requiredFlag || "confirm_iob_unknown"]: true };
+            }
             const res = await calculateBolusWithOptionalSplit(flaggedPayload, useSplit ? splitSettings : null);
             applyCalcOutcome(res, meta || {});
             setConfirmRequest(null);
@@ -187,9 +198,17 @@ export function useBolusCalculator() {
 
         } catch (e) {
             const code = e?.error_code || e?.payload?.error_code;
-            if (code && String(code).includes("CONFIRM_REQUIRED")) {
+            if (code === "IOB_UNCERTAIN") {
                 setConfirmRequest({
                     code,
+                    mode: "manual_iob",
+                    requiredFlag: "manual_iob_u",
+                    detail: e?.payload || {}
+                });
+            } else if (code && String(code).includes("CONFIRM_REQUIRED")) {
+                setConfirmRequest({
+                    code,
+                    mode: "confirm",
                     requiredFlag: e?.payload?.required_flag || (code.includes("STALE") ? "confirm_iob_stale" : "confirm_iob_unknown"),
                     detail: e?.payload || {}
                 });
