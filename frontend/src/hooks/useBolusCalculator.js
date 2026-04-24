@@ -65,7 +65,13 @@ export function useBolusCalculator() {
                     setCalculating(false);
                     return;
                 }
-                flaggedPayload = { ...payload, manual_iob_u: iobVal };
+                // Si llegamos al modal manual desde un flujo CONFIRM_REQUIRED, el backend
+                // sigue requiriendo el flag de confirmación anterior (guard lines 444/462).
+                flaggedPayload = {
+                    ...payload,
+                    manual_iob_u: iobVal,
+                    ...(confirmRequest.prevConfirmFlag ? { [confirmRequest.prevConfirmFlag]: true } : {})
+                };
             } else {
                 flaggedPayload = { ...payload, [confirmRequest.requiredFlag || "confirm_iob_unknown"]: true };
             }
@@ -79,6 +85,8 @@ export function useBolusCalculator() {
                     code,
                     mode: "manual_iob",
                     requiredFlag: "manual_iob_u",
+                    // Preservar el flag de confirmación anterior para que el backend no rechace el retry
+                    prevConfirmFlag: confirmRequest.mode === "confirm" ? confirmRequest.requiredFlag : null,
                     detail: err?.payload || {}
                 });
             } else {
