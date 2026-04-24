@@ -51,6 +51,7 @@ export default function BolusPage() {
     const [manualProtein, setManualProtein] = useState('0');
     const [manualFat, setManualFat] = useState('0');
     const [manualFiber, setManualFiber] = useState('0');
+    const [manualIobInput, setManualIobInput] = useState('');
 
     // Meta / Learning
     const [plateItems, setPlateItems] = useState([]);
@@ -772,7 +773,37 @@ export default function BolusPage() {
                     </div>
                 )}
 
-                {confirmRequest && (
+                {confirmRequest && confirmRequest.mode === "manual_iob" && (
+                    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }}>
+                        <div style={{ background: '#fff', padding: '1.2rem', borderRadius: '12px', maxWidth: '520px', width: '90%', boxShadow: '0 10px 30px rgba(0,0,0,0.2)' }}>
+                            <h3 style={{ marginTop: 0, marginBottom: '0.5rem', color: '#b91c1c' }}>IOB no disponible</h3>
+                            <p style={{ fontSize: '0.95rem', color: '#1f2937' }}>El sistema no puede calcular el IOB actualmente. Introduce tu insulina activa estimada para continuar de forma segura.</p>
+                            <div style={{ margin: '0.75rem 0' }}>
+                                <label style={{ fontSize: '0.9rem', fontWeight: 600, color: '#374151' }}>IOB estimado (U)</label>
+                                <input
+                                    type="number"
+                                    min="0"
+                                    max="30"
+                                    step="0.1"
+                                    value={manualIobInput}
+                                    onChange={e => setManualIobInput(e.target.value)}
+                                    placeholder="ej. 1.5"
+                                    style={{ display: 'block', width: '100%', marginTop: '0.4rem', padding: '0.5rem 0.75rem', borderRadius: '8px', border: '1.5px solid #d1d5db', fontSize: '1rem', boxSizing: 'border-box' }}
+                                    autoFocus
+                                />
+                            </div>
+                            <p style={{ fontSize: '0.8rem', color: '#6b7280', marginBottom: '0.75rem' }}>Si no tienes insulina activa, introduce 0.</p>
+                            <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
+                                <Button variant="secondary" onClick={() => { cancelConfirmation(); setManualIobInput(''); }}>Cancelar</Button>
+                                <Button onClick={() => { confirmCalculation(manualIobInput); setManualIobInput(''); }} disabled={calculating || manualIobInput === ''}>
+                                    {calculating ? 'Calculando...' : 'Calcular'}
+                                </Button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {confirmRequest && confirmRequest.mode !== "manual_iob" && (
                     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }}>
                         <div style={{ background: '#fff', padding: '1.2rem', borderRadius: '12px', maxWidth: '520px', width: '90%', boxShadow: '0 10px 30px rgba(0,0,0,0.2)' }}>
                             <h3 style={{ marginTop: 0, marginBottom: '0.5rem', color: '#b91c1c' }}>Se requiere confirmación</h3>
@@ -780,7 +811,7 @@ export default function BolusPage() {
                             <p style={{ fontSize: '0.85rem', color: '#4b5563' }}>Flag: <code>{confirmRequest.requiredFlag}</code></p>
                             <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end', marginTop: '1rem' }}>
                                 <Button variant="secondary" onClick={cancelConfirmation}>Cancelar</Button>
-                                <Button onClick={confirmCalculation} disabled={calculating}>Continuar</Button>
+                                <Button onClick={() => confirmCalculation()} disabled={calculating}>Continuar</Button>
                             </div>
                         </div>
                     </div>
