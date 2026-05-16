@@ -131,7 +131,8 @@ Garantías de seguridad de este endpoint:
 - no guarda tratamientos;
 - no sube tratamientos a Nightscout;
 - no cambia la lógica clínica del cálculo existente;
-- desactiva la persistencia de ejecuciones auxiliares de autosens para mantener la estimación sin escritura de datos.
+- desactiva la persistencia de ejecuciones auxiliares de autosens;
+- no actualiza ni crea la caché global de IOB (`iob_cache.json`) para mantener la estimación sin escritura de datos.
 
 Ejemplo mínimo con glucosa manual:
 

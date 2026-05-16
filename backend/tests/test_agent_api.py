@@ -88,6 +88,7 @@ def test_agent_bolus_estimate_does_not_persist_or_upload(monkeypatch, mocker):
     assert body["nightscout_uploaded"] is False
     mocked_calc.assert_awaited_once()
     assert mocked_calc.await_args.kwargs["persist_autosens_run"] is False
+    assert mocked_calc.await_args.kwargs["persist_iob_cache"] is False
     mocked_log.assert_not_awaited()
     mocked_upload.assert_not_awaited()
 

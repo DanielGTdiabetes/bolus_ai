@@ -41,3 +41,45 @@ async def test_iob_cache_marks_stale(tmp_path):
     assert info.status == "ok"
     assert info.last_known_iob == 0.0
     assert iob_u == 0.0
+
+
+@pytest.mark.asyncio
+async def test_iob_persist_cache_false_does_not_write_iob_cache(tmp_path):
+    settings = UserSettings.default()
+    store = DataStore(Path(tmp_path))
+    now = datetime.now(timezone.utc)
+
+    iob_u, breakdown, info, warning = await compute_iob_from_sources(
+        now,
+        settings,
+        None,
+        store,
+        persist_cache=False,
+    )
+
+    assert iob_u == 0.0
+    assert info.status == "ok"
+    assert breakdown == []
+    assert warning is None
+    assert not (Path(tmp_path) / "iob_cache.json").exists()
+
+
+@pytest.mark.asyncio
+async def test_iob_persist_cache_false_does_not_update_existing_iob_cache(tmp_path):
+    settings = UserSettings.default()
+    store = DataStore(Path(tmp_path))
+    cached = {"iob_u": 2.5, "fetched_at": datetime.now(timezone.utc).isoformat()}
+    store.write_json("iob_cache.json", cached)
+    now = datetime.now(timezone.utc)
+
+    iob_u, _, info, _ = await compute_iob_from_sources(
+        now,
+        settings,
+        None,
+        store,
+        persist_cache=False,
+    )
+
+    assert iob_u == 0.0
+    assert info.last_known_iob == 0.0
+    assert store.read_json("iob_cache.json", {}) == cached

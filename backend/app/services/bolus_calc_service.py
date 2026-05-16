@@ -38,6 +38,7 @@ async def calculate_bolus_stateless_service(
     user: CurrentUser,
     session: Optional[AsyncSession],
     persist_autosens_run: bool = True,
+    persist_iob_cache: bool = True,
 ) -> BolusResponseV2:
     # 1. Resolve Settings
     if payload.settings:
@@ -431,6 +432,7 @@ async def calculate_bolus_stateless_service(
             store,
             extra_boluses=db_events,
             user_id=user.username,
+            persist_cache=persist_iob_cache,
         )
         cob_total, cob_info, cob_source_status = await compute_cob_from_sources(
             now,
