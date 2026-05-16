@@ -5,6 +5,7 @@ from .bolus import router as bolus_router
 from .changes import router as changes_router
 from .health import router as health_router
 from .nightscout import router as nightscout_router
+from .agent import router as agent_router
 from .settings import router as settings_router
 from .vision import router as vision_router
 from .basal import router as basal_router
@@ -20,6 +21,7 @@ from .restaurant import router as restaurant_router
 api_router = APIRouter()
 api_router.include_router(health_router, prefix="/health", tags=["health"])
 api_router.include_router(nightscout_router, prefix="/nightscout", tags=["nightscout"])
+api_router.include_router(agent_router, prefix="/agent", tags=["agent"])
 api_router.include_router(auth_router, prefix="/auth", tags=["auth"])
 api_router.include_router(settings_router, prefix="/settings", tags=["settings"])
 api_router.include_router(changes_router, prefix="/changes", tags=["changes"])
