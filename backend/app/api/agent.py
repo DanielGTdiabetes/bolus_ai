@@ -284,6 +284,7 @@ async def agent_bolus_estimate(
         user=CurrentUser(username=AGENT_USERNAME, role="agent"),
         session=session,
         persist_autosens_run=False,
+        persist_iob_cache=False,
     )
     return AgentBolusEstimateResponse(
         estimation=response,

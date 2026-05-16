@@ -111,6 +111,7 @@ async def compute_iob_from_sources(
     data_store: DataStore,
     extra_boluses: list[dict[str, float]] | None = None,
     user_id: Optional[str] = None,
+    persist_cache: bool = True,
 ) -> tuple[Optional[float], list[dict[str, float]], IOBInfo, Optional[str]]:
     """
     Computes IOB with detailed status reporting.
@@ -134,10 +135,12 @@ async def compute_iob_from_sources(
     cache_ts: Optional[datetime] = None
     
     try:
-        cache_raw = data_store.read_json("iob_cache.json", {"iob_u": None, "fetched_at": None})
-        if cache_raw.get("iob_u") is not None and cache_raw.get("fetched_at"):
-            cache_iob = float(cache_raw["iob_u"])
-            cache_ts = datetime.fromisoformat(str(cache_raw["fetched_at"]))
+        cache_path = data_store.data_dir / "iob_cache.json"
+        if persist_cache or cache_path.exists():
+            cache_raw = data_store.read_json("iob_cache.json", {"iob_u": None, "fetched_at": None})
+            if cache_raw.get("iob_u") is not None and cache_raw.get("fetched_at"):
+                cache_iob = float(cache_raw["iob_u"])
+                cache_ts = datetime.fromisoformat(str(cache_raw["fetched_at"]))
     except Exception:
         cache_iob = None
         cache_ts = None
@@ -437,14 +440,15 @@ async def compute_iob_from_sources(
         assumptions=[]
     )
     
-    try:
-        data_store.write_json("iob_cache.json", {
-            "iob_u": last_known,
-            "fetched_at": last_ts.isoformat() if last_ts else None,
-            "status": iob_status
-        })
-    except Exception:
-        pass
+    if persist_cache:
+        try:
+            data_store.write_json("iob_cache.json", {
+                "iob_u": last_known,
+                "fetched_at": last_ts.isoformat() if last_ts else None,
+                "status": iob_status
+            })
+        except Exception:
+            pass
     
     return final_iob, breakdown, info, warning_msg
 
