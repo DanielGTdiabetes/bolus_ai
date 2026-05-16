@@ -37,6 +37,7 @@ async def calculate_bolus_stateless_service(
     store: DataStore,
     user: CurrentUser,
     session: Optional[AsyncSession],
+    persist_autosens_run: bool = True,
 ) -> BolusResponseV2:
     # 1. Resolve Settings
     if payload.settings:
@@ -384,7 +385,7 @@ async def calculate_bolus_stateless_service(
                     username=user.username,
                     session=session,
                     settings=user_settings,
-                    record_run=True,
+                    record_run=persist_autosens_run,
                     compression_config=compression_config,
                 )
                 local_ratio = res.ratio
