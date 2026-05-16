@@ -1,20 +1,45 @@
-# API interna para agentes locales
+# Hermes Agent Integration / Agent API
 
-## Propósito
+La API interna `/api/agent/*` permite que **Hermes Agent** u otro agente local autorizado consulte Bolus AI y solicite estimaciones de bolo de forma controlada.
 
-La API interna `/api/agent/*` permite que un agente externo local, por ejemplo Hermes Agent en un mini PC dentro de la red doméstica, consulte el estado de Bolus AI y solicite estimaciones de bolo de forma controlada.
+La integración mantiene una frontera clara:
 
-Esta API está diseñada para integración **read-only / estimate-only**:
+```text
+Hermes Agent
+    ↓
+/api/agent/* con Bearer token
+    ↓
+Bolus AI core
+```
 
-- Puede consultar estado, glucosa actual y contexto resumido.
-- Puede pedir una estimación de bolo reutilizando el motor actual de Bolus AI.
-- No administra insulina.
-- No decide automáticamente tratamientos.
-- No guarda tratamientos.
-- No sube tratamientos a Nightscout.
-- No expone tokens ni secretos de Nightscout/Dexcom.
+- **Bolus AI** es el motor clínico central.
+- **Hermes Agent** es una capa conversacional/orquestadora.
+- Hermes no es el motor médico y no debe presentarse como tal.
+- La API es **read-only / estimate-only / human-in-the-loop**.
 
-> Advertencia médica: Bolus AI y esta API son herramientas de apoyo a la decisión. Cualquier recomendación o estimación debe ser revisada por la persona usuaria/cuidadora. No debe usarse para administración automática de insulina ni para sustituir criterio clínico profesional.
+> **Advertencia médica:** Bolus AI y esta API no son un dispositivo médico. No administran insulina, no deben automatizar administración de insulina y no sustituyen criterio clínico profesional. Toda estimación debe ser revisada por la persona usuaria/cuidadora.
+
+---
+
+## Alcance permitido
+
+La Agent API puede:
+
+- Consultar estado de la aplicación.
+- Consultar glucosa actual desde la fuente configurada.
+- Consultar contexto resumido.
+- Solicitar una estimación de bolo reutilizando el motor existente de Bolus AI.
+
+La Agent API no puede:
+
+- Administrar insulina.
+- Decidir tratamientos automáticamente.
+- Guardar tratamientos.
+- Subir tratamientos a Nightscout.
+- Exponer tokens o secretos de Nightscout/Dexcom.
+- Modificar ratios, perfiles o ajustes de usuario.
+
+---
 
 ## Seguridad
 
@@ -30,7 +55,7 @@ Cada petición debe enviar:
 Authorization: Bearer <AGENT_API_TOKEN>
 ```
 
-Si `AGENT_API_TOKEN` no está configurado o está vacío, todos los endpoints `/api/agent/*` devuelven `503` y quedan bloqueados de forma segura.
+Si `AGENT_API_TOKEN` no está configurado o está vacío, los endpoints `/api/agent/*` devuelven `503` y quedan bloqueados de forma segura.
 
 Opcionalmente se puede restringir por IP:
 
@@ -40,16 +65,31 @@ AGENT_ALLOWED_IPS=192.168.1.50,127.0.0.1
 
 Si `AGENT_ALLOWED_IPS` está vacío, solo se exige el token. Si está configurado, la IP cliente debe estar en la lista y además presentar el token correcto.
 
-## Variables de entorno
+### Variables de entorno
 
 | Variable | Obligatoria | Descripción |
-| --- | --- | --- |
+| :--- | :--- | :--- |
 | `AGENT_API_TOKEN` | Sí, para habilitar la API | Token bearer interno. Debe ser largo, aleatorio y secreto. |
-| `AGENT_ALLOWED_IPS` | No | Lista separada por comas de IPs autorizadas. |
+| `AGENT_ALLOWED_IPS` | No | Lista separada por comas de IPs autorizadas. Útil para limitar acceso al host de Hermes Agent. |
 
 No añadas valores reales al repositorio, logs, tickets o capturas.
 
-## Endpoints
+---
+
+## Flujo recomendado con Hermes Agent
+
+```text
+1. Hermes llama a GET /api/agent/status.
+2. Si la API está activa, Hermes llama a GET /api/agent/context.
+3. Si el usuario pide una estimación, Hermes recopila datos y llama a POST /api/agent/bolus/estimate.
+4. Bolus AI devuelve la estimación, warnings y metadatos.
+5. Hermes muestra el resultado sin registrar tratamiento.
+6. La persona usuaria/cuidadora decide manualmente.
+```
+
+---
+
+## Endpoints actuales
 
 ### `GET /api/agent/status`
 
@@ -100,7 +140,7 @@ curl -s \
 
 ### `GET /api/agent/context`
 
-Devuelve contexto resumido útil para un agente conversacional o de automatización local.
+Devuelve contexto resumido útil para un agente conversacional.
 
 Incluye:
 
@@ -164,9 +204,9 @@ Respuesta resumida:
 - `persisted`: siempre `false`;
 - `nightscout_uploaded`: siempre `false`.
 
-## Ejemplo de uso desde Hermes Agent
+---
 
-Configuración conceptual del agente local:
+## Ejemplo de configuración conceptual en Hermes Agent
 
 ```yaml
 bolus_ai:
@@ -185,13 +225,20 @@ bolus_ai:
     - "change_user_settings"
 ```
 
-Flujo recomendado:
+---
 
-1. Hermes llama a `/api/agent/status`.
-2. Si la API está activa, llama a `/api/agent/context`.
-3. Si el usuario pide una estimación, Hermes llama a `/api/agent/bolus/estimate` con los datos indicados por el usuario.
-4. Hermes muestra la estimación y advertencias.
-5. La persona usuaria decide manualmente. Hermes no administra insulina ni registra tratamientos automáticamente.
+## Despliegue NAS vs Render
+
+| Entorno | Rol recomendado | Uso de Agent API |
+| :--- | :--- | :--- |
+| NAS | Primary local | Opción recomendada para Hermes Agent dentro de la red doméstica. |
+| Render | Backup/emergency | Solo habilitar si se necesita contingencia y se protegen token, IPs y acceso público. |
+
+Para NAS, configura `AGENT_API_TOKEN` en el entorno del backend y, si Hermes tiene IP fija, añade `AGENT_ALLOWED_IPS`.
+
+Para Render, recuerda que la URL suele ser pública. Si se habilita la Agent API en Render, usa un token distinto del NAS y restringe acceso por IP cuando sea posible.
+
+---
 
 ## Límites y decisiones de diseño
 
