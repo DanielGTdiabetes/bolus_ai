@@ -26,6 +26,8 @@ router = APIRouter()
 
 AGENT_USERNAME = "admin"
 SAFE_MODE = "read_only_estimate_only"
+VALID_INSTANCE_ROLES = {"primary", "backup", "unknown"}
+VALID_INSTANCE_LOCATIONS = {"nas", "render", "local", "unknown"}
 
 
 class AgentStatusResponse(BaseModel):
@@ -35,6 +37,9 @@ class AgentStatusResponse(BaseModel):
     timestamp: datetime
     safe_mode: str
     agent_api_enabled: bool
+    instance_role: str
+    instance_location: str
+    emergency_mode: bool
     nightscout: dict[str, Any]
     dexcom: dict[str, Any]
 
@@ -80,6 +85,21 @@ def _agent_token() -> Optional[str]:
 def _allowed_ips() -> set[str]:
     raw = os.environ.get("AGENT_ALLOWED_IPS", "")
     return {item.strip() for item in raw.split(",") if item.strip()}
+
+
+def _normalized_env_choice(key: str, allowed_values: set[str]) -> str:
+    value = os.environ.get(key)
+    if not value or not value.strip():
+        return "unknown"
+    normalized = value.strip().lower()
+    return normalized if normalized in allowed_values else "unknown"
+
+
+def _instance_metadata() -> tuple[str, str, bool]:
+    role = _normalized_env_choice("APP_INSTANCE_ROLE", VALID_INSTANCE_ROLES)
+    location = _normalized_env_choice("APP_INSTANCE_LOCATION", VALID_INSTANCE_LOCATIONS)
+    emergency_mode = role == "backup"
+    return role, location, emergency_mode
 
 
 def _data_store(settings: Settings = Depends(get_settings)) -> DataStore:
@@ -200,6 +220,7 @@ async def agent_status(
         "configured": bool(settings.dexcom.enabled and settings.dexcom.username),
         "enabled": bool(settings.dexcom.enabled),
     }
+    instance_role, instance_location, emergency_mode = _instance_metadata()
     return AgentStatusResponse(
         ok=True,
         version="0.1.0",
@@ -207,6 +228,9 @@ async def agent_status(
         timestamp=datetime.now(timezone.utc),
         safe_mode=SAFE_MODE,
         agent_api_enabled=True,
+        instance_role=instance_role,
+        instance_location=instance_location,
+        emergency_mode=emergency_mode,
         nightscout=nightscout,
         dexcom=dexcom,
     )
