@@ -24,6 +24,8 @@ def test_agent_status_without_token_is_rejected(monkeypatch):
 def test_agent_status_with_valid_token_ok(monkeypatch):
     monkeypatch.setenv("AGENT_API_TOKEN", "agent-test-token")
     monkeypatch.delenv("AGENT_ALLOWED_IPS", raising=False)
+    monkeypatch.delenv("APP_INSTANCE_ROLE", raising=False)
+    monkeypatch.delenv("APP_INSTANCE_LOCATION", raising=False)
 
     response = client.get("/api/agent/status", headers=_headers())
 
@@ -32,8 +34,26 @@ def test_agent_status_with_valid_token_ok(monkeypatch):
     assert body["ok"] is True
     assert body["safe_mode"] == "read_only_estimate_only"
     assert body["agent_api_enabled"] is True
+    assert body["instance_role"] == "unknown"
+    assert body["instance_location"] == "unknown"
+    assert body["emergency_mode"] is False
     assert "nightscout" in body
     assert "dexcom" in body
+
+
+def test_agent_status_reports_backup_render_emergency_mode(monkeypatch):
+    monkeypatch.setenv("AGENT_API_TOKEN", "agent-test-token")
+    monkeypatch.delenv("AGENT_ALLOWED_IPS", raising=False)
+    monkeypatch.setenv("APP_INSTANCE_ROLE", "backup")
+    monkeypatch.setenv("APP_INSTANCE_LOCATION", "render")
+
+    response = client.get("/api/agent/status", headers=_headers())
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["instance_role"] == "backup"
+    assert body["instance_location"] == "render"
+    assert body["emergency_mode"] is True
 
 
 def test_agent_api_disabled_without_configured_token(monkeypatch):
