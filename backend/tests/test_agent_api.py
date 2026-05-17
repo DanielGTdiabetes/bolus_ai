@@ -242,3 +242,127 @@ def _bolus_response() -> BolusResponseV2:
         explain=["Estimación de prueba"],
         warnings=[],
     )
+
+
+# ---------------------------------------------------------------------------
+# bolus/estimate — additional auth & payload coverage
+# ---------------------------------------------------------------------------
+
+
+def test_agent_bolus_estimate_without_token_is_rejected(monkeypatch):
+    monkeypatch.setenv("AGENT_API_TOKEN", "agent-test-token")
+    monkeypatch.delenv("AGENT_ALLOWED_IPS", raising=False)
+
+    response = client.post(
+        "/api/agent/bolus/estimate",
+        json={"carbs_g": 45, "bg_mgdl": 150, "meal_slot": "lunch"},
+    )
+
+    assert response.status_code == 401
+
+
+def test_agent_bolus_estimate_with_wrong_token_is_rejected(monkeypatch):
+    monkeypatch.setenv("AGENT_API_TOKEN", "agent-test-token")
+    monkeypatch.delenv("AGENT_ALLOWED_IPS", raising=False)
+
+    response = client.post(
+        "/api/agent/bolus/estimate",
+        headers={"Authorization": "Bearer wrong-token"},
+        json={"carbs_g": 45, "bg_mgdl": 150, "meal_slot": "lunch"},
+    )
+
+    assert response.status_code == 403
+
+
+def test_agent_bolus_estimate_disabled_without_configured_token(monkeypatch):
+    monkeypatch.delenv("AGENT_API_TOKEN", raising=False)
+    monkeypatch.delenv("AGENT_ALLOWED_IPS", raising=False)
+
+    response = client.post(
+        "/api/agent/bolus/estimate",
+        headers=_headers(),
+        json={"carbs_g": 45, "bg_mgdl": 150, "meal_slot": "lunch"},
+    )
+
+    assert response.status_code == 503
+
+
+def test_agent_bolus_estimate_invalid_payload_returns_422(monkeypatch):
+    monkeypatch.setenv("AGENT_API_TOKEN", "agent-test-token")
+    monkeypatch.delenv("AGENT_ALLOWED_IPS", raising=False)
+
+    response = client.post(
+        "/api/agent/bolus/estimate",
+        headers=_headers(),
+        json={"carbs_g": -10},
+    )
+
+    assert response.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# settings/summary
+# ---------------------------------------------------------------------------
+
+
+def test_agent_settings_summary_without_token_is_rejected(monkeypatch):
+    monkeypatch.setenv("AGENT_API_TOKEN", "agent-test-token")
+    monkeypatch.delenv("AGENT_ALLOWED_IPS", raising=False)
+
+    response = client.get("/api/agent/settings/summary")
+
+    assert response.status_code == 401
+
+
+def test_agent_settings_summary_disabled_without_configured_token(monkeypatch):
+    monkeypatch.delenv("AGENT_API_TOKEN", raising=False)
+    monkeypatch.delenv("AGENT_ALLOWED_IPS", raising=False)
+
+    response = client.get("/api/agent/settings/summary", headers=_headers())
+
+    assert response.status_code == 503
+
+
+def test_agent_settings_summary_returns_safe_fields(monkeypatch, mocker):
+    monkeypatch.setenv("AGENT_API_TOKEN", "agent-test-token")
+    monkeypatch.delenv("AGENT_ALLOWED_IPS", raising=False)
+
+    mocker.patch(
+        "app.api.agent._load_user_settings",
+        new=AsyncMock(return_value=_make_user_settings("Fiasp", "fiasp")),
+    )
+
+    response = client.get("/api/agent/settings/summary", headers=_headers())
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["insulin_name"] == "Fiasp"
+    assert body["insulin_onset_min"] == 5
+    assert body["insulin_peak_min"] == 55
+    assert body["insulin_duration_min"] == 240  # 4h × 60
+    assert "target_min" in body
+    assert "target_max" in body
+    assert "carb_ratio" in body
+    assert "sensitivity_factor" in body
+    assert body["default_absorption_profile"] == "auto"
+    assert isinstance(body["emergency_mode"], bool)
+    assert "manual" in body["available_sources"]
+    assert isinstance(body["warnings"], list)
+
+
+def test_agent_settings_summary_does_not_expose_secrets(monkeypatch, mocker):
+    """Response must not contain any credential, token, URL or secret field."""
+    monkeypatch.setenv("AGENT_API_TOKEN", "agent-test-token")
+    monkeypatch.delenv("AGENT_ALLOWED_IPS", raising=False)
+
+    mocker.patch(
+        "app.api.agent._load_user_settings",
+        new=AsyncMock(return_value=_make_user_settings()),
+    )
+
+    response = client.get("/api/agent/settings/summary", headers=_headers())
+
+    assert response.status_code == 200
+    body_str = response.text.lower()
+    for forbidden in ("token", "api_secret", "password", "nightscout_url", "dexcom"):
+        assert forbidden not in body_str, f"Response leaks sensitive field: {forbidden}"

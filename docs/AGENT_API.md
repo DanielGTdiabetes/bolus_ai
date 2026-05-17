@@ -93,6 +93,17 @@ No añadas valores reales al repositorio, logs, tickets o capturas.
 
 ## Endpoints actuales
 
+| Endpoint | Método | Propósito |
+| :--- | :--- | :--- |
+| `/api/agent/status` | GET | Estado de la aplicación y configuración de fuentes |
+| `/api/agent/glucose/current` | GET | Glucosa actual desde la fuente configurada |
+| `/api/agent/context` | GET | Contexto resumido (glucosa + IOB + COB + last_meal) |
+| `/api/agent/profile` | GET | Perfil clínico de referencia (farmacocinética + ratios) |
+| `/api/agent/settings/summary` | GET | Resumen seguro de configuración activa (sin secretos) |
+| `/api/agent/bolus/estimate` | POST | Estimación de bolo reutilizando el motor de Bolus AI |
+
+---
+
 ### `GET /api/agent/status`
 
 Devuelve estado básico de la aplicación para un agente local.
@@ -214,6 +225,58 @@ Riesgos y advertencias:
 - si en el futuro se conectan valores reales de usuario, habrá que revisar consentimiento, mínimos datos expuestos, auditoría y controles de acceso;
 - no usar este endpoint para ejecutar cambios de bomba, pluma o Nightscout.
 
+### `GET /api/agent/settings/summary`
+
+Devuelve una vista segura de la configuración activa, pensada para que un agente (Hermes) contextualice estimaciones de bolo sin acceder a credenciales ni a URLs privadas.
+
+Campos incluidos:
+
+| Campo | Tipo | Descripción |
+| :--- | :--- | :--- |
+| `insulin_name` | string | Nombre de la insulina configurada (p.ej. "Fiasp") |
+| `insulin_onset_min` | int | Inicio de acción en minutos (5 para Fiasp, 15 para NovoRapid…) |
+| `insulin_peak_min` | int | Pico de acción en minutos |
+| `insulin_duration_min` | int | Duración total de acción en minutos (DIA × 60) |
+| `target_min` | float | Límite inferior del rango objetivo en mg/dL |
+| `target_max` | float | Objetivo del slot lunch en mg/dL (representativo) |
+| `carb_ratio` | float | Ratio insulina-carbohidratos lunch en g/U |
+| `sensitivity_factor` | float | Factor de sensibilidad lunch en mg/dL/U |
+| `default_absorption_profile` | string | Siempre `"auto"` (el motor infiere el perfil según macros) |
+| `emergency_mode` | bool | `true` si la instancia está en modo emergencia |
+| `available_sources` | list[string] | Fuentes de glucosa habilitadas (p.ej. `["nightscout","manual"]`) |
+| `warnings` | list[string] | Avisos de configuración (vacío si todo está OK) |
+
+**No se expone:** tokens, API secrets, contraseñas, URLs de Nightscout/Dexcom, credenciales de MyFitnessPal.
+
+Ejemplo:
+
+```bash
+curl -s \
+  -H "Authorization: Bearer ${AGENT_API_TOKEN}" \
+  http://bolus-ai.local:8000/api/agent/settings/summary
+```
+
+Respuesta de ejemplo:
+
+```json
+{
+  "insulin_name": "Fiasp",
+  "insulin_onset_min": 5,
+  "insulin_peak_min": 55,
+  "insulin_duration_min": 240,
+  "target_min": 90,
+  "target_max": 100,
+  "carb_ratio": 10.0,
+  "sensitivity_factor": 50.0,
+  "default_absorption_profile": "auto",
+  "emergency_mode": false,
+  "available_sources": ["nightscout", "manual"],
+  "warnings": []
+}
+```
+
+---
+
 ### `POST /api/agent/bolus/estimate`
 
 Solicita una estimación de bolo reutilizando el cálculo existente de Bolus AI.
@@ -293,6 +356,88 @@ Para Render, recuerda que la URL suele ser pública. Si se habilita la Agent API
 
 ---
 
+## Tool Hermes: `bolus_estimate_tool`
+
+Hermes no tiene su propio motor clínico. La tool debe delegar al 100% en Bolus AI.
+
+### Variables de entorno requeridas en Hermes
+
+```env
+BOLUS_AI_BASE_URL=http://bolus-ai.local:8000
+BOLUS_AI_AGENT_TOKEN=<mismo_valor_que_AGENT_API_TOKEN>
+```
+
+### Pseudocódigo de referencia
+
+```python
+async def bolus_estimate_tool(
+    carbs_g: float,
+    fat_g: float = 0,
+    protein_g: float = 0,
+    fiber_g: float = 0,
+    bg_mgdl: float | None = None,
+    meal_slot: str = "lunch",
+) -> dict:
+    """Llama a Bolus AI para obtener una estimación de bolo.
+
+    Hermes nunca calcula el bolo directamente.
+    """
+    if carbs_g < 0:
+        raise ValueError("carbs_g no puede ser negativo")
+
+    base_url = os.environ["BOLUS_AI_BASE_URL"]
+    token = os.environ["BOLUS_AI_AGENT_TOKEN"]
+
+    payload = {
+        "carbs_g": carbs_g,
+        "fat_g": fat_g,
+        "protein_g": protein_g,
+        "fiber_g": fiber_g,
+        "meal_slot": meal_slot,
+        "confirm_iob_unknown": True,
+    }
+    if bg_mgdl is not None:
+        payload["bg_mgdl"] = bg_mgdl
+
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        resp = await client.post(
+            f"{base_url}/api/agent/bolus/estimate",
+            headers={"Authorization": f"Bearer {token}"},
+            json=payload,
+        )
+
+    if resp.status_code == 401:
+        raise PermissionError("Token de agente inválido o ausente")
+    if resp.status_code == 503:
+        raise RuntimeError("Bolus AI Agent API no configurada")
+    resp.raise_for_status()
+
+    data = resp.json()
+    est = data["estimation"]
+    return {
+        "estimate_only": True,
+        "bolus_total_u": est["total_u_final"],
+        "meal_bolus_u": est["meal_bolus_u"],
+        "correction_bolus_u": est["correction_u"],
+        "iob_u": est["iob_u"],
+        "kind": est["kind"],
+        "warnings": data["warnings"],
+        "explanation": data["explanation"],
+        "persisted": data["persisted"],
+        "nightscout_uploaded": data["nightscout_uploaded"],
+    }
+```
+
+### Comportamiento esperado en Hermes
+
+- Mostrar siempre que el resultado es una **estimación** y no una orden de administración.
+- Si falta `bg_mgdl`, pedirlo al usuario o indicar que se usará la glucosa actual de Nightscout (con `use_current_glucose: true`).
+- No almacenar ni reenviar el resultado a Nightscout.
+- Ante error 401/503: informar al usuario que la integración con Bolus AI no está disponible, sin reintentar silenciosamente.
+- Ante timeout: informar y sugerir revisar la conectividad con el NAS.
+
+---
+
 ## Límites y decisiones de diseño
 
 - La API vive en un router aislado (`app/api/agent.py`).
@@ -302,3 +447,4 @@ Para Render, recuerda que la URL suele ser pública. Si se habilita la Agent API
 - No se crea un `bolus_core` nuevo ni se duplica la lógica clínica.
 - El usuario operativo interno actual es `admin`, coherente con despliegues NAS/locales existentes.
 - Los cambios son reversibles: retirar el include del router y eliminar `app/api/agent.py` desactiva la integración.
+- `settings/summary` no expone nunca URLs privadas, tokens, API secrets ni credenciales de terceros.
