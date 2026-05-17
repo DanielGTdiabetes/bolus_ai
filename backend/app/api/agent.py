@@ -19,6 +19,7 @@ from app.core.settings import Settings, get_settings
 from app.models.bolus_v2 import BolusRequestV2, BolusResponseV2
 from app.models.settings import UserSettings
 from app.services.bolus_calc_service import calculate_bolus_stateless_service
+from app.services.bolus_engine import resolve_target
 from app.services.iob import compute_cob_from_sources, compute_iob_from_sources
 from app.services.nightscout_client import NightscoutClient
 from app.services.nightscout_secrets_service import get_ns_config
@@ -138,14 +139,17 @@ def _resolve_insulin_timing(user_settings: UserSettings) -> tuple[int, int]:
     """Return (onset_min, peak_min) for the insulin configured in user_settings.
 
     Resolution order:
-    1. insulin.name  (free-text, e.g. "Fiasp 200U/mL")
-    2. iob.curve     (normalised key, e.g. "fiasp" / "novorapid")
+    1. iob.curve     (normalised key, e.g. "fiasp" / "novorapid") — checked first
+    2. insulin.name  (free-text, e.g. "Fiasp 200U/mL")
+    Curve is authoritative: checking it first prevents a broad molecule keyword
+    in the free-text name (e.g. "aspart" inside "faster aspart") from masking an
+    ultra-rapid curve setting such as "fiasp".
     Falls back to (_DEFAULT_ONSET_MIN, _DEFAULT_PEAK_MIN) when the type is
     unrecognised and logs a warning so unknown types are easy to spot in logs.
     """
     candidates = [
-        (user_settings.insulin.name or "").lower(),
         (user_settings.iob.curve or "").lower(),
+        (user_settings.insulin.name or "").lower(),
     ]
     for candidate in candidates:
         for keyword, timing in _INSULIN_TIMING.items():
@@ -349,16 +353,20 @@ async def agent_profile(
     """
     user_settings = await _load_user_settings(session, store)
     onset_min, peak_min = _resolve_insulin_timing(user_settings)
-    # Use lunch slot as a representative single-value ISF/ICR; lunch is the
-    # most commonly configured slot and a reasonable daily average.
+    # Use lunch slot as a representative single-value ISF/ICR/target; lunch is
+    # the most commonly configured slot and a reasonable daily average.
     isf = user_settings.cf.lunch
     icr = user_settings.cr.lunch
+    # resolve_target reads targets.lunch → targets.mid → 100 (same priority as
+    # bolus calculations), so the agent profile reflects the real configured
+    # target rather than the targets.low/targets.high model defaults (90/120).
+    target_high = int(resolve_target(user_settings, "lunch"))
     return AgentProfileResponse(
         dia_hours=user_settings.iob.dia_hours,
         isf_mgdl_per_u=isf,
         icr_g_per_u=icr,
         target_low_mgdl=user_settings.targets.low,
-        target_high_mgdl=user_settings.targets.high,
+        target_high_mgdl=target_high,
         insulin_onset_min=onset_min,
         insulin_peak_min=peak_min,
     )
