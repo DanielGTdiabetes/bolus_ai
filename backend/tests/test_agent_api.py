@@ -75,6 +75,43 @@ def test_agent_status_does_not_require_external_services(monkeypatch):
     assert response.json()["nightscout"]["reachable"] is None
 
 
+def test_agent_profile_returns_default_read_only_structure(monkeypatch):
+    monkeypatch.setenv("AGENT_API_TOKEN", "agent-test-token")
+    monkeypatch.delenv("AGENT_ALLOWED_IPS", raising=False)
+
+    response = client.get("/api/agent/profile", headers=_headers())
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "dia_hours": 4,
+        "isf_mgdl_per_u": 78,
+        "icr_g_per_u": 10,
+        "basal_u_per_h": 0.625,
+        "target_low_mgdl": 90,
+        "target_high_mgdl": 160,
+        "insulin_onset_min": 15,
+        "insulin_peak_min": 75,
+    }
+
+
+def test_agent_profile_without_bearer_token_is_rejected(monkeypatch):
+    monkeypatch.setenv("AGENT_API_TOKEN", "agent-test-token")
+    monkeypatch.delenv("AGENT_ALLOWED_IPS", raising=False)
+
+    response = client.get("/api/agent/profile")
+
+    assert response.status_code == 401
+
+
+def test_agent_profile_disabled_without_configured_token(monkeypatch):
+    monkeypatch.delenv("AGENT_API_TOKEN", raising=False)
+    monkeypatch.delenv("AGENT_ALLOWED_IPS", raising=False)
+
+    response = client.get("/api/agent/profile", headers=_headers())
+
+    assert response.status_code == 503
+
+
 def test_agent_bolus_estimate_does_not_persist_or_upload(monkeypatch, mocker):
     monkeypatch.setenv("AGENT_API_TOKEN", "agent-test-token")
     monkeypatch.delenv("AGENT_ALLOWED_IPS", raising=False)
@@ -82,7 +119,9 @@ def test_agent_bolus_estimate_does_not_persist_or_upload(monkeypatch, mocker):
         "app.api.agent.calculate_bolus_stateless_service",
         new=AsyncMock(return_value=_bolus_response()),
     )
-    mocked_log = mocker.patch("app.services.treatment_logger.log_treatment", new=AsyncMock())
+    mocked_log = mocker.patch(
+        "app.services.treatment_logger.log_treatment", new=AsyncMock()
+    )
     mocked_upload = mocker.patch(
         "app.services.nightscout_client.NightscoutClient.upload_treatments",
         new=AsyncMock(),

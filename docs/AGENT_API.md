@@ -28,6 +28,7 @@ La Agent API puede:
 - Consultar estado de la aplicación.
 - Consultar glucosa actual desde la fuente configurada.
 - Consultar contexto resumido.
+- Consultar un perfil clínico no identificable con valores por defecto de ejemplo.
 - Solicitar una estimación de bolo reutilizando el motor existente de Bolus AI.
 
 La Agent API no puede:
@@ -81,10 +82,11 @@ No añadas valores reales al repositorio, logs, tickets o capturas.
 ```text
 1. Hermes llama a GET /api/agent/status.
 2. Si la API está activa, Hermes llama a GET /api/agent/context.
-3. Si el usuario pide una estimación, Hermes recopila datos y llama a POST /api/agent/bolus/estimate.
-4. Bolus AI devuelve la estimación, warnings y metadatos.
-5. Hermes muestra el resultado sin registrar tratamiento.
-6. La persona usuaria/cuidadora decide manualmente.
+3. Si necesita parámetros clínicos base para explicar una estimación, Hermes llama a GET /api/agent/profile.
+4. Si el usuario pide una estimación, Hermes recopila datos y llama a POST /api/agent/bolus/estimate.
+5. Bolus AI devuelve la estimación, warnings y metadatos.
+6. Hermes muestra el resultado sin registrar tratamiento.
+7. La persona usuaria/cuidadora decide manualmente.
 ```
 
 ---
@@ -160,6 +162,57 @@ curl -s \
   -H "Authorization: Bearer ${AGENT_API_TOKEN}" \
   http://bolus-ai.local:8000/api/agent/context
 ```
+
+### `GET /api/agent/profile`
+
+Devuelve una plantilla de perfil clínico **solo lectura** con valores por defecto no identificables. No lee ni expone valores reales de usuario, no calcula dosis, no persiste datos y no modifica estado.
+
+Campos devueltos:
+
+- `dia_hours`: duración de acción de insulina en horas;
+- `isf_mgdl_per_u`: factor de sensibilidad en mg/dL por unidad;
+- `icr_g_per_u`: ratio insulina-carbohidratos en gramos por unidad;
+- `basal_u_per_h`: tasa basal de referencia en unidades por hora;
+- `target_low_mgdl`: límite inferior del rango objetivo en mg/dL;
+- `target_high_mgdl`: límite superior del rango objetivo en mg/dL;
+- `insulin_onset_min`: inicio aproximado de acción de insulina en minutos;
+- `insulin_peak_min`: pico aproximado de acción de insulina en minutos.
+
+Respuesta actual de ejemplo:
+
+```json
+{
+  "dia_hours": 4,
+  "isf_mgdl_per_u": 78,
+  "icr_g_per_u": 10,
+  "basal_u_per_h": 0.625,
+  "target_low_mgdl": 90,
+  "target_high_mgdl": 160,
+  "insulin_onset_min": 15,
+  "insulin_peak_min": 75
+}
+```
+
+Ejemplo:
+
+```bash
+curl -s \
+  -H "Authorization: Bearer ${AGENT_API_TOKEN}" \
+  http://bolus-ai.local:8000/api/agent/profile
+```
+
+Seguridad:
+
+- requiere `Authorization: Bearer <AGENT_API_TOKEN>` igual que el resto de `/api/agent/*`;
+- devuelve `401` si falta el bearer token;
+- devuelve `503` si `AGENT_API_TOKEN` no está configurado;
+- no debe sustituir una revisión clínica ni usarse para automatizar administración de insulina.
+
+Riesgos y advertencias:
+
+- aunque los valores son de ejemplo, pueden parecer parámetros terapéuticos; el agente debe etiquetarlos como plantilla no personalizada;
+- si en el futuro se conectan valores reales de usuario, habrá que revisar consentimiento, mínimos datos expuestos, auditoría y controles de acceso;
+- no usar este endpoint para ejecutar cambios de bomba, pluma o Nightscout.
 
 ### `POST /api/agent/bolus/estimate`
 

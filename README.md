@@ -92,6 +92,7 @@ Hermes Agent se integra con Bolus AI mediante una API interna y autenticada. La 
 | :--- | :--- | :--- |
 | `GET` | `/api/agent/status` | Estado básico de la aplicación y disponibilidad de la Agent API. |
 | `GET` | `/api/agent/context` | Contexto resumido para un agente conversacional. |
+| `GET` | `/api/agent/profile` | Perfil clínico no identificable con valores por defecto, solo lectura. |
 | `GET` | `/api/agent/glucose/current` | Glucosa actual normalizada a `mg/dL` desde la fuente configurada. |
 | `POST` | `/api/agent/bolus/estimate` | Estimación de bolo sin persistencia y sin subida a Nightscout. |
 
@@ -115,6 +116,8 @@ curl -s \
   -H "Authorization: Bearer ${AGENT_API_TOKEN}" \
   http://bolus-ai.local:8000/api/agent/status
 ```
+
+El endpoint `GET /api/agent/profile` reutiliza esta seguridad y devuelve únicamente una plantilla de parámetros clínicos por defecto; no expone ajustes reales de usuario ni modifica estado.
 
 Buenas prácticas:
 

@@ -67,6 +67,41 @@ class AgentContextResponse(BaseModel):
     warnings: list[str] = Field(default_factory=list)
 
 
+class AgentProfileResponse(BaseModel):
+    dia_hours: float = Field(
+        default=4,
+        description="Duración de acción de la insulina activa expresada en horas.",
+    )
+    isf_mgdl_per_u: float = Field(
+        default=78,
+        description="Factor de sensibilidad: descenso estimado de glucosa en mg/dL por 1 unidad de insulina.",
+    )
+    icr_g_per_u: float = Field(
+        default=10,
+        description="Ratio insulina-carbohidratos: gramos de carbohidratos cubiertos por 1 unidad de insulina.",
+    )
+    basal_u_per_h: float = Field(
+        default=0.625,
+        description="Tasa basal de referencia expresada en unidades de insulina por hora.",
+    )
+    target_low_mgdl: int = Field(
+        default=90,
+        description="Límite inferior del rango objetivo de glucosa en mg/dL.",
+    )
+    target_high_mgdl: int = Field(
+        default=160,
+        description="Límite superior del rango objetivo de glucosa en mg/dL.",
+    )
+    insulin_onset_min: int = Field(
+        default=15,
+        description="Tiempo aproximado hasta el inicio de acción de la insulina en minutos.",
+    )
+    insulin_peak_min: int = Field(
+        default=75,
+        description="Tiempo aproximado hasta el pico de acción de la insulina en minutos.",
+    )
+
+
 class AgentBolusEstimateResponse(BaseModel):
     estimation: BolusResponseV2
     explanation: list[str]
@@ -117,15 +152,21 @@ async def require_agent_access(request: Request) -> None:
     allowed_ips = _allowed_ips()
     client_host = request.client.host if request.client else None
     if allowed_ips and client_host not in allowed_ips:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="IP not allowed")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="IP not allowed"
+        )
 
     auth = request.headers.get("authorization", "")
     scheme, _, supplied = auth.partition(" ")
     if scheme.lower() != "bearer" or not supplied:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Bearer token required")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Bearer token required"
+        )
 
     if not hmac.compare_digest(supplied, expected):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid agent token")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Invalid agent token"
+        )
 
 
 async def _load_user_settings(session: AsyncSession, store: DataStore) -> UserSettings:
@@ -136,8 +177,6 @@ async def _load_user_settings(session: AsyncSession, store: DataStore) -> UserSe
     except Exception:
         pass
     return store.load_settings()
-
-
 
 
 async def _last_meal(session: AsyncSession) -> Optional[dict[str, Any]]:
@@ -167,19 +206,31 @@ async def _last_meal(session: AsyncSession) -> Optional[dict[str, Any]]:
     except Exception:
         return None
 
-async def _build_ns_client(session: AsyncSession) -> tuple[Optional[NightscoutClient], dict[str, Any]]:
-    ns_state: dict[str, Any] = {"enabled": False, "configured": False, "reachable": None}
+
+async def _build_ns_client(
+    session: AsyncSession,
+) -> tuple[Optional[NightscoutClient], dict[str, Any]]:
+    ns_state: dict[str, Any] = {
+        "enabled": False,
+        "configured": False,
+        "reachable": None,
+    }
     ns_config = await get_ns_config(session, AGENT_USERNAME)
     if ns_config and ns_config.enabled and ns_config.url:
         ns_state.update({"enabled": True, "configured": True})
-        return NightscoutClient(ns_config.url, ns_config.api_secret, timeout_seconds=5), ns_state
+        return (
+            NightscoutClient(ns_config.url, ns_config.api_secret, timeout_seconds=5),
+            ns_state,
+        )
     return None, ns_state
 
 
 async def _current_glucose(session: AsyncSession) -> AgentGlucoseCurrentResponse:
     client, _ = await _build_ns_client(session)
     if client is None:
-        return AgentGlucoseCurrentResponse(source="none", warnings=["Nightscout no configurado"])
+        return AgentGlucoseCurrentResponse(
+            source="none", warnings=["Nightscout no configurado"]
+        )
 
     try:
         sgv = await client.get_latest_sgv()
@@ -234,6 +285,23 @@ async def agent_status(
         nightscout=nightscout,
         dexcom=dexcom,
     )
+
+
+@router.get("/profile", response_model=AgentProfileResponse)
+async def agent_profile(
+    _: None = Depends(require_agent_access),
+) -> AgentProfileResponse:
+    """Return a read-only, non-identifying clinical profile template for agents.
+
+    dia_hours is insulin action duration in hours; isf_mgdl_per_u is glucose
+    sensitivity per insulin unit; icr_g_per_u is carbohydrate coverage per
+    insulin unit; basal_u_per_h is a reference hourly basal rate;
+    target_low_mgdl and target_high_mgdl define the glucose target range;
+    insulin_onset_min and insulin_peak_min describe insulin action timing.
+    The endpoint intentionally returns safe default example values only and
+    does not read, persist, calculate, or mutate user-specific clinical data.
+    """
+    return AgentProfileResponse()
 
 
 @router.get("/glucose/current", response_model=AgentGlucoseCurrentResponse)
