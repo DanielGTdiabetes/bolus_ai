@@ -116,6 +116,21 @@ class AgentBolusEstimateResponse(BaseModel):
     nightscout_uploaded: bool = False
 
 
+class AgentSettingsSummaryResponse(BaseModel):
+    insulin_name: str
+    insulin_onset_min: int
+    insulin_peak_min: int
+    insulin_duration_min: int
+    target_min: float
+    target_max: float
+    carb_ratio: Optional[float] = None
+    sensitivity_factor: Optional[float] = None
+    default_absorption_profile: str
+    emergency_mode: bool
+    available_sources: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+
+
 # Pharmacokinetic onset/peak values (minutes) by insulin name keyword.
 # Sources: EMA/EPAR product assessments and manufacturer SmPC documents.
 _INSULIN_TIMING: dict[str, tuple[int, int]] = {
@@ -454,4 +469,52 @@ async def agent_bolus_estimate(
         forecast_curve=None,
         persisted=False,
         nightscout_uploaded=False,
+    )
+
+
+@router.get("/settings/summary", response_model=AgentSettingsSummaryResponse)
+async def agent_settings_summary(
+    _: None = Depends(require_agent_access),
+    session: AsyncSession = Depends(get_db_session),
+    store: DataStore = Depends(_data_store),
+    settings: Settings = Depends(get_settings),
+) -> AgentSettingsSummaryResponse:
+    """Return a safe, read-only configuration summary for agent consumers.
+
+    Exposes only pharmacokinetic and therapeutic parameters that an agent
+    (e.g. Hermes) needs to contextualise bolus estimates.  Credentials,
+    API secrets, private URLs and personally identifiable configuration
+    are never included in this response.
+    """
+    user_settings = await _load_user_settings(session, store)
+    onset_min, peak_min = _resolve_insulin_timing(user_settings)
+
+    available_sources: list[str] = []
+    summary_warnings: list[str] = []
+
+    ns_config = await get_ns_config(session, AGENT_USERNAME)
+    if ns_config and ns_config.enabled and ns_config.url:
+        available_sources.append("nightscout")
+
+    if settings.dexcom.enabled and settings.dexcom.username:
+        available_sources.append("dexcom")
+
+    available_sources.append("manual")
+
+    if len(available_sources) == 1:
+        summary_warnings.append("No hay fuente de glucosa remota configurada; solo modo manual disponible")
+
+    return AgentSettingsSummaryResponse(
+        insulin_name=user_settings.insulin.name,
+        insulin_onset_min=onset_min,
+        insulin_peak_min=peak_min,
+        insulin_duration_min=int(user_settings.iob.dia_hours * 60),
+        target_min=float(user_settings.targets.low),
+        target_max=float(resolve_target(user_settings, "lunch")),
+        carb_ratio=user_settings.cr.lunch,
+        sensitivity_factor=user_settings.cf.lunch,
+        default_absorption_profile="auto",
+        emergency_mode=settings.emergency_mode,
+        available_sources=available_sources,
+        warnings=summary_warnings,
     )
