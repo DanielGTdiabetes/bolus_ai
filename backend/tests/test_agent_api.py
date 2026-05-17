@@ -75,23 +75,89 @@ def test_agent_status_does_not_require_external_services(monkeypatch):
     assert response.json()["nightscout"]["reachable"] is None
 
 
-def test_agent_profile_returns_default_read_only_structure(monkeypatch):
+def _make_user_settings(insulin_name: str = "Novorapid", iob_curve: str = "novorapid"):
+    """Build a UserSettings instance with the given insulin name and IOB curve."""
+    from app.models.settings import UserSettings
+
+    return UserSettings.model_validate(
+        {
+            "insulin": {"name": insulin_name},
+            "iob": {"curve": iob_curve, "dia_hours": 4.0, "peak_minutes": 75},
+        }
+    )
+
+
+def test_agent_profile_returns_real_settings(monkeypatch, mocker):
+    """Profile endpoint must read user settings, not return hardcoded defaults."""
     monkeypatch.setenv("AGENT_API_TOKEN", "agent-test-token")
     monkeypatch.delenv("AGENT_ALLOWED_IPS", raising=False)
+
+    mocker.patch(
+        "app.api.agent._load_user_settings",
+        new=AsyncMock(return_value=_make_user_settings("Novorapid", "novorapid")),
+    )
 
     response = client.get("/api/agent/profile", headers=_headers())
 
     assert response.status_code == 200
-    assert response.json() == {
-        "dia_hours": 4,
-        "isf_mgdl_per_u": 78,
-        "icr_g_per_u": 10,
-        "basal_u_per_h": 0.625,
-        "target_low_mgdl": 90,
-        "target_high_mgdl": 160,
-        "insulin_onset_min": 15,
-        "insulin_peak_min": 75,
-    }
+    body = response.json()
+    assert body["insulin_onset_min"] == 15
+    assert body["insulin_peak_min"] == 75
+    assert body["dia_hours"] == 4.0
+
+
+def test_agent_profile_fiasp_returns_ultrafast_timing(monkeypatch, mocker):
+    """Fiasp insulin must yield onset=5, peak=55."""
+    monkeypatch.setenv("AGENT_API_TOKEN", "agent-test-token")
+    monkeypatch.delenv("AGENT_ALLOWED_IPS", raising=False)
+
+    mocker.patch(
+        "app.api.agent._load_user_settings",
+        new=AsyncMock(return_value=_make_user_settings("Fiasp", "fiasp")),
+    )
+
+    response = client.get("/api/agent/profile", headers=_headers())
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["insulin_onset_min"] == 5
+    assert body["insulin_peak_min"] == 55
+
+
+def test_agent_profile_novorapid_returns_rapid_timing(monkeypatch, mocker):
+    """NovoRapid insulin must yield onset=15, peak=75."""
+    monkeypatch.setenv("AGENT_API_TOKEN", "agent-test-token")
+    monkeypatch.delenv("AGENT_ALLOWED_IPS", raising=False)
+
+    mocker.patch(
+        "app.api.agent._load_user_settings",
+        new=AsyncMock(return_value=_make_user_settings("NovoRapid", "novorapid")),
+    )
+
+    response = client.get("/api/agent/profile", headers=_headers())
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["insulin_onset_min"] == 15
+    assert body["insulin_peak_min"] == 75
+
+
+def test_agent_profile_unknown_insulin_uses_default_timing(monkeypatch, mocker):
+    """Unknown insulin names must fall back to rapid-analogue defaults (15/75)."""
+    monkeypatch.setenv("AGENT_API_TOKEN", "agent-test-token")
+    monkeypatch.delenv("AGENT_ALLOWED_IPS", raising=False)
+
+    mocker.patch(
+        "app.api.agent._load_user_settings",
+        new=AsyncMock(return_value=_make_user_settings("MyCustomInsulin", "walsh")),
+    )
+
+    response = client.get("/api/agent/profile", headers=_headers())
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["insulin_onset_min"] == 15
+    assert body["insulin_peak_min"] == 75
 
 
 def test_agent_profile_without_bearer_token_is_rejected(monkeypatch):

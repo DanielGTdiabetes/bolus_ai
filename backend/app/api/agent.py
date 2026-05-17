@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import hmac
+import logging
 import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
+
+logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
@@ -110,6 +113,51 @@ class AgentBolusEstimateResponse(BaseModel):
     forecast_curve: Optional[list[dict[str, Any]]] = None
     persisted: bool = False
     nightscout_uploaded: bool = False
+
+
+# Pharmacokinetic onset/peak values (minutes) by insulin name keyword.
+# Sources: EMA/EPAR product assessments and manufacturer SmPC documents.
+_INSULIN_TIMING: dict[str, tuple[int, int]] = {
+    # Ultra-rapid analogues
+    "fiasp": (5, 55),
+    "lyumjev": (5, 55),
+    # Rapid analogues
+    "novorapid": (15, 75),
+    "novolog": (15, 75),
+    "aspart": (15, 75),
+    "humalog": (15, 75),
+    "lispro": (15, 75),
+    "apidra": (15, 75),
+    "glulisine": (15, 75),
+}
+_DEFAULT_ONSET_MIN = 15
+_DEFAULT_PEAK_MIN = 75
+
+
+def _resolve_insulin_timing(user_settings: UserSettings) -> tuple[int, int]:
+    """Return (onset_min, peak_min) for the insulin configured in user_settings.
+
+    Resolution order:
+    1. insulin.name  (free-text, e.g. "Fiasp 200U/mL")
+    2. iob.curve     (normalised key, e.g. "fiasp" / "novorapid")
+    Falls back to (_DEFAULT_ONSET_MIN, _DEFAULT_PEAK_MIN) when the type is
+    unrecognised and logs a warning so unknown types are easy to spot in logs.
+    """
+    candidates = [
+        (user_settings.insulin.name or "").lower(),
+        (user_settings.iob.curve or "").lower(),
+    ]
+    for candidate in candidates:
+        for keyword, timing in _INSULIN_TIMING.items():
+            if keyword in candidate:
+                return timing
+
+    insulin_name = user_settings.insulin.name or "unknown"
+    logger.warning(
+        "agent_profile: unrecognised insulin type %r — returning default onset/peak values",
+        insulin_name,
+    )
+    return _DEFAULT_ONSET_MIN, _DEFAULT_PEAK_MIN
 
 
 def _agent_token() -> Optional[str]:
@@ -290,18 +338,30 @@ async def agent_status(
 @router.get("/profile", response_model=AgentProfileResponse)
 async def agent_profile(
     _: None = Depends(require_agent_access),
+    session: AsyncSession = Depends(get_db_session),
+    store: DataStore = Depends(_data_store),
 ) -> AgentProfileResponse:
-    """Return a read-only, non-identifying clinical profile template for agents.
+    """Return the read-only clinical profile for the agent user.
 
-    dia_hours is insulin action duration in hours; isf_mgdl_per_u is glucose
-    sensitivity per insulin unit; icr_g_per_u is carbohydrate coverage per
-    insulin unit; basal_u_per_h is a reference hourly basal rate;
-    target_low_mgdl and target_high_mgdl define the glucose target range;
-    insulin_onset_min and insulin_peak_min describe insulin action timing.
-    The endpoint intentionally returns safe default example values only and
-    does not read, persist, calculate, or mutate user-specific clinical data.
+    All values are derived from the stored user settings.  No data is written or
+    mutated.  insulin_onset_min and insulin_peak_min reflect the configured
+    insulin type (e.g. Fiasp → 5/55 min, NovoRapid → 15/75 min).
     """
-    return AgentProfileResponse()
+    user_settings = await _load_user_settings(session, store)
+    onset_min, peak_min = _resolve_insulin_timing(user_settings)
+    # Use lunch slot as a representative single-value ISF/ICR; lunch is the
+    # most commonly configured slot and a reasonable daily average.
+    isf = user_settings.cf.lunch
+    icr = user_settings.cr.lunch
+    return AgentProfileResponse(
+        dia_hours=user_settings.iob.dia_hours,
+        isf_mgdl_per_u=isf,
+        icr_g_per_u=icr,
+        target_low_mgdl=user_settings.targets.low,
+        target_high_mgdl=user_settings.targets.high,
+        insulin_onset_min=onset_min,
+        insulin_peak_min=peak_min,
+    )
 
 
 @router.get("/glucose/current", response_model=AgentGlucoseCurrentResponse)
