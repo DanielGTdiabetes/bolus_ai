@@ -178,6 +178,106 @@ def test_agent_profile_disabled_without_configured_token(monkeypatch):
     assert response.status_code == 503
 
 
+def test_agent_treatments_without_token_is_rejected(monkeypatch):
+    monkeypatch.setenv("AGENT_API_TOKEN", "agent-test-token")
+    monkeypatch.delenv("AGENT_ALLOWED_IPS", raising=False)
+
+    response = client.get("/api/agent/treatments")
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Bearer token required"
+
+
+def test_agent_treatments_with_invalid_token_is_rejected(monkeypatch):
+    monkeypatch.setenv("AGENT_API_TOKEN", "agent-test-token")
+    monkeypatch.delenv("AGENT_ALLOWED_IPS", raising=False)
+
+    response = client.get("/api/agent/treatments", headers=_headers("wrong-token"))
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Invalid agent token"
+
+
+def test_agent_treatments_with_valid_token_uses_hybrid_source(monkeypatch, mocker):
+    monkeypatch.setenv("AGENT_API_TOKEN", "agent-test-token")
+    monkeypatch.delenv("AGENT_ALLOWED_IPS", raising=False)
+    mocked_treatments = mocker.patch(
+        "app.api.agent.get_treatments_server",
+        new=AsyncMock(
+            return_value=[
+                {"eventType": "Meal Bolus", "carbs": 30},
+                {"eventType": "Correction Bolus", "carbs": 0},
+            ]
+        ),
+    )
+
+    response = client.get("/api/agent/treatments?count=2", headers=_headers())
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["source"] == "hybrid"
+    assert body["count"] == 2
+    assert len(body["treatments"]) == 2
+    mocked_treatments.assert_awaited_once()
+
+
+def test_agent_context_fallback_sets_last_meal_when_nightscout_fails(monkeypatch, mocker):
+    monkeypatch.setenv("AGENT_API_TOKEN", "agent-test-token")
+    monkeypatch.delenv("AGENT_ALLOWED_IPS", raising=False)
+    mocker.patch("app.api.agent._load_user_settings", new=AsyncMock(return_value=_make_user_settings()))
+    mocker.patch("app.api.agent.compute_iob_from_sources", new=AsyncMock(return_value=(0.0, None, None, None)))
+    mocker.patch("app.api.agent.compute_cob_from_sources", new=AsyncMock(return_value=(0.0, None, None)))
+    mocker.patch("app.api.agent._last_meal", new=AsyncMock(side_effect=TimeoutError("ns down")))
+    mocker.patch(
+        "app.api.agent.get_treatments_server",
+        new=AsyncMock(return_value=[{"eventType": "Meal Bolus", "carbs": 22}]),
+    )
+
+    response = client.get("/api/agent/context", headers=_headers())
+
+    assert response.status_code == 200
+    assert response.json()["last_meal"] is not None
+
+
+def test_agent_context_fallback_ignores_last_event_without_carbs(monkeypatch, mocker):
+    monkeypatch.setenv("AGENT_API_TOKEN", "agent-test-token")
+    monkeypatch.delenv("AGENT_ALLOWED_IPS", raising=False)
+    mocker.patch("app.api.agent._load_user_settings", new=AsyncMock(return_value=_make_user_settings()))
+    mocker.patch("app.api.agent.compute_iob_from_sources", new=AsyncMock(return_value=(0.0, None, None, None)))
+    mocker.patch("app.api.agent.compute_cob_from_sources", new=AsyncMock(return_value=(0.0, None, None)))
+    mocker.patch("app.api.agent._last_meal", new=AsyncMock(return_value=None))
+    mocker.patch(
+        "app.api.agent.get_treatments_server",
+        new=AsyncMock(
+            return_value=[
+                {"eventType": "Correction Bolus", "carbs": 0},
+                {"eventType": "Meal Bolus", "carbs": 45},
+            ]
+        ),
+    )
+
+    response = client.get("/api/agent/context", headers=_headers())
+
+    assert response.status_code == 200
+    assert response.json()["last_meal"]["carbs"] == 45
+
+
+def test_agent_context_fallback_failure_keeps_endpoint_resilient(monkeypatch, mocker, caplog):
+    monkeypatch.setenv("AGENT_API_TOKEN", "agent-test-token")
+    monkeypatch.delenv("AGENT_ALLOWED_IPS", raising=False)
+    mocker.patch("app.api.agent._load_user_settings", new=AsyncMock(return_value=_make_user_settings()))
+    mocker.patch("app.api.agent.compute_iob_from_sources", new=AsyncMock(return_value=(0.0, None, None, None)))
+    mocker.patch("app.api.agent.compute_cob_from_sources", new=AsyncMock(return_value=(0.0, None, None)))
+    mocker.patch("app.api.agent._last_meal", new=AsyncMock(side_effect=TimeoutError("ns down")))
+    mocker.patch("app.api.agent.get_treatments_server", new=AsyncMock(side_effect=RuntimeError("hybrid down")))
+
+    response = client.get("/api/agent/context", headers=_headers())
+
+    assert response.status_code == 200
+    assert response.json()["last_meal"] is None
+    assert "agent_context.last_meal_hybrid_fallback_failed" in caplog.text
+
+
 def test_agent_bolus_estimate_does_not_persist_or_upload(monkeypatch, mocker):
     monkeypatch.setenv("AGENT_API_TOKEN", "agent-test-token")
     monkeypatch.delenv("AGENT_ALLOWED_IPS", raising=False)
