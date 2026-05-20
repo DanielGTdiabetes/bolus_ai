@@ -9,7 +9,7 @@ from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -25,6 +25,7 @@ from app.services.nightscout_client import NightscoutClient
 from app.services.nightscout_secrets_service import get_ns_config
 from app.services.settings_service import get_user_settings_service
 from app.services.store import DataStore
+from app.api.nightscout import get_treatments_server
 
 router = APIRouter()
 
@@ -274,6 +275,28 @@ async def _last_meal(session: AsyncSession) -> Optional[dict[str, Any]]:
         return None
 
 
+def _get_treatment_value(treatment: Any, keys: tuple[str, ...]) -> Any:
+    for key in keys:
+        if isinstance(treatment, dict):
+            value = treatment.get(key)
+        else:
+            value = getattr(treatment, key, None)
+        if value is not None:
+            return value
+    return None
+
+
+def _treatment_carbs(treatment: Any) -> float:
+    value = _get_treatment_value(
+        treatment,
+        ("carbs", "carbs_g", "carbsGrams", "carbohydrates", "carbohydrate", "carbs_grams"),
+    )
+    try:
+        return float(value or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
 async def _build_ns_client(
     session: AsyncSession,
 ) -> tuple[Optional[NightscoutClient], dict[str, Any]]:
@@ -435,15 +458,77 @@ async def agent_context(
         if ns_client:
             await ns_client.aclose()
 
+    last_meal: Optional[dict[str, Any]] = None
+    try:
+        last_meal = await _last_meal(session)
+    except Exception as exc:
+        logger.warning(
+            "agent_context.last_meal_nightscout_failed_using_hybrid_fallback",
+            exc_info=exc,
+        )
+
+    if not last_meal or _treatment_carbs(last_meal) <= 0:
+        if not last_meal:
+            logger.warning(
+                "agent_context.last_meal_nightscout_failed_using_hybrid_fallback"
+            )
+        try:
+            recent_treatments = await get_treatments_server(
+                count=25,
+                from_date=None,
+                to_date=None,
+                user=CurrentUser(username=AGENT_USERNAME, role="agent"),
+                session=session,
+                store=store,
+            )
+            candidates = (
+                recent_treatments.get("treatments", [])
+                if isinstance(recent_treatments, dict)
+                else (recent_treatments or [])
+            )
+            last_meal = next((t for t in candidates if _treatment_carbs(t) > 0), None)
+            if last_meal:
+                logger.info("agent_context.last_meal_hybrid_fallback_recovered")
+        except Exception as exc:
+            logger.warning("agent_context.last_meal_hybrid_fallback_failed", exc_info=exc)
+            last_meal = None
+
     return AgentContextResponse(
         timestamp=datetime.now(timezone.utc),
         safe_mode=SAFE_MODE,
         glucose=glucose,
         iob_u=round(iob_u, 2) if iob_u is not None else None,
         cob_g=round(cob_g, 1) if cob_g is not None else None,
+        last_meal=last_meal,
         nightscout=ns_state,
         warnings=warnings,
     )
+
+
+@router.get(
+    "/treatments",
+    summary="Agent Treatments (Hybrid: Local + Nightscout)",
+    tags=["agent"],
+)
+async def agent_treatments(
+    count: int = Query(default=50, ge=1, le=500),
+    from_date: Optional[str] = None,
+    to_date: Optional[str] = None,
+    _: None = Depends(require_agent_access),
+    session: AsyncSession = Depends(get_db_session),
+    store: DataStore = Depends(_data_store),
+) -> dict[str, Any]:
+    treatments = await get_treatments_server(
+        count=count,
+        from_date=from_date,
+        to_date=to_date,
+        user=CurrentUser(username=AGENT_USERNAME, role="agent"),
+        session=session,
+        store=store,
+    )
+    if isinstance(treatments, dict):
+        return treatments
+    return {"treatments": treatments, "count": len(treatments), "source": "hybrid"}
 
 
 @router.post("/bolus/estimate", response_model=AgentBolusEstimateResponse)
