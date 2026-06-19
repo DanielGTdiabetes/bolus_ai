@@ -80,7 +80,7 @@ private enum class CompanionScreen(val label: String) {
     MEALS("Comidas"),
     DIAGNOSTICS("Diagnostico"),
     SETTINGS("Ajustes"),
-    WEB("Web"),
+    WEB("Bolus AI"),
 }
 
 @Composable
@@ -194,7 +194,7 @@ private fun HomeScreen(settings: AppSettings, queueItems: List<MealQueueItem>, n
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(onClick = { navigate(CompanionScreen.SETTINGS) }) { Text("Ajustes") }
-                OutlinedButton(onClick = { navigate(CompanionScreen.WEB) }) { Text("Abrir Bolus AI") }
+                OutlinedButton(onClick = { navigate(CompanionScreen.WEB) }) { Text("Bolus AI") }
             }
         }
     }
@@ -398,10 +398,14 @@ private fun DiagnosticsScreen(
 private fun WebScreen(settings: AppSettings) {
     val context = LocalContext.current
     val launcher = remember { PortalLauncher(context) }
+    LaunchedEffect(settings.primaryUrl) {
+        launcher.open(settings.primaryUrl)
+    }
+
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text("Portal web", style = MaterialTheme.typography.titleMedium)
-        Text("Se abre con navegador/TWA compatible o Custom Tabs cuando el sistema lo soporte.")
-        Button(onClick = { launcher.open(settings.primaryUrl) }) { Text("Abrir Bolus AI") }
+        Text("Bolus AI", style = MaterialTheme.typography.titleMedium)
+        Text("Abriendo Bolus AI en Chrome para permitir la conexion Bluetooth de la bascula.")
+        Button(onClick = { launcher.open(settings.primaryUrl) }) { Text("Abrir de nuevo") }
     }
 }
 
