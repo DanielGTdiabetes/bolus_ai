@@ -2281,6 +2281,8 @@ async def _mark_update_handler(update: Update, context: ContextTypes.DEFAULT_TYP
 
 
 DRAFT_MSG_CACHE: Dict[int, int] = {}
+MEAL_NOTIFY_CACHE: Dict[str, float] = {}
+MEAL_NOTIFY_CACHE_TTL_SECONDS = 24 * 60 * 60
 
 
 async def on_new_meal_received(carbs: float, fat: float, protein: float, fiber: float, source: str, origin_id: Optional[str] = None) -> None:
@@ -2289,6 +2291,20 @@ async def on_new_meal_received(carbs: float, fat: float, protein: float, fiber: 
     Triggers a proactive notification.
     """
     global _bot_app
+    if origin_id:
+        now_ts = time.time()
+        expired = [
+            key for key, ts in MEAL_NOTIFY_CACHE.items()
+            if now_ts - ts > MEAL_NOTIFY_CACHE_TTL_SECONDS
+        ]
+        for key in expired:
+            MEAL_NOTIFY_CACHE.pop(key, None)
+
+        if origin_id in MEAL_NOTIFY_CACHE:
+            logger.info("meal_event_duplicate_skipped event_id=%s source=%s", origin_id, source)
+            return
+        MEAL_NOTIFY_CACHE[origin_id] = now_ts
+
     if not _bot_app:
         logger.info("meal_event_received_no_bot event_id=%s source=%s", origin_id, source)
         return

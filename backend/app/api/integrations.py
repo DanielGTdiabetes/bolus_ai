@@ -301,6 +301,7 @@ async def ingest_nutrition(
                         # entry: {date: "2025-...", qty: "..."}
                         raw_date = entry.get("date")
                         entry_source = entry.get("source")
+                        entry_fingerprint = entry.get("meal_fingerprint") or entry.get("fingerprint") or entry.get("origin_id")
                         
                         # Fix Qty logic:
                         # Sometimes qty is string "36.6", sometimes number 36.6
@@ -321,10 +322,13 @@ async def ingest_nutrition(
                                     "fib": 0.0,
                                     "ts": raw_date,
                                     "source": entry_source,
+                                    "fingerprint": entry_fingerprint,
                                     "fiber_provided": False,
                                 }
                             elif entry_source and not parsed_meals[raw_date].get("source"):
                                 parsed_meals[raw_date]["source"] = entry_source
+                            elif entry_fingerprint and not parsed_meals[raw_date].get("fingerprint"):
+                                parsed_meals[raw_date]["fingerprint"] = entry_fingerprint
                             
                             # Add to existing (in case multiple entries for same type/time? unlikely but safe)
                             # Actually, usually unique per type per time.
@@ -503,7 +507,8 @@ async def ingest_nutrition(
                 # Check if we have already imported this specific external timestamp/ID.
                 # This handles cases where we "snap to now" and thus lose the temporal correlation 
                 # with the original event in the DB's created_at field.
-                import_sig = f"Imported from Health: {date_key} #imported"
+                import_key = meal.get("fingerprint") or date_key
+                import_sig = f"Imported from Health: {import_key} #imported"
                 stmt_strict = select(Treatment).where(Treatment.notes.contains(import_sig))
                 result_strict = await session.execute(stmt_strict)
                 existing_strict = result_strict.scalars().first()
@@ -687,7 +692,7 @@ async def ingest_nutrition(
                     fat=t_fat,
                     protein=t_protein,
                     fiber=t_fiber,
-                    notes=f"Imported from Health: {date_key} #imported",
+                    notes=f"Imported from Health: {import_key} #imported",
                     entered_by="webhook-integration",
                     is_uploaded=False
                 )

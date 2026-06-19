@@ -9,6 +9,11 @@ pytest_cache/
 frontend/dist/
 frontend/node_modules/
 
+# Android / Gradle
+.gradle/
+**/build/
+local.properties
+
 # Local Data & Config
 backend/data/
 config/config.json

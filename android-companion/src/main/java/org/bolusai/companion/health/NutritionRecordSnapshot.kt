@@ -1,6 +1,7 @@
 package org.bolusai.companion.health
 
 import java.time.Instant
+import java.security.MessageDigest
 
 data class NutritionRecordSnapshot(
     val metadataId: String,
@@ -14,16 +15,29 @@ data class NutritionRecordSnapshot(
     val fiberGrams: Double?,
     val caloriesKcal: Double?,
 ) {
-    val dedupeHash: String = listOf(
-        metadataId,
+    val mealSlotKey: String = listOf(
         sourcePackage,
         startTime.toString(),
         endTime.toString(),
         mealType.orEmpty(),
-        carbohydratesGrams?.toString().orEmpty(),
-        proteinGrams?.toString().orEmpty(),
-        fatGrams?.toString().orEmpty(),
-        fiberGrams?.toString().orEmpty(),
-        caloriesKcal?.toString().orEmpty(),
-    ).joinToString("|").hashCode().toString()
+    ).joinToString("|")
+
+    val stableFingerprint: String = listOf(
+        mealSlotKey,
+        carbohydratesGrams.toStableMacro(),
+        proteinGrams.toStableMacro(),
+        fatGrams.toStableMacro(),
+        fiberGrams.toStableMacro(),
+        caloriesKcal.toStableMacro(),
+    ).joinToString("|").sha256()
+
+    val dedupeHash: String = stableFingerprint
+
+    private fun Double?.toStableMacro(): String =
+        this?.let { "%.2f".format(java.util.Locale.US, it) }.orEmpty()
+
+    private fun String.sha256(): String {
+        val bytes = MessageDigest.getInstance("SHA-256").digest(toByteArray(Charsets.UTF_8))
+        return bytes.joinToString("") { "%02x".format(it) }
+    }
 }
