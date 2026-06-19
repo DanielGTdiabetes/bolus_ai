@@ -2,6 +2,7 @@ package org.bolusai.companion.network
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import org.bolusai.companion.diagnostics.Sanitizer
 import java.io.OutputStreamWriter
 import java.net.HttpURLConnection
 import java.net.URL
@@ -13,7 +14,13 @@ data class NutritionIngestResult(
     val body: String,
 )
 
-class NutritionIngestClient {
+fun interface NutritionPoster {
+    fun post(baseUrl: String, ingestKey: String, payloadJson: String, endpoint: ActiveEndpoint): NutritionIngestResult
+}
+
+class NutritionIngestClient(
+    private val poster: NutritionPoster = HttpNutritionPoster(),
+) {
     suspend fun send(
         primaryUrl: String,
         backupUrl: String,
@@ -29,14 +36,25 @@ class NutritionIngestClient {
             )
         }
 
-        val primary = post(primaryUrl, ingestKey, payloadJson, ActiveEndpoint.PRIMARY)
+        val primary = poster.post(primaryUrl, ingestKey, payloadJson, ActiveEndpoint.PRIMARY)
         if (primary.ok) return@withContext primary
 
-        val backup = post(backupUrl, ingestKey, payloadJson, ActiveEndpoint.BACKUP)
-        if (backup.ok) backup else primary.copy(body = "Principal: ${primary.body}; Backup: ${backup.body}")
+        val backup = poster.post(backupUrl, ingestKey, payloadJson, ActiveEndpoint.BACKUP)
+        if (backup.ok) {
+            backup
+        } else {
+            NutritionIngestResult(
+                ok = false,
+                endpoint = ActiveEndpoint.NONE,
+                statusCode = backup.statusCode ?: primary.statusCode,
+                body = Sanitizer.sanitize("Principal: ${primary.body}; Backup: ${backup.body}"),
+            )
+        }
     }
+}
 
-    private fun post(
+class HttpNutritionPoster : NutritionPoster {
+    override fun post(
         baseUrl: String,
         ingestKey: String,
         payloadJson: String,
@@ -58,18 +76,25 @@ class NutritionIngestClient {
         val status = connection.responseCode
         val stream = if (status in 200..299) connection.inputStream else connection.errorStream
         val response = stream?.bufferedReader()?.use { it.readText() }.orEmpty().take(600)
+        val hasJsonResponse = response.isBlank() || response.trimStart().startsWith("{") || response.trimStart().startsWith("[")
         NutritionIngestResult(
-            ok = status in 200..299,
+            ok = status in 200..299 && hasJsonResponse,
             endpoint = endpoint,
             statusCode = status,
-            body = response.ifBlank { "HTTP $status" },
+            body = Sanitizer.sanitize(
+                when {
+                    response.isBlank() -> "HTTP $status"
+                    !hasJsonResponse -> "Respuesta no JSON: $response"
+                    else -> response
+                },
+            ),
         )
     }.getOrElse { error ->
         NutritionIngestResult(
             ok = false,
             endpoint = endpoint,
             statusCode = null,
-            body = error.message ?: error::class.java.simpleName,
+            body = Sanitizer.sanitize(error.message ?: error::class.java.simpleName),
         )
     }
 }

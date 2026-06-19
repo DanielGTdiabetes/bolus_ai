@@ -11,8 +11,9 @@ import org.bolusai.companion.health.HealthConnectState
 import org.bolusai.companion.health.HealthPermissions
 import org.bolusai.companion.health.NutritionChangeTracker
 import org.bolusai.companion.health.NutritionRecordReader
-import org.bolusai.companion.health.PendingNutritionRepository
 import org.bolusai.companion.network.NutritionIngestClient
+import org.bolusai.companion.queue.MealQueueRepository
+import org.bolusai.companion.queue.toRecordSnapshot
 
 data class NutritionSyncRunResult(
     val retryable: Boolean,
@@ -41,33 +42,43 @@ class NutritionSyncRunner(private val context: Context) {
         }
 
         val logRepository = HealthConnectLogRepository(context)
-        val sentHashes = logRepository.sentDedupeHashes()
-        val pendingRepository = PendingNutritionRepository(context)
+        val queueRepository = MealQueueRepository(context)
+        val sentHashes = queueRepository.sentDedupeHashes()
         val hasHealthConnectChanges = NutritionChangeTracker(context).hasChanges()
         val observedRecords = if (hasHealthConnectChanges) {
             NutritionRecordReader(context)
                 .readLatest(syncEnabled = true)
                 .distinctBy { it.dedupeHash }
-                .filterNot { it.dedupeHash in sentHashes }
         } else {
             emptyList()
         }
-        val records = pendingRepository.stableRecords(
-            observedRecords = observedRecords,
-            sentHashes = sentHashes,
-        )
+        val newRecords = observedRecords.filterNot { it.dedupeHash in sentHashes }
+        val enqueueSummary = queueRepository.enqueueDetected(newRecords)
+        newRecords.forEach { record ->
+            val status = when {
+                record.dedupeHash in enqueueSummary.updateHashes -> HealthConnectLogStatus.UPDATE_DETECTED
+                record.dedupeHash in enqueueSummary.duplicateHashes || record.dedupeHash in sentHashes -> HealthConnectLogStatus.DUPLICATE
+                else -> HealthConnectLogStatus.QUEUED
+            }
+            logRepository.recordDetected(record = record, status = status)
+        }
 
-        if (records.isEmpty()) {
+        val dueItems = queueRepository.dueForSending()
+        if (dueItems.isEmpty()) {
             return NutritionSyncRunResult(
                 retryable = false,
                 message = when {
                     !hasHealthConnectChanges -> "No Health Connect changes"
-                    observedRecords.isEmpty() -> "No new meals"
-                    else -> "Waiting for stable meal data"
+                    observedRecords.isEmpty() -> "No meals detected"
+                    enqueueSummary.duplicates > 0 -> "Duplicate meals ignored"
+                    enqueueSummary.updates > 0 -> "Meal update detected; pending confirmation"
+                    else -> "No queued meals due"
                 },
             )
         }
 
+        queueRepository.markSending(dueItems)
+        val records = dueItems.map { it.toRecordSnapshot() }
         val sendResult = NutritionIngestClient().send(
             primaryUrl = settings.primaryUrl,
             backupUrl = settings.backupUrl,
@@ -77,7 +88,7 @@ class NutritionSyncRunner(private val context: Context) {
         val logStatus = if (sendResult.ok) {
             HealthConnectLogStatus.SENT
         } else {
-            HealthConnectLogStatus.ERROR
+            HealthConnectLogStatus.NEEDS_RETRY
         }
         records.forEach { record ->
             logRepository.recordDetected(
@@ -89,9 +100,10 @@ class NutritionSyncRunner(private val context: Context) {
         }
 
         return if (sendResult.ok) {
-            pendingRepository.markSent(records)
-            NutritionSyncRunResult(retryable = false, message = "Sent ${records.size} meals")
+            queueRepository.markSent(dueItems, sendResult)
+            NutritionSyncRunResult(retryable = false, message = "Sent ${records.size} meals (${sendResult.endpoint.name.lowercase()})")
         } else {
+            queueRepository.markRetry(dueItems, sendResult)
             NutritionSyncRunResult(retryable = true, message = sendResult.body)
         }
     }
