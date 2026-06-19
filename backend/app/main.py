@@ -211,6 +211,22 @@ async def bot_health():
     from app.bot.state import health as bot_health_state
     return bot_health_state.to_dict()
 
+
+@app.get("/.well-known/assetlinks.json", include_in_schema=False)
+async def android_asset_links():
+    return [
+        {
+            "relation": ["delegate_permission/common.handle_all_urls"],
+            "target": {
+                "namespace": "android_app",
+                "package_name": "org.bolusai.companion",
+                "sha256_cert_fingerprints": [
+                    "1D:1F:25:BF:2A:AD:FD:82:95:66:10:08:4F:3A:CB:F0:6B:B6:92:25:B0:C4:FB:03:1D:F8:EA:E2:4F:4F:6A:8D",
+                ],
+            },
+        },
+    ]
+
 # --- Static Files / Frontend Serving ---
 # Serve the built frontend from app/static (populated during build)
 static_dir = Path(__file__).parent / "static"
