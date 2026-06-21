@@ -1,6 +1,7 @@
 package org.bolusai.companion.diagnostics
 
 import android.content.Context
+import android.content.SharedPreferences
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -12,6 +13,13 @@ import java.util.UUID
 class HealthConnectLogRepository(context: Context) {
     private val prefs = context.getSharedPreferences("bolus_companion_health_logs", Context.MODE_PRIVATE)
     private val logs = MutableStateFlow(load())
+    private val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+        if (key == KEY) logs.value = load()
+    }
+
+    init {
+        prefs.registerOnSharedPreferenceChangeListener(listener)
+    }
 
     fun observe(): StateFlow<List<HealthConnectLog>> = logs.asStateFlow()
 
@@ -39,6 +47,32 @@ class HealthConnectLogRepository(context: Context) {
             ),
         ) + existing).take(200)
         persist(logs.value)
+    }
+
+    fun recordDiagnosticEvent(
+        event: String,
+        status: HealthConnectLogStatus = HealthConnectLogStatus.PENDING,
+        detail: String? = null,
+        endpointUsed: String? = null,
+    ) {
+        val now = Instant.now()
+        recordDetected(
+            record = NutritionRecordSnapshot(
+                metadataId = "diagnostic-${now.toEpochMilli()}-${event.filter { it.isLetterOrDigit() }.take(24)}",
+                sourcePackage = "org.bolusai.companion.lifecycle",
+                startTime = now,
+                endTime = now,
+                mealType = event,
+                carbohydratesGrams = null,
+                proteinGrams = null,
+                fatGrams = null,
+                fiberGrams = null,
+                caloriesKcal = null,
+            ),
+            status = status,
+            endpointUsed = endpointUsed,
+            backendResponseSanitized = detail,
+        )
     }
 
     fun clear() {

@@ -1,0 +1,12 @@
+[Unit]
+Description=Hermes MyFitnessPal to Bolus AI nutrition sync
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/hermes-mcp/myfitnesspal
+ExecStart=/opt/hermes-mcp/myfitnesspal/venv/bin/python /opt/hermes-mcp/myfitnesspal/scripts/sync_to_bolus.py
+Environment=APP_DIR=/opt/hermes-mcp/myfitnesspal
+StandardOutput=journal
+StandardError=journal

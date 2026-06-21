@@ -17,6 +17,7 @@ class AppSettingsRepository(context: Context) {
     fun updateHermesMfpSyncTriggerUrl(value: String) = update(read().copy(hermesMfpSyncTriggerUrl = value.trim()))
     fun updateIngestKey(value: String) = update(read().copy(ingestKey = value.trim()))
     fun setNutritionSyncEnabled(value: Boolean) = update(read().copy(nutritionSyncEnabled = value))
+    fun setMyFitnessPalAssistEnabled(value: Boolean) = update(read().copy(myFitnessPalAssistEnabled = value))
     fun setLogRetentionDays(value: Int) = update(read().copy(logRetentionDays = value))
 
     private fun read(): AppSettings = AppSettings(
@@ -26,6 +27,7 @@ class AppSettingsRepository(context: Context) {
             ?: AppSettings().hermesMfpSyncTriggerUrl,
         ingestKey = prefs.getString("ingestKey", "") ?: "",
         nutritionSyncEnabled = prefs.getBoolean("nutritionSyncEnabled", false),
+        myFitnessPalAssistEnabled = prefs.getBoolean("myFitnessPalAssistEnabled", false),
         logRetentionDays = prefs.getInt("logRetentionDays", 30),
     )
 
@@ -36,6 +38,7 @@ class AppSettingsRepository(context: Context) {
             .putString("hermesMfpSyncTriggerUrl", settings.hermesMfpSyncTriggerUrl)
             .putString("ingestKey", settings.ingestKey)
             .putBoolean("nutritionSyncEnabled", settings.nutritionSyncEnabled)
+            .putBoolean("myFitnessPalAssistEnabled", settings.myFitnessPalAssistEnabled)
             .putInt("logRetentionDays", settings.logRetentionDays)
             .apply()
         state.value = settings

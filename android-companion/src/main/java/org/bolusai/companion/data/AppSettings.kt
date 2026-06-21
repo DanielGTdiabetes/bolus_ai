@@ -6,5 +6,6 @@ data class AppSettings(
     val hermesMfpSyncTriggerUrl: String = "http://100.65.212.74:8776",
     val ingestKey: String = "",
     val nutritionSyncEnabled: Boolean = false,
+    val myFitnessPalAssistEnabled: Boolean = false,
     val logRetentionDays: Int = 30,
 )
