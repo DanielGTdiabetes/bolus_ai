@@ -13,6 +13,7 @@ from app.core import settings as settings_module
 from app.core.db import get_db_session
 from app.core.security import TokenManager
 from app.core.settings import get_settings
+from app.models.settings import UserSettingsDB
 from app.models.treatment import Treatment
 
 
@@ -56,6 +57,7 @@ def client(tmp_path, monkeypatch):
 
     sync_engine = create_engine(f"sqlite:///{db_path}")
     Treatment.__table__.create(bind=sync_engine, checkfirst=True)
+    UserSettingsDB.__table__.create(bind=sync_engine, checkfirst=True)
     SessionLocal = sessionmaker(bind=sync_engine)
 
     class SyncSessionWrapper:
@@ -127,6 +129,47 @@ def _delete_treatment(client: TestClient, treatment_id: str) -> None:
         if treatment:
             session.delete(treatment)
             session.commit()
+
+
+def test_mobile_bolus_settings_requires_ingest_key(client: TestClient):
+    resp = client.get("/api/integrations/mobile/bolus-settings")
+
+    assert resp.status_code == 401
+
+
+def test_mobile_bolus_settings_returns_safe_calculation_profile(client: TestClient):
+    session_factory = getattr(client, "_session_factory")
+    with session_factory() as session:
+        session.add(
+            UserSettingsDB(
+                user_id="admin",
+                settings={
+                    "targets": {"mid": 105, "lunch": 110},
+                    "cr": {"breakfast": 12, "lunch": 9, "dinner": 10, "snack": 15},
+                    "cf": {"breakfast": 45, "lunch": 40, "dinner": 42, "snack": 50},
+                    "iob": {"dia_hours": 4.5, "curve": "walsh", "peak_minutes": 75},
+                    "calculator": {"subtract_fiber": True, "fiber_factor": 0.5, "fiber_threshold_g": 5},
+                    "round_step_u": 0.5,
+                    "max_bolus_u": 8,
+                    "max_correction_u": 3,
+                    "nightscout": {"token": "must-not-leak", "url": "https://example.invalid"},
+                },
+                version=1,
+            )
+        )
+        session.commit()
+
+    resp = client.get("/api/integrations/mobile/bolus-settings", headers={"X-Ingest-Key": "test-ingest-secret"})
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["user_id"] == "admin"
+    assert body["cr"]["lunch"] == 9
+    assert body["cf"]["lunch"] == 40
+    assert body["targets"]["lunch"] == 110
+    assert body["iob"]["dia_hours"] == 4.5
+    assert "nightscout" not in body
+    assert "must-not-leak" not in resp.text
 
 
 def test_updates_fiber_on_same_timestamp(client: TestClient):

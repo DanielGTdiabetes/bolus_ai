@@ -14,6 +14,7 @@ from app.core import config
 from app.core.db import get_db_session
 from app.core.security import TokenManager, get_token_manager, get_current_user, CurrentUser
 from app.core.settings import Settings, get_settings
+from app.models.settings import UserSettings, UserSettingsDB
 from app.services.store import DataStore
 
 router = APIRouter()
@@ -120,6 +121,81 @@ class NutritionPayload(BaseModel):
     
     # Generic bucket
     metrics: Optional[List[Dict[str, Any]]] = None # Health Auto Export suele mandar una lista de métricas
+
+class MobileBolusSettingsResponse(BaseModel):
+    schema_version: int = 1
+    user_id: str
+    config_hash: str
+    updated_at: Optional[str] = None
+    targets: Dict[str, Optional[float]]
+    cr: Dict[str, float]
+    cf: Dict[str, float]
+    iob: Dict[str, Any]
+    calculator: Dict[str, Any]
+    round_step_u: float
+    max_bolus_u: float
+    max_correction_u: float
+
+
+def _authorize_ingest_key(request: Request, ingest_key_header: Optional[str]) -> None:
+    provided_key = ingest_key_header or request.query_params.get("key")
+    ingest_secret = os.getenv("NUTRITION_INGEST_SECRET") or os.getenv("NUTRITION_INGEST_KEY")
+    if ingest_secret and provided_key == ingest_secret:
+        return
+    raise HTTPException(status_code=401, detail="Authentication required")
+
+
+async def _load_mobile_bolus_settings(session: AsyncSession) -> tuple[UserSettings, str, Optional[datetime]]:
+    preferred = [config.get_bot_default_username() or "admin", "admin"]
+    seen = set()
+
+    for user_id in preferred:
+        if not user_id or user_id in seen:
+            continue
+        seen.add(user_id)
+        row = (await session.execute(select(UserSettingsDB).where(UserSettingsDB.user_id == user_id))).scalars().first()
+        if row and row.settings:
+            return UserSettings.migrate(dict(row.settings)), row.user_id, row.updated_at
+
+    rows = (await session.execute(select(UserSettingsDB))).scalars().all()
+    rows = sorted(rows, key=lambda row: (row.updated_at.timestamp() if row.updated_at else 0), reverse=True)
+    for row in rows:
+        if row.settings:
+            return UserSettings.migrate(dict(row.settings)), row.user_id, row.updated_at
+
+    return UserSettings.default(), "default", None
+
+
+def _mobile_bolus_settings_response(
+    settings_obj: UserSettings,
+    user_id: str,
+    updated_at: Optional[datetime],
+) -> MobileBolusSettingsResponse:
+    return MobileBolusSettingsResponse(
+        user_id=user_id,
+        config_hash=settings_obj.config_hash,
+        updated_at=updated_at.isoformat() if updated_at else None,
+        targets=settings_obj.targets.model_dump(),
+        cr=settings_obj.cr.model_dump(),
+        cf=settings_obj.cf.model_dump(),
+        iob=settings_obj.iob.model_dump(),
+        calculator=settings_obj.calculator.model_dump(),
+        round_step_u=settings_obj.round_step_u,
+        max_bolus_u=settings_obj.max_bolus_u,
+        max_correction_u=settings_obj.max_correction_u,
+    )
+
+
+@router.get("/mobile/bolus-settings", response_model=MobileBolusSettingsResponse)
+async def mobile_bolus_settings(
+    request: Request,
+    ingest_key_header: Optional[str] = Header(None, alias="X-Ingest-Key"),
+    session: AsyncSession = Depends(get_db_session),
+):
+    _authorize_ingest_key(request, ingest_key_header)
+    settings_obj, user_id, updated_at = await _load_mobile_bolus_settings(session)
+    return _mobile_bolus_settings_response(settings_obj, user_id, updated_at)
+
 
 @router.post("/nutrition", summary="Webhook for Health Auto Export / External Nutrition")
 async def ingest_nutrition(
