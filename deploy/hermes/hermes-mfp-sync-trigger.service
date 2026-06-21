@@ -1,0 +1,18 @@
+[Unit]
+Description=Hermes MyFitnessPal sync trigger endpoint
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/hermes-mcp/myfitnesspal
+ExecStart=/opt/hermes-mcp/myfitnesspal/venv/bin/python /opt/hermes-mcp/myfitnesspal/scripts/mfp_sync_trigger.py
+Environment=APP_DIR=/opt/hermes-mcp/myfitnesspal
+Environment=MFP_SYNC_TRIGGER_PORT=8776
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target
