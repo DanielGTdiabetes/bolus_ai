@@ -28,6 +28,7 @@ curl -X POST "https://bolus-ai-1.onrender.com/api/integrations/nutrition" \
 ## Notas de deduplicación
 - Dos eventos con mismo timestamp y macros pero fibra distinta se actualizan (no se descartan).
 - Eventos con fibra ≥ 1 g se guardan aunque los demás macros sean 0.
+- Runbook operativo Hermes/MyFitnessPal: [HERMES_MYFITNESSPAL_BOLUS_SYNC.md](HERMES_MYFITNESSPAL_BOLUS_SYNC.md).
 
 ## Ingesta Directa (Sin Borradores)
 

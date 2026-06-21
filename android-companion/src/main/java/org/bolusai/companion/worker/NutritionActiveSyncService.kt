@@ -18,6 +18,9 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import org.bolusai.companion.R
+import org.bolusai.companion.data.AppSettingsRepository
+import org.bolusai.companion.network.HermesMfpSyncTriggerClient
+import org.bolusai.companion.network.HermesMfpSyncTriggerResult
 import org.bolusai.companion.usage.ForegroundAppWatcher
 import org.bolusai.companion.usage.UsageAccess
 
@@ -39,8 +42,8 @@ class NutritionActiveSyncService : Service() {
         scope.launch { watchMyFitnessPalExit() }
         scope.launch {
             while (isActive) {
-                runSync("Revision periodica")
-                delay(SYNC_INTERVAL_MS)
+                runSync("Revision de respaldo")
+                delay(BACKUP_SYNC_INTERVAL_MS)
             }
         }
         return START_STICKY
@@ -85,7 +88,11 @@ class NutritionActiveSyncService : Service() {
                     lastMyFitnessPalExitSyncAt = now
                     updateNotification("MyFitnessPal cerrado, esperando datos")
                     delay(MYFITNESSPAL_WRITE_DELAY_MS)
-                    runSync("Salida de MyFitnessPal")
+                    val hermesFirstResult = triggerHermesSync("Salida de MyFitnessPal")
+                    if (hermesFirstResult?.shouldFollowUp() == true) {
+                        delay(MYFITNESSPAL_FOLLOW_UP_DELAY_MS)
+                        triggerHermesSync("Seguimiento MyFitnessPal")
+                    }
                 }
             }
             myFitnessPalWasForeground = isMyFitnessPalForeground
@@ -93,17 +100,33 @@ class NutritionActiveSyncService : Service() {
         }
     }
 
-    private suspend fun runSync(prefix: String) {
-        runCatching {
+    private suspend fun runSync(prefix: String): NutritionSyncRunResult? {
+        return runCatching {
             val result = NutritionSyncRunner(applicationContext).run()
             if (result.message == "Sync off") {
                 stopSelf()
-                return
+                return@runCatching result
             }
             updateNotification("$prefix: ${result.message}")
+            result
         }.onFailure {
             updateNotification("Error revisando comidas")
-        }
+        }.getOrNull()
+    }
+
+    private suspend fun triggerHermesSync(prefix: String): HermesMfpSyncTriggerResult? {
+        return runCatching {
+            val settings = AppSettingsRepository(applicationContext).current()
+            if (!settings.nutritionSyncEnabled || settings.hermesMfpSyncTriggerUrl.isBlank()) return@runCatching null
+            val result = HermesMfpSyncTriggerClient().trigger(
+                baseUrl = settings.hermesMfpSyncTriggerUrl,
+                ingestKey = settings.ingestKey,
+            )
+            updateNotification("$prefix Hermes: ${if (result.ok) "sync lanzado" else "error ${result.statusCode ?: "-"}"}")
+            result
+        }.onFailure {
+            updateNotification("Error lanzando Hermes")
+        }.getOrNull()
     }
 
     private fun notification(message: String) = NotificationCompat.Builder(this, CHANNEL_ID)
@@ -132,9 +155,10 @@ class NutritionActiveSyncService : Service() {
         private const val ACTION_STOP = "org.bolusai.companion.action.STOP_ACTIVE_SYNC"
         private const val CHANNEL_ID = "nutrition_active_sync"
         private const val NOTIFICATION_ID = 2001
-        private const val SYNC_INTERVAL_MS = 60_000L
+        private const val BACKUP_SYNC_INTERVAL_MS = 15 * 60_000L
         private const val USAGE_WATCH_INTERVAL_MS = 5_000L
         private const val MYFITNESSPAL_WRITE_DELAY_MS = 20_000L
+        private const val MYFITNESSPAL_FOLLOW_UP_DELAY_MS = 75_000L
         private const val MYFITNESSPAL_EXIT_COOLDOWN_MS = 90_000L
         private const val MYFITNESSPAL_PACKAGE = "com.myfitnesspal.android"
 
