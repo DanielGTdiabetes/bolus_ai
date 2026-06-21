@@ -54,11 +54,13 @@ import org.bolusai.companion.health.HealthConnectAvailability
 import org.bolusai.companion.health.HealthConnectState
 import org.bolusai.companion.health.HealthPermissions
 import org.bolusai.companion.network.ActiveEndpoint
+import org.bolusai.companion.network.NutritionIngestClient
 import org.bolusai.companion.network.ServerStatus
 import org.bolusai.companion.network.ServerStatusClient
 import org.bolusai.companion.portal.PortalLauncher
 import org.bolusai.companion.queue.MealQueueItem
 import org.bolusai.companion.queue.MealQueueRepository
+import org.bolusai.companion.health.NutritionRecordSnapshot
 import org.bolusai.companion.usage.UsageAccess
 import org.bolusai.companion.worker.NutritionActiveSyncService
 import org.bolusai.companion.worker.NutritionSyncRunner
@@ -66,6 +68,13 @@ import org.bolusai.companion.worker.NutritionSyncScheduler
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import java.util.Locale
+import org.bolusai.companion.bolus.BolusCalculationInput
+import org.bolusai.companion.bolus.BolusCalculationResult
+import org.bolusai.companion.bolus.BolusCalculator
+import org.bolusai.companion.bolus.BolusProfile
+import org.bolusai.companion.bolus.BolusProfileRepository
+import org.bolusai.companion.network.MobileBolusSettingsClient
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -77,8 +86,9 @@ class MainActivity : ComponentActivity() {
 
 private enum class CompanionScreen(val label: String) {
     HOME("Inicio"),
+    BOLUS("Bolo"),
     MEALS("Comidas"),
-    DIAGNOSTICS("Diagnostico"),
+    DIAGNOSTICS("Diag"),
     SETTINGS("Ajustes"),
     WEB("Bolus AI"),
 }
@@ -89,7 +99,9 @@ fun BolusCompanionApp() {
     val settingsRepository = remember { AppSettingsRepository(context) }
     val logRepository = remember { HealthConnectLogRepository(context) }
     val queueRepository = remember { MealQueueRepository(context) }
+    val bolusProfileRepository = remember { BolusProfileRepository(context) }
     val settings by settingsRepository.observe().collectAsState()
+    val bolusProfile by bolusProfileRepository.observe().collectAsState()
     val logs by logRepository.observe().collectAsState()
     val queueItems by queueRepository.observeRecent().collectAsState(initial = emptyList())
     var screen by remember { mutableStateOf(CompanionScreen.HOME) }
@@ -110,6 +122,7 @@ fun BolusCompanionApp() {
                     Text("Bolus AI", style = MaterialTheme.typography.headlineMedium)
                     when (screen) {
                         CompanionScreen.HOME -> HomeScreen(settings, queueItems) { screen = it }
+                        CompanionScreen.BOLUS -> BolusScreen(settings, bolusProfileRepository, bolusProfile)
                         CompanionScreen.MEALS -> MealsScreen(queueItems)
                         CompanionScreen.DIAGNOSTICS -> DiagnosticsScreen(settings, logs, queueItems, logRepository, queueRepository)
                         CompanionScreen.SETTINGS -> SettingsScreen(settings, settingsRepository)
@@ -137,6 +150,11 @@ private fun HomeScreen(settings: AppSettings, queueItems: List<MealQueueItem>, n
     val scope = rememberCoroutineScope()
     var serverStatus by remember { mutableStateOf(ServerStatus()) }
     var syncMessage by remember { mutableStateOf("Sin sincronizacion manual reciente") }
+    var manualCarbs by remember { mutableStateOf("") }
+    var manualProtein by remember { mutableStateOf("") }
+    var manualFat by remember { mutableStateOf("") }
+    var manualFiber by remember { mutableStateOf("") }
+    var manualMessage by remember { mutableStateOf("") }
     val statusClient = remember { ServerStatusClient() }
     val pendingCount = queueItems.count { it.status.name in setOf("QUEUED", "SENDING", "FAILED", "NEEDS_RETRY") }
     val lastMeal = queueItems.maxByOrNull { it.updatedAt }
@@ -196,6 +214,198 @@ private fun HomeScreen(settings: AppSettings, queueItems: List<MealQueueItem>, n
                 OutlinedButton(onClick = { navigate(CompanionScreen.SETTINGS) }) { Text("Ajustes") }
                 OutlinedButton(onClick = { navigate(CompanionScreen.WEB) }) { Text("Bolus AI") }
             }
+        }
+        item {
+            Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Entrada directa", style = MaterialTheme.typography.titleMedium)
+                    Text("Usar si MyFitnessPal no escribe en Salud Conectada")
+                    SettingsTextField("HC", manualCarbs) { manualCarbs = it }
+                    SettingsTextField("Proteina", manualProtein) { manualProtein = it }
+                    SettingsTextField("Grasa", manualFat) { manualFat = it }
+                    SettingsTextField("Fibra", manualFiber) { manualFiber = it }
+                    Button(onClick = {
+                        manualMessage = "Enviando"
+                        scope.launch {
+                            val record = manualNutritionRecord(
+                                carbs = manualCarbs.parseDecimal(),
+                                protein = manualProtein.parseDecimal(),
+                                fat = manualFat.parseDecimal(),
+                                fiber = manualFiber.parseDecimal(),
+                            )
+                            if ((record.carbohydratesGrams ?: 0.0) <= 0.0 &&
+                                (record.proteinGrams ?: 0.0) <= 0.0 &&
+                                (record.fatGrams ?: 0.0) <= 0.0 &&
+                                (record.fiberGrams ?: 0.0) <= 0.0
+                            ) {
+                                manualMessage = "Introduce al menos un valor"
+                                return@launch
+                            }
+                            val repository = MealQueueRepository(context)
+                            repository.enqueueDetected(listOf(record))
+                            val due = repository.dueForSending(limit = 1)
+                            if (due.isEmpty()) {
+                                manualMessage = "Ya estaba registrada"
+                                return@launch
+                            }
+                            repository.markSending(due)
+                            val result = NutritionIngestClient().send(
+                                primaryUrl = settings.primaryUrl,
+                                backupUrl = settings.backupUrl,
+                                ingestKey = settings.ingestKey,
+                                payloadJson = due.first().payloadJson,
+                            )
+                            if (result.ok) {
+                                repository.markSent(due, result)
+                                manualMessage = "Enviado a ${result.endpoint.name.lowercase()}"
+                                manualCarbs = ""
+                                manualProtein = ""
+                                manualFat = ""
+                                manualFiber = ""
+                            } else {
+                                repository.markRetry(due, result)
+                                manualMessage = "Queda en cola para reintento"
+                            }
+                        }
+                    }) { Text("Enviar comida") }
+                    if (manualMessage.isNotBlank()) Text(manualMessage)
+                }
+            }
+        }
+    }
+}
+
+private fun manualNutritionRecord(
+    carbs: Double?,
+    protein: Double?,
+    fat: Double?,
+    fiber: Double?,
+): NutritionRecordSnapshot {
+    val now = Instant.now()
+    return NutritionRecordSnapshot(
+        metadataId = "manual-${now.toEpochMilli()}",
+        sourcePackage = "org.bolusai.companion.manual",
+        startTime = now,
+        endTime = now,
+        mealType = "manual",
+        carbohydratesGrams = carbs,
+        proteinGrams = protein,
+        fatGrams = fat,
+        fiberGrams = fiber,
+        caloriesKcal = null,
+    )
+}
+
+private fun String.parseDecimal(): Double? =
+    trim()
+        .replace(",", ".")
+        .takeIf { it.isNotBlank() }
+        ?.toDoubleOrNull()
+
+@Composable
+private fun BolusScreen(
+    settings: AppSettings,
+    profileRepository: BolusProfileRepository,
+    profile: BolusProfile,
+) {
+    val scope = rememberCoroutineScope()
+    var glucose by remember { mutableStateOf("") }
+    var carbs by remember { mutableStateOf("") }
+    var fiber by remember { mutableStateOf("") }
+    var iob by remember { mutableStateOf("") }
+    var slot by remember { mutableStateOf("lunch") }
+    var message by remember { mutableStateOf("") }
+    var result by remember { mutableStateOf<BolusCalculationResult?>(null) }
+    val calculator = remember { BolusCalculator() }
+
+    LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        item {
+            Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Perfil local", style = MaterialTheme.typography.titleMedium)
+                    Text("Usuario: ${profile.userId}")
+                    Text("Actualizado: ${profile.updatedAt ?: "perfil por defecto"}")
+                    Text("DIA ${formatNumber(profile.diaHours)}h - redondeo ${formatUnits(profile.roundStepU)}")
+                    Button(onClick = {
+                        message = "Sincronizando ajustes"
+                        scope.launch {
+                            val sync = MobileBolusSettingsClient().sync(
+                                primaryUrl = settings.primaryUrl,
+                                backupUrl = settings.backupUrl,
+                                ingestKey = settings.ingestKey,
+                            )
+                            if (sync.ok && sync.profile != null) {
+                                profileRepository.save(sync.profile)
+                                message = sync.message
+                            } else {
+                                message = sync.message
+                            }
+                        }
+                    }) { Text("Sincronizar ajustes") }
+                    if (message.isNotBlank()) Text(message)
+                }
+            }
+        }
+        item {
+            Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Calculadora offline", style = MaterialTheme.typography.titleMedium)
+                    SlotSelector(slot) { slot = it }
+                    SettingsTextField("Glucosa mg/dL", glucose) { glucose = it }
+                    SettingsTextField("HC g", carbs) { carbs = it }
+                    SettingsTextField("Fibra g", fiber) { fiber = it }
+                    SettingsTextField("IOB manual U", iob) { iob = it }
+                    Button(onClick = {
+                        val input = BolusCalculationInput(
+                            glucoseMgdl = glucose.parseDecimal(),
+                            carbsG = carbs.parseDecimal() ?: 0.0,
+                            fiberG = fiber.parseDecimal() ?: 0.0,
+                            manualIobU = iob.parseDecimal() ?: 0.0,
+                            slot = slot,
+                        )
+                        result = calculator.calculate(profile, input)
+                    }) { Text("Calcular") }
+                }
+            }
+        }
+        result?.let { calculated ->
+            item { BolusResultCard(calculated) }
+        }
+    }
+}
+
+@Composable
+private fun SlotSelector(selected: String, onSelected: (String) -> Unit) {
+    val labels = listOf(
+        "breakfast" to "Desayuno",
+        "lunch" to "Comida",
+        "dinner" to "Cena",
+        "snack" to "Extra",
+    )
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        labels.chunked(2).forEach { row ->
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                row.forEach { (value, label) ->
+                    if (selected == value) {
+                        Button(onClick = { onSelected(value) }, modifier = Modifier.weight(1f)) { Text(label) }
+                    } else {
+                        OutlinedButton(onClick = { onSelected(value) }, modifier = Modifier.weight(1f)) { Text(label) }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun BolusResultCard(result: BolusCalculationResult) {
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text("Resultado", style = MaterialTheme.typography.titleMedium)
+            Text("${formatUnits(result.finalBolusU)} ahora", style = MaterialTheme.typography.headlineSmall)
+            Text("Comida ${formatUnits(result.mealBolusU)} - correccion ${formatUnits(result.correctionBolusU)} - IOB ${formatUnits(result.manualIobU)}")
+            Text("HC netos ${formatNumber(result.netCarbsG)}g - objetivo ${formatNumber(result.targetMgdl)} mg/dL")
+            result.warnings.forEach { warning -> Text(warning) }
         }
     }
 }
@@ -418,3 +628,9 @@ private fun formatInstant(value: String): String =
 private fun formatInstantMillis(value: Long): String =
     DateTimeFormatter.ofPattern("dd/MM HH:mm")
         .format(Instant.ofEpochMilli(value).atZone(ZoneId.systemDefault()))
+
+private fun formatNumber(value: Double): String =
+    String.format(Locale.US, "%.1f", value)
+
+private fun formatUnits(value: Double): String =
+    "${formatNumber(value)} U"
