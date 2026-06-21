@@ -62,13 +62,13 @@ class MyFitnessPalAssistantService : AccessibilityService() {
         fun startSearch(context: Context, query: String): Boolean {
             val normalized = query.trim()
             if (normalized.isBlank()) return false
+            val opened = openDiary(context) || launchMyFitnessPalPackage(context)
+            if (!opened) return false
             context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
                 .edit()
                 .putString(KEY_PENDING_QUERY, normalized)
                 .apply()
-            val opened = false
-            if (!opened) clearPendingQuery(context)
-            return opened
+            return true
         }
 
         fun openDiary(context: Context): Boolean =
@@ -103,6 +103,14 @@ class MyFitnessPalAssistantService : AccessibilityService() {
                 context.startActivity(intent)
                 true
             }
+        }
+
+        private fun launchMyFitnessPalPackage(context: Context): Boolean {
+            val intent = context.packageManager.getLaunchIntentForPackage(MYFITNESSPAL_PACKAGE)
+                ?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                ?: return false
+            context.startActivity(intent)
+            return true
         }
     }
 }
