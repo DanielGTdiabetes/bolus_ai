@@ -21,6 +21,7 @@ data class BolusProfile(
     val fiberThresholdG: Double = 5.0,
 ) {
     fun slot(name: String): BolusSlotProfile = slots[name] ?: slots["snack"] ?: BolusSlotProfile(10.0, 50.0, 100.0)
+    fun isSynced(): Boolean = configHash.isNotBlank() && updatedAt != null
 
     companion object {
         fun defaultSlots(): Map<String, BolusSlotProfile> = mapOf(

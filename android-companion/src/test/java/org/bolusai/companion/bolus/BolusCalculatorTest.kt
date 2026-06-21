@@ -60,4 +60,10 @@ class BolusCalculatorTest {
         assertEquals(6.0, result.finalBolusU, 0.001)
         assertTrue(result.warnings.any { it.contains("maximo") })
     }
+
+    @Test
+    fun defaultProfileIsNotSynced() {
+        assertEquals(false, BolusProfile().isSynced())
+        assertEquals(true, BolusProfile(configHash = "abc123", updatedAt = "2026-06-21T00:00:00Z").isSynced())
+    }
 }

@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">Bolus AI Companion</string>
+    <string name="myfitnesspal_assistant_description">Escribe busquedas en MyFitnessPal cuando se lanzan manualmente desde Bolus AI Companion.</string>
 </resources>

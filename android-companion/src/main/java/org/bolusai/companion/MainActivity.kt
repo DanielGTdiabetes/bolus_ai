@@ -1,9 +1,11 @@
 package org.bolusai.companion
 
 import android.Manifest
+import android.accessibilityservice.AccessibilityServiceInfo
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.view.accessibility.AccessibilityManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -46,6 +48,7 @@ import androidx.health.connect.client.PermissionController
 import kotlinx.coroutines.launch
 import org.bolusai.companion.data.AppSettings
 import org.bolusai.companion.data.AppSettingsRepository
+import org.bolusai.companion.accessibility.MyFitnessPalAssistantService
 import org.bolusai.companion.diagnostics.HealthConnectLog
 import org.bolusai.companion.diagnostics.HealthConnectLogRepository
 import org.bolusai.companion.diagnostics.LogExporter
@@ -242,12 +245,14 @@ private fun HomeScreen(settings: AppSettings, queueItems: List<MealQueueItem>, n
                                 return@launch
                             }
                             val repository = MealQueueRepository(context)
-                            repository.enqueueDetected(listOf(record))
-                            val due = repository.dueForSending(limit = 1)
-                            if (due.isEmpty()) {
+                            val summary = repository.enqueueDetected(listOf(record))
+                            val queuedHash = summary.queuedHashes.firstOrNull() ?: summary.updateHashes.firstOrNull()
+                            val item = queuedHash?.let { repository.findByDedupeHash(it) }
+                            if (item == null) {
                                 manualMessage = "Ya estaba registrada"
                                 return@launch
                             }
+                            val due = listOf(item)
                             repository.markSending(due)
                             val result = NutritionIngestClient().send(
                                 primaryUrl = settings.primaryUrl,
@@ -325,6 +330,7 @@ private fun BolusScreen(
                     Text("Perfil local", style = MaterialTheme.typography.titleMedium)
                     Text("Usuario: ${profile.userId}")
                     Text("Actualizado: ${profile.updatedAt ?: "perfil por defecto"}")
+                    if (!profile.isSynced()) Text("Sin perfil sincronizado: sincroniza ajustes antes de calcular.")
                     Text("DIA ${formatNumber(profile.diaHours)}h - redondeo ${formatUnits(profile.roundStepU)}")
                     Button(onClick = {
                         message = "Sincronizando ajustes"
@@ -356,6 +362,11 @@ private fun BolusScreen(
                     SettingsTextField("Fibra g", fiber) { fiber = it }
                     SettingsTextField("IOB manual U", iob) { iob = it }
                     Button(onClick = {
+                        if (!profile.isSynced()) {
+                            result = null
+                            message = "Sincroniza ajustes antes de calcular."
+                            return@Button
+                        }
                         val input = BolusCalculationInput(
                             glucoseMgdl = glucose.parseDecimal(),
                             carbsG = carbs.parseDecimal() ?: 0.0,
@@ -447,6 +458,9 @@ private fun SettingsScreen(settings: AppSettings, repository: AppSettingsReposit
     var primary by remember(settings.primaryUrl) { mutableStateOf(settings.primaryUrl) }
     var backup by remember(settings.backupUrl) { mutableStateOf(settings.backupUrl) }
     var ingestKey by remember(settings.ingestKey) { mutableStateOf(settings.ingestKey) }
+    var mfpSearch by remember { mutableStateOf("") }
+    var mfpAssistMessage by remember { mutableStateOf("") }
+    var hasMfpAccessibility by remember { mutableStateOf(isMyFitnessPalAssistantEnabled(context)) }
     var connectionMessage by remember { mutableStateOf("") }
     var healthStatus by remember { mutableStateOf("Sin comprobar") }
     val availability = remember { HealthConnectAvailability(context).status() }
@@ -532,7 +546,62 @@ private fun SettingsScreen(settings: AppSettings, repository: AppSettingsReposit
                 }
             }
         }
+        item {
+            Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Asistente MyFitnessPal", style = MaterialTheme.typography.titleMedium)
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text("Experimental")
+                        Switch(
+                            checked = settings.myFitnessPalAssistEnabled,
+                            onCheckedChange = { enabled -> repository.setMyFitnessPalAssistEnabled(enabled) },
+                        )
+                    }
+                    Text(if (hasMfpAccessibility) "Accesibilidad concedida" else "Falta activar el servicio de accesibilidad")
+                    Button(onClick = {
+                        context.startActivity(MyFitnessPalAssistantService.settingsIntent())
+                        hasMfpAccessibility = isMyFitnessPalAssistantEnabled(context)
+                    }) { Text("Abrir Accesibilidad") }
+                    SettingsTextField("Buscar alimento", mfpSearch) { mfpSearch = it }
+                    Button(
+                        enabled = settings.myFitnessPalAssistEnabled,
+                        onClick = {
+                            hasMfpAccessibility = isMyFitnessPalAssistantEnabled(context)
+                            mfpAssistMessage = when {
+                                !hasMfpAccessibility -> "Activa primero el servicio de accesibilidad"
+                                mfpSearch.isBlank() -> "Escribe un alimento"
+                                MyFitnessPalAssistantService.startSearch(context, mfpSearch) -> "Abriendo MyFitnessPal"
+                                else -> "No hay deep link confirmado para busqueda textual"
+                            }
+                        },
+                    ) { Text("Probar busqueda") }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(onClick = {
+                            mfpAssistMessage = if (MyFitnessPalAssistantService.openDiary(context)) {
+                                "Abriendo diario"
+                            } else {
+                                "MyFitnessPal no acepta diario"
+                            }
+                        }) { Text("Abrir diario") }
+                        OutlinedButton(onClick = {
+                            mfpAssistMessage = if (MyFitnessPalAssistantService.openBarcodeScanner(context)) {
+                                "Abriendo escaner"
+                            } else {
+                                "MyFitnessPal no acepta escaner"
+                            }
+                        }) { Text("Escaner") }
+                    }
+                    if (mfpAssistMessage.isNotBlank()) Text(mfpAssistMessage)
+                }
+            }
+        }
     }
+}
+
+private fun isMyFitnessPalAssistantEnabled(context: android.content.Context): Boolean {
+    val manager = context.getSystemService(AccessibilityManager::class.java) ?: return false
+    return manager.getEnabledAccessibilityServiceList(AccessibilityServiceInfo.FEEDBACK_ALL_MASK)
+        .any { it.resolveInfo.serviceInfo.packageName == context.packageName && it.resolveInfo.serviceInfo.name.endsWith("MyFitnessPalAssistantService") }
 }
 
 @Composable
@@ -560,6 +629,23 @@ private fun DiagnosticsScreen(
         item { Text("Sync nutricional: ${if (settings.nutritionSyncEnabled) "ON" else "OFF"}") }
         item { Text("Cola: ${queueItems.size} elementos - ultimo endpoint: ${last?.endpointUsed ?: "-"}") }
         item { Text("Ultimo error: ${last?.lastError ?: "-"}") }
+        item {
+            Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("Eventos recientes", style = MaterialTheme.typography.titleMedium)
+                    if (logs.isEmpty()) {
+                        Text("Sin eventos registrados")
+                    } else {
+                        logs.take(8).forEach { log ->
+                            Text("${formatInstantMillis(log.createdAt.toEpochMilli())} ${log.status} ${log.record.mealType ?: log.record.sourcePackage}")
+                            if (!log.backendResponseSanitized.isNullOrBlank()) {
+                                Text(log.backendResponseSanitized.take(180))
+                            }
+                        }
+                    }
+                }
+            }
+        }
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = {

@@ -21,6 +21,10 @@ class MealQueueRepository(context: Context) {
         dao.sentDedupeHashes().toSet()
     }
 
+    suspend fun findByDedupeHash(dedupeHash: String): MealQueueItem? = withContext(Dispatchers.IO) {
+        dao.findByDedupeHash(dedupeHash)
+    }
+
     suspend fun enqueueDetected(records: List<NutritionRecordSnapshot>, now: Instant = Instant.now()): EnqueueSummary =
         withContext(Dispatchers.IO) {
             val epoch = now.toEpochMilli()

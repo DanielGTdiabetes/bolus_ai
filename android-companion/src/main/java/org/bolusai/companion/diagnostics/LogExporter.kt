@@ -44,7 +44,7 @@ class LogExporter {
                 appendLine("backend_response=${item.backendResponse ?: "-"}")
             }
             appendLine()
-            appendLine("Legacy Health Connect logs: ${logs.size}")
+            appendLine("Diagnostic events: ${logs.size}")
             append(toText(logs))
         }
 
