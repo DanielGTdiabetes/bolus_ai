@@ -1251,6 +1251,23 @@ async def check_isf_suggestions(username: str = "admin", chat_id: Optional[int] 
     
     try:
         async with SessionLocal() as session:
+            # Refresh post-bolus outcome rows before generating parameter suggestions.
+            # Without this, ICR suggestions depend on someone manually running
+            # /api/analysis/bolus/run and the daily job can silently see stale data.
+            from app.services.nightscout_secrets_service import get_ns_config
+            from app.services.nightscout_client import NightscoutClient
+            from app.services.pattern_analysis import run_analysis_service
+
+            ns_cfg = await get_ns_config(session, username)
+            client = None
+            if ns_cfg and ns_cfg.enabled and ns_cfg.url:
+                client = NightscoutClient(ns_cfg.url, ns_cfg.api_secret, timeout_seconds=30)
+            try:
+                await run_analysis_service(username, 14, user_settings, client, session)
+            finally:
+                if client:
+                    await client.aclose()
+
             # Run generation (includes ISF now)
             # Use 14 days for robust ISF
             stats = await generate_suggestions_service(username, 14, session, settings=user_settings)
@@ -1263,7 +1280,7 @@ async def check_isf_suggestions(username: str = "admin", chat_id: Optional[int] 
                 ParameterSuggestion.user_id == username,
                 ParameterSuggestion.status == "pending",
                 ParameterSuggestion.created_at >= cutoff,
-                ParameterSuggestion.parameter == "isf" # Focus on ISF as per job name, or all? Job name is isf_check.
+                ParameterSuggestion.parameter.in_(["isf", "icr", "target"]),
             )
             res = await session.execute(stmt)
             new_items = res.scalars().all()
@@ -1276,32 +1293,46 @@ async def check_isf_suggestions(username: str = "admin", chat_id: Optional[int] 
             for sug in new_items:
                 # Format Notification
                 item_label = sug.meal_slot
-                suggested_val = sug.evidence.get("new_isf", "?")
-                current_val = sug.evidence.get("old_isf", "?")
-                confidence = sug.evidence.get("confidence", "medium")
-                
-                emoji = "🔴" if sug.direction == "decrease" else "🔵"
+                parameter_label = {
+                    "isf": "ISF",
+                    "icr": "ratio hidratos/insulina",
+                    "target": "objetivo glucémico",
+                }.get(sug.parameter, sug.parameter.upper())
+
+                if sug.parameter == "isf":
+                    suggested_val = sug.evidence.get("new_isf", "?")
+                    current_val = sug.evidence.get("old_isf", "?")
+                    confidence = sug.evidence.get("confidence", "medium")
+                else:
+                    suggested_val = sug.evidence.get("suggested_value", "?")
+                    current_val = sug.evidence.get("current_value", "?")
+                    confidence = "basada en patrón"
+
+                emoji = "🔴" if sug.parameter == "icr" and "pasarte" in sug.reason else "🔵"
                 msg = (
-                    f"📉 **Sugerencia ISF: {item_label}**\n"
+                    f"📉 **Sugerencia {parameter_label}: {item_label}**\n"
                     f"{emoji} {sug.reason}\n"
                     f"Actual: `{current_val}` -> Sugerido: **{suggested_val}**\n"
-                    f"Confianza: {confidence}"
+                    f"Confianza: {confidence}\n"
+                    "Estas son sugerencias basadas en datos; consúltalo con tu endocrino antes de aplicarlas."
                 )
-                
-                keyboard = [
-                    [
-                        InlineKeyboardButton(f"✅ Aceptar ({suggested_val})", 
-                                           callback_data=f"autosens_confirm|{sug.id}|{suggested_val}|{sug.meal_slot}"),
-                        InlineKeyboardButton("❌ Descartar", callback_data=f"autosens_cancel|{sug.id}")
-                    ]
-                ]
-                
+
+                keyboard = [[InlineKeyboardButton("❌ Descartar", callback_data=f"autosens_cancel|{sug.id}")]]
+                if sug.parameter == "isf":
+                    keyboard[0].insert(
+                        0,
+                        InlineKeyboardButton(
+                            f"✅ Aceptar ({suggested_val})",
+                            callback_data=f"autosens_confirm|{sug.id}|{suggested_val}|{sug.meal_slot}",
+                        ),
+                    )
+
                 await _send(
-                    None, 
-                    chat_id, 
-                    msg, 
-                    log_context="isf_check_notification",
-                    reply_markup=InlineKeyboardMarkup(keyboard)
+                    None,
+                    chat_id,
+                    msg,
+                    log_context="parameter_suggestion_notification",
+                    reply_markup=InlineKeyboardMarkup(keyboard),
                 )
                 
             # Update cooldown
