@@ -43,6 +43,36 @@ async def _send(bot, chat_id: int, text: str, *, log_context: str, **kwargs):
 
 
 
+async def _refresh_post_bolus_analysis_if_ns_available(username: str, days: int, user_settings, session) -> bool:
+    """Refresh post-bolus analysis only when Nightscout SGVs are reachable.
+
+    run_analysis_service rewrites analysis rows for the requested period. If
+    Nightscout is disabled or unavailable, that rewrite would replace useful
+    historical outcomes with "missing" rows, so proactive suggestion jobs must
+    leave the existing analysis intact instead.
+    """
+    from app.services.pattern_analysis import run_analysis_service
+
+    ns_cfg = await get_ns_config(session, username)
+    if not ns_cfg or not ns_cfg.enabled or not ns_cfg.url:
+        logger.info("Skipping post-bolus analysis refresh: Nightscout is not configured/enabled")
+        return False
+
+    client = NightscoutClient(ns_cfg.url, ns_cfg.api_secret, timeout_seconds=30)
+    try:
+        try:
+            await client.get_latest_sgv()
+        except Exception as e:
+            logger.warning("Skipping post-bolus analysis refresh: Nightscout SGV check failed (%s)", e)
+            return False
+
+        await run_analysis_service(username, days, user_settings, client, session)
+        return True
+    finally:
+        await client.aclose()
+
+
+
 # Diagnostic State (In-Memory)
 _LAST_STATUS = {
     "basal": {"evaluated": False, "sent": False, "reason": "startup", "timestamp": None},
@@ -1254,19 +1284,10 @@ async def check_isf_suggestions(username: str = "admin", chat_id: Optional[int] 
             # Refresh post-bolus outcome rows before generating parameter suggestions.
             # Without this, ICR suggestions depend on someone manually running
             # /api/analysis/bolus/run and the daily job can silently see stale data.
-            from app.services.nightscout_secrets_service import get_ns_config
-            from app.services.nightscout_client import NightscoutClient
-            from app.services.pattern_analysis import run_analysis_service
-
-            ns_cfg = await get_ns_config(session, username)
-            client = None
-            if ns_cfg and ns_cfg.enabled and ns_cfg.url:
-                client = NightscoutClient(ns_cfg.url, ns_cfg.api_secret, timeout_seconds=30)
-            try:
-                await run_analysis_service(username, 14, user_settings, client, session)
-            finally:
-                if client:
-                    await client.aclose()
+            # However, run_analysis_service rewrites rows for the period, so only
+            # refresh when Nightscout can actually provide SGVs; otherwise keep
+            # existing valid outcomes intact.
+            await _refresh_post_bolus_analysis_if_ns_available(username, 14, user_settings, session)
 
             # Run generation (includes ISF now)
             # Use 14 days for robust ISF
