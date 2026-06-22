@@ -1264,6 +1264,18 @@ async def check_isf_suggestions(username: str = "admin", chat_id: Optional[int] 
                 client = NightscoutClient(ns_cfg.url, ns_cfg.api_secret, timeout_seconds=30)
             try:
                 await run_analysis_service(username, 14, user_settings, client, session)
+            except Exception as exc:
+                # run_analysis_service deletes/rebuilds recent analysis rows before
+                # committing. If any refresh failure escapes (not only known
+                # Nightscout reads), discard that in-flight cleanup/partial rebuild
+                # before suggestion generation reuses and commits on this session.
+                await session.rollback()
+                logger.warning(
+                    "Skipping bolus outcome refresh before parameter suggestions for %s: %s",
+                    username,
+                    exc,
+                    exc_info=True,
+                )
             finally:
                 if client:
                     await client.aclose()
