@@ -35,7 +35,15 @@ async def run_analysis_service(
     ns_client: Optional[NightscoutClient],
     db: AsyncSession
 ) -> dict[str, Any]:
-    
+    """
+    Rebuild post-bolus outcome analysis for the requested period.
+
+    The rebuild deletes the existing rows for the period before writing the
+    fresh outcomes. Because the outcome windows depend on Nightscout SGV range
+    reads, a range-read failure must abort and roll back the transaction rather
+    than silently rewriting useful historical rows as ``missing``.
+    """
+
     # 1. Fetch treatments
     # We fetch from DB first (primary source of truth for boluses)
     # Then NS (for older history if needed, though DB should mirror it eventually)
@@ -151,41 +159,47 @@ async def run_analysis_service(
             bg_val = None
             bg_at_val = None
             
-            try:
-                if ns_client:
+            if ns_client:
+                try:
                     sgvs = await ns_client.get_sgv_range(s_win, e_win, count=20)
-                else:
-                    sgvs = [] # Need DB lookup for SGV? Or assume unavailable without NS?
-                    # TODO: If we store glucose in DB eventually, fetch here.
-                    # For now, without NS, result is "missing" which is correct behavior.
-                if sgvs:
-                    # Parse dates if needed, NightscoutSGV schema has date as int (epoch ms)
-                    # Helper to get datetime
-                    best_sgv = None
-                    min_diff = float("inf")
-                    
-                    for s in sgvs:
-                        s_dt = datetime.fromtimestamp(s.date / 1000, tz=timezone.utc)
-                        diff = abs((s_dt - check_time).total_seconds())
-                        if diff <= 15 * 60:
-                            if diff < min_diff:
-                                min_diff = diff
-                                best_sgv = s
-                                bg_val = float(s.sgv)
-                                bg_at_val = s_dt
-                    
-                    if bg_val:
-                        delta = bg_val - target
-                        if delta > 30:
-                            result = "short"
-                        elif delta < -30:
-                            result = "over"
-                        else:
-                            result = "ok"
-                            
-            except Exception as e:
-                # logger.warning(f"Failed to fetch SGV for window: {e}")
-                pass
+                except Exception as e:
+                    logger.warning(
+                        "Analysis: SGV range fetch failed for bolus_at=%s window=%sh; aborting refresh: %s",
+                        b_time.isoformat(),
+                        w,
+                        e,
+                    )
+                    await db.rollback()
+                    raise RuntimeError("Nightscout SGV range fetch failed; analysis refresh aborted") from e
+            else:
+                sgvs = [] # Need DB lookup for SGV? Or assume unavailable without NS?
+                # TODO: If we store glucose in DB eventually, fetch here.
+                # For now, without NS, result is "missing" which is correct behavior.
+
+            if sgvs:
+                # Parse dates if needed, NightscoutSGV schema has date as int (epoch ms)
+                # Helper to get datetime
+                best_sgv = None
+                min_diff = float("inf")
+
+                for s in sgvs:
+                    s_dt = datetime.fromtimestamp(s.date / 1000, tz=timezone.utc)
+                    diff = abs((s_dt - check_time).total_seconds())
+                    if diff <= 15 * 60:
+                        if diff < min_diff:
+                            min_diff = diff
+                            best_sgv = s
+                            bg_val = float(s.sgv)
+                            bg_at_val = s_dt
+
+                if bg_val:
+                    delta = bg_val - target
+                    if delta > 30:
+                        result = "short"
+                    elif delta < -30:
+                        result = "over"
+                    else:
+                        result = "ok"
             
             # Upsert
             stmt = pg_insert(BolusPostAnalysis).values(
