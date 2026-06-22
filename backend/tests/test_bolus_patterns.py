@@ -111,3 +111,29 @@ async def test_bolus_patterns_synthetic():
             has_insight = True
             
     assert has_insight, "Insight 'desayunos 3h alto' not found"
+
+@pytest.mark.asyncio
+async def test_bolus_patterns_rolls_back_when_sgv_range_fetch_fails():
+    mock_db = AsyncMock()
+    mock_result = MagicMock()
+    mock_result.scalars.return_value.all.return_value = []
+    mock_db.execute = AsyncMock(return_value=mock_result)
+    mock_db.commit = AsyncMock()
+    mock_db.rollback = AsyncMock()
+
+    treatment = MagicMock()
+    treatment.insulin = 4.0
+    treatment.carbs = 45
+    treatment.created_at = datetime.now(timezone.utc) - timedelta(days=1)
+
+    mock_ns = AsyncMock()
+    mock_ns.get_recent_treatments.return_value = [treatment]
+    mock_ns.get_sgv_range.side_effect = TimeoutError("Nightscout timeout")
+
+    settings = UserSettings()
+
+    with pytest.raises(RuntimeError, match="analysis refresh aborted"):
+        await run_analysis_service("test_user", 30, settings, mock_ns, mock_db)
+
+    mock_db.rollback.assert_awaited_once()
+    mock_db.commit.assert_not_awaited()

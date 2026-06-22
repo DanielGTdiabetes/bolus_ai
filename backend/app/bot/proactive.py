@@ -1254,6 +1254,11 @@ async def check_isf_suggestions(username: str = "admin", chat_id: Optional[int] 
             # Refresh post-bolus outcome rows before generating parameter suggestions.
             # Without this, ICR suggestions depend on someone manually running
             # /api/analysis/bolus/run and the daily job can silently see stale data.
+            #
+            # This refresh is intentionally skipped unless Nightscout is
+            # configured. The analysis service rewrites rows for the requested
+            # period, so running it without SGV source data would replace useful
+            # historical outcomes with "missing" rows.
             from app.services.nightscout_secrets_service import get_ns_config
             from app.services.nightscout_client import NightscoutClient
             from app.services.pattern_analysis import run_analysis_service
@@ -1262,11 +1267,14 @@ async def check_isf_suggestions(username: str = "admin", chat_id: Optional[int] 
             client = None
             if ns_cfg and ns_cfg.enabled and ns_cfg.url:
                 client = NightscoutClient(ns_cfg.url, ns_cfg.api_secret, timeout_seconds=30)
-            try:
-                await run_analysis_service(username, 14, user_settings, client, session)
-            finally:
-                if client:
+                try:
+                    await run_analysis_service(username, 14, user_settings, client, session)
+                except Exception as exc:
+                    logger.warning("Skipping post-bolus analysis refresh: Nightscout range reads failed: %s", exc)
+                finally:
                     await client.aclose()
+            else:
+                logger.info("Skipping post-bolus analysis refresh: Nightscout is not configured/enabled")
 
             # Run generation (includes ISF now)
             # Use 14 days for robust ISF
