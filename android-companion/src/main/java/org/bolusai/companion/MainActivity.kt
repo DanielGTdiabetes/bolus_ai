@@ -503,14 +503,14 @@ private fun SettingsScreen(settings: AppSettings, repository: AppSettingsReposit
         item { Button(onClick = { repository.updateIngestKey(ingestKey) }) { Text("Guardar clave") } }
         item {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("Sync ON/OFF")
+                Text("Automatizacion MyFitnessPal")
                 Switch(
                     checked = settings.nutritionSyncEnabled,
                     onCheckedChange = { enabled -> repository.setNutritionSyncEnabled(enabled) },
                 )
             }
         }
-        item { Text("Modo sync: Health Connect + cola persistente") }
+        item { Text("Modo: MyFitnessPal por Hermes. Health Connect no se usa para MyFitnessPal.") }
         item {
             Button(onClick = {
                 scope.launch {
@@ -626,7 +626,7 @@ private fun DiagnosticsScreen(
 
     LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         item { Text("Health Connect: ${HealthConnectAvailability(context).status()}") }
-        item { Text("Sync nutricional: ${if (settings.nutritionSyncEnabled) "ON" else "OFF"}") }
+        item { Text("Automatizacion MyFitnessPal: ${if (settings.nutritionSyncEnabled) "ON" else "OFF"}") }
         item { Text("Cola: ${queueItems.size} elementos - ultimo endpoint: ${last?.endpointUsed ?: "-"}") }
         item { Text("Ultimo error: ${last?.lastError ?: "-"}") }
         item {
