@@ -21,7 +21,7 @@ data class NutritionSyncRunResult(
 )
 
 class NutritionSyncRunner(private val context: Context) {
-    suspend fun run(includeMyFitnessPalRecords: Boolean = true): NutritionSyncRunResult {
+    suspend fun run(includeMyFitnessPalRecords: Boolean = false): NutritionSyncRunResult {
         val settings = AppSettingsRepository(context).current()
         if (!settings.nutritionSyncEnabled) {
             return NutritionSyncRunResult(retryable = false, message = "Sync off")

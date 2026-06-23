@@ -154,9 +154,9 @@ class NutritionActiveSyncService : Service() {
                         recordDiagnostic(
                             event = "hermes_fallback_health_connect",
                             status = HealthConnectLogStatus.PENDING,
-                            detail = "Hermes failed or is not configured; running Health Connect fallback",
+                            detail = "Hermes failed or is not configured; MyFitnessPal Health Connect records are suppressed",
                         )
-                        runSync("Fallback Health Connect", includeMyFitnessPalRecords = true)
+                        runSync("Fallback Health Connect", includeMyFitnessPalRecords = false)
                     } else if (hermesFirstResult.shouldFollowUp()) {
                         recordDiagnostic(
                             event = "hermes_followup_scheduled",
