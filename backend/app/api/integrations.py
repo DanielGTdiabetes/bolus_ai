@@ -84,6 +84,39 @@ def is_valid_ingestion(carbs: float, fat: float, protein: float, fiber: float) -
     return total_grams > 0.0
 
 
+def _numeric_meal_type(value: Any) -> Optional[int]:
+    try:
+        return int(str(value))
+    except (TypeError, ValueError):
+        return None
+
+
+def _filter_mfp_health_connect_daily_dump(parsed_meals: Dict[str, Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
+    if len(parsed_meals) <= 1:
+        return parsed_meals
+
+    meals = list(parsed_meals.values())
+    if not all((meal.get("source") or "").lower() == "myfitnesspal" for meal in meals):
+        return parsed_meals
+    if not all(meal.get("fingerprint") for meal in meals):
+        return parsed_meals
+
+    meal_types = [_numeric_meal_type(meal.get("meal_type")) for meal in meals]
+    if any(meal_type is None for meal_type in meal_types):
+        return parsed_meals
+
+    timestamps = {meal.get("ts") for meal in meals}
+    if len(timestamps) != 1:
+        return parsed_meals
+
+    max_meal_type = max(meal_type for meal_type in meal_types if meal_type is not None)
+    return {
+        key: meal
+        for key, meal in parsed_meals.items()
+        if _numeric_meal_type(meal.get("meal_type")) == max_meal_type
+    }
+
+
 def _resolve_import_source(notes: Optional[str]) -> str:
     if not notes:
         return "Auto Export"
@@ -480,6 +513,16 @@ async def ingest_nutrition(
              log_entry["result"] = res
              append_log(log_entry)
              return res
+
+        before_daily_dump_filter = len(parsed_meals)
+        parsed_meals = _filter_mfp_health_connect_daily_dump(parsed_meals)
+        if len(parsed_meals) != before_daily_dump_filter:
+            logger.info(
+                "nutrition_ingest_mfp_daily_dump_filtered ingest_id=%s before=%s after=%s",
+                ingest_id,
+                before_daily_dump_filter,
+                len(parsed_meals),
+            )
 
         # 2. Process distinct meals found
         # Sort by date descending (newest first)

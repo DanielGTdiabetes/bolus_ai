@@ -305,7 +305,7 @@ def test_allows_secret_without_jwt(client: TestClient):
     assert resp.json()["success"] == 1
 
 
-def test_health_connect_records_with_same_timestamp_are_split_by_fingerprint(client: TestClient):
+def test_health_connect_daily_dump_only_imports_latest_mfp_meal(client: TestClient):
     payload = {
         "data": {
             "metrics": [
@@ -326,6 +326,13 @@ def test_health_connect_records_with_same_timestamp_are_split_by_fingerprint(cli
                             "meal_fingerprint": "mfp-lunch",
                             "meal_type": "2",
                         },
+                        {
+                            "qty": 27.2,
+                            "date": "2026-06-23 10:00:00 +0200",
+                            "source": "MyFitnessPal",
+                            "meal_fingerprint": "mfp-dinner",
+                            "meal_type": "3",
+                        },
                     ],
                 },
                 {
@@ -344,6 +351,13 @@ def test_health_connect_records_with_same_timestamp_are_split_by_fingerprint(cli
                             "source": "MyFitnessPal",
                             "meal_fingerprint": "mfp-lunch",
                             "meal_type": "2",
+                        },
+                        {
+                            "qty": 24.7,
+                            "date": "2026-06-23 10:00:00 +0200",
+                            "source": "MyFitnessPal",
+                            "meal_fingerprint": "mfp-dinner",
+                            "meal_type": "3",
                         },
                     ],
                 },
@@ -364,6 +378,13 @@ def test_health_connect_records_with_same_timestamp_are_split_by_fingerprint(cli
                             "meal_fingerprint": "mfp-lunch",
                             "meal_type": "2",
                         },
+                        {
+                            "qty": 73.2,
+                            "date": "2026-06-23 10:00:00 +0200",
+                            "source": "MyFitnessPal",
+                            "meal_fingerprint": "mfp-dinner",
+                            "meal_type": "3",
+                        },
                     ],
                 },
             ]
@@ -373,10 +394,11 @@ def test_health_connect_records_with_same_timestamp_are_split_by_fingerprint(cli
     resp = client.post("/api/integrations/nutrition?key=test-ingest-secret", json=payload)
 
     assert resp.status_code == 200
-    assert resp.json()["ingested_count"] == 2
-    treatments = sorted(_fetch_all_treatments(client), key=lambda t: t.carbs)
-    assert [t.carbs for t in treatments] == pytest.approx([8.6, 26.1])
-    assert all(abs(t.carbs - 34.7) > 0.1 for t in treatments)
+    assert resp.json()["ingested_count"] == 1
+    treatments = _fetch_all_treatments(client)
+    assert len(treatments) == 1
+    assert treatments[0].carbs == pytest.approx(27.2)
+    assert treatments[0].protein == pytest.approx(73.2)
 
 
 def test_rejects_missing_or_wrong_secret(client: TestClient):
