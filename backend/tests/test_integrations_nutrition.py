@@ -305,6 +305,80 @@ def test_allows_secret_without_jwt(client: TestClient):
     assert resp.json()["success"] == 1
 
 
+def test_health_connect_records_with_same_timestamp_are_split_by_fingerprint(client: TestClient):
+    payload = {
+        "data": {
+            "metrics": [
+                {
+                    "name": "carbohydrates",
+                    "data": [
+                        {
+                            "qty": 8.6,
+                            "date": "2026-06-23 10:00:00 +0200",
+                            "source": "MyFitnessPal",
+                            "meal_fingerprint": "mfp-breakfast",
+                            "meal_type": "1",
+                        },
+                        {
+                            "qty": 26.1,
+                            "date": "2026-06-23 10:00:00 +0200",
+                            "source": "MyFitnessPal",
+                            "meal_fingerprint": "mfp-lunch",
+                            "meal_type": "2",
+                        },
+                    ],
+                },
+                {
+                    "name": "total_fat",
+                    "data": [
+                        {
+                            "qty": 24.7,
+                            "date": "2026-06-23 10:00:00 +0200",
+                            "source": "MyFitnessPal",
+                            "meal_fingerprint": "mfp-breakfast",
+                            "meal_type": "1",
+                        },
+                        {
+                            "qty": 27.1,
+                            "date": "2026-06-23 10:00:00 +0200",
+                            "source": "MyFitnessPal",
+                            "meal_fingerprint": "mfp-lunch",
+                            "meal_type": "2",
+                        },
+                    ],
+                },
+                {
+                    "name": "protein",
+                    "data": [
+                        {
+                            "qty": 30.5,
+                            "date": "2026-06-23 10:00:00 +0200",
+                            "source": "MyFitnessPal",
+                            "meal_fingerprint": "mfp-breakfast",
+                            "meal_type": "1",
+                        },
+                        {
+                            "qty": 26.9,
+                            "date": "2026-06-23 10:00:00 +0200",
+                            "source": "MyFitnessPal",
+                            "meal_fingerprint": "mfp-lunch",
+                            "meal_type": "2",
+                        },
+                    ],
+                },
+            ]
+        }
+    }
+
+    resp = client.post("/api/integrations/nutrition?key=test-ingest-secret", json=payload)
+
+    assert resp.status_code == 200
+    assert resp.json()["ingested_count"] == 2
+    treatments = sorted(_fetch_all_treatments(client), key=lambda t: t.carbs)
+    assert [t.carbs for t in treatments] == pytest.approx([8.6, 26.1])
+    assert all(abs(t.carbs - 34.7) > 0.1 for t in treatments)
+
+
 def test_rejects_missing_or_wrong_secret(client: TestClient):
     ts = "2025-03-02T09:15:00Z"
     resp_missing = client.post(

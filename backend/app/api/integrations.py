@@ -378,6 +378,7 @@ async def ingest_nutrition(
                         raw_date = entry.get("date")
                         entry_source = entry.get("source")
                         entry_fingerprint = entry.get("meal_fingerprint") or entry.get("fingerprint") or entry.get("origin_id")
+                        entry_meal_type = entry.get("meal_type")
                         
                         # Fix Qty logic:
                         # Sometimes qty is string "36.6", sometimes number 36.6
@@ -390,8 +391,9 @@ async def ingest_nutrition(
                         # Normalize date key (strip seconds/timezone to group near-simultaneous entries?)
                         # HealthKit data for same meal usually shares EXACT timestamp down to second
                         if raw_date:
-                            if raw_date not in parsed_meals:
-                                parsed_meals[raw_date] = {
+                            meal_key = entry_fingerprint or f"{raw_date}|{entry_meal_type or ''}"
+                            if meal_key not in parsed_meals:
+                                parsed_meals[meal_key] = {
                                     "c": 0.0,
                                     "f": 0.0,
                                     "p": 0.0,
@@ -399,18 +401,21 @@ async def ingest_nutrition(
                                     "ts": raw_date,
                                     "source": entry_source,
                                     "fingerprint": entry_fingerprint,
+                                    "meal_type": entry_meal_type,
                                     "fiber_provided": False,
                                 }
-                            elif entry_source and not parsed_meals[raw_date].get("source"):
-                                parsed_meals[raw_date]["source"] = entry_source
-                            elif entry_fingerprint and not parsed_meals[raw_date].get("fingerprint"):
-                                parsed_meals[raw_date]["fingerprint"] = entry_fingerprint
+                            elif entry_source and not parsed_meals[meal_key].get("source"):
+                                parsed_meals[meal_key]["source"] = entry_source
+                            elif entry_fingerprint and not parsed_meals[meal_key].get("fingerprint"):
+                                parsed_meals[meal_key]["fingerprint"] = entry_fingerprint
+                            elif entry_meal_type and not parsed_meals[meal_key].get("meal_type"):
+                                parsed_meals[meal_key]["meal_type"] = entry_meal_type
                             
                             # Add to existing (in case multiple entries for same type/time? unlikely but safe)
                             # Actually, usually unique per type per time.
-                            parsed_meals[raw_date][metric_type] += raw_qty
+                            parsed_meals[meal_key][metric_type] += raw_qty
                             if metric_type == "fib":
-                                parsed_meals[raw_date]["fiber_provided"] = True
+                                parsed_meals[meal_key]["fiber_provided"] = True
         
         else:
              # Support for "Type", "Value" flat format (Shortcuts/Raw Export)
@@ -478,7 +483,7 @@ async def ingest_nutrition(
 
         # 2. Process distinct meals found
         # Sort by date descending (newest first)
-        sorted_keys = sorted(parsed_meals.keys(), reverse=True)
+        sorted_keys = sorted(parsed_meals.keys(), key=lambda key: parsed_meals[key].get("ts") or key, reverse=True)
         logger.info("nutrition_ingest_timestamps ingest_id=%s unique_timestamps=%s", ingest_id, len(sorted_keys))
 
         for date_key in sorted_keys:
