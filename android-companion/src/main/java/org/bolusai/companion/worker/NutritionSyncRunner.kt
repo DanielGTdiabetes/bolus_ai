@@ -21,7 +21,7 @@ data class NutritionSyncRunResult(
 )
 
 class NutritionSyncRunner(private val context: Context) {
-    suspend fun run(): NutritionSyncRunResult {
+    suspend fun run(includeMyFitnessPalRecords: Boolean = true): NutritionSyncRunResult {
         val settings = AppSettingsRepository(context).current()
         if (!settings.nutritionSyncEnabled) {
             return NutritionSyncRunResult(retryable = false, message = "Sync off")
@@ -52,7 +52,12 @@ class NutritionSyncRunner(private val context: Context) {
         } else {
             emptyList()
         }
-        val newRecords = observedRecords.filterNot { it.dedupeHash in sentHashes }
+        val eligibleRecords = if (includeMyFitnessPalRecords) {
+            observedRecords
+        } else {
+            observedRecords.filterNot { it.sourcePackage == MYFITNESSPAL_PACKAGE }
+        }
+        val newRecords = eligibleRecords.filterNot { it.dedupeHash in sentHashes }
         val enqueueSummary = queueRepository.enqueueDetected(newRecords)
         newRecords.forEach { record ->
             val status = when {
@@ -64,12 +69,14 @@ class NutritionSyncRunner(private val context: Context) {
         }
 
         val dueItems = queueRepository.dueForSending()
+            .filter { includeMyFitnessPalRecords || it.sourcePackage != MYFITNESSPAL_PACKAGE }
         if (dueItems.isEmpty()) {
             return NutritionSyncRunResult(
                 retryable = false,
                 message = when {
                     !hasHealthConnectChanges -> "No Health Connect changes"
                     observedRecords.isEmpty() -> "No meals detected"
+                    eligibleRecords.isEmpty() -> "MyFitnessPal handled by Hermes"
                     enqueueSummary.duplicates > 0 -> "Duplicate meals ignored"
                     enqueueSummary.updates > 0 -> "Meal update detected; pending confirmation"
                     else -> "No queued meals due"
@@ -106,5 +113,9 @@ class NutritionSyncRunner(private val context: Context) {
             queueRepository.markRetry(dueItems, sendResult)
             NutritionSyncRunResult(retryable = true, message = sendResult.body)
         }
+    }
+
+    private companion object {
+        const val MYFITNESSPAL_PACKAGE = "com.myfitnesspal.android"
     }
 }

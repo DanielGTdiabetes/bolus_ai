@@ -32,6 +32,7 @@ class NutritionActiveSyncService : Service() {
     private var myFitnessPalWasForeground = false
     private var lastMyFitnessPalExitSyncAt = 0L
     private var lastMissingUsageAccessLogAt = 0L
+    private var lastUsageTransitionCheckAt = 0L
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
@@ -47,8 +48,8 @@ class NutritionActiveSyncService : Service() {
         scope.launch { watchMyFitnessPalExit() }
         scope.launch {
             while (isActive) {
-                runSync("Revision de respaldo")
                 delay(BACKUP_SYNC_INTERVAL_MS)
+                runSync("Revision de respaldo", includeMyFitnessPalRecords = false)
             }
         }
         return START_STICKY
@@ -96,7 +97,17 @@ class NutritionActiveSyncService : Service() {
                 continue
             }
 
+            val transitionCheckStart = if (lastUsageTransitionCheckAt == 0L) {
+                System.currentTimeMillis() - USAGE_EVENT_LOOKBACK_MS
+            } else {
+                lastUsageTransitionCheckAt
+            }
+            val exitPackages = confirmedExitPackages()
             val isMyFitnessPalForeground = watcher.currentForegroundPackage() == MYFITNESSPAL_PACKAGE
+            val currentForegroundPackage = watcher.currentForegroundPackage()
+            val isConfirmedExitDestination = currentForegroundPackage in exitPackages
+            val observedMyFitnessPalExit = watcher.observedExitSince(MYFITNESSPAL_PACKAGE, transitionCheckStart, exitPackages)
+            lastUsageTransitionCheckAt = System.currentTimeMillis()
             if (!myFitnessPalWasForeground && isMyFitnessPalForeground) {
                 recordDiagnostic(
                     event = "myfitnesspal_foreground",
@@ -104,15 +115,38 @@ class NutritionActiveSyncService : Service() {
                     detail = "MyFitnessPal entered foreground",
                 )
             }
-            if (myFitnessPalWasForeground && !isMyFitnessPalForeground) {
+            if ((myFitnessPalWasForeground && isConfirmedExitDestination) || observedMyFitnessPalExit) {
                 val now = System.currentTimeMillis()
                 if (now - lastMyFitnessPalExitSyncAt > MYFITNESSPAL_EXIT_COOLDOWN_MS) {
-                    lastMyFitnessPalExitSyncAt = now
+                    updateNotification("Confirmando cierre de MyFitnessPal")
+                    recordDiagnostic(
+                        event = "myfitnesspal_exit_candidate",
+                        status = HealthConnectLogStatus.DETECTED,
+                        detail = if (observedMyFitnessPalExit) {
+                            "Usage event transition detected; checking that MyFitnessPal remains closed before triggering Hermes"
+                        } else {
+                            "Checking that MyFitnessPal remains closed before triggering Hermes"
+                        },
+                    )
+                    if (!confirmMyFitnessPalClosed(watcher)) {
+                        val current = watcher.currentForegroundPackage()
+                        myFitnessPalWasForeground = current == MYFITNESSPAL_PACKAGE
+                        updateNotification("MyFitnessPal sigue abierto")
+                        recordDiagnostic(
+                            event = "myfitnesspal_exit_cancelled",
+                            status = HealthConnectLogStatus.PENDING,
+                            detail = "Exit candidate cancelled because foreground is not a confirmed exit destination",
+                        )
+                        delay(USAGE_WATCH_INTERVAL_MS)
+                        continue
+                    }
+
+                    lastMyFitnessPalExitSyncAt = System.currentTimeMillis()
                     updateNotification("MyFitnessPal cerrado, esperando datos")
                     recordDiagnostic(
-                        event = "myfitnesspal_exit_detected",
+                        event = "myfitnesspal_exit_confirmed",
                         status = HealthConnectLogStatus.DETECTED,
-                        detail = "Waiting ${MYFITNESSPAL_WRITE_DELAY_MS / 1000}s before triggering Hermes",
+                        detail = "Confirmed closed after ${MYFITNESSPAL_EXIT_CONFIRMATION_CHECKS} checks; waiting ${MYFITNESSPAL_WRITE_DELAY_MS / 1000}s before triggering Hermes",
                     )
                     delay(MYFITNESSPAL_WRITE_DELAY_MS)
                     val hermesFirstResult = triggerHermesSync("Salida de MyFitnessPal")
@@ -122,7 +156,7 @@ class NutritionActiveSyncService : Service() {
                             status = HealthConnectLogStatus.PENDING,
                             detail = "Hermes failed or is not configured; running Health Connect fallback",
                         )
-                        runSync("Fallback Health Connect")
+                        runSync("Fallback Health Connect", includeMyFitnessPalRecords = true)
                     } else if (hermesFirstResult.shouldFollowUp()) {
                         recordDiagnostic(
                             event = "hermes_followup_scheduled",
@@ -145,9 +179,30 @@ class NutritionActiveSyncService : Service() {
         }
     }
 
-    private suspend fun runSync(prefix: String): NutritionSyncRunResult? {
+    private suspend fun confirmMyFitnessPalClosed(watcher: ForegroundAppWatcher): Boolean {
+        val exitPackages = confirmedExitPackages()
+        repeat(MYFITNESSPAL_EXIT_CONFIRMATION_CHECKS) { index ->
+            delay(MYFITNESSPAL_EXIT_CONFIRMATION_INTERVAL_MS)
+            val currentPackage = watcher.currentForegroundPackage()
+            val stillClosed = currentPackage in exitPackages
+            recordDiagnostic(
+                event = "myfitnesspal_exit_confirmation",
+                status = if (stillClosed) HealthConnectLogStatus.DETECTED else HealthConnectLogStatus.PENDING,
+                detail = "Check ${index + 1}/$MYFITNESSPAL_EXIT_CONFIRMATION_CHECKS: current=${currentPackage ?: "none"}",
+            )
+            if (!stillClosed) return false
+        }
+        return true
+    }
+
+    private fun confirmedExitPackages(): Set<String> =
+        DEFAULT_EXIT_PACKAGES + applicationContext.packageName
+
+    private suspend fun runSync(prefix: String, includeMyFitnessPalRecords: Boolean): NutritionSyncRunResult? {
         return runCatching {
-            val result = NutritionSyncRunner(applicationContext).run()
+            val result = NutritionSyncRunner(applicationContext).run(
+                includeMyFitnessPalRecords = includeMyFitnessPalRecords,
+            )
             if (result.message == "Sync off") {
                 stopSelf()
                 return@runCatching result
@@ -248,11 +303,20 @@ class NutritionActiveSyncService : Service() {
         private const val NOTIFICATION_ID = 2001
         private const val BACKUP_SYNC_INTERVAL_MS = 15 * 60_000L
         private const val USAGE_WATCH_INTERVAL_MS = 5_000L
+        private const val USAGE_EVENT_LOOKBACK_MS = 30_000L
+        private const val MYFITNESSPAL_EXIT_CONFIRMATION_CHECKS = 2
+        private const val MYFITNESSPAL_EXIT_CONFIRMATION_INTERVAL_MS = 3_000L
         private const val MYFITNESSPAL_WRITE_DELAY_MS = 20_000L
         private const val MYFITNESSPAL_FOLLOW_UP_DELAY_MS = 75_000L
         private const val MYFITNESSPAL_EXIT_COOLDOWN_MS = 90_000L
         private const val MISSING_USAGE_ACCESS_LOG_COOLDOWN_MS = 10 * 60_000L
         private const val MYFITNESSPAL_PACKAGE = "com.myfitnesspal.android"
+        private val DEFAULT_EXIT_PACKAGES = setOf(
+            "com.mi.android.globallauncher",
+            "com.android.launcher",
+            "com.android.launcher3",
+            "com.google.android.apps.nexuslauncher",
+        )
 
         fun start(context: Context) {
             val intent = Intent(context, NutritionActiveSyncService::class.java)

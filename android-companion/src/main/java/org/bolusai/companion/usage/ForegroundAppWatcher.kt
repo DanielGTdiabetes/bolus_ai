@@ -4,30 +4,65 @@ import android.app.usage.UsageEvents
 import android.app.usage.UsageStatsManager
 import android.content.Context
 
+data class ForegroundTransition(
+    val packageName: String,
+)
+
+object ForegroundEventInterpreter {
+    fun currentForegroundPackage(transitions: List<ForegroundTransition>): String? =
+        transitions.lastOrNull()?.packageName
+
+    fun observedExitSince(
+        packageName: String,
+        transitions: List<ForegroundTransition>,
+        exitPackages: Set<String>,
+    ): Boolean {
+        var sawPackageForeground = false
+        transitions.forEach { transition ->
+            if (transition.packageName == packageName) {
+                sawPackageForeground = true
+            } else if (sawPackageForeground && transition.packageName in exitPackages) {
+                return true
+            }
+        }
+        return false
+    }
+}
+
 class ForegroundAppWatcher(private val context: Context) {
     private val usageStatsManager = context.getSystemService(UsageStatsManager::class.java)
 
     fun currentForegroundPackage(): String? {
         if (!UsageAccess.hasPermission(context)) return null
         val now = System.currentTimeMillis()
-        val events = usageStatsManager.queryEvents(now - LOOKBACK_MS, now)
-        val event = UsageEvents.Event()
-        var foregroundPackage: String? = null
+        return ForegroundEventInterpreter.currentForegroundPackage(
+            foregroundTransitions(now - LOOKBACK_MS, now),
+        )
+    }
 
+    fun observedExitSince(packageName: String, sinceMillis: Long, exitPackages: Set<String>): Boolean {
+        if (!UsageAccess.hasPermission(context)) return false
+        val now = System.currentTimeMillis()
+        return ForegroundEventInterpreter.observedExitSince(
+            packageName = packageName,
+            transitions = foregroundTransitions(sinceMillis.coerceAtMost(now), now),
+            exitPackages = exitPackages,
+        )
+    }
+
+    private fun foregroundTransitions(fromMillis: Long, toMillis: Long): List<ForegroundTransition> {
+        val events = usageStatsManager.queryEvents(fromMillis, toMillis)
+        val event = UsageEvents.Event()
+        val transitions = mutableListOf<ForegroundTransition>()
         while (events.hasNextEvent()) {
             events.getNextEvent(event)
-            when (event.eventType) {
-                UsageEvents.Event.ACTIVITY_RESUMED,
-                UsageEvents.Event.MOVE_TO_FOREGROUND -> foregroundPackage = event.packageName
-                UsageEvents.Event.ACTIVITY_PAUSED,
-                UsageEvents.Event.ACTIVITY_STOPPED,
-                UsageEvents.Event.MOVE_TO_BACKGROUND -> {
-                    if (foregroundPackage == event.packageName) foregroundPackage = null
-                }
+            if (event.eventType == UsageEvents.Event.ACTIVITY_RESUMED ||
+                event.eventType == UsageEvents.Event.MOVE_TO_FOREGROUND
+            ) {
+                transitions += ForegroundTransition(event.packageName)
             }
         }
-
-        return foregroundPackage
+        return transitions
     }
 
     private companion object {

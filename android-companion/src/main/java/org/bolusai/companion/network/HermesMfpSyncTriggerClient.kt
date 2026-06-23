@@ -3,6 +3,7 @@ package org.bolusai.companion.network
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.bolusai.companion.diagnostics.Sanitizer
+import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
 
@@ -11,8 +12,25 @@ data class HermesMfpSyncTriggerResult(
     val statusCode: Int?,
     val body: String,
 ) {
-    fun shouldFollowUp(): Boolean =
-        !ok || body.contains("posted=0", ignoreCase = true) || body.contains("\"success\": 0")
+    fun shouldFollowUp(): Boolean {
+        if (!ok || reportedSuccess() == false) return false
+        return postedCount() == 0
+    }
+
+    private fun reportedSuccess(): Boolean? =
+        runCatching { JSONObject(body).optInt("success") }.getOrNull()?.let { it != 0 }
+
+    private fun postedCount(): Int? {
+        val outputTail = runCatching { JSONObject(body).optString("output_tail") }.getOrNull().orEmpty()
+        val text = if (outputTail.isBlank()) body else "$body\n$outputTail"
+        return POSTED_COUNT_REGEX.findAll(text)
+            .mapNotNull { it.groupValues.getOrNull(1)?.toIntOrNull() }
+            .lastOrNull()
+    }
+
+    private companion object {
+        val POSTED_COUNT_REGEX = Regex("""\bposted\s*=\s*(\d+)""", RegexOption.IGNORE_CASE)
+    }
 }
 
 class HermesMfpSyncTriggerClient {
