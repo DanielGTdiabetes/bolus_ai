@@ -11,6 +11,7 @@
     <queries>
         <package android:name="com.google.android.apps.healthdata" />
         <package android:name="com.myfitnesspal.android" />
+        <package android:name="com.dexcom.g7" />
         <intent>
             <action android:name="android.intent.action.VIEW" />
             <data android:scheme="mfp" />

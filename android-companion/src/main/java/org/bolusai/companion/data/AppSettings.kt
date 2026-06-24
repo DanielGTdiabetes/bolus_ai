@@ -7,5 +7,6 @@ data class AppSettings(
     val ingestKey: String = "",
     val nutritionSyncEnabled: Boolean = false,
     val myFitnessPalAssistEnabled: Boolean = false,
+    val dexcomWriteEnabled: Boolean = false,
     val logRetentionDays: Int = 30,
 )
