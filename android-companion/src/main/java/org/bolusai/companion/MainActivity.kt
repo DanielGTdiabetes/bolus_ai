@@ -938,7 +938,11 @@ private fun WebScreen(settings: AppSettings) {
 }
 
 private fun macros(item: MealQueueItem): String =
-    "HC ${item.carbohydratesGrams ?: 0.0}g - P ${item.proteinGrams ?: 0.0}g - G ${item.fatGrams ?: 0.0}g - Fibra ${item.fiberGrams ?: 0.0}g - kcal ${item.caloriesKcal ?: 0.0}"
+    "HC ${formatNumber(item.carbohydratesGrams ?: 0.0)}g · " +
+        "P ${formatNumber(item.proteinGrams ?: 0.0)}g · " +
+        "G ${formatNumber(item.fatGrams ?: 0.0)}g · " +
+        "Fibra ${formatNumber(item.fiberGrams ?: 0.0)}g · " +
+        "${formatNumber(item.caloriesKcal ?: 0.0)} kcal"
 
 private fun formatInstant(value: String): String =
     runCatching { formatInstantMillis(Instant.parse(value).toEpochMilli()) }.getOrDefault(value)

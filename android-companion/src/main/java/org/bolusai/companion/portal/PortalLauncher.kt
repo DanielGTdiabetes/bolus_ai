@@ -14,7 +14,6 @@ class PortalLauncher(private val context: Context) {
     fun open(url: String) {
         val normalizedUrl = normalizeHttps(url)
         val uri = Uri.parse(normalizedUrl)
-        if (openTrustedWebActivity(uri)) return
         if (openInChrome(uri)) return
 
         val customTabsPackage = customTabsPackage()
