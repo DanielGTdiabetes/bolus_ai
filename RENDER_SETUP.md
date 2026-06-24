@@ -47,11 +47,11 @@ Bolus AI está configurado para ejecutarse como un único servicio que sirve tan
 | **Language** | `Python` |
 | **Root Directory** | Raíz del proyecto |
 | **Build Command** | `chmod +x build_render.sh && ./build_render.sh` |
-| **Start Command** | `uvicorn app.main:app --host 0.0.0.0 --port $PORT` |
+| **Start Command** | `./render_start.sh` |
 | **Plan** | `Starter` o superior según necesidad |
 | **AutoDeploy** | `No`, recomendado para controlar cambios |
 
-El archivo `render.yaml` del repositorio ya documenta `autoDeploy: false`, `healthCheckPath: /healthz`, runtime Python y disco persistente.
+El archivo `render.yaml` del repositorio ya documenta `autoDeploy: false`, `healthCheckPath: /healthz`, runtime Python y disco persistente. El script `render_start.sh` entra en `backend/` antes de lanzar Uvicorn para que `app.main:app` se importe correctamente y Render detecte el puerto abierto en `$PORT`.
 
 ---
 
