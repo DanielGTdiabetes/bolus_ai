@@ -1089,7 +1089,6 @@ private fun SettingsScreen(
     var hasMfpAccessibility by remember { mutableStateOf(isMyFitnessPalAssistantEnabled(context)) }
     var connectionMessage by remember { mutableStateOf("") }
     var dexcomTestMessage by remember { mutableStateOf("") }
-    val dexcomAvailable = remember { DexcomEventWriter.isCompatibleDexcomInstalled(context) }
     var healthStatus by remember { mutableStateOf("Sin comprobar") }
     val availability = remember { HealthConnectAvailability(context).status() }
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
@@ -1194,17 +1193,10 @@ private fun SettingsScreen(
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("Dexcom G7 modificada", style = MaterialTheme.typography.titleMedium)
-                    if (!dexcomAvailable) {
-                        Text(
-                            "No está instalada en este dispositivo.",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         Text("Escribir bolos en Dexcom G7 modificada", modifier = Modifier.weight(1f))
                         Switch(
                             checked = settings.dexcomWriteEnabled,
-                            enabled = dexcomAvailable,
                             onCheckedChange = { enabled ->
                                 repository.setDexcomWriteEnabled(enabled)
                                 dexcomTestMessage = ""
@@ -1212,19 +1204,14 @@ private fun SettingsScreen(
                         )
                     }
                     Button(
-                        enabled = settings.dexcomWriteEnabled && dexcomAvailable,
                         onClick = {
-                            val sent = DexcomEventWriter.sendInsulinEvent(
-                                context = context,
-                                insulinUnits = 5.5,
-                            )
-                            dexcomTestMessage = if (sent) {
-                                "Bolo de prueba 5.5U enviado."
+                            dexcomTestMessage = if (DexcomEventWriter.isReceiverAvailable(context)) {
+                                "Puente Dexcom disponible. No se ha escrito ningún bolo."
                             } else {
-                                "No se pudo enviar el bolo de prueba."
+                                "No se encuentra el receiver de la Dexcom G7 modificada."
                             }
                         },
-                    ) { Text("Enviar bolo de prueba 5.5U") }
+                    ) { Text("Comprobar puente Dexcom") }
                     if (dexcomTestMessage.isNotBlank()) Text(dexcomTestMessage)
                 }
             }

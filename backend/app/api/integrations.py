@@ -20,6 +20,7 @@ from app.services.store import DataStore
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+DEXCOM_BOLUS_EVENT_TYPES = ("Meal Bolus", "Correction Bolus", "Bolus")
 
 def _data_store(settings: Settings = Depends(get_settings)) -> DataStore:
     from pathlib import Path
@@ -111,15 +112,11 @@ def _filter_mfp_health_connect_daily_dump(parsed_meals: Dict[str, Dict[str, Any]
         return parsed_meals
 
     max_meal_type = max(meal_type for meal_type in meal_types if meal_type is not None)
-    filtered = {
+    return {
         key: meal
         for key, meal in parsed_meals.items()
         if _numeric_meal_type(meal.get("meal_type")) == max_meal_type
     }
-    for meal in filtered.values():
-        meal["force_now"] = True
-        meal["mfp_daily_dump"] = True
-    return filtered
 
 
 def _resolve_import_source(notes: Optional[str]) -> str:
@@ -246,6 +243,7 @@ async def mobile_bolus_settings(
 async def mobile_bolus_events(
     request: Request,
     after_id: Optional[str] = Query(None),
+    after_timestamp: Optional[int] = Query(None, ge=0),
     latest_only: bool = Query(False),
     ingest_key_header: Optional[str] = Header(None, alias="X-Ingest-Key"),
     session: AsyncSession = Depends(get_db_session),
@@ -255,6 +253,7 @@ async def mobile_bolus_events(
     _, user_id, _ = await _load_mobile_bolus_settings(session)
 
     after_created_at: Optional[datetime] = None
+    cursor_found = False
     if after_id:
         previous = (
             await session.execute(
@@ -263,13 +262,15 @@ async def mobile_bolus_events(
         ).scalars().first()
         if previous:
             after_created_at = previous.created_at
+            cursor_found = True
 
-    if after_id and after_created_at is None:
+    if after_id and after_created_at is None and not after_timestamp:
         return []
 
     stmt = select(Treatment).where(
         Treatment.user_id == user_id,
         Treatment.insulin > 0,
+        Treatment.event_type.in_(DEXCOM_BOLUS_EVENT_TYPES),
     )
     if latest_only:
         row = (
@@ -286,13 +287,23 @@ async def mobile_bolus_events(
             )
         ]
 
+    if after_created_at is None and after_timestamp:
+        after_created_at = (
+            datetime.fromtimestamp(after_timestamp / 1000, tz=timezone.utc)
+            .replace(tzinfo=None)
+            + timedelta(milliseconds=1)
+        )
+
     if after_created_at is None:
         stmt = stmt.where(Treatment.created_at >= datetime.utcnow() - timedelta(minutes=2))
     else:
-        stmt = stmt.where(
-            (Treatment.created_at > after_created_at)
-            | ((Treatment.created_at == after_created_at) & (Treatment.id > after_id))
-        )
+        if cursor_found:
+            stmt = stmt.where(
+                (Treatment.created_at > after_created_at)
+                | ((Treatment.created_at == after_created_at) & (Treatment.id > after_id))
+            )
+        else:
+            stmt = stmt.where(Treatment.created_at >= after_created_at)
 
     rows = (
         await session.execute(stmt.order_by(Treatment.created_at.asc(), Treatment.id.asc()).limit(50))
@@ -627,27 +638,6 @@ async def ingest_nutrition(
         
         if session:
             from app.models.treatment import Treatment
-
-            if any(meal.get("mfp_daily_dump") for meal in parsed_meals.values()):
-                recent_since = (datetime.now(timezone.utc) - timedelta(minutes=45)).replace(tzinfo=None)
-                stmt_recent_hermes = select(Treatment).where(
-                    Treatment.user_id == username,
-                    Treatment.created_at >= recent_since,
-                    Treatment.carbs > 0,
-                    Treatment.notes.contains("hermes-mfp"),
-                )
-                recent_hermes = (await session.execute(stmt_recent_hermes)).scalars().first()
-                if recent_hermes:
-                    logger.info(
-                        "nutrition_ingest_mfp_daily_dump_skipped ingest_id=%s reason=recent_hermes id=%s",
-                        ingest_id,
-                        recent_hermes.id,
-                    )
-                    res = {"success": 1, "message": "Ignored MyFitnessPal Health Connect dump after recent Hermes import", "ingested_count": 0, "ids": []}
-                    log_entry["status"] = "ignored"
-                    log_entry["result"] = res
-                    append_log(log_entry)
-                    return res
             
             # Use top 500 recent meals (extended history)
             count = 0 
@@ -666,7 +656,7 @@ async def ingest_nutrition(
                 if t_carbs < 1 and t_fat < 1 and t_protein < 1 and t_fiber < 1: continue
 
                 # Parse Date with Force-Now Logic
-                force_now = bool(meal.get("force_now"))
+                force_now = False
                 try:
                     ts_str = meal["ts"]
                     now_utc = datetime.now(timezone.utc)
@@ -709,7 +699,7 @@ async def ingest_nutrition(
                             pass
                     
                     # Fallback NOW
-                    if force_now or item_ts is None:
+                    if item_ts is None:
                         item_ts = now_utc
                         force_now = True
                         

@@ -2,7 +2,6 @@ package org.bolusai.companion.worker
 
 import android.app.NotificationChannel
 import android.app.NotificationManager
-import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
@@ -19,7 +18,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import org.bolusai.companion.R
-import org.bolusai.companion.MainActivity
 import org.bolusai.companion.data.AppSettingsRepository
 import org.bolusai.companion.diagnostics.HealthConnectLogRepository
 import org.bolusai.companion.diagnostics.HealthConnectLogStatus
@@ -115,8 +113,8 @@ class NutritionActiveSyncService : Service() {
                 lastUsageTransitionCheckAt
             }
             val exitPackages = confirmedExitPackages()
+            val isMyFitnessPalForeground = watcher.currentForegroundPackage() == MYFITNESSPAL_PACKAGE
             val currentForegroundPackage = watcher.currentForegroundPackage()
-            val isMyFitnessPalForeground = currentForegroundPackage == MYFITNESSPAL_PACKAGE
             val isConfirmedExitDestination = currentForegroundPackage in exitPackages
             val observedMyFitnessPalExit = watcher.observedExitSince(MYFITNESSPAL_PACKAGE, transitionCheckStart, exitPackages)
             lastUsageTransitionCheckAt = System.currentTimeMillis()
@@ -284,16 +282,18 @@ class NutritionActiveSyncService : Service() {
             }
 
             val lastEventId = repository.lastEventId()
+            val lastEventTimestamp = repository.lastEventTimestamp()
             val result = client.fetch(
                 primaryUrl = settings.primaryUrl,
                 backupUrl = settings.backupUrl,
                 ingestKey = settings.ingestKey,
                 afterId = lastEventId,
+                afterTimestamp = lastEventTimestamp,
                 latestOnly = lastEventId == null,
             )
             if (result.ok) {
                 if (lastEventId == null) {
-                    result.events.lastOrNull()?.let { repository.markProcessed(it.id) }
+                    result.events.lastOrNull()?.let { repository.markProcessed(it.id, it.timestamp) }
                     delay(DEXCOM_SYNC_INTERVAL_MS)
                     continue
                 }
@@ -305,7 +305,7 @@ class NutritionActiveSyncService : Service() {
                         timestamp = event.timestamp,
                     )
                     if (!sent) break
-                    repository.markProcessed(event.id)
+                    repository.markProcessed(event.id, event.timestamp)
                 }
             } else {
                 recordDiagnostic(
@@ -334,16 +334,8 @@ class NutritionActiveSyncService : Service() {
 
     private fun notification(message: String) = NotificationCompat.Builder(this, CHANNEL_ID)
         .setSmallIcon(R.drawable.ic_launcher)
-        .setContentTitle("Bolus AI")
+        .setContentTitle("Bolus AI Companion")
         .setContentText(message)
-        .setContentIntent(
-            PendingIntent.getActivity(
-                this,
-                0,
-                Intent(this, MainActivity::class.java),
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-            ),
-        )
         .setOngoing(true)
         .setOnlyAlertOnce(true)
         .setPriority(NotificationCompat.PRIORITY_LOW)
@@ -352,10 +344,11 @@ class NutritionActiveSyncService : Service() {
     private fun ensureNotificationChannel() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val manager = getSystemService(NotificationManager::class.java)
+        if (manager.getNotificationChannel(CHANNEL_ID) != null) return
         manager.createNotificationChannel(
             NotificationChannel(
                 CHANNEL_ID,
-                "Bolus AI en segundo plano",
+                "Bolus AI nutrition sync",
                 NotificationManager.IMPORTANCE_LOW,
             ),
         )
@@ -377,7 +370,6 @@ class NutritionActiveSyncService : Service() {
         private const val DEXCOM_SYNC_INTERVAL_MS = 15_000L
         private const val MYFITNESSPAL_PACKAGE = "com.myfitnesspal.android"
         private val DEFAULT_EXIT_PACKAGES = setOf(
-            "com.sec.android.app.launcher",
             "com.mi.android.globallauncher",
             "com.android.launcher",
             "com.android.launcher3",
