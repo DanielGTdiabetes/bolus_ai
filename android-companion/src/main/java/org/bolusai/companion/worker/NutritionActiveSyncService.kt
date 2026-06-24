@@ -113,8 +113,8 @@ class NutritionActiveSyncService : Service() {
                 lastUsageTransitionCheckAt
             }
             val exitPackages = confirmedExitPackages()
-            val isMyFitnessPalForeground = watcher.currentForegroundPackage() == MYFITNESSPAL_PACKAGE
             val currentForegroundPackage = watcher.currentForegroundPackage()
+            val isMyFitnessPalForeground = currentForegroundPackage == MYFITNESSPAL_PACKAGE
             val isConfirmedExitDestination = currentForegroundPackage in exitPackages
             val observedMyFitnessPalExit = watcher.observedExitSince(MYFITNESSPAL_PACKAGE, transitionCheckStart, exitPackages)
             lastUsageTransitionCheckAt = System.currentTimeMillis()
@@ -368,6 +368,7 @@ class NutritionActiveSyncService : Service() {
         private const val DEXCOM_SYNC_INTERVAL_MS = 15_000L
         private const val MYFITNESSPAL_PACKAGE = "com.myfitnesspal.android"
         private val DEFAULT_EXIT_PACKAGES = setOf(
+            "com.sec.android.app.launcher",
             "com.mi.android.globallauncher",
             "com.android.launcher",
             "com.android.launcher3",

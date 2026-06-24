@@ -22,17 +22,17 @@ class ForegroundEventInterpreterTest {
     fun anotherForegroundAppAfterMyFitnessPalCountsAsExit() {
         val transitions = listOf(
             ForegroundTransition(MYFITNESSPAL),
-            ForegroundTransition(LAUNCHER),
+            ForegroundTransition(SAMSUNG_LAUNCHER),
         )
 
-        assertEquals(LAUNCHER, ForegroundEventInterpreter.currentForegroundPackage(transitions))
+        assertEquals(SAMSUNG_LAUNCHER, ForegroundEventInterpreter.currentForegroundPackage(transitions))
         assertTrue(ForegroundEventInterpreter.observedExitSince(MYFITNESSPAL, transitions, EXIT_PACKAGES))
     }
 
     @Test
     fun foregroundBeforeMyFitnessPalDoesNotCountAsExit() {
         val transitions = listOf(
-            ForegroundTransition(LAUNCHER),
+            ForegroundTransition(SAMSUNG_LAUNCHER),
             ForegroundTransition(MYFITNESSPAL),
         )
 
@@ -53,7 +53,7 @@ class ForegroundEventInterpreterTest {
 
     private companion object {
         const val MYFITNESSPAL = "com.myfitnesspal.android"
-        const val LAUNCHER = "com.mi.android.globallauncher"
-        val EXIT_PACKAGES = setOf(LAUNCHER, "org.bolusai.companion")
+        const val SAMSUNG_LAUNCHER = "com.sec.android.app.launcher"
+        val EXIT_PACKAGES = setOf(SAMSUNG_LAUNCHER, "org.bolusai.companion")
     }
 }

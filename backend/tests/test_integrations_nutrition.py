@@ -401,6 +401,63 @@ def test_health_connect_daily_dump_only_imports_latest_mfp_meal(client: TestClie
     assert treatments[0].protein == pytest.approx(73.2)
 
 
+def test_health_connect_daily_dump_dedupes_against_recent_hermes_meal(client: TestClient):
+    existing_time = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(minutes=5)
+    _create_treatment(
+        client,
+        id="hermes-dinner",
+        user_id="admin",
+        event_type="Meal Bolus",
+        created_at=existing_time,
+        insulin=0.0,
+        carbs=28.0,
+        fat=25.0,
+        protein=73.0,
+        fiber=0.0,
+        notes="Imported from Health: hermes-mfp:2026-06-23:dinner:test #imported",
+        entered_by="webhook-integration",
+        is_uploaded=False,
+    )
+    payload = {
+        "data": {
+            "metrics": [
+                {
+                    "name": "carbohydrates",
+                    "data": [
+                        {"qty": 8.6, "date": "2026-06-23 10:00:00 +0200", "source": "MyFitnessPal", "meal_fingerprint": "mfp-breakfast", "meal_type": "1"},
+                        {"qty": 68.8, "date": "2026-06-23 10:00:00 +0200", "source": "MyFitnessPal", "meal_fingerprint": "mfp-lunch", "meal_type": "2"},
+                        {"qty": 27.2, "date": "2026-06-23 10:00:00 +0200", "source": "MyFitnessPal", "meal_fingerprint": "mfp-dinner", "meal_type": "3"},
+                    ],
+                },
+                {
+                    "name": "total_fat",
+                    "data": [
+                        {"qty": 24.7, "date": "2026-06-23 10:00:00 +0200", "source": "MyFitnessPal", "meal_fingerprint": "mfp-breakfast", "meal_type": "1"},
+                        {"qty": 46.6, "date": "2026-06-23 10:00:00 +0200", "source": "MyFitnessPal", "meal_fingerprint": "mfp-lunch", "meal_type": "2"},
+                        {"qty": 24.7, "date": "2026-06-23 10:00:00 +0200", "source": "MyFitnessPal", "meal_fingerprint": "mfp-dinner", "meal_type": "3"},
+                    ],
+                },
+                {
+                    "name": "protein",
+                    "data": [
+                        {"qty": 30.5, "date": "2026-06-23 10:00:00 +0200", "source": "MyFitnessPal", "meal_fingerprint": "mfp-breakfast", "meal_type": "1"},
+                        {"qty": 63.7, "date": "2026-06-23 10:00:00 +0200", "source": "MyFitnessPal", "meal_fingerprint": "mfp-lunch", "meal_type": "2"},
+                        {"qty": 73.2, "date": "2026-06-23 10:00:00 +0200", "source": "MyFitnessPal", "meal_fingerprint": "mfp-dinner", "meal_type": "3"},
+                    ],
+                },
+            ]
+        }
+    }
+
+    resp = client.post("/api/integrations/nutrition?key=test-ingest-secret", json=payload)
+
+    assert resp.status_code == 200
+    assert resp.json()["ingested_count"] == 0
+    treatments = _fetch_all_treatments(client)
+    assert len(treatments) == 1
+    assert treatments[0].id == "hermes-dinner"
+
+
 def test_rejects_missing_or_wrong_secret(client: TestClient):
     ts = "2025-03-02T09:15:00Z"
     resp_missing = client.post(

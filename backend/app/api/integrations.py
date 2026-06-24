@@ -111,11 +111,15 @@ def _filter_mfp_health_connect_daily_dump(parsed_meals: Dict[str, Dict[str, Any]
         return parsed_meals
 
     max_meal_type = max(meal_type for meal_type in meal_types if meal_type is not None)
-    return {
+    filtered = {
         key: meal
         for key, meal in parsed_meals.items()
         if _numeric_meal_type(meal.get("meal_type")) == max_meal_type
     }
+    for meal in filtered.values():
+        meal["force_now"] = True
+        meal["mfp_daily_dump"] = True
+    return filtered
 
 
 def _resolve_import_source(notes: Optional[str]) -> str:
@@ -623,6 +627,27 @@ async def ingest_nutrition(
         
         if session:
             from app.models.treatment import Treatment
+
+            if any(meal.get("mfp_daily_dump") for meal in parsed_meals.values()):
+                recent_since = (datetime.now(timezone.utc) - timedelta(minutes=45)).replace(tzinfo=None)
+                stmt_recent_hermes = select(Treatment).where(
+                    Treatment.user_id == username,
+                    Treatment.created_at >= recent_since,
+                    Treatment.carbs > 0,
+                    Treatment.notes.contains("hermes-mfp"),
+                )
+                recent_hermes = (await session.execute(stmt_recent_hermes)).scalars().first()
+                if recent_hermes:
+                    logger.info(
+                        "nutrition_ingest_mfp_daily_dump_skipped ingest_id=%s reason=recent_hermes id=%s",
+                        ingest_id,
+                        recent_hermes.id,
+                    )
+                    res = {"success": 1, "message": "Ignored MyFitnessPal Health Connect dump after recent Hermes import", "ingested_count": 0, "ids": []}
+                    log_entry["status"] = "ignored"
+                    log_entry["result"] = res
+                    append_log(log_entry)
+                    return res
             
             # Use top 500 recent meals (extended history)
             count = 0 
@@ -641,7 +666,7 @@ async def ingest_nutrition(
                 if t_carbs < 1 and t_fat < 1 and t_protein < 1 and t_fiber < 1: continue
 
                 # Parse Date with Force-Now Logic
-                force_now = False
+                force_now = bool(meal.get("force_now"))
                 try:
                     ts_str = meal["ts"]
                     now_utc = datetime.now(timezone.utc)
@@ -684,7 +709,7 @@ async def ingest_nutrition(
                             pass
                     
                     # Fallback NOW
-                    if item_ts is None:
+                    if force_now or item_ts is None:
                         item_ts = now_utc
                         force_now = True
                         

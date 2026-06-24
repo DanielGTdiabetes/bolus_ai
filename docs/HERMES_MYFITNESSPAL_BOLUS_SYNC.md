@@ -52,7 +52,6 @@ Servicios de usuario:
 
 ```bash
 systemctl --user status hermes-mfp-refresh.timer
-systemctl --user status hermes-mfp-bolus-sync.timer
 systemctl --user status hermes-mfp-sync-trigger.service
 ```
 
@@ -60,8 +59,11 @@ Temporizadores:
 
 ```text
 hermes-mfp-refresh.timer      cada 6 horas: healthcheck y renovacion de cookies si hace falta
-hermes-mfp-bolus-sync.timer   cada 15 minutos: lectura de respaldo y envio a Bolus AI
 ```
+
+No debe existir un timer periodico para `sync_to_bolus.py`: leer el diario mientras
+MyFitnessPal sigue abierto puede enviar una comida incompleta. La sincronizacion de
+nutricion se inicia exclusivamente desde Companion tras confirmar la salida de la app.
 
 Trigger bajo demanda:
 
@@ -158,10 +160,8 @@ El servicio esta pensado para Tailscale, no para Internet abierto.
 
 ## Como Detecta Comidas Nuevas
 
-Hermes tiene dos modos:
-
-1. Trigger bajo demanda desde Companion cuando el usuario cierra MyFitnessPal.
-2. Polling lento de respaldo por systemd.
+Hermes usa un unico modo automatico: trigger bajo demanda desde Companion cuando
+el usuario cierra MyFitnessPal.
 
 Flujo:
 
@@ -169,18 +169,17 @@ Flujo:
 2. Espera 20 segundos para que MyFitnessPal guarde/sincronice.
 3. Llama a `POST /mfp/sync-now` en BMAX por Tailscale.
 4. Si Hermes no encuentra comida nueva, Companion repite una vez 75 segundos despues.
-5. El timer systemd ejecuta una lectura de respaldo cada 15 minutos.
-6. Hermes lee el diario de hoy.
-7. Ignora comidas vacias.
-8. Para cada comida calcula una huella estable:
+5. Hermes lee el diario de hoy.
+6. Ignora comidas vacias.
+7. Para cada comida calcula una huella estable:
 
 ```text
 hermes-mfp:<fecha>:<meal>:<sha256 de alimentos + cantidades + macros>
 ```
 
-9. Si esa huella no esta marcada como enviada, la envia.
-10. Si Bolus AI no esta disponible o falta configuracion, la deja en cola.
-11. Si el usuario modifica una comida en MyFitnessPal, cambia la huella y se reenvia como nueva version.
+8. Si esa huella no esta marcada como enviada, la envia.
+9. Si Bolus AI no esta disponible o falta configuracion, la deja en cola.
+10. Si el usuario modifica una comida en MyFitnessPal, cambia la huella y se reenvia como nueva version.
 
 Por defecto sincroniza solo el dia actual para evitar importar historico y duplicar comidas que ya entraron por Salud Conectada.
 
@@ -261,7 +260,7 @@ Estado de timers:
 ```bash
 systemctl --user list-timers 'hermes-mfp*' --all
 systemctl --user status hermes-mfp-refresh.timer
-systemctl --user status hermes-mfp-bolus-sync.timer
+systemctl --user status hermes-mfp-sync-trigger.service
 ```
 
 Logs:
@@ -370,7 +369,7 @@ Despues:
 ```bash
 chmod 0640 /opt/hermes-mcp/myfitnesspal/.env
 /opt/hermes-mcp/myfitnesspal/scripts/healthcheck.sh
-systemctl --user restart hermes-mfp-bolus-sync.timer
+systemctl --user restart hermes-mfp-sync-trigger.service
 ```
 
 ## Replicar En Otro Mini PC
@@ -456,7 +455,7 @@ Crear:
 /home/dani/.config/systemd/user/hermes-mfp-refresh.service
 /home/dani/.config/systemd/user/hermes-mfp-refresh.timer
 /home/dani/.config/systemd/user/hermes-mfp-bolus-sync.service
-/home/dani/.config/systemd/user/hermes-mfp-bolus-sync.timer
+/home/dani/.config/systemd/user/hermes-mfp-sync-trigger.service
 ```
 
 Contenido actual de `hermes-mfp-refresh.service`:
@@ -501,22 +500,6 @@ ExecStart=/opt/hermes-mcp/myfitnesspal/venv/bin/python /opt/hermes-mcp/myfitness
 Environment=APP_DIR=/opt/hermes-mcp/myfitnesspal
 ```
 
-Contenido actual de `hermes-mfp-bolus-sync.timer`:
-
-```ini
-[Unit]
-Description=Run Hermes MyFitnessPal to Bolus AI nutrition sync every 15 minutes
-
-[Timer]
-OnBootSec=2min
-OnUnitActiveSec=15min
-Persistent=true
-RandomizedDelaySec=60s
-
-[Install]
-WantedBy=timers.target
-```
-
 Contenido actual de `hermes-mfp-sync-trigger.service`:
 
 ```ini
@@ -545,8 +528,8 @@ Activar:
 ```bash
 systemctl --user daemon-reload
 systemctl --user enable --now hermes-mfp-refresh.timer
-systemctl --user enable --now hermes-mfp-bolus-sync.timer
 systemctl --user enable --now hermes-mfp-sync-trigger.service
+systemctl --user disable --now hermes-mfp-bolus-sync.timer 2>/dev/null || true
 loginctl enable-linger dani
 ```
 
