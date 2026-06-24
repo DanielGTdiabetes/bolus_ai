@@ -6,7 +6,7 @@ services:
     plan: starter
     autoDeploy: false
     buildCommand: chmod +x build_render.sh && ./build_render.sh
-    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    startCommand: ./render_start.sh
     healthCheckPath: /healthz
     envVars:
       - key: JWT_SECRET
