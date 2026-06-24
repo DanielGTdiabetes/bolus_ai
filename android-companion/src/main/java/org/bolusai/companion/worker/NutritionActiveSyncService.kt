@@ -2,6 +2,7 @@ package org.bolusai.companion.worker
 
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
@@ -18,6 +19,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import org.bolusai.companion.R
+import org.bolusai.companion.MainActivity
 import org.bolusai.companion.data.AppSettingsRepository
 import org.bolusai.companion.diagnostics.HealthConnectLogRepository
 import org.bolusai.companion.diagnostics.HealthConnectLogStatus
@@ -332,8 +334,16 @@ class NutritionActiveSyncService : Service() {
 
     private fun notification(message: String) = NotificationCompat.Builder(this, CHANNEL_ID)
         .setSmallIcon(R.drawable.ic_launcher)
-        .setContentTitle("Bolus AI Companion")
+        .setContentTitle("Bolus AI")
         .setContentText(message)
+        .setContentIntent(
+            PendingIntent.getActivity(
+                this,
+                0,
+                Intent(this, MainActivity::class.java),
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            ),
+        )
         .setOngoing(true)
         .setOnlyAlertOnce(true)
         .setPriority(NotificationCompat.PRIORITY_LOW)
@@ -342,11 +352,10 @@ class NutritionActiveSyncService : Service() {
     private fun ensureNotificationChannel() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val manager = getSystemService(NotificationManager::class.java)
-        if (manager.getNotificationChannel(CHANNEL_ID) != null) return
         manager.createNotificationChannel(
             NotificationChannel(
                 CHANNEL_ID,
-                "Bolus AI nutrition sync",
+                "Bolus AI en segundo plano",
                 NotificationManager.IMPORTANCE_LOW,
             ),
         )

@@ -61,6 +61,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -102,6 +103,7 @@ import org.bolusai.companion.portal.InAppPortal
 import org.bolusai.companion.portal.portalDestinations
 import org.bolusai.companion.queue.MealQueueItem
 import org.bolusai.companion.queue.MealQueueRepository
+import org.bolusai.companion.scale.ProzisScaleManager
 import org.bolusai.companion.health.NutritionRecordSnapshot
 import org.bolusai.companion.usage.UsageAccess
 import org.bolusai.companion.worker.NutritionActiveSyncService
@@ -134,6 +136,7 @@ private enum class CompanionScreen(val label: String) {
     MEALS("Comidas"),
     DIAGNOSTICS("Estado"),
     SETTINGS("Más"),
+    SCALE("Báscula"),
     WEB("Bolus AI"),
 }
 
@@ -141,6 +144,15 @@ private val primaryScreens = listOf(
     CompanionScreen.HOME,
     CompanionScreen.PORTAL_MENU,
     CompanionScreen.BOLUS,
+    CompanionScreen.SETTINGS,
+)
+
+private val expandedScreens = listOf(
+    CompanionScreen.HOME,
+    CompanionScreen.PORTAL_MENU,
+    CompanionScreen.BOLUS,
+    CompanionScreen.MEALS,
+    CompanionScreen.DIAGNOSTICS,
     CompanionScreen.SETTINGS,
 )
 
@@ -210,7 +222,11 @@ fun BolusCompanionApp() {
                     }
                 }
                 Box(Modifier.weight(1f)) {
-                    WebScreen(settings, portalRoute)
+                    WebScreen(
+                        settings = settings,
+                        route = portalRoute,
+                        onOpenScale = { screen = CompanionScreen.SCALE },
+                    )
                 }
             }
         } else {
@@ -248,8 +264,12 @@ fun BolusCompanionApp() {
                                 when (screen) {
                                     CompanionScreen.HOME -> HomeScreen(settings, queueItems) { screen = it }
                                     CompanionScreen.PORTAL_MENU -> PortalMenuScreen(settings) { route ->
-                                        portalRoute = route
-                                        screen = CompanionScreen.WEB
+                                        if (route == "#/scale") {
+                                            screen = CompanionScreen.SCALE
+                                        } else {
+                                            portalRoute = route
+                                            screen = CompanionScreen.WEB
+                                        }
                                     }
                                     CompanionScreen.BOLUS -> BolusScreen(settings, bolusProfileRepository, bolusProfile)
                                     CompanionScreen.MEALS -> MealsScreen(queueItems)
@@ -263,10 +283,18 @@ fun BolusCompanionApp() {
                                     CompanionScreen.SETTINGS -> SettingsScreen(
                                         settings,
                                         settingsRepository,
+                                        onBackToBolusAi = { screen = CompanionScreen.WEB },
+                                        onOpenMeals = { screen = CompanionScreen.MEALS },
+                                        onOpenDiagnostics = { screen = CompanionScreen.DIAGNOSTICS },
                                     ) { route ->
-                                        portalRoute = route
-                                        screen = CompanionScreen.WEB
+                                        if (route == "#/scale") {
+                                            screen = CompanionScreen.SCALE
+                                        } else {
+                                            portalRoute = route
+                                            screen = CompanionScreen.WEB
+                                        }
                                     }
+                                    CompanionScreen.SCALE -> ScaleScreen { screen = CompanionScreen.WEB }
                                     CompanionScreen.WEB -> Unit
                                 }
                             }
@@ -343,7 +371,7 @@ private fun AppNavigationRail(
             .padding(vertical = 16.dp, horizontal = 8.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        primaryScreens.forEach { item ->
+        expandedScreens.forEach { item ->
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -375,6 +403,7 @@ private fun screenIcon(screen: CompanionScreen) = when (screen) {
     CompanionScreen.MEALS -> Icons.Outlined.Restaurant
     CompanionScreen.DIAGNOSTICS -> Icons.Outlined.MedicalInformation
     CompanionScreen.SETTINGS -> Icons.Outlined.Settings
+    CompanionScreen.SCALE -> Icons.Outlined.RestaurantMenu
     CompanionScreen.WEB -> Icons.Outlined.Cloud
 }
 
@@ -887,6 +916,141 @@ private fun StatusCard(title: String, body: String, detail: String) {
 }
 
 @Composable
+private fun ScaleScreen(onBackToBolusAi: () -> Unit) {
+    val context = LocalContext.current
+    val manager = remember { ProzisScaleManager(context) }
+    val scale by manager.state.collectAsState()
+    val bluetoothPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions(),
+    ) { grants ->
+        if (grants.values.all { it }) manager.connect()
+    }
+
+    fun connectWithPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            val permissions = arrayOf(
+                Manifest.permission.BLUETOOTH_SCAN,
+                Manifest.permission.BLUETOOTH_CONNECT,
+            )
+            val missing = permissions.filter {
+                ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED
+            }
+            if (missing.isNotEmpty()) {
+                bluetoothPermissionLauncher.launch(missing.toTypedArray())
+                return
+            }
+        }
+        manager.connect()
+    }
+
+    DisposableEffect(Unit) {
+        onDispose { manager.disconnect() }
+    }
+
+    LazyColumn(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        item {
+            OutlinedButton(
+                onClick = onBackToBolusAi,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Icon(Icons.Outlined.ArrowBack, contentDescription = null)
+                Spacer(Modifier.size(8.dp))
+                Text("Volver a Bolus AI")
+            }
+        }
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(26.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+            ) {
+                Column(
+                    modifier = Modifier.padding(22.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(58.dp)
+                            .clip(CircleShape)
+                            .background(
+                                if (scale.connected) {
+                                    MaterialTheme.colorScheme.secondaryContainer
+                                } else {
+                                    MaterialTheme.colorScheme.surfaceVariant
+                                },
+                            ),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            Icons.Outlined.RestaurantMenu,
+                            contentDescription = null,
+                            tint = if (scale.connected) {
+                                MaterialTheme.colorScheme.secondary
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            },
+                        )
+                    }
+                    Text(
+                        if (scale.connected) "${scale.grams} g" else "Báscula Prozis",
+                        style = MaterialTheme.typography.headlineMedium,
+                    )
+                    Text(
+                        scale.message,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    if (scale.connected) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            HeroBadge(if (scale.stable) "Peso estable" else "En movimiento")
+                            scale.batteryPercent?.let { HeroBadge("Batería $it%") }
+                        }
+                    }
+                }
+            }
+        }
+        item {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Button(
+                    onClick = {
+                        if (scale.connected) manager.disconnect() else connectWithPermission()
+                    },
+                    enabled = !scale.connecting && !scale.scanning,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text(
+                        when {
+                            scale.scanning -> "Buscando…"
+                            scale.connecting -> "Conectando…"
+                            scale.connected -> "Desconectar"
+                            else -> "Conectar báscula"
+                        },
+                    )
+                }
+                OutlinedButton(
+                    onClick = manager::tare,
+                    enabled = scale.connected,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text("Tarar")
+                }
+            }
+        }
+        item {
+            Text(
+                "La báscula se conecta directamente desde Android. No depende del navegador ni del servidor.",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+    }
+}
+
+@Composable
 private fun MealsScreen(queueItems: List<MealQueueItem>) {
     LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         items(queueItems, key = { it.id }) { item ->
@@ -908,6 +1072,9 @@ private fun MealsScreen(queueItems: List<MealQueueItem>) {
 private fun SettingsScreen(
     settings: AppSettings,
     repository: AppSettingsRepository,
+    onBackToBolusAi: () -> Unit,
+    onOpenMeals: () -> Unit,
+    onOpenDiagnostics: () -> Unit,
     onOpenRoute: (String) -> Unit,
 ) {
     val context = LocalContext.current
@@ -921,6 +1088,7 @@ private fun SettingsScreen(
     var hasMfpAccessibility by remember { mutableStateOf(isMyFitnessPalAssistantEnabled(context)) }
     var connectionMessage by remember { mutableStateOf("") }
     var dexcomTestMessage by remember { mutableStateOf("") }
+    val dexcomAvailable = remember { DexcomEventWriter.isCompatibleDexcomInstalled(context) }
     var healthStatus by remember { mutableStateOf("Sin comprobar") }
     val availability = remember { HealthConnectAvailability(context).status() }
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
@@ -955,6 +1123,16 @@ private fun SettingsScreen(
 
     LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item {
+            OutlinedButton(
+                onClick = onBackToBolusAi,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Icon(Icons.Outlined.ArrowBack, contentDescription = null)
+                Spacer(Modifier.size(8.dp))
+                Text("Volver a Bolus AI")
+            }
+        }
+        item {
             Text("Ajustes", style = MaterialTheme.typography.titleLarge)
             Text(
                 "Configuración general de Bolus AI e integraciones específicas de Android.",
@@ -972,6 +1150,19 @@ private fun SettingsScreen(
                 style = MaterialTheme.typography.titleMedium,
                 color = MaterialTheme.colorScheme.primary,
             )
+        }
+        item {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                OutlinedButton(onClick = onOpenMeals, modifier = Modifier.weight(1f)) {
+                    Text("Comidas importadas")
+                }
+                OutlinedButton(onClick = onOpenDiagnostics, modifier = Modifier.weight(1f)) {
+                    Text("Diagnóstico")
+                }
+            }
         }
         item { SettingsTextField("Servidor principal", primary) { primary = it } }
         item { Button(onClick = { repository.updatePrimaryUrl(primary) }) { Text("Guardar principal") } }
@@ -1002,10 +1193,17 @@ private fun SettingsScreen(
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("Dexcom G7 modificada", style = MaterialTheme.typography.titleMedium)
+                    if (!dexcomAvailable) {
+                        Text(
+                            "No está instalada en este dispositivo.",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         Text("Escribir bolos en Dexcom G7 modificada", modifier = Modifier.weight(1f))
                         Switch(
                             checked = settings.dexcomWriteEnabled,
+                            enabled = dexcomAvailable,
                             onCheckedChange = { enabled ->
                                 repository.setDexcomWriteEnabled(enabled)
                                 dexcomTestMessage = ""
@@ -1013,7 +1211,7 @@ private fun SettingsScreen(
                         )
                     }
                     Button(
-                        enabled = settings.dexcomWriteEnabled,
+                        enabled = settings.dexcomWriteEnabled && dexcomAvailable,
                         onClick = {
                             val sent = DexcomEventWriter.sendInsulinEvent(
                                 context = context,
@@ -1210,8 +1408,16 @@ private fun DiagnosticsScreen(
 }
 
 @Composable
-private fun WebScreen(settings: AppSettings, route: String) {
-    InAppPortal(settings = settings, route = route)
+private fun WebScreen(
+    settings: AppSettings,
+    route: String,
+    onOpenScale: () -> Unit,
+) {
+    InAppPortal(
+        settings = settings,
+        route = route,
+        onOpenNativeScale = onOpenScale,
+    )
 }
 
 private fun macros(item: MealQueueItem): String =

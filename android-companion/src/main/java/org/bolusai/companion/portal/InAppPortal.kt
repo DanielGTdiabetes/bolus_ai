@@ -36,6 +36,7 @@ import org.bolusai.companion.network.ServerStatusClient
 fun InAppPortal(
     settings: AppSettings,
     route: String,
+    onOpenNativeScale: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var resolvedUrl by remember { mutableStateOf<String?>(null) }
@@ -102,6 +103,18 @@ fun InAppPortal(
                             ): Boolean = request.url.host !in allowedHosts
 
                             override fun onPageFinished(view: WebView, url: String) {
+                                canGoBack = view.canGoBack()
+                            }
+
+                            override fun doUpdateVisitedHistory(
+                                view: WebView,
+                                url: String,
+                                isReload: Boolean,
+                            ) {
+                                if (Uri.parse(url).fragment == "/scale") {
+                                    onOpenNativeScale()
+                                    return
+                                }
                                 canGoBack = view.canGoBack()
                             }
                         }

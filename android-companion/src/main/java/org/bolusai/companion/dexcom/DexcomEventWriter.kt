@@ -10,6 +10,12 @@ object DexcomEventWriter {
     private const val DEXCOM_PACKAGE = "com.dexcom.g7"
     private const val DEXCOM_RECEIVER = "com.bolusai.EventInjectorReceiver"
 
+    fun isCompatibleDexcomInstalled(context: Context): Boolean =
+        runCatching {
+            context.packageManager.getPackageInfo(DEXCOM_PACKAGE, 0)
+            true
+        }.getOrDefault(false)
+
     fun sendInsulinEvent(
         context: Context,
         insulinUnits: Double,
