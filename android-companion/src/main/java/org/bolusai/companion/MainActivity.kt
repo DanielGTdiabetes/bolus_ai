@@ -53,6 +53,7 @@ import org.bolusai.companion.diagnostics.HealthConnectLog
 import org.bolusai.companion.diagnostics.HealthConnectLogRepository
 import org.bolusai.companion.diagnostics.LogExporter
 import org.bolusai.companion.diagnostics.LogShare
+import org.bolusai.companion.dexcom.DexcomEventWriter
 import org.bolusai.companion.health.HealthConnectAvailability
 import org.bolusai.companion.health.HealthConnectState
 import org.bolusai.companion.health.HealthPermissions
@@ -109,8 +110,12 @@ fun BolusCompanionApp() {
     val queueItems by queueRepository.observeRecent().collectAsState(initial = emptyList())
     var screen by remember { mutableStateOf(CompanionScreen.HOME) }
 
-    LaunchedEffect(settings.nutritionSyncEnabled) {
-        if (settings.nutritionSyncEnabled) NutritionActiveSyncService.start(context) else NutritionActiveSyncService.stop(context)
+    LaunchedEffect(settings.nutritionSyncEnabled, settings.dexcomWriteEnabled) {
+        if (settings.nutritionSyncEnabled || settings.dexcomWriteEnabled) {
+            NutritionActiveSyncService.start(context)
+        } else {
+            NutritionActiveSyncService.stop(context)
+        }
     }
 
     MaterialTheme {
@@ -462,6 +467,7 @@ private fun SettingsScreen(settings: AppSettings, repository: AppSettingsReposit
     var mfpAssistMessage by remember { mutableStateOf("") }
     var hasMfpAccessibility by remember { mutableStateOf(isMyFitnessPalAssistantEnabled(context)) }
     var connectionMessage by remember { mutableStateOf("") }
+    var dexcomTestMessage by remember { mutableStateOf("") }
     var healthStatus by remember { mutableStateOf("Sin comprobar") }
     val availability = remember { HealthConnectAvailability(context).status() }
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
@@ -511,6 +517,38 @@ private fun SettingsScreen(settings: AppSettings, repository: AppSettingsReposit
             }
         }
         item { Text("Modo: MyFitnessPal por Hermes. Health Connect no se usa para MyFitnessPal.") }
+        item {
+            Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Dexcom G7 modificada", style = MaterialTheme.typography.titleMedium)
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text("Escribir bolos en Dexcom G7 modificada", modifier = Modifier.weight(1f))
+                        Switch(
+                            checked = settings.dexcomWriteEnabled,
+                            onCheckedChange = { enabled ->
+                                repository.setDexcomWriteEnabled(enabled)
+                                dexcomTestMessage = ""
+                            },
+                        )
+                    }
+                    Button(
+                        enabled = settings.dexcomWriteEnabled,
+                        onClick = {
+                            val sent = DexcomEventWriter.sendInsulinEvent(
+                                context = context,
+                                insulinUnits = 5.5,
+                            )
+                            dexcomTestMessage = if (sent) {
+                                "Bolo de prueba 5.5U enviado."
+                            } else {
+                                "No se pudo enviar el bolo de prueba."
+                            }
+                        },
+                    ) { Text("Enviar bolo de prueba 5.5U") }
+                    if (dexcomTestMessage.isNotBlank()) Text(dexcomTestMessage)
+                }
+            }
+        }
         item {
             Button(onClick = {
                 scope.launch {

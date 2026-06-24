@@ -21,6 +21,9 @@ import org.bolusai.companion.R
 import org.bolusai.companion.data.AppSettingsRepository
 import org.bolusai.companion.diagnostics.HealthConnectLogRepository
 import org.bolusai.companion.diagnostics.HealthConnectLogStatus
+import org.bolusai.companion.dexcom.DexcomEventSyncRepository
+import org.bolusai.companion.dexcom.DexcomEventWriter
+import org.bolusai.companion.network.DexcomBolusEventClient
 import org.bolusai.companion.network.HermesMfpSyncTriggerClient
 import org.bolusai.companion.network.HermesMfpSyncTriggerResult
 import org.bolusai.companion.usage.ForegroundAppWatcher
@@ -46,10 +49,13 @@ class NutritionActiveSyncService : Service() {
         syncStarted = true
         recordDiagnostic("active_sync_start", HealthConnectLogStatus.PENDING, "Foreground nutrition sync started")
         scope.launch { watchMyFitnessPalExit() }
+        scope.launch { syncDexcomBolusEvents() }
         scope.launch {
             while (isActive) {
                 delay(BACKUP_SYNC_INTERVAL_MS)
-                runSync("Revision de respaldo", includeMyFitnessPalRecords = false)
+                if (AppSettingsRepository(applicationContext).current().nutritionSyncEnabled) {
+                    runSync("Revision de respaldo", includeMyFitnessPalRecords = false)
+                }
             }
         }
         return START_STICKY
@@ -82,6 +88,10 @@ class NutritionActiveSyncService : Service() {
     private suspend fun watchMyFitnessPalExit() {
         val watcher = ForegroundAppWatcher(applicationContext)
         while (scope.isActive) {
+            if (!AppSettingsRepository(applicationContext).current().nutritionSyncEnabled) {
+                delay(USAGE_WATCH_INTERVAL_MS)
+                continue
+            }
             if (!UsageAccess.hasPermission(applicationContext)) {
                 updateNotification("Activa Acceso de uso para detectar MyFitnessPal")
                 val now = System.currentTimeMillis()
@@ -261,6 +271,51 @@ class NutritionActiveSyncService : Service() {
         }.getOrNull()
     }
 
+    private suspend fun syncDexcomBolusEvents() {
+        val repository = DexcomEventSyncRepository(applicationContext)
+        val client = DexcomBolusEventClient()
+        while (scope.isActive) {
+            val settings = AppSettingsRepository(applicationContext).current()
+            if (!settings.dexcomWriteEnabled) {
+                delay(DEXCOM_SYNC_INTERVAL_MS)
+                continue
+            }
+
+            val lastEventId = repository.lastEventId()
+            val result = client.fetch(
+                primaryUrl = settings.primaryUrl,
+                backupUrl = settings.backupUrl,
+                ingestKey = settings.ingestKey,
+                afterId = lastEventId,
+                latestOnly = lastEventId == null,
+            )
+            if (result.ok) {
+                if (lastEventId == null) {
+                    result.events.lastOrNull()?.let { repository.markProcessed(it.id) }
+                    delay(DEXCOM_SYNC_INTERVAL_MS)
+                    continue
+                }
+                for (event in result.events) {
+                    val sent = DexcomEventWriter.sendInsulinEvent(
+                        context = applicationContext,
+                        insulinUnits = event.insulinUnits,
+                        insulinType = "FAST_ACTING",
+                        timestamp = event.timestamp,
+                    )
+                    if (!sent) break
+                    repository.markProcessed(event.id)
+                }
+            } else {
+                recordDiagnostic(
+                    event = "dexcom_bolus_sync_error",
+                    status = HealthConnectLogStatus.ERROR,
+                    detail = result.message,
+                )
+            }
+            delay(DEXCOM_SYNC_INTERVAL_MS)
+        }
+    }
+
     private fun recordDiagnostic(
         event: String,
         status: HealthConnectLogStatus,
@@ -310,6 +365,7 @@ class NutritionActiveSyncService : Service() {
         private const val MYFITNESSPAL_FOLLOW_UP_DELAY_MS = 75_000L
         private const val MYFITNESSPAL_EXIT_COOLDOWN_MS = 90_000L
         private const val MISSING_USAGE_ACCESS_LOG_COOLDOWN_MS = 10 * 60_000L
+        private const val DEXCOM_SYNC_INTERVAL_MS = 15_000L
         private const val MYFITNESSPAL_PACKAGE = "com.myfitnesspal.android"
         private val DEFAULT_EXIT_PACKAGES = setOf(
             "com.mi.android.globallauncher",

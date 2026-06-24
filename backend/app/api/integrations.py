@@ -15,6 +15,7 @@ from app.core.db import get_db_session
 from app.core.security import TokenManager, get_token_manager, get_current_user, CurrentUser
 from app.core.settings import Settings, get_settings
 from app.models.settings import UserSettings, UserSettingsDB
+from app.models.treatment import Treatment
 from app.services.store import DataStore
 
 router = APIRouter()
@@ -170,6 +171,13 @@ class MobileBolusSettingsResponse(BaseModel):
     max_correction_u: float
 
 
+class MobileBolusEventResponse(BaseModel):
+    id: str
+    insulin_units: float
+    carbs: float
+    timestamp: int
+
+
 def _authorize_ingest_key(request: Request, ingest_key_header: Optional[str]) -> None:
     provided_key = ingest_key_header or request.query_params.get("key")
     ingest_secret = os.getenv("NUTRITION_INGEST_SECRET") or os.getenv("NUTRITION_INGEST_KEY")
@@ -228,6 +236,72 @@ async def mobile_bolus_settings(
     _authorize_ingest_key(request, ingest_key_header)
     settings_obj, user_id, updated_at = await _load_mobile_bolus_settings(session)
     return _mobile_bolus_settings_response(settings_obj, user_id, updated_at)
+
+
+@router.get("/mobile/bolus-events", response_model=List[MobileBolusEventResponse])
+async def mobile_bolus_events(
+    request: Request,
+    after_id: Optional[str] = Query(None),
+    latest_only: bool = Query(False),
+    ingest_key_header: Optional[str] = Header(None, alias="X-Ingest-Key"),
+    session: AsyncSession = Depends(get_db_session),
+):
+    """Return confirmed insulin treatments for the Android Dexcom bridge."""
+    _authorize_ingest_key(request, ingest_key_header)
+    _, user_id, _ = await _load_mobile_bolus_settings(session)
+
+    after_created_at: Optional[datetime] = None
+    if after_id:
+        previous = (
+            await session.execute(
+                select(Treatment).where(Treatment.id == after_id, Treatment.user_id == user_id)
+            )
+        ).scalars().first()
+        if previous:
+            after_created_at = previous.created_at
+
+    if after_id and after_created_at is None:
+        return []
+
+    stmt = select(Treatment).where(
+        Treatment.user_id == user_id,
+        Treatment.insulin > 0,
+    )
+    if latest_only:
+        row = (
+            await session.execute(stmt.order_by(Treatment.created_at.desc(), Treatment.id.desc()).limit(1))
+        ).scalars().first()
+        if not row:
+            return []
+        return [
+            MobileBolusEventResponse(
+                id=row.id,
+                insulin_units=float(row.insulin),
+                carbs=float(row.carbs or 0.0),
+                timestamp=int(row.created_at.replace(tzinfo=timezone.utc).timestamp() * 1000),
+            )
+        ]
+
+    if after_created_at is None:
+        stmt = stmt.where(Treatment.created_at >= datetime.utcnow() - timedelta(minutes=2))
+    else:
+        stmt = stmt.where(
+            (Treatment.created_at > after_created_at)
+            | ((Treatment.created_at == after_created_at) & (Treatment.id > after_id))
+        )
+
+    rows = (
+        await session.execute(stmt.order_by(Treatment.created_at.asc(), Treatment.id.asc()).limit(50))
+    ).scalars().all()
+    return [
+        MobileBolusEventResponse(
+            id=row.id,
+            insulin_units=float(row.insulin),
+            carbs=float(row.carbs or 0.0),
+            timestamp=int(row.created_at.replace(tzinfo=timezone.utc).timestamp() * 1000),
+        )
+        for row in rows
+    ]
 
 
 @router.post("/nutrition", summary="Webhook for Health Auto Export / External Nutrition")
