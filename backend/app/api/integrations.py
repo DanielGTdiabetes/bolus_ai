@@ -20,6 +20,7 @@ from app.services.store import DataStore
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+DEXCOM_BOLUS_EVENT_TYPES = ("Meal Bolus", "Correction Bolus", "Bolus")
 
 def _data_store(settings: Settings = Depends(get_settings)) -> DataStore:
     from pathlib import Path
@@ -263,10 +264,13 @@ async def mobile_bolus_events(
             after_created_at = previous.created_at
             cursor_found = True
 
+    if after_id and after_created_at is None and not after_timestamp:
+        return []
+
     stmt = select(Treatment).where(
         Treatment.user_id == user_id,
         Treatment.insulin > 0,
-        Treatment.event_type.in_(("Meal Bolus", "Correction Bolus")),
+        Treatment.event_type.in_(DEXCOM_BOLUS_EVENT_TYPES),
     )
     if latest_only:
         row = (
