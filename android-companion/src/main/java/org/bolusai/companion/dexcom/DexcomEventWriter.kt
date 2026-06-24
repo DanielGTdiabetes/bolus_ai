@@ -2,6 +2,7 @@ package org.bolusai.companion.dexcom
 
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.util.Log
 
 object DexcomEventWriter {
@@ -9,6 +10,15 @@ object DexcomEventWriter {
     private const val ACTION_ADD_INSULIN_EVENT = "com.bolusai.ADD_INSULIN_EVENT"
     private const val DEXCOM_PACKAGE = "com.dexcom.g7"
     private const val DEXCOM_RECEIVER = "com.bolusai.EventInjectorReceiver"
+
+    fun isReceiverAvailable(context: Context): Boolean {
+        val intent = Intent(ACTION_ADD_INSULIN_EVENT).apply {
+            setClassName(DEXCOM_PACKAGE, DEXCOM_RECEIVER)
+        }
+        return context.packageManager
+            .queryBroadcastReceivers(intent, PackageManager.MATCH_DEFAULT_ONLY)
+            .isNotEmpty()
+    }
 
     fun sendInsulinEvent(
         context: Context,

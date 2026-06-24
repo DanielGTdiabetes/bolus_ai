@@ -242,6 +242,7 @@ async def mobile_bolus_settings(
 async def mobile_bolus_events(
     request: Request,
     after_id: Optional[str] = Query(None),
+    after_timestamp: Optional[int] = Query(None, ge=0),
     latest_only: bool = Query(False),
     ingest_key_header: Optional[str] = Header(None, alias="X-Ingest-Key"),
     session: AsyncSession = Depends(get_db_session),
@@ -251,6 +252,7 @@ async def mobile_bolus_events(
     _, user_id, _ = await _load_mobile_bolus_settings(session)
 
     after_created_at: Optional[datetime] = None
+    cursor_found = False
     if after_id:
         previous = (
             await session.execute(
@@ -259,13 +261,12 @@ async def mobile_bolus_events(
         ).scalars().first()
         if previous:
             after_created_at = previous.created_at
-
-    if after_id and after_created_at is None:
-        return []
+            cursor_found = True
 
     stmt = select(Treatment).where(
         Treatment.user_id == user_id,
         Treatment.insulin > 0,
+        Treatment.event_type.in_(("Meal Bolus", "Correction Bolus")),
     )
     if latest_only:
         row = (
@@ -282,13 +283,23 @@ async def mobile_bolus_events(
             )
         ]
 
+    if after_created_at is None and after_timestamp:
+        after_created_at = (
+            datetime.fromtimestamp(after_timestamp / 1000, tz=timezone.utc)
+            .replace(tzinfo=None)
+            + timedelta(milliseconds=1)
+        )
+
     if after_created_at is None:
         stmt = stmt.where(Treatment.created_at >= datetime.utcnow() - timedelta(minutes=2))
     else:
-        stmt = stmt.where(
-            (Treatment.created_at > after_created_at)
-            | ((Treatment.created_at == after_created_at) & (Treatment.id > after_id))
-        )
+        if cursor_found:
+            stmt = stmt.where(
+                (Treatment.created_at > after_created_at)
+                | ((Treatment.created_at == after_created_at) & (Treatment.id > after_id))
+            )
+        else:
+            stmt = stmt.where(Treatment.created_at >= after_created_at)
 
     rows = (
         await session.execute(stmt.order_by(Treatment.created_at.asc(), Treatment.id.asc()).limit(50))
