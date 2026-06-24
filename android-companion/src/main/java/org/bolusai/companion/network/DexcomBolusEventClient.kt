@@ -28,16 +28,17 @@ class DexcomBolusEventClient {
         backupUrl: String,
         ingestKey: String,
         afterId: String?,
+        afterTimestamp: Long?,
         latestOnly: Boolean = false,
     ): DexcomBolusEventsResult = withContext(Dispatchers.IO) {
         if (ingestKey.isBlank()) {
             return@withContext DexcomBolusEventsResult(false, ActiveEndpoint.NONE, emptyList(), "Falta la clave de ingesta.")
         }
 
-        val primary = fetchFrom(primaryUrl, ingestKey, afterId, latestOnly, ActiveEndpoint.PRIMARY)
+        val primary = fetchFrom(primaryUrl, ingestKey, afterId, afterTimestamp, latestOnly, ActiveEndpoint.PRIMARY)
         if (primary.ok) return@withContext primary
 
-        val backup = fetchFrom(backupUrl, ingestKey, afterId, latestOnly, ActiveEndpoint.BACKUP)
+        val backup = fetchFrom(backupUrl, ingestKey, afterId, afterTimestamp, latestOnly, ActiveEndpoint.BACKUP)
         if (backup.ok) backup else DexcomBolusEventsResult(
             ok = false,
             endpoint = ActiveEndpoint.NONE,
@@ -50,12 +51,16 @@ class DexcomBolusEventClient {
         baseUrl: String,
         ingestKey: String,
         afterId: String?,
+        afterTimestamp: Long?,
         latestOnly: Boolean,
         endpoint: ActiveEndpoint,
     ): DexcomBolusEventsResult = runCatching {
         val parameters = buildList {
             afterId?.takeIf { it.isNotBlank() }?.let {
                 add("after_id=" + URLEncoder.encode(it, StandardCharsets.UTF_8.name()))
+            }
+            afterTimestamp?.takeIf { it > 0L }?.let {
+                add("after_timestamp=$it")
             }
             if (latestOnly) add("latest_only=true")
         }
@@ -69,10 +74,19 @@ class DexcomBolusEventClient {
         connection.setRequestProperty("X-Ingest-Key", ingestKey)
 
         val status = connection.responseCode
+        val contentType = connection.contentType.orEmpty()
         val stream = if (status in 200..299) connection.inputStream else connection.errorStream
         val response = stream?.bufferedReader()?.use { it.readText() }.orEmpty().take(20_000)
         if (status !in 200..299) {
             return@runCatching DexcomBolusEventsResult(false, endpoint, emptyList(), Sanitizer.sanitize("HTTP $status $response"))
+        }
+        if (!contentType.contains("json", ignoreCase = true)) {
+            return@runCatching DexcomBolusEventsResult(
+                false,
+                endpoint,
+                emptyList(),
+                "Endpoint de bolos no desplegado (Content-Type $contentType)",
+            )
         }
 
         val array = JSONArray(response)

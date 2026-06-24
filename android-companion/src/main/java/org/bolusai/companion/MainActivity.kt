@@ -532,19 +532,14 @@ private fun SettingsScreen(settings: AppSettings, repository: AppSettingsReposit
                         )
                     }
                     Button(
-                        enabled = settings.dexcomWriteEnabled,
                         onClick = {
-                            val sent = DexcomEventWriter.sendInsulinEvent(
-                                context = context,
-                                insulinUnits = 5.5,
-                            )
-                            dexcomTestMessage = if (sent) {
-                                "Bolo de prueba 5.5U enviado."
+                            dexcomTestMessage = if (DexcomEventWriter.isReceiverAvailable(context)) {
+                                "Puente Dexcom disponible. No se ha escrito ningún bolo."
                             } else {
-                                "No se pudo enviar el bolo de prueba."
+                                "No se encuentra el receiver de la Dexcom G7 modificada."
                             }
                         },
-                    ) { Text("Enviar bolo de prueba 5.5U") }
+                    ) { Text("Comprobar puente Dexcom") }
                     if (dexcomTestMessage.isNotBlank()) Text(dexcomTestMessage)
                 }
             }

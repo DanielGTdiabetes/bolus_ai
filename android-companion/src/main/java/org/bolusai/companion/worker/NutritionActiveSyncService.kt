@@ -282,16 +282,18 @@ class NutritionActiveSyncService : Service() {
             }
 
             val lastEventId = repository.lastEventId()
+            val lastEventTimestamp = repository.lastEventTimestamp()
             val result = client.fetch(
                 primaryUrl = settings.primaryUrl,
                 backupUrl = settings.backupUrl,
                 ingestKey = settings.ingestKey,
                 afterId = lastEventId,
+                afterTimestamp = lastEventTimestamp,
                 latestOnly = lastEventId == null,
             )
             if (result.ok) {
                 if (lastEventId == null) {
-                    result.events.lastOrNull()?.let { repository.markProcessed(it.id) }
+                    result.events.lastOrNull()?.let { repository.markProcessed(it.id, it.timestamp) }
                     delay(DEXCOM_SYNC_INTERVAL_MS)
                     continue
                 }
@@ -303,7 +305,7 @@ class NutritionActiveSyncService : Service() {
                         timestamp = event.timestamp,
                     )
                     if (!sent) break
-                    repository.markProcessed(event.id)
+                    repository.markProcessed(event.id, event.timestamp)
                 }
             } else {
                 recordDiagnostic(
