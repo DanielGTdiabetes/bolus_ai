@@ -19,7 +19,7 @@ const STABLE_THRESHOLD_G = 3;
 let history = [];
 
 export function isBleSupported() {
-    return Boolean(navigator.bluetooth);
+    return Boolean(navigator.bluetooth) || (typeof window !== "undefined" && Boolean(window.AndroidScaleInterface));
 }
 
 export function setOnData(cb) {
@@ -27,6 +27,10 @@ export function setOnData(cb) {
 }
 
 export async function connectScale() {
+    if (typeof window !== "undefined" && window.AndroidScaleInterface) {
+        window.AndroidScaleInterface.connectScale();
+        return "Báscula Prozis (Android)";
+    }
     if (!isBleSupported()) throw new Error("Bluetooth no soportado en este navegador.");
 
     console.log("Requesting Bluetooth Device...");
@@ -68,6 +72,10 @@ export async function connectScale() {
 }
 
 export async function disconnectScale() {
+    if (typeof window !== "undefined" && window.AndroidScaleInterface) {
+        window.AndroidScaleInterface.disconnectScale();
+        return;
+    }
     if (device && device.gatt.connected) {
         device.gatt.disconnect();
     }
@@ -94,6 +102,10 @@ export async function startStream() {
 }
 
 export async function tare() {
+    if (typeof window !== "undefined" && window.AndroidScaleInterface) {
+        window.AndroidScaleInterface.tare();
+        return;
+    }
     if (!rxChar) return;
     const encoder = new TextEncoder();
     console.log("Tare...");

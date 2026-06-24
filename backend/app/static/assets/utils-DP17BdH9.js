@@ -1,0 +1,1 @@
+import"./index-CQzh0sJ2.js";function t(o,i){return i?"⚠️":{DoubleUp:"↑↑",SingleUp:"↑",FortyFiveUp:"↗",Flat:"→",FortyFiveDown:"↘",SingleDown:"↓",DoubleDown:"↓↓","NOT COMPUTABLE":"---","RATE OUT OF RANGE":"---",NONE:"---"}[o]||o||""}function e(o){return o?o.replace(/\[Sitio: (.*?)\]/g,"• Sitio: $1"):""}export{t as a,e as f};

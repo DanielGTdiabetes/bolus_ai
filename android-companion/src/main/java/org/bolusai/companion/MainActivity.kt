@@ -160,6 +160,7 @@ private val expandedScreens = listOf(
 fun BolusCompanionApp() {
     val context = LocalContext.current
     val settingsRepository = remember { AppSettingsRepository(context) }
+    val scaleManager = remember { ProzisScaleManager(context) }
     val logRepository = remember { HealthConnectLogRepository(context) }
     val queueRepository = remember { MealQueueRepository(context) }
     val bolusProfileRepository = remember { BolusProfileRepository(context) }
@@ -224,6 +225,7 @@ fun BolusCompanionApp() {
                 Box(Modifier.weight(1f)) {
                     WebScreen(
                         settings = settings,
+                        scaleManager = scaleManager,
                         route = portalRoute,
                         onOpenScale = { screen = CompanionScreen.SCALE },
                     )
@@ -294,7 +296,7 @@ fun BolusCompanionApp() {
                                             screen = CompanionScreen.WEB
                                         }
                                     }
-                                    CompanionScreen.SCALE -> ScaleScreen { screen = CompanionScreen.WEB }
+                                    CompanionScreen.SCALE -> ScaleScreen(scaleManager) { screen = CompanionScreen.WEB }
                                     CompanionScreen.WEB -> Unit
                                 }
                             }
@@ -916,9 +918,8 @@ private fun StatusCard(title: String, body: String, detail: String) {
 }
 
 @Composable
-private fun ScaleScreen(onBackToBolusAi: () -> Unit) {
+private fun ScaleScreen(manager: ProzisScaleManager, onBackToBolusAi: () -> Unit) {
     val context = LocalContext.current
-    val manager = remember { ProzisScaleManager(context) }
     val scale by manager.state.collectAsState()
     val bluetoothPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions(),
@@ -1410,11 +1411,13 @@ private fun DiagnosticsScreen(
 @Composable
 private fun WebScreen(
     settings: AppSettings,
+    scaleManager: ProzisScaleManager,
     route: String,
     onOpenScale: () -> Unit,
 ) {
     InAppPortal(
         settings = settings,
+        scaleManager = scaleManager,
         route = route,
         onOpenNativeScale = onOpenScale,
     )
