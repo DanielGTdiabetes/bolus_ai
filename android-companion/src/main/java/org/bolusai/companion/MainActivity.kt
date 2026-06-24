@@ -20,8 +20,18 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Calculate
+import androidx.compose.material.icons.outlined.Cloud
+import androidx.compose.material.icons.outlined.Home
+import androidx.compose.material.icons.outlined.GridView
+import androidx.compose.material.icons.outlined.MedicalInformation
+import androidx.compose.material.icons.outlined.Restaurant
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -41,6 +51,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.health.connect.client.HealthConnectClient
@@ -62,6 +73,9 @@ import org.bolusai.companion.network.NutritionIngestClient
 import org.bolusai.companion.network.ServerStatus
 import org.bolusai.companion.network.ServerStatusClient
 import org.bolusai.companion.portal.PortalLauncher
+import org.bolusai.companion.portal.PortalGroup
+import org.bolusai.companion.portal.buildPortalUrl
+import org.bolusai.companion.portal.portalDestinations
 import org.bolusai.companion.queue.MealQueueItem
 import org.bolusai.companion.queue.MealQueueRepository
 import org.bolusai.companion.health.NutritionRecordSnapshot
@@ -79,6 +93,7 @@ import org.bolusai.companion.bolus.BolusCalculator
 import org.bolusai.companion.bolus.BolusProfile
 import org.bolusai.companion.bolus.BolusProfileRepository
 import org.bolusai.companion.network.MobileBolusSettingsClient
+import org.bolusai.companion.ui.theme.BolusAiTheme
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -90,12 +105,20 @@ class MainActivity : ComponentActivity() {
 
 private enum class CompanionScreen(val label: String) {
     HOME("Inicio"),
+    PORTAL_MENU("Menú"),
     BOLUS("Bolo"),
     MEALS("Comidas"),
-    DIAGNOSTICS("Diag"),
-    SETTINGS("Ajustes"),
+    DIAGNOSTICS("Estado"),
+    SETTINGS("Más"),
     WEB("Bolus AI"),
 }
+
+private val primaryScreens = listOf(
+    CompanionScreen.HOME,
+    CompanionScreen.PORTAL_MENU,
+    CompanionScreen.BOLUS,
+    CompanionScreen.SETTINGS,
+)
 
 @Composable
 fun BolusCompanionApp() {
@@ -118,8 +141,11 @@ fun BolusCompanionApp() {
         }
     }
 
-    MaterialTheme {
-        Surface(modifier = Modifier.fillMaxSize()) {
+    BolusAiTheme {
+        Surface(
+            modifier = Modifier.fillMaxSize(),
+            color = MaterialTheme.colorScheme.background,
+        ) {
             Column(modifier = Modifier.fillMaxSize()) {
                 Column(
                     modifier = Modifier
@@ -128,8 +154,13 @@ fun BolusCompanionApp() {
                     verticalArrangement = Arrangement.spacedBy(14.dp),
                 ) {
                     Text("Bolus AI", style = MaterialTheme.typography.headlineMedium)
+                    Text(
+                        "Tu información, clara y disponible.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                     when (screen) {
                         CompanionScreen.HOME -> HomeScreen(settings, queueItems) { screen = it }
+                        CompanionScreen.PORTAL_MENU -> PortalMenuScreen(settings)
                         CompanionScreen.BOLUS -> BolusScreen(settings, bolusProfileRepository, bolusProfile)
                         CompanionScreen.MEALS -> MealsScreen(queueItems)
                         CompanionScreen.DIAGNOSTICS -> DiagnosticsScreen(settings, logs, queueItems, logRepository, queueRepository)
@@ -138,16 +169,112 @@ fun BolusCompanionApp() {
                     }
                 }
                 NavigationBar {
-                    CompanionScreen.entries.forEach { item ->
+                    primaryScreens.forEach { item ->
                         NavigationBarItem(
                             selected = screen == item,
                             onClick = { screen = item },
                             label = { Text(item.label) },
-                            icon = {},
+                            icon = {
+                                Icon(
+                                    imageVector = when (item) {
+                                        CompanionScreen.HOME -> Icons.Outlined.Home
+                                        CompanionScreen.PORTAL_MENU -> Icons.Outlined.GridView
+                                        CompanionScreen.BOLUS -> Icons.Outlined.Calculate
+                                        CompanionScreen.MEALS -> Icons.Outlined.Restaurant
+                                        CompanionScreen.DIAGNOSTICS -> Icons.Outlined.MedicalInformation
+                                        CompanionScreen.SETTINGS -> Icons.Outlined.Settings
+                                        CompanionScreen.WEB -> Icons.Outlined.Cloud
+                                    },
+                                    contentDescription = item.label,
+                                )
+                            },
                         )
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun PortalMenuScreen(settings: AppSettings) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val launcher = remember { PortalLauncher(context) }
+    val statusClient = remember { ServerStatusClient() }
+    var openingRoute by remember { mutableStateOf<String?>(null) }
+    var message by remember { mutableStateOf("") }
+
+    LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        item {
+            Text(
+                "Todo Bolus AI",
+                style = MaterialTheme.typography.titleLarge,
+            )
+            Text(
+                "Las funciones web se abren contra el NAS o Render según disponibilidad.",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        PortalGroup.entries.forEach { group ->
+            item {
+                Text(
+                    group.title,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
+            items(
+                items = portalDestinations.filter { it.group == group },
+                key = { it.route },
+            ) { destination ->
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+                    onClick = {
+                        openingRoute = destination.route
+                        message = ""
+                        scope.launch {
+                            val status = statusClient.resolve(settings.primaryUrl, settings.backupUrl)
+                            val baseUrl = when (status.activeEndpoint) {
+                                ActiveEndpoint.PRIMARY -> settings.primaryUrl
+                                ActiveEndpoint.BACKUP -> settings.backupUrl
+                                ActiveEndpoint.NONE -> null
+                            }
+                            if (baseUrl == null) {
+                                message = "No se puede abrir: NAS y Render no responden."
+                            } else {
+                                launcher.open(buildPortalUrl(baseUrl, destination.route))
+                            }
+                            openingRoute = null
+                        }
+                    },
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(destination.title, style = MaterialTheme.typography.titleMedium)
+                            Text(
+                                destination.subtitle,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        Text(
+                            if (openingRoute == destination.route) "Abriendo…" else "›",
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                }
+            }
+        }
+        if (message.isNotBlank()) {
+            item { Text(message, color = MaterialTheme.colorScheme.error) }
         }
     }
 }
@@ -428,11 +555,15 @@ private fun BolusResultCard(result: BolusCalculationResult) {
 
 @Composable
 private fun StatusCard(title: String, body: String, detail: String) {
-    Card(Modifier.fillMaxWidth()) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+    ) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text(title, style = MaterialTheme.typography.titleMedium)
+            Text(title, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text(body, style = MaterialTheme.typography.headlineSmall)
-            Text(detail)
+            Text(detail, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
@@ -459,6 +590,7 @@ private fun MealsScreen(queueItems: List<MealQueueItem>) {
 private fun SettingsScreen(settings: AppSettings, repository: AppSettingsRepository) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val portalLauncher = remember { PortalLauncher(context) }
     var hasUsageAccess by remember { mutableStateOf(UsageAccess.hasPermission(context)) }
     var primary by remember(settings.primaryUrl) { mutableStateOf(settings.primaryUrl) }
     var backup by remember(settings.backupUrl) { mutableStateOf(settings.backupUrl) }
@@ -501,11 +633,51 @@ private fun SettingsScreen(settings: AppSettings, repository: AppSettingsReposit
     }
 
     LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        item {
+            Text("Ajustes", style = MaterialTheme.typography.titleLarge)
+            Text(
+                "Configuración general de Bolus AI e integraciones específicas de Android.",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        item {
+            Button(onClick = {
+                scope.launch {
+                    val status = ServerStatusClient().resolve(settings.primaryUrl, settings.backupUrl)
+                    val baseUrl = when (status.activeEndpoint) {
+                        ActiveEndpoint.PRIMARY -> settings.primaryUrl
+                        ActiveEndpoint.BACKUP -> settings.backupUrl
+                        ActiveEndpoint.NONE -> null
+                    }
+                    if (baseUrl == null) {
+                        connectionMessage = "NAS y Render no responden."
+                    } else {
+                        portalLauncher.open(buildPortalUrl(baseUrl, "#/settings"))
+                    }
+                }
+            }) { Text("Abrir ajustes generales de Bolus AI") }
+        }
+        item {
+            Text(
+                "Integraciones Android",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.primary,
+            )
+        }
         item { SettingsTextField("Servidor principal", primary) { primary = it } }
         item { Button(onClick = { repository.updatePrimaryUrl(primary) }) { Text("Guardar principal") } }
         item { SettingsTextField("Servidor backup", backup) { backup = it } }
         item { Button(onClick = { repository.updateBackupUrl(backup) }) { Text("Guardar backup") } }
-        item { SettingsTextField("Ingest key", ingestKey) { ingestKey = it } }
+        item {
+            OutlinedTextField(
+                value = ingestKey,
+                onValueChange = { ingestKey = it },
+                label = { Text("Clave de integración") },
+                visualTransformation = PasswordVisualTransformation(),
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
         item { Button(onClick = { repository.updateIngestKey(ingestKey) }) { Text("Guardar clave") } }
         item {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -732,14 +904,36 @@ private fun DiagnosticsScreen(
 private fun WebScreen(settings: AppSettings) {
     val context = LocalContext.current
     val launcher = remember { PortalLauncher(context) }
-    LaunchedEffect(settings.primaryUrl) {
-        launcher.open(settings.primaryUrl)
+    val statusClient = remember { ServerStatusClient() }
+    var serverStatus by remember { mutableStateOf(ServerStatus()) }
+    var resolvedUrl by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(settings.primaryUrl, settings.backupUrl) {
+        serverStatus = statusClient.resolve(settings.primaryUrl, settings.backupUrl)
+        resolvedUrl = when (serverStatus.activeEndpoint) {
+            ActiveEndpoint.PRIMARY -> settings.primaryUrl
+            ActiveEndpoint.BACKUP -> settings.backupUrl
+            ActiveEndpoint.NONE -> null
+        }
+        resolvedUrl?.let(launcher::open)
     }
 
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("Bolus AI", style = MaterialTheme.typography.titleMedium)
-        Text("Abriendo Bolus AI en Chrome para permitir la conexion Bluetooth de la bascula.")
-        Button(onClick = { launcher.open(settings.primaryUrl) }) { Text("Abrir de nuevo") }
+        StatusCard(
+            title = "Servidor seleccionado",
+            body = when (serverStatus.activeEndpoint) {
+                ActiveEndpoint.PRIMARY -> "NAS"
+                ActiveEndpoint.BACKUP -> "Render"
+                ActiveEndpoint.NONE -> "Sin conexión"
+            },
+            detail = serverStatus.message,
+        )
+        Text("Se abre en Chrome para mantener la sesión web y permitir la conexión Bluetooth de la báscula.")
+        Button(
+            enabled = resolvedUrl != null,
+            onClick = { resolvedUrl?.let(launcher::open) },
+        ) { Text("Abrir Bolus AI") }
     }
 }
 

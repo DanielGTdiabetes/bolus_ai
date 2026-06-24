@@ -13,6 +13,7 @@ frontend/node_modules/
 .gradle/
 **/build/
 local.properties
+artifacts/*.apk
 
 # Local Data & Config
 backend/data/
