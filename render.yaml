@@ -12,7 +12,13 @@ services:
       - key: JWT_SECRET
         sync: false
       - key: NIGHTSCOUT_URL
-        value: ""
+        sync: false
+      - key: NIGHTSCOUT_API_SECRET
+        sync: false
+      - key: APP_INSTANCE_ROLE
+        value: backup
+      - key: APP_INSTANCE_LOCATION
+        value: render
       - key: DATA_DIR
         value: /var/data
       - key: PYTHON_VERSION

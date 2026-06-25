@@ -121,6 +121,8 @@ import org.bolusai.companion.bolus.BolusProfileRepository
 import org.bolusai.companion.network.MobileBolusSettingsClient
 import org.bolusai.companion.ui.theme.BolusAiTheme
 
+private const val DEXCOM_EXTERNAL_PERMISSION = "com.dexcom.cgm.EXTERNAL_PERMISSION"
+
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -170,6 +172,18 @@ fun BolusCompanionApp() {
     val queueItems by queueRepository.observeRecent().collectAsState(initial = emptyList())
     var screen by remember { mutableStateOf(CompanionScreen.WEB) }
     var portalRoute by remember { mutableStateOf("#/") }
+    val dexcomPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { }
+
+    LaunchedEffect(settings.dexcomGlucoseSyncEnabled) {
+        if (
+            settings.dexcomGlucoseSyncEnabled &&
+            ContextCompat.checkSelfPermission(context, DEXCOM_EXTERNAL_PERMISSION) != PackageManager.PERMISSION_GRANTED
+        ) {
+            dexcomPermissionLauncher.launch(DEXCOM_EXTERNAL_PERMISSION)
+        }
+    }
 
     LaunchedEffect(settings.nutritionSyncEnabled, settings.dexcomWriteEnabled) {
         if (settings.nutritionSyncEnabled || settings.dexcomWriteEnabled) {
@@ -1089,11 +1103,19 @@ private fun SettingsScreen(
     var hasMfpAccessibility by remember { mutableStateOf(isMyFitnessPalAssistantEnabled(context)) }
     var connectionMessage by remember { mutableStateOf("") }
     var dexcomTestMessage by remember { mutableStateOf("") }
+    var hasDexcomPermission by remember {
+        mutableStateOf(
+            ContextCompat.checkSelfPermission(context, DEXCOM_EXTERNAL_PERMISSION) == PackageManager.PERMISSION_GRANTED,
+        )
+    }
     var healthStatus by remember { mutableStateOf("Sin comprobar") }
     val availability = remember { HealthConnectAvailability(context).status() }
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) { }
+    val dexcomPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted -> hasDexcomPermission = granted }
     val permissionLauncher = rememberLauncherForActivityResult(
         PermissionController.createRequestPermissionResultContract(),
     ) { granted ->
@@ -1205,6 +1227,32 @@ private fun SettingsScreen(
                                 dexcomTestMessage = ""
                             },
                         )
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text(
+                            "Recibir glucosa y enviarla a Nightscout",
+                            modifier = Modifier.weight(1f),
+                        )
+                        Switch(
+                            checked = settings.dexcomGlucoseSyncEnabled,
+                            onCheckedChange = repository::setDexcomGlucoseSyncEnabled,
+                        )
+                    }
+                    Text(
+                        "La glucosa se guarda en cola si no hay red y se envía primero al NAS y después a Render.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Text(
+                        if (hasDexcomPermission) {
+                            "Permiso de lectura Dexcom concedido"
+                        } else {
+                            "Falta conceder el permiso de lectura Dexcom"
+                        },
+                    )
+                    if (!hasDexcomPermission) {
+                        OutlinedButton(onClick = { dexcomPermissionLauncher.launch(DEXCOM_EXTERNAL_PERMISSION) }) {
+                            Text("Conceder permiso Dexcom")
+                        }
                     }
                     Button(
                         onClick = {

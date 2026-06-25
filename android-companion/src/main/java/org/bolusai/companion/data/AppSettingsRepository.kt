@@ -28,6 +28,7 @@ class AppSettingsRepository(context: Context) {
     fun setNutritionSyncEnabled(value: Boolean) = update(read().copy(nutritionSyncEnabled = value))
     fun setMyFitnessPalAssistEnabled(value: Boolean) = update(read().copy(myFitnessPalAssistEnabled = value))
     fun setDexcomWriteEnabled(value: Boolean) = update(read().copy(dexcomWriteEnabled = value))
+    fun setDexcomGlucoseSyncEnabled(value: Boolean) = update(read().copy(dexcomGlucoseSyncEnabled = value))
     fun setLogRetentionDays(value: Int) = update(read().copy(logRetentionDays = value))
 
     private fun read(): AppSettings = AppSettings(
@@ -39,6 +40,7 @@ class AppSettingsRepository(context: Context) {
         nutritionSyncEnabled = prefs.getBoolean("nutritionSyncEnabled", false),
         myFitnessPalAssistEnabled = prefs.getBoolean("myFitnessPalAssistEnabled", false),
         dexcomWriteEnabled = prefs.getBoolean("dexcom_write_enabled", false),
+        dexcomGlucoseSyncEnabled = prefs.getBoolean("dexcom_glucose_sync_enabled", true),
         logRetentionDays = prefs.getInt("logRetentionDays", 30),
     )
 
@@ -50,6 +52,7 @@ class AppSettingsRepository(context: Context) {
             .putBoolean("nutritionSyncEnabled", settings.nutritionSyncEnabled)
             .putBoolean("myFitnessPalAssistEnabled", settings.myFitnessPalAssistEnabled)
             .putBoolean("dexcom_write_enabled", settings.dexcomWriteEnabled)
+            .putBoolean("dexcom_glucose_sync_enabled", settings.dexcomGlucoseSyncEnabled)
             .putInt("logRetentionDays", settings.logRetentionDays)
             .apply()
         state.value = settings
