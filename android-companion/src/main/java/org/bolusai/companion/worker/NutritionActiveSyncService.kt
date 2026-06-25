@@ -283,27 +283,48 @@ class NutritionActiveSyncService : Service() {
 
             val lastEventId = repository.lastEventId()
             val lastEventTimestamp = repository.lastEventTimestamp()
+            val initializing = lastEventId == null && lastEventTimestamp == null
             val result = client.fetch(
                 primaryUrl = settings.primaryUrl,
                 backupUrl = settings.backupUrl,
                 ingestKey = settings.ingestKey,
                 afterId = lastEventId,
                 afterTimestamp = lastEventTimestamp,
-                latestOnly = lastEventId == null,
+                latestOnly = initializing,
             )
             if (result.ok) {
-                if (lastEventId == null) {
-                    result.events.lastOrNull()?.let { repository.markProcessed(it.id, it.timestamp) }
+                if (initializing) {
+                    result.events.lastOrNull()?.let {
+                        repository.markProcessed(it.id, it.timestamp)
+                    } ?: repository.markInitialized()
                     delay(DEXCOM_SYNC_INTERVAL_MS)
                     continue
                 }
                 for (event in result.events) {
-                    val sent = DexcomEventWriter.sendInsulinEvent(
-                        context = applicationContext,
-                        insulinUnits = event.insulinUnits,
-                        insulinType = "FAST_ACTING",
-                        timestamp = event.timestamp,
-                    )
+                    val sent = when (event.eventKind) {
+                        "INSULIN" -> {
+                            val units = event.insulinUnits
+                            if (units == null) {
+                                false
+                            } else {
+                                DexcomEventWriter.sendInsulinEvent(
+                                    context = applicationContext,
+                                    insulinUnits = units,
+                                    insulinType = event.insulinType ?: "FAST_ACTING",
+                                    timestamp = event.timestamp,
+                                )
+                            }
+                        }
+                        "CARBS" -> {
+                            val grams = event.carbsGrams
+                            grams != null && DexcomEventWriter.sendCarbsEvent(
+                                context = applicationContext,
+                                carbsGrams = grams,
+                                timestamp = event.timestamp,
+                            )
+                        }
+                        else -> false
+                    }
                     if (!sent) break
                     repository.markProcessed(event.id, event.timestamp)
                 }

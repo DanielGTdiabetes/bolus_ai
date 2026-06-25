@@ -2,6 +2,7 @@ import logging
 import os
 import uuid
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal, ROUND_HALF_UP
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query, Request
@@ -15,6 +16,7 @@ from app.core.db import get_db_session
 from app.core.security import TokenManager, get_token_manager, get_current_user, CurrentUser
 from app.core.settings import Settings, get_settings
 from app.models.settings import UserSettings, UserSettingsDB
+from app.models.basal import BasalEntry
 from app.models.treatment import Treatment
 from app.services.store import DataStore
 
@@ -174,9 +176,61 @@ class MobileBolusSettingsResponse(BaseModel):
 
 class MobileBolusEventResponse(BaseModel):
     id: str
-    insulin_units: float
-    carbs: float
+    event_kind: str
+    insulin_type: Optional[str] = None
+    insulin_units: Optional[float] = None
+    carbs_grams: Optional[int] = None
     timestamp: int
+
+
+def _utc_timestamp_ms(value: datetime) -> int:
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    else:
+        value = value.astimezone(timezone.utc)
+    return int(value.timestamp() * 1000)
+
+
+def _round_carbs_grams(value: float) -> int:
+    return int(Decimal(str(max(0.0, value))).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+
+
+def _dexcom_events_from_treatment(row: Treatment) -> List[MobileBolusEventResponse]:
+    timestamp = _utc_timestamp_ms(row.created_at)
+    events: List[MobileBolusEventResponse] = []
+    if float(row.insulin or 0.0) > 0 and row.event_type in DEXCOM_BOLUS_EVENT_TYPES:
+        events.append(
+            MobileBolusEventResponse(
+                id=f"treatment:{row.id}:rapid",
+                event_kind="INSULIN",
+                insulin_type="FAST_ACTING",
+                insulin_units=float(row.insulin),
+                timestamp=timestamp,
+            )
+        )
+    carbs_grams = _round_carbs_grams(float(row.carbs or 0.0))
+    if carbs_grams > 0:
+        events.append(
+            MobileBolusEventResponse(
+                id=f"treatment:{row.id}:carbs",
+                event_kind="CARBS",
+                carbs_grams=carbs_grams,
+                timestamp=timestamp,
+            )
+        )
+    return events
+
+
+def _dexcom_event_from_basal(row: BasalEntry) -> Optional[MobileBolusEventResponse]:
+    if float(row.dose_u or 0.0) <= 0:
+        return None
+    return MobileBolusEventResponse(
+        id=f"basal:{row.id}:long",
+        event_kind="INSULIN",
+        insulin_type="LONG_ACTING",
+        insulin_units=float(row.dose_u),
+        timestamp=_utc_timestamp_ms(row.created_at),
+    )
 
 
 def _authorize_ingest_key(request: Request, ingest_key_header: Optional[str]) -> None:
@@ -248,44 +302,51 @@ async def mobile_bolus_events(
     ingest_key_header: Optional[str] = Header(None, alias="X-Ingest-Key"),
     session: AsyncSession = Depends(get_db_session),
 ):
-    """Return confirmed insulin treatments for the Android Dexcom bridge."""
+    """Return rapid insulin, long-acting insulin and carbohydrate events for Android."""
     _authorize_ingest_key(request, ingest_key_header)
     _, user_id, _ = await _load_mobile_bolus_settings(session)
 
     after_created_at: Optional[datetime] = None
-    cursor_found = False
+    cursor_id = after_id
     if after_id:
-        previous = (
-            await session.execute(
-                select(Treatment).where(Treatment.id == after_id, Treatment.user_id == user_id)
-            )
-        ).scalars().first()
+        parts = after_id.split(":")
+        source = parts[0] if len(parts) >= 2 else "treatment"
+        source_id = parts[1] if len(parts) >= 2 else after_id
+        if len(parts) < 2:
+            cursor_id = f"treatment:{after_id}:rapid"
+        if source == "basal":
+            try:
+                source_id = uuid.UUID(source_id)
+            except (TypeError, ValueError):
+                source_id = None
+            previous = None if source_id is None else (
+                await session.execute(
+                    select(BasalEntry).where(BasalEntry.id == source_id, BasalEntry.user_id == user_id)
+                )
+            ).scalars().first()
+        else:
+            previous = (
+                await session.execute(
+                    select(Treatment).where(Treatment.id == source_id, Treatment.user_id == user_id)
+                )
+            ).scalars().first()
         if previous:
             after_created_at = previous.created_at
-            cursor_found = True
 
     if after_id and after_created_at is None and not after_timestamp:
         return []
 
-    stmt = select(Treatment).where(
+    treatment_stmt = select(Treatment).where(
         Treatment.user_id == user_id,
-        Treatment.insulin > 0,
-        Treatment.event_type.in_(DEXCOM_BOLUS_EVENT_TYPES),
+        (
+            ((Treatment.insulin > 0) & Treatment.event_type.in_(DEXCOM_BOLUS_EVENT_TYPES))
+            | (Treatment.carbs > 0)
+        ),
     )
-    if latest_only:
-        row = (
-            await session.execute(stmt.order_by(Treatment.created_at.desc(), Treatment.id.desc()).limit(1))
-        ).scalars().first()
-        if not row:
-            return []
-        return [
-            MobileBolusEventResponse(
-                id=row.id,
-                insulin_units=float(row.insulin),
-                carbs=float(row.carbs or 0.0),
-                timestamp=int(row.created_at.replace(tzinfo=timezone.utc).timestamp() * 1000),
-            )
-        ]
+    basal_stmt = select(BasalEntry).where(
+        BasalEntry.user_id == user_id,
+        BasalEntry.dose_u > 0,
+    )
 
     if after_created_at is None and after_timestamp:
         after_created_at = (
@@ -295,28 +356,41 @@ async def mobile_bolus_events(
         )
 
     if after_created_at is None:
-        stmt = stmt.where(Treatment.created_at >= datetime.utcnow() - timedelta(minutes=2))
+        threshold = datetime.utcnow() - timedelta(minutes=2)
+        treatment_stmt = treatment_stmt.where(Treatment.created_at >= threshold)
+        basal_stmt = basal_stmt.where(BasalEntry.created_at >= threshold)
     else:
-        if cursor_found:
-            stmt = stmt.where(
-                (Treatment.created_at > after_created_at)
-                | ((Treatment.created_at == after_created_at) & (Treatment.id > after_id))
-            )
-        else:
-            stmt = stmt.where(Treatment.created_at >= after_created_at)
+        treatment_stmt = treatment_stmt.where(Treatment.created_at >= after_created_at)
+        basal_stmt = basal_stmt.where(BasalEntry.created_at >= after_created_at)
 
-    rows = (
-        await session.execute(stmt.order_by(Treatment.created_at.asc(), Treatment.id.asc()).limit(50))
+    treatment_rows = (
+        await session.execute(treatment_stmt.order_by(Treatment.created_at.asc(), Treatment.id.asc()).limit(50))
     ).scalars().all()
-    return [
-        MobileBolusEventResponse(
-            id=row.id,
-            insulin_units=float(row.insulin),
-            carbs=float(row.carbs or 0.0),
-            timestamp=int(row.created_at.replace(tzinfo=timezone.utc).timestamp() * 1000),
-        )
-        for row in rows
+    basal_rows = (
+        await session.execute(basal_stmt.order_by(BasalEntry.created_at.asc(), BasalEntry.id.asc()).limit(50))
+    ).scalars().all()
+
+    events = [
+        event
+        for row in treatment_rows
+        for event in _dexcom_events_from_treatment(row)
     ]
+    events.extend(
+        event
+        for row in basal_rows
+        if (event := _dexcom_event_from_basal(row)) is not None
+    )
+    events.sort(key=lambda event: (event.timestamp, event.id))
+    if after_created_at is not None and cursor_id:
+        cursor_timestamp = _utc_timestamp_ms(after_created_at)
+        events = [
+            event for event in events
+            if event.timestamp > cursor_timestamp
+            or (event.timestamp == cursor_timestamp and event.id > cursor_id)
+        ]
+    if latest_only:
+        return events[-1:] if events else []
+    return events[:50]
 
 
 @router.post("/nutrition", summary="Webhook for Health Auto Export / External Nutrition")

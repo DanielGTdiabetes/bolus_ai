@@ -46,7 +46,7 @@ export function createApiFetch({
       throw new Error("Error de conexión: " + error.message);
     }
 
-    if (response.status === 401) {
+    if (response.status === 401 && !isPublicEndpoint(path)) {
       if (hadToken) {
         if (clearToken) clearToken();
         if (onLogout) onLogout("unauthorized");
