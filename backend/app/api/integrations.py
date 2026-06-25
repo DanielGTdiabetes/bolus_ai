@@ -19,6 +19,8 @@ from app.models.settings import UserSettings, UserSettingsDB
 from app.models.basal import BasalEntry
 from app.models.treatment import Treatment
 from app.services.store import DataStore
+from app.services.nightscout_client import NightscoutClient, NightscoutError
+from app.services.nightscout_secrets_service import get_ns_config
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -183,6 +185,21 @@ class MobileBolusEventResponse(BaseModel):
     timestamp: int
 
 
+class MobileGlucoseEntryRequest(BaseModel):
+    glucose_mgdl: int = Field(ge=1, le=400)
+    timestamp: int = Field(gt=0, description="Epoch seconds from Dexcom")
+    trend_arrow: str = Field(default="NONE", max_length=64)
+    sensor_type: str = Field(default="G7", max_length=32)
+    source_package: str = Field(default="com.dexcom.g7", max_length=128)
+
+
+class MobileGlucoseEntryResponse(BaseModel):
+    status: str
+    glucose_mgdl: int
+    timestamp_ms: int
+    direction: str
+
+
 def _utc_timestamp_ms(value: datetime) -> int:
     if value.tzinfo is None:
         value = value.replace(tzinfo=timezone.utc)
@@ -239,6 +256,67 @@ def _authorize_ingest_key(request: Request, ingest_key_header: Optional[str]) ->
     if ingest_secret and provided_key == ingest_secret:
         return
     raise HTTPException(status_code=401, detail="Authentication required")
+
+
+DEXCOM_TO_NIGHTSCOUT_TREND = {
+    "DOUBLEUP": "DoubleUp",
+    "DOUBLE_UP": "DoubleUp",
+    "SINGLEUP": "SingleUp",
+    "SINGLE_UP": "SingleUp",
+    "FORTYFIVEUP": "FortyFiveUp",
+    "FORTY_FIVE_UP": "FortyFiveUp",
+    "SLIGHTUP": "FortyFiveUp",
+    "FLAT": "Flat",
+    "STEADY": "Flat",
+    "FORTYFIVEDOWN": "FortyFiveDown",
+    "FORTY_FIVE_DOWN": "FortyFiveDown",
+    "SLIGHTDOWN": "FortyFiveDown",
+    "SINGLEDOWN": "SingleDown",
+    "SINGLE_DOWN": "SingleDown",
+    "DOUBLEDOWN": "DoubleDown",
+    "DOUBLE_DOWN": "DoubleDown",
+    "NOTCOMPUTABLE": "NOT COMPUTABLE",
+    "NOT_COMPUTABLE": "NOT COMPUTABLE",
+    "RATEOUTOFRANGE": "RATE OUT OF RANGE",
+    "RATE_OUT_OF_RANGE": "RATE OUT OF RANGE",
+    "NONE": "NONE",
+}
+
+
+def _nightscout_direction(trend_arrow: str) -> str:
+    normalized = (trend_arrow or "NONE").strip().upper().replace("-", "_").replace(" ", "_")
+    return DEXCOM_TO_NIGHTSCOUT_TREND.get(normalized, "NONE")
+
+
+async def _mobile_nightscout_client(
+    session: AsyncSession,
+    settings: Settings,
+) -> NightscoutClient:
+    user_settings, user_id, _ = await _load_mobile_bolus_settings(session)
+    stored = await get_ns_config(session, user_id)
+    if stored and stored.enabled and stored.url and stored.api_secret:
+        return NightscoutClient(
+            stored.url,
+            stored.api_secret,
+            timeout_seconds=settings.nightscout.timeout_seconds,
+        )
+
+    if user_settings.nightscout.enabled and user_settings.nightscout.url and user_settings.nightscout.token:
+        return NightscoutClient(
+            user_settings.nightscout.url,
+            user_settings.nightscout.token,
+            timeout_seconds=settings.nightscout.timeout_seconds,
+        )
+
+    if settings.nightscout.base_url and (settings.nightscout.api_secret or settings.nightscout.token):
+        return NightscoutClient(
+            str(settings.nightscout.base_url),
+            settings.nightscout.token,
+            api_secret=settings.nightscout.api_secret,
+            timeout_seconds=settings.nightscout.timeout_seconds,
+        )
+
+    raise HTTPException(status_code=503, detail="Nightscout is not configured")
 
 
 async def _load_mobile_bolus_settings(session: AsyncSession) -> tuple[UserSettings, str, Optional[datetime]]:
@@ -391,6 +469,48 @@ async def mobile_bolus_events(
     if latest_only:
         return events[-1:] if events else []
     return events[:50]
+
+
+@router.post("/mobile/glucose-entry", response_model=MobileGlucoseEntryResponse)
+async def mobile_glucose_entry(
+    payload: MobileGlucoseEntryRequest,
+    request: Request,
+    ingest_key_header: Optional[str] = Header(None, alias="X-Ingest-Key"),
+    session: AsyncSession = Depends(get_db_session),
+    settings: Settings = Depends(get_settings),
+):
+    """Receive a protected Dexcom G7 broadcast forwarded by the Android app."""
+    _authorize_ingest_key(request, ingest_key_header)
+    if payload.source_package != "com.dexcom.g7" or payload.sensor_type.upper() != "G7":
+        raise HTTPException(status_code=422, detail="Unsupported glucose source")
+
+    now_seconds = int(datetime.now(timezone.utc).timestamp())
+    if payload.timestamp > now_seconds + 5 * 60:
+        raise HTTPException(status_code=422, detail="Glucose timestamp is in the future")
+    if payload.timestamp < now_seconds - 7 * 24 * 60 * 60:
+        raise HTTPException(status_code=422, detail="Glucose timestamp is older than 7 days")
+
+    timestamp_ms = payload.timestamp * 1000
+    direction = _nightscout_direction(payload.trend_arrow)
+    client = await _mobile_nightscout_client(session, settings)
+    try:
+        result = await client.upload_sgv(
+            glucose_mgdl=payload.glucose_mgdl,
+            timestamp_ms=timestamp_ms,
+            direction=direction,
+        )
+    except NightscoutError as exc:
+        logger.warning("Dexcom glucose upload to Nightscout failed: %s", exc)
+        raise HTTPException(status_code=502, detail="Nightscout rejected the glucose entry") from exc
+    finally:
+        await client.aclose()
+
+    return MobileGlucoseEntryResponse(
+        status=result["status"],
+        glucose_mgdl=payload.glucose_mgdl,
+        timestamp_ms=timestamp_ms,
+        direction=direction,
+    )
 
 
 @router.post("/nutrition", summary="Webhook for Health Auto Export / External Nutrition")

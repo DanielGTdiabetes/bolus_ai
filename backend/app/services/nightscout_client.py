@@ -1,6 +1,6 @@
 import hashlib
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 import uuid
 import json
@@ -353,6 +353,42 @@ class NightscoutClient:
             except Exception:
                 continue
         return results
+
+    async def upload_sgv(
+        self,
+        glucose_mgdl: int,
+        timestamp_ms: int,
+        direction: str,
+        device: str = "Dexcom G7 via Bolus AI",
+    ) -> dict[str, Any]:
+        """
+        Upload one glucose entry, avoiding duplicates caused by mobile retries.
+        A reading is considered identical when both its timestamp and SGV match.
+        """
+        timestamp = datetime.fromtimestamp(timestamp_ms / 1000, tz=timezone.utc)
+        existing = await self.get_sgv_range(
+            timestamp - timedelta(seconds=2),
+            timestamp + timedelta(seconds=2),
+            count=10,
+        )
+        if any(entry.date == timestamp_ms and entry.sgv == glucose_mgdl for entry in existing):
+            return {"status": "duplicate", "uploaded_count": 0}
+
+        payload = {
+            "type": "sgv",
+            "sgv": glucose_mgdl,
+            "date": timestamp_ms,
+            "dateString": timestamp.isoformat().replace("+00:00", "Z"),
+            "direction": direction,
+            "device": device,
+        }
+        response = await self.client.post("/api/v1/entries", json=[payload])
+        result = await self._handle_response(response)
+        return {
+            "status": "uploaded",
+            "uploaded_count": 1,
+            "nightscout_response": result,
+        }
 
     async def upload_treatments(self, treatments: list[dict]) -> Any:
         # Warning: Some Nightscout versions are strict about the 'enteredBy' field.
