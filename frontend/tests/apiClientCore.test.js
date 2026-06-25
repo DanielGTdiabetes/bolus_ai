@@ -67,6 +67,21 @@ const apiFetch401 = createApiFetch({
 });
 
 await assert.rejects(() => apiFetch401("/api/test"), /Sesión caducada/);
+
+const publicUnauthorizedResponse = { status: 401 };
+const apiFetchPublic401 = createApiFetch({
+  fetchImpl: async () => publicUnauthorizedResponse,
+  getToken: () => null,
+  clearToken: () => {},
+  onLogout: () => {},
+  onMissingToken: () => {},
+  resolveUrl: (path) => path,
+  isPublicEndpoint: path => path === "/api/auth/login"
+});
+assert.equal(
+  await apiFetchPublic401("/api/auth/login", { method: "POST" }),
+  publicUnauthorizedResponse
+);
 assert.equal(mock401.getCalls(), 1);
 assert.equal(cleared, 1);
 assert.equal(logoutCalls, 1);
