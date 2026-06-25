@@ -8,6 +8,7 @@ import android.util.Log
 object DexcomEventWriter {
     private const val TAG = "BolusAI-DexcomBridge"
     private const val ACTION_ADD_INSULIN_EVENT = "com.bolusai.ADD_INSULIN_EVENT"
+    private const val ACTION_ADD_MEAL_EVENT = "com.bolusai.ADD_MEAL_EVENT"
     private const val DEXCOM_PACKAGE = "com.dexcom.g7"
     private const val DEXCOM_RECEIVER = "com.bolusai.EventInjectorReceiver"
 
@@ -45,6 +46,31 @@ object DexcomEventWriter {
             true
         } catch (error: Exception) {
             Log.e(TAG, "failed to send insulin event to Dexcom", error)
+            false
+        }
+    }
+
+    fun sendCarbsEvent(
+        context: Context,
+        carbsGrams: Int,
+        timestamp: Long = System.currentTimeMillis(),
+    ): Boolean {
+        if (carbsGrams <= 0) {
+            Log.e(TAG, "invalid carbs grams=$carbsGrams")
+            return false
+        }
+
+        return try {
+            val intent = Intent(ACTION_ADD_MEAL_EVENT).apply {
+                setClassName(DEXCOM_PACKAGE, DEXCOM_RECEIVER)
+                putExtra("carbs", carbsGrams)
+                putExtra("timestamp", timestamp)
+            }
+            context.sendBroadcast(intent)
+            Log.i(TAG, "carbohydrate event sent to Dexcom")
+            true
+        } catch (error: Exception) {
+            Log.e(TAG, "failed to send carbohydrate event to Dexcom", error)
             false
         }
     }

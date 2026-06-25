@@ -11,7 +11,10 @@ import java.nio.charset.StandardCharsets
 
 data class DexcomBolusEvent(
     val id: String,
-    val insulinUnits: Double,
+    val eventKind: String,
+    val insulinType: String?,
+    val insulinUnits: Double?,
+    val carbsGrams: Int?,
     val timestamp: Long,
 )
 
@@ -89,21 +92,28 @@ class DexcomBolusEventClient {
             )
         }
 
-        val array = JSONArray(response)
-        val events = buildList {
-            for (index in 0 until array.length()) {
-                val item = array.getJSONObject(index)
-                add(
-                    DexcomBolusEvent(
-                        id = item.getString("id"),
-                        insulinUnits = item.getDouble("insulin_units"),
-                        timestamp = item.getLong("timestamp"),
-                    )
-                )
-            }
-        }
+        val events = parseDexcomEvents(response)
         DexcomBolusEventsResult(true, endpoint, events, "${events.size} eventos")
     }.getOrElse { error ->
         DexcomBolusEventsResult(false, endpoint, emptyList(), Sanitizer.sanitize(error.message ?: error::class.java.simpleName))
+    }
+}
+
+internal fun parseDexcomEvents(response: String): List<DexcomBolusEvent> {
+    val array = JSONArray(response)
+    return buildList {
+        for (index in 0 until array.length()) {
+            val item = array.getJSONObject(index)
+            add(
+                DexcomBolusEvent(
+                    id = item.getString("id"),
+                    eventKind = item.getString("event_kind"),
+                    insulinType = item.optString("insulin_type").takeIf { it.isNotBlank() },
+                    insulinUnits = item.optDouble("insulin_units").takeIf { it.isFinite() },
+                    carbsGrams = item.optInt("carbs_grams").takeIf { it > 0 },
+                    timestamp = item.getLong("timestamp"),
+                )
+            )
+        }
     }
 }

@@ -15,4 +15,11 @@ class DexcomEventSyncRepository(context: Context) {
             .putLong("last_event_timestamp", timestamp)
             .apply()
     }
+
+    fun markInitialized(timestamp: Long = System.currentTimeMillis()) {
+        prefs.edit()
+            .remove("last_event_id")
+            .putLong("last_event_timestamp", timestamp)
+            .apply()
+    }
 }

@@ -1194,7 +1194,10 @@ private fun SettingsScreen(
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("Dexcom G7 modificada", style = MaterialTheme.typography.titleMedium)
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Text("Escribir bolos en Dexcom G7 modificada", modifier = Modifier.weight(1f))
+                        Text(
+                            "Sincronizar insulina rápida, insulina lenta e hidratos",
+                            modifier = Modifier.weight(1f),
+                        )
                         Switch(
                             checked = settings.dexcomWriteEnabled,
                             onCheckedChange = { enabled ->
