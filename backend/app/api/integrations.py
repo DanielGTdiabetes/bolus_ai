@@ -25,6 +25,7 @@ from app.services.nightscout_secrets_service import get_ns_config
 router = APIRouter()
 logger = logging.getLogger(__name__)
 DEXCOM_BOLUS_EVENT_TYPES = ("Meal Bolus", "Correction Bolus", "Bolus")
+DEXCOM_CARBS_DEDUPE_WINDOW_MS = 45 * 60 * 1000
 
 def _data_store(settings: Settings = Depends(get_settings)) -> DataStore:
     from pathlib import Path
@@ -226,7 +227,7 @@ def _dexcom_events_from_treatment(row: Treatment) -> List[MobileBolusEventRespon
             )
         )
     carbs_grams = _round_carbs_grams(float(row.carbs or 0.0))
-    if carbs_grams > 0:
+    if carbs_grams > 0 and not _is_pending_imported_meal(row):
         events.append(
             MobileBolusEventResponse(
                 id=f"treatment:{row.id}:carbs",
@@ -236,6 +237,16 @@ def _dexcom_events_from_treatment(row: Treatment) -> List[MobileBolusEventRespon
             )
         )
     return events
+
+
+def _is_pending_imported_meal(row: Treatment) -> bool:
+    notes = (getattr(row, "notes", None) or "").lower()
+    entered_by = (getattr(row, "entered_by", None) or "").lower()
+    return (
+        float(row.insulin or 0.0) <= 0.0
+        and entered_by == "webhook-integration"
+        and "#imported" in notes
+    )
 
 
 def _dexcom_event_from_basal(row: BasalEntry) -> Optional[MobileBolusEventResponse]:
@@ -459,6 +470,7 @@ async def mobile_bolus_events(
         if (event := _dexcom_event_from_basal(row)) is not None
     )
     events.sort(key=lambda event: (event.timestamp, event.id))
+    events = _dedupe_dexcom_carbs_events(events)
     if after_created_at is not None and cursor_id:
         cursor_timestamp = _utc_timestamp_ms(after_created_at)
         events = [
@@ -469,6 +481,32 @@ async def mobile_bolus_events(
     if latest_only:
         return events[-1:] if events else []
     return events[:50]
+
+
+def _dedupe_dexcom_carbs_events(events: List[MobileBolusEventResponse]) -> List[MobileBolusEventResponse]:
+    deduped: List[MobileBolusEventResponse] = []
+    recent_carbs: List[MobileBolusEventResponse] = []
+    for event in events:
+        if event.event_kind != "CARBS" or not event.carbs_grams:
+            deduped.append(event)
+            continue
+
+        is_duplicate = any(
+            previous.carbs_grams == event.carbs_grams
+            and abs(event.timestamp - previous.timestamp) <= DEXCOM_CARBS_DEDUPE_WINDOW_MS
+            for previous in recent_carbs
+        )
+        if is_duplicate:
+            continue
+
+        recent_carbs.append(event)
+        recent_carbs = [
+            previous
+            for previous in recent_carbs
+            if event.timestamp - previous.timestamp <= DEXCOM_CARBS_DEDUPE_WINDOW_MS
+        ]
+        deduped.append(event)
+    return deduped
 
 
 @router.post("/mobile/glucose-entry", response_model=MobileGlucoseEntryResponse)

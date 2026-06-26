@@ -58,6 +58,8 @@ def test_carbs_only_treatment_is_exported_and_half_rounds_up():
         event_type="Meal",
         insulin=0.0,
         carbs=10.5,
+        notes="Manual carbs",
+        entered_by="TelegramBot",
         created_at=datetime(2026, 6, 25, 12, 0, 0),
     )
 
@@ -66,6 +68,46 @@ def test_carbs_only_treatment_is_exported_and_half_rounds_up():
     assert len(events) == 1
     assert events[0].id == "treatment:carbs-1:carbs"
     assert events[0].carbs_grams == 11
+
+
+def test_pending_imported_meal_does_not_export_carbs_to_dexcom():
+    row = SimpleNamespace(
+        id="imported-1",
+        event_type="Meal Bolus",
+        insulin=0.0,
+        carbs=42.0,
+        notes="Imported from Health: abc #imported",
+        entered_by="webhook-integration",
+        created_at=datetime(2026, 6, 25, 12, 0, 0),
+    )
+
+    assert integrations._dexcom_events_from_treatment(row) == []
+
+
+def test_carbs_events_with_same_grams_28_minutes_apart_are_deduped():
+    first = integrations.MobileBolusEventResponse(
+        id="treatment:first:carbs",
+        event_kind="CARBS",
+        carbs_grams=42,
+        timestamp=1_000_000,
+    )
+    second = integrations.MobileBolusEventResponse(
+        id="treatment:second:carbs",
+        event_kind="CARBS",
+        carbs_grams=42,
+        timestamp=1_000_000 + 28 * 60 * 1000,
+    )
+    insulin = integrations.MobileBolusEventResponse(
+        id="treatment:second:rapid",
+        event_kind="INSULIN",
+        insulin_type="FAST_ACTING",
+        insulin_units=3.0,
+        timestamp=second.timestamp,
+    )
+
+    events = integrations._dedupe_dexcom_carbs_events([first, second, insulin])
+
+    assert [event.id for event in events] == ["treatment:first:carbs", "treatment:second:rapid"]
 
 
 def test_basal_produces_long_acting_event():
