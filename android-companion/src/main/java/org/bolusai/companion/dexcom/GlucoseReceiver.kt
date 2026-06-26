@@ -17,9 +17,15 @@ class GlucoseReceiver : BroadcastReceiver() {
         val sourcePackage = extras.getString("packageName").orEmpty()
         if (sensorType != "G7" || sourcePackage != DEXCOM_PACKAGE) return
 
-        val readings = extras.keySet()
-            .filter { it != "sensorType" && it != "packageName" }
-            .mapNotNull { key -> extras.bundleCompat(key)?.toReading(sensorType, sourcePackage) }
+        val readingContainer = extras.bundleCompat("glucoseValues") ?: extras
+        val directReading = readingContainer.toReading(sensorType, sourcePackage)
+        val readings = if (directReading != null) {
+            listOf(directReading)
+        } else {
+            readingContainer.keySet()
+                .filter { it != "sensorType" && it != "packageName" && it != "glucoseValues" }
+                .mapNotNull { key -> readingContainer.bundleCompat(key)?.toReading(sensorType, sourcePackage) }
+        }
         if (readings.isEmpty()) return
 
         GlucoseQueueRepository(context).enqueue(readings)

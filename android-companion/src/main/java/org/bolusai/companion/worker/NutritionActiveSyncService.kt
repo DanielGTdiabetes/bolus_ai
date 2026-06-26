@@ -5,6 +5,7 @@ import android.app.NotificationManager
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
@@ -23,6 +24,7 @@ import org.bolusai.companion.diagnostics.HealthConnectLogRepository
 import org.bolusai.companion.diagnostics.HealthConnectLogStatus
 import org.bolusai.companion.dexcom.DexcomEventSyncRepository
 import org.bolusai.companion.dexcom.DexcomEventWriter
+import org.bolusai.companion.dexcom.GlucoseReceiver
 import org.bolusai.companion.network.DexcomBolusEventClient
 import org.bolusai.companion.network.HermesMfpSyncTriggerClient
 import org.bolusai.companion.network.HermesMfpSyncTriggerResult
@@ -36,6 +38,7 @@ class NutritionActiveSyncService : Service() {
     private var lastMyFitnessPalExitSyncAt = 0L
     private var lastMissingUsageAccessLogAt = 0L
     private var lastUsageTransitionCheckAt = 0L
+    private var dynamicGlucoseReceiver: GlucoseReceiver? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
@@ -45,6 +48,7 @@ class NutritionActiveSyncService : Service() {
         }
 
         startForegroundServiceNotification("Revisando comidas")
+        registerDynamicGlucoseReceiver()
         if (syncStarted) return START_STICKY
         syncStarted = true
         recordDiagnostic("active_sync_start", HealthConnectLogStatus.PENDING, "Foreground nutrition sync started")
@@ -65,8 +69,25 @@ class NutritionActiveSyncService : Service() {
 
     override fun onDestroy() {
         recordDiagnostic("active_sync_destroy", HealthConnectLogStatus.PENDING, "Foreground nutrition sync destroyed")
+        unregisterDynamicGlucoseReceiver()
         scope.cancel()
         super.onDestroy()
+    }
+
+    private fun registerDynamicGlucoseReceiver() {
+        if (dynamicGlucoseReceiver != null) return
+        dynamicGlucoseReceiver = GlucoseReceiver()
+        val filter = IntentFilter(DEXCOM_EXTERNAL_BROADCAST_ACTION)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(dynamicGlucoseReceiver, filter, Context.RECEIVER_EXPORTED)
+        } else {
+            registerReceiver(dynamicGlucoseReceiver, filter)
+        }
+    }
+
+    private fun unregisterDynamicGlucoseReceiver() {
+        dynamicGlucoseReceiver?.let { runCatching { unregisterReceiver(it) } }
+        dynamicGlucoseReceiver = null
     }
 
     private fun startForegroundServiceNotification(message: String) {
@@ -281,26 +302,25 @@ class NutritionActiveSyncService : Service() {
                 continue
             }
 
-            val lastEventId = repository.lastEventId()
-            val lastEventTimestamp = repository.lastEventTimestamp()
-            val initializing = lastEventId == null && lastEventTimestamp == null
+            val lookbackTimestamp = System.currentTimeMillis() - DEXCOM_EVENT_LOOKBACK_MS
             val result = client.fetch(
                 primaryUrl = settings.primaryUrl,
                 backupUrl = settings.backupUrl,
                 ingestKey = settings.ingestKey,
-                afterId = lastEventId,
-                afterTimestamp = lastEventTimestamp,
-                latestOnly = initializing,
+                afterId = null,
+                afterTimestamp = lookbackTimestamp,
             )
             if (result.ok) {
-                if (initializing) {
-                    result.events.lastOrNull()?.let {
-                        repository.markProcessed(it.id, it.timestamp)
-                    } ?: repository.markInitialized()
-                    delay(DEXCOM_SYNC_INTERVAL_MS)
-                    continue
+                val legacyLastEventTimestamp = repository.lastEventTimestamp()
+                if (!repository.hasProcessedEventIds() && legacyLastEventTimestamp != null) {
+                    repository.markProcessedBatch(
+                        result.events
+                            .filter { it.timestamp <= legacyLastEventTimestamp }
+                            .map { it.id },
+                    )
                 }
                 for (event in result.events) {
+                    if (repository.isProcessed(event.id)) continue
                     val sent = when (event.eventKind) {
                         "INSULIN" -> {
                             val units = event.insulinUnits
@@ -389,6 +409,8 @@ class NutritionActiveSyncService : Service() {
         private const val MYFITNESSPAL_EXIT_COOLDOWN_MS = 90_000L
         private const val MISSING_USAGE_ACCESS_LOG_COOLDOWN_MS = 10 * 60_000L
         private const val DEXCOM_SYNC_INTERVAL_MS = 15_000L
+        private const val DEXCOM_EVENT_LOOKBACK_MS = 48 * 60 * 60_000L
+        private const val DEXCOM_EXTERNAL_BROADCAST_ACTION = "com.dexcom.cgm.EXTERNAL_BROADCAST"
         private const val MYFITNESSPAL_PACKAGE = "com.myfitnesspal.android"
         private val DEFAULT_EXIT_PACKAGES = setOf(
             "com.mi.android.globallauncher",
