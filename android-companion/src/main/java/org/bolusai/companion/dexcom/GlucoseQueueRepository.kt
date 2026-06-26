@@ -21,6 +21,14 @@ class GlucoseQueueRepository(context: Context) {
     fun pending(): List<GlucoseReading> = load()
 
     @Synchronized
+    fun latest(maxAgeMs: Long): GlucoseReading? {
+        val cutoffSeconds = (System.currentTimeMillis() - maxAgeMs) / 1000
+        return load()
+            .filter { it.timestampSeconds >= cutoffSeconds }
+            .maxByOrNull { it.timestampSeconds }
+    }
+
+    @Synchronized
     fun markSent(reading: GlucoseReading) {
         persist(load().filterNot { it.dedupeKey == reading.dedupeKey })
     }

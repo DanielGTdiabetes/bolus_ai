@@ -12,6 +12,12 @@ object DexcomEventWriter {
     private const val DEXCOM_PACKAGE = "com.dexcom.g7"
     private const val DEXCOM_RECEIVER = "com.bolusai.EventInjectorReceiver"
 
+    private fun Intent.putLatestGlucose(context: Context) {
+        GlucoseQueueRepository(context).latest(MAX_GLUCOSE_AGE_MS)?.let {
+            putExtra("glucose", it.glucoseMgdl.toDouble())
+        }
+    }
+
     fun isReceiverAvailable(context: Context): Boolean {
         val intent = Intent(ACTION_ADD_INSULIN_EVENT).apply {
             setClassName(DEXCOM_PACKAGE, DEXCOM_RECEIVER)
@@ -38,6 +44,7 @@ object DexcomEventWriter {
                 putExtra("insulinType", insulinType)
                 putExtra("insulinUnits", insulinUnits)
                 putExtra("timestamp", timestamp)
+                putLatestGlucose(context)
             }
             context.sendBroadcast(intent)
             Log.i(TAG, "insulin event sent to Dexcom")
@@ -71,6 +78,7 @@ object DexcomEventWriter {
                 setClassName(DEXCOM_PACKAGE, DEXCOM_RECEIVER)
                 putExtra("carbs", carbsGrams)
                 putExtra("timestamp", timestamp)
+                putLatestGlucose(context)
             }
             context.sendBroadcast(intent)
             syncRepository.markCarbsBroadcast(carbsGrams, timestamp)
@@ -81,4 +89,6 @@ object DexcomEventWriter {
             false
         }
     }
+
+    private const val MAX_GLUCOSE_AGE_MS = 15 * 60_000L
 }
