@@ -61,12 +61,19 @@ object DexcomEventWriter {
         }
 
         return try {
+            val syncRepository = DexcomEventSyncRepository(context)
+            if (syncRepository.hasRecentCarbsBroadcast(carbsGrams, timestamp)) {
+                Log.i(TAG, "duplicate carbohydrate event skipped for Dexcom")
+                Log.i(TAG, "carbs=$carbsGrams timestamp=$timestamp")
+                return true
+            }
             val intent = Intent(ACTION_ADD_MEAL_EVENT).apply {
                 setClassName(DEXCOM_PACKAGE, DEXCOM_RECEIVER)
                 putExtra("carbs", carbsGrams)
                 putExtra("timestamp", timestamp)
             }
             context.sendBroadcast(intent)
+            syncRepository.markCarbsBroadcast(carbsGrams, timestamp)
             Log.i(TAG, "carbohydrate event sent to Dexcom")
             true
         } catch (error: Exception) {
