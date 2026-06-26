@@ -281,26 +281,25 @@ class NutritionActiveSyncService : Service() {
                 continue
             }
 
-            val lastEventId = repository.lastEventId()
-            val lastEventTimestamp = repository.lastEventTimestamp()
-            val initializing = lastEventId == null && lastEventTimestamp == null
+            val lookbackTimestamp = System.currentTimeMillis() - DEXCOM_EVENT_LOOKBACK_MS
             val result = client.fetch(
                 primaryUrl = settings.primaryUrl,
                 backupUrl = settings.backupUrl,
                 ingestKey = settings.ingestKey,
-                afterId = lastEventId,
-                afterTimestamp = lastEventTimestamp,
-                latestOnly = initializing,
+                afterId = null,
+                afterTimestamp = lookbackTimestamp,
             )
             if (result.ok) {
-                if (initializing) {
-                    result.events.lastOrNull()?.let {
-                        repository.markProcessed(it.id, it.timestamp)
-                    } ?: repository.markInitialized()
-                    delay(DEXCOM_SYNC_INTERVAL_MS)
-                    continue
+                val legacyLastEventTimestamp = repository.lastEventTimestamp()
+                if (!repository.hasProcessedEventIds() && legacyLastEventTimestamp != null) {
+                    repository.markProcessedBatch(
+                        result.events
+                            .filter { it.timestamp <= legacyLastEventTimestamp }
+                            .map { it.id },
+                    )
                 }
                 for (event in result.events) {
+                    if (repository.isProcessed(event.id)) continue
                     val sent = when (event.eventKind) {
                         "INSULIN" -> {
                             val units = event.insulinUnits
@@ -389,6 +388,7 @@ class NutritionActiveSyncService : Service() {
         private const val MYFITNESSPAL_EXIT_COOLDOWN_MS = 90_000L
         private const val MISSING_USAGE_ACCESS_LOG_COOLDOWN_MS = 10 * 60_000L
         private const val DEXCOM_SYNC_INTERVAL_MS = 15_000L
+        private const val DEXCOM_EVENT_LOOKBACK_MS = 48 * 60 * 60_000L
         private const val MYFITNESSPAL_PACKAGE = "com.myfitnesspal.android"
         private val DEFAULT_EXIT_PACKAGES = setOf(
             "com.mi.android.globallauncher",
