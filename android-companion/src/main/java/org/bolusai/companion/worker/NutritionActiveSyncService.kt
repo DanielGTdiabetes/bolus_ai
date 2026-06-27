@@ -311,6 +311,8 @@ class NutritionActiveSyncService : Service() {
                                     context = applicationContext,
                                     insulinUnits = units,
                                     insulinType = event.insulinType ?: "FAST_ACTING",
+                                    glucoseMgdl = event.glucoseMgdl,
+                                    useLatestGlucoseWhenMissing = event.insulinType == "LONG_ACTING",
                                     timestamp = event.timestamp,
                                 )
                             }
@@ -320,6 +322,7 @@ class NutritionActiveSyncService : Service() {
                             grams != null && DexcomEventWriter.sendCarbsEvent(
                                 context = applicationContext,
                                 carbsGrams = grams,
+                                glucoseMgdl = event.glucoseMgdl,
                                 timestamp = event.timestamp,
                             )
                         }

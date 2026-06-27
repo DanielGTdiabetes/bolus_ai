@@ -12,10 +12,14 @@ object DexcomEventWriter {
     private const val DEXCOM_PACKAGE = "com.dexcom.g7"
     private const val DEXCOM_RECEIVER = "com.bolusai.EventInjectorReceiver"
 
-    private fun Intent.putLatestGlucose(context: Context) {
-        GlucoseQueueRepository(context).latest(MAX_GLUCOSE_AGE_MS)?.let {
-            putExtra("glucose", it.glucoseMgdl.toDouble())
+    private fun Intent.putGlucose(glucoseMgdl: Int?) {
+        glucoseMgdl?.takeIf { it in 1..400 }?.let {
+            putExtra("glucose", it.toDouble())
         }
+    }
+
+    private fun Intent.putLatestGlucose(context: Context) {
+        putGlucose(GlucoseQueueRepository(context).latest(MAX_GLUCOSE_AGE_MS)?.glucoseMgdl)
     }
 
     fun isReceiverAvailable(context: Context): Boolean {
@@ -31,6 +35,8 @@ object DexcomEventWriter {
         context: Context,
         insulinUnits: Double,
         insulinType: String = "FAST_ACTING",
+        glucoseMgdl: Int? = null,
+        useLatestGlucoseWhenMissing: Boolean = false,
         timestamp: Long = System.currentTimeMillis(),
     ): Boolean {
         if (!insulinUnits.isFinite() || insulinUnits <= 0.0) {
@@ -44,7 +50,11 @@ object DexcomEventWriter {
                 putExtra("insulinType", insulinType)
                 putExtra("insulinUnits", insulinUnits)
                 putExtra("timestamp", timestamp)
-                putLatestGlucose(context)
+                if (glucoseMgdl != null) {
+                    putGlucose(glucoseMgdl)
+                } else if (useLatestGlucoseWhenMissing) {
+                    putLatestGlucose(context)
+                }
             }
             context.sendBroadcast(intent)
             Log.i(TAG, "insulin event sent to Dexcom")
@@ -60,6 +70,7 @@ object DexcomEventWriter {
     fun sendCarbsEvent(
         context: Context,
         carbsGrams: Int,
+        glucoseMgdl: Int? = null,
         timestamp: Long = System.currentTimeMillis(),
     ): Boolean {
         if (carbsGrams <= 0) {
@@ -78,7 +89,7 @@ object DexcomEventWriter {
                 setClassName(DEXCOM_PACKAGE, DEXCOM_RECEIVER)
                 putExtra("carbs", carbsGrams)
                 putExtra("timestamp", timestamp)
-                putLatestGlucose(context)
+                putGlucose(glucoseMgdl)
             }
             context.sendBroadcast(intent)
             syncRepository.markCarbsBroadcast(carbsGrams, timestamp)

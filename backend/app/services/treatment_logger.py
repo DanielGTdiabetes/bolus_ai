@@ -42,6 +42,7 @@ async def log_treatment(
     fat: float = 0.0,
     protein: float = 0.0,
     fiber: float = 0.0,
+    glucose: Optional[float] = None,
     created_at: Optional[datetime] = None,
     store: Optional[DataStore] = None,
     session: Optional[AsyncSession] = None,
@@ -82,6 +83,7 @@ async def log_treatment(
                 "fat": fat,
                 "protein": protein,
                 "fiber": fiber,
+                "glucose": glucose,
                 "carb_profile": carb_profile,
                 "notes": notes,
                 "enteredBy": entered_by,
@@ -119,6 +121,7 @@ async def log_treatment(
                 fat=fat,
                 protein=protein,
                 fiber=fiber,
+                glucose=glucose,
                 carb_profile=carb_profile,
                 notes=notes,
                 entered_by=entered_by,
@@ -157,10 +160,13 @@ async def log_treatment(
                 "fat": fat,
                 "protein": protein,
                 "fiber": fiber,
+                "glucose": glucose,
                 "carb_profile": carb_profile,
                 "notes": notes,
                 "enteredBy": entered_by,
             }
+            if glucose is not None:
+                ns_payload["glucose"] = glucose
             ns_response = await client.upload_treatments([ns_payload])
             await client.aclose()
             ns_uploaded = True

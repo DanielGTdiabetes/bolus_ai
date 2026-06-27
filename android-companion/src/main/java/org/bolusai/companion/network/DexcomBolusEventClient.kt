@@ -15,6 +15,7 @@ data class DexcomBolusEvent(
     val insulinType: String?,
     val insulinUnits: Double?,
     val carbsGrams: Int?,
+    val glucoseMgdl: Int?,
     val timestamp: Long,
 )
 
@@ -111,6 +112,7 @@ internal fun parseDexcomEvents(response: String): List<DexcomBolusEvent> {
                     insulinType = item.optString("insulin_type").takeIf { it.isNotBlank() },
                     insulinUnits = item.optDouble("insulin_units").takeIf { it.isFinite() },
                     carbsGrams = item.optInt("carbs_grams").takeIf { it > 0 },
+                    glucoseMgdl = item.optInt("glucose_mgdl").takeIf { it in 1..400 },
                     timestamp = item.getLong("timestamp"),
                 )
             )
