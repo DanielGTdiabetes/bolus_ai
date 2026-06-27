@@ -285,11 +285,13 @@ export function useBolusCalculator() {
             usedFat = usedFat || 0;
             usedProt = usedProt || 0;
             usedFiber = usedFiber || 0;
+            const glucoseValue = parseFloat(glucose);
 
             const treatment = {
                 eventType: "Meal Bolus",
                 created_at: customDate.toISOString(),
                 carbs: (parseFloat(carbs) || 0),
+                glucose: Number.isFinite(glucoseValue) ? glucoseValue : null,
                 fat: usedFat,
                 protein: usedProt,
                 fiber: usedFiber,

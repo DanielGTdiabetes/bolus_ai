@@ -1,4 +1,5 @@
 import logging
+import math
 import os
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -183,6 +184,7 @@ class MobileBolusEventResponse(BaseModel):
     insulin_type: Optional[str] = None
     insulin_units: Optional[float] = None
     carbs_grams: Optional[int] = None
+    glucose_mgdl: Optional[int] = None
     timestamp: int
 
 
@@ -213,8 +215,18 @@ def _round_carbs_grams(value: float) -> int:
     return int(Decimal(str(max(0.0, value))).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
 
 
+def _round_glucose_mgdl(value: Optional[float]) -> Optional[int]:
+    if value is None:
+        return None
+    if not math.isfinite(float(value)):
+        return None
+    rounded = int(Decimal(str(value)).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+    return rounded if 1 <= rounded <= 400 else None
+
+
 def _dexcom_events_from_treatment(row: Treatment) -> List[MobileBolusEventResponse]:
     timestamp = _utc_timestamp_ms(row.created_at)
+    glucose_mgdl = _round_glucose_mgdl(getattr(row, "glucose", None))
     events: List[MobileBolusEventResponse] = []
     if float(row.insulin or 0.0) > 0 and row.event_type in DEXCOM_BOLUS_EVENT_TYPES:
         events.append(
@@ -223,6 +235,7 @@ def _dexcom_events_from_treatment(row: Treatment) -> List[MobileBolusEventRespon
                 event_kind="INSULIN",
                 insulin_type="FAST_ACTING",
                 insulin_units=float(row.insulin),
+                glucose_mgdl=glucose_mgdl,
                 timestamp=timestamp,
             )
         )
@@ -233,6 +246,7 @@ def _dexcom_events_from_treatment(row: Treatment) -> List[MobileBolusEventRespon
                 id=f"treatment:{row.id}:carbs",
                 event_kind="CARBS",
                 carbs_grams=carbs_grams,
+                glucose_mgdl=glucose_mgdl,
                 timestamp=timestamp,
             )
         )
@@ -277,11 +291,17 @@ DEXCOM_TO_NIGHTSCOUT_TREND = {
     "FORTYFIVEUP": "FortyFiveUp",
     "FORTY_FIVE_UP": "FortyFiveUp",
     "SLIGHTUP": "FortyFiveUp",
+    "RISING_SLOWLY": "FortyFiveUp",
+    "RISING": "SingleUp",
+    "RISING_QUICKLY": "DoubleUp",
     "FLAT": "Flat",
     "STEADY": "Flat",
     "FORTYFIVEDOWN": "FortyFiveDown",
     "FORTY_FIVE_DOWN": "FortyFiveDown",
     "SLIGHTDOWN": "FortyFiveDown",
+    "FALLING_SLOWLY": "FortyFiveDown",
+    "FALLING": "SingleDown",
+    "FALLING_QUICKLY": "DoubleDown",
     "SINGLEDOWN": "SingleDown",
     "SINGLE_DOWN": "SingleDown",
     "DOUBLEDOWN": "DoubleDown",

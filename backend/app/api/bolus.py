@@ -152,6 +152,7 @@ class BolusAcceptRequest(BaseModel):
     insulin: float = Field(ge=0)
     duration: float = Field(default=0.0, description="Duration in minutes for extended bolus")
     carbs: float = Field(default=0, ge=0)
+    glucose: Optional[float] = Field(default=None, ge=1, le=400)
     fat: float = Field(default=0, ge=0)
     protein: float = Field(default=0, ge=0)
     fiber: float = Field(default=0, ge=0)
@@ -261,6 +262,7 @@ async def save_treatment(
         fat=payload.fat,
         protein=payload.protein,
         fiber=payload.fiber,
+        glucose=payload.glucose,
         created_at=created_dt,
         store=store,
         session=session,

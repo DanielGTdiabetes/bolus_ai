@@ -36,6 +36,7 @@ def test_treatment_produces_separate_rapid_and_rounded_carbs_events():
         event_type="Meal Bolus",
         insulin=3.25,
         carbs=42.5,
+        glucose=123.4,
         created_at=datetime(2026, 6, 25, 12, 0, 0),
     )
 
@@ -48,8 +49,25 @@ def test_treatment_produces_separate_rapid_and_rounded_carbs_events():
     assert events[0].event_kind == "INSULIN"
     assert events[0].insulin_type == "FAST_ACTING"
     assert events[0].insulin_units == 3.25
+    assert events[0].glucose_mgdl == 123
     assert events[1].event_kind == "CARBS"
     assert events[1].carbs_grams == 43
+    assert events[1].glucose_mgdl == 123
+
+
+def test_treatment_export_omits_invalid_glucose_for_dexcom_events():
+    row = SimpleNamespace(
+        id="meal-1",
+        event_type="Meal Bolus",
+        insulin=3.0,
+        carbs=28.0,
+        glucose=0.0,
+        created_at=datetime(2026, 6, 25, 12, 0, 0),
+    )
+
+    events = integrations._dexcom_events_from_treatment(row)
+
+    assert [event.glucose_mgdl for event in events] == [None, None]
 
 
 def test_carbs_only_treatment_is_exported_and_half_rounds_up():
