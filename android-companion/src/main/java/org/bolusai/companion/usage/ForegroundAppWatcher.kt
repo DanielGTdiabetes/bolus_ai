@@ -15,13 +15,12 @@ object ForegroundEventInterpreter {
     fun observedExitSince(
         packageName: String,
         transitions: List<ForegroundTransition>,
-        exitPackages: Set<String>,
     ): Boolean {
         var sawPackageForeground = false
         transitions.forEach { transition ->
             if (transition.packageName == packageName) {
                 sawPackageForeground = true
-            } else if (sawPackageForeground && transition.packageName in exitPackages) {
+            } else if (sawPackageForeground) {
                 return true
             }
         }
@@ -40,13 +39,12 @@ class ForegroundAppWatcher(private val context: Context) {
         )
     }
 
-    fun observedExitSince(packageName: String, sinceMillis: Long, exitPackages: Set<String>): Boolean {
+    fun observedExitSince(packageName: String, sinceMillis: Long): Boolean {
         if (!UsageAccess.hasPermission(context)) return false
         val now = System.currentTimeMillis()
         return ForegroundEventInterpreter.observedExitSince(
             packageName = packageName,
             transitions = foregroundTransitions(sinceMillis.coerceAtMost(now), now),
-            exitPackages = exitPackages,
         )
     }
 

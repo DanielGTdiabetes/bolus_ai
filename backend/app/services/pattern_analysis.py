@@ -14,19 +14,32 @@ from app.services.nightscout_client import NightscoutClient
 
 logger = logging.getLogger(__name__)
 
-def get_meal_slot(dt: datetime) -> str:
-    # Use hour in local context? 
-    # We don't have user timezone, assuming relative to the treatment timestamp 
-    # which is usually UTC in NS, but "created_at" might be naive in strings.
-    # Let's use the hour attribute.
-    h = dt.hour
-    if 5 <= h < 11: return "breakfast"
-    if 11 <= h < 15: return "lunch"
-    if 19 <= h < 23: return "dinner"
-    # Between lunch and dinner (15-19) -> snack
-    # Late night (23-5) -> snack
-    if 15 <= h < 19: return "snack"
-    return "snack"
+def get_meal_slot(dt: datetime, settings: Optional[UserSettings] = None) -> str:
+    from app.utils.timezone import ZoneInfo, to_local
+
+    tz = None
+    if settings and settings.timezone:
+        try:
+            tz = ZoneInfo(settings.timezone)
+        except Exception:
+            tz = None
+    local_dt = to_local(dt, tz=tz)
+    h = local_dt.hour
+
+    if settings and settings.schedule:
+        breakfast = settings.schedule.breakfast_start_hour
+        lunch = settings.schedule.lunch_start_hour
+        dinner = min(settings.schedule.dinner_start_hour, 19)
+    else:
+        breakfast, lunch, dinner = 5, 13, 19
+
+    if breakfast <= h < lunch:
+        return "breakfast"
+    if lunch <= h < 15:
+        return "lunch"
+    if 15 <= h < dinner:
+        return "snack"
+    return "dinner"
 
 async def run_analysis_service(
     user_id: str,
@@ -49,7 +62,8 @@ async def run_analysis_service(
     # Then NS (for older history if needed, though DB should mirror it eventually)
     
     hours = (days * 24) + 24 # +24h buffer
-    start_cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=days)
+    start_cutoff_utc = datetime.now(timezone.utc) - timedelta(days=days)
+    start_cutoff = start_cutoff_utc.replace(tzinfo=None)
     
     logger.info(f"Analysis: Fetching treatments for user {user_id} (last {days} days)")
     
@@ -112,7 +126,10 @@ async def run_analysis_service(
              # We adapt NS treatments to look like Treatment objects (duck typing)
              ns_treatments = await ns_client.get_recent_treatments(hours=hours, limit=2000)
              for t in ns_treatments:
-                 if t.created_at and t.created_at >= start_cutoff and t.insulin and t.insulin > 0.1:
+                 t_time = t.created_at
+                 if t_time and t_time.tzinfo is None:
+                     t_time = t_time.replace(tzinfo=timezone.utc)
+                 if t_time and t_time >= start_cutoff_utc and t.insulin and t.insulin > 0.1:
                      boluses.append(t)
         except Exception as e:
              logger.warning(f"Analysis: NS fetch failed ({e}), continuing with local DB data only.")
@@ -127,7 +144,7 @@ async def run_analysis_service(
         if b_time.tzinfo is None:
             b_time = b_time.replace(tzinfo=timezone.utc)
         
-        meal_slot = get_meal_slot(b_time)
+        meal_slot = get_meal_slot(b_time, settings)
         
         # Sick Mode Check
         is_sick = False

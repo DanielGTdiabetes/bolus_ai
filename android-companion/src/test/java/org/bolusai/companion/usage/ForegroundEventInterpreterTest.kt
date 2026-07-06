@@ -15,18 +15,18 @@ class ForegroundEventInterpreterTest {
         )
 
         assertEquals(MYFITNESSPAL, ForegroundEventInterpreter.currentForegroundPackage(transitions))
-        assertFalse(ForegroundEventInterpreter.observedExitSince(MYFITNESSPAL, transitions, EXIT_PACKAGES))
+        assertFalse(ForegroundEventInterpreter.observedExitSince(MYFITNESSPAL, transitions))
     }
 
     @Test
-    fun anotherForegroundAppAfterMyFitnessPalCountsAsExit() {
+    fun allowlistedForegroundAppAfterMyFitnessPalCountsAsExit() {
         val transitions = listOf(
             ForegroundTransition(MYFITNESSPAL),
             ForegroundTransition(SAMSUNG_LAUNCHER),
         )
 
         assertEquals(SAMSUNG_LAUNCHER, ForegroundEventInterpreter.currentForegroundPackage(transitions))
-        assertTrue(ForegroundEventInterpreter.observedExitSince(MYFITNESSPAL, transitions, EXIT_PACKAGES))
+        assertTrue(ForegroundEventInterpreter.observedExitSince(MYFITNESSPAL, transitions))
     }
 
     @Test
@@ -37,23 +37,23 @@ class ForegroundEventInterpreterTest {
         )
 
         assertEquals(MYFITNESSPAL, ForegroundEventInterpreter.currentForegroundPackage(transitions))
-        assertFalse(ForegroundEventInterpreter.observedExitSince(MYFITNESSPAL, transitions, EXIT_PACKAGES))
+        assertFalse(ForegroundEventInterpreter.observedExitSince(MYFITNESSPAL, transitions))
     }
 
     @Test
-    fun nonExitAppAfterMyFitnessPalDoesNotCountAsExit() {
+    fun anyOtherForegroundAppAfterMyFitnessPalCountsAsExit() {
         val transitions = listOf(
             ForegroundTransition(MYFITNESSPAL),
-            ForegroundTransition("com.android.chrome"),
+            ForegroundTransition(FAIR_EMAIL),
         )
 
-        assertEquals("com.android.chrome", ForegroundEventInterpreter.currentForegroundPackage(transitions))
-        assertFalse(ForegroundEventInterpreter.observedExitSince(MYFITNESSPAL, transitions, EXIT_PACKAGES))
+        assertEquals(FAIR_EMAIL, ForegroundEventInterpreter.currentForegroundPackage(transitions))
+        assertTrue(ForegroundEventInterpreter.observedExitSince(MYFITNESSPAL, transitions))
     }
 
     private companion object {
         const val MYFITNESSPAL = "com.myfitnesspal.android"
         const val SAMSUNG_LAUNCHER = "com.sec.android.app.launcher"
-        val EXIT_PACKAGES = setOf(SAMSUNG_LAUNCHER, "org.bolusai.companion")
+        const val FAIR_EMAIL = "eu.faircode.email"
     }
 }
