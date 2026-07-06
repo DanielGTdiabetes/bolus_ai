@@ -112,11 +112,10 @@ class NutritionActiveSyncService : Service() {
             } else {
                 lastUsageTransitionCheckAt
             }
-            val exitPackages = confirmedExitPackages()
             val isMyFitnessPalForeground = watcher.currentForegroundPackage() == MYFITNESSPAL_PACKAGE
             val currentForegroundPackage = watcher.currentForegroundPackage()
-            val isConfirmedExitDestination = currentForegroundPackage in exitPackages
-            val observedMyFitnessPalExit = watcher.observedExitSince(MYFITNESSPAL_PACKAGE, transitionCheckStart, exitPackages)
+            val isMyFitnessPalClosed = currentForegroundPackage != MYFITNESSPAL_PACKAGE
+            val observedMyFitnessPalExit = watcher.observedExitSince(MYFITNESSPAL_PACKAGE, transitionCheckStart)
             lastUsageTransitionCheckAt = System.currentTimeMillis()
             if (!myFitnessPalWasForeground && isMyFitnessPalForeground) {
                 recordDiagnostic(
@@ -125,7 +124,7 @@ class NutritionActiveSyncService : Service() {
                     detail = "MyFitnessPal entered foreground",
                 )
             }
-            if ((myFitnessPalWasForeground && isConfirmedExitDestination) || observedMyFitnessPalExit) {
+            if ((myFitnessPalWasForeground && isMyFitnessPalClosed) || observedMyFitnessPalExit) {
                 val now = System.currentTimeMillis()
                 if (now - lastMyFitnessPalExitSyncAt > MYFITNESSPAL_EXIT_COOLDOWN_MS) {
                     updateNotification("Confirmando cierre de MyFitnessPal")
@@ -145,7 +144,7 @@ class NutritionActiveSyncService : Service() {
                         recordDiagnostic(
                             event = "myfitnesspal_exit_cancelled",
                             status = HealthConnectLogStatus.PENDING,
-                            detail = "Exit candidate cancelled because foreground is not a confirmed exit destination",
+                            detail = "Exit candidate cancelled because MyFitnessPal returned to foreground",
                         )
                         delay(USAGE_WATCH_INTERVAL_MS)
                         continue
@@ -190,11 +189,10 @@ class NutritionActiveSyncService : Service() {
     }
 
     private suspend fun confirmMyFitnessPalClosed(watcher: ForegroundAppWatcher): Boolean {
-        val exitPackages = confirmedExitPackages()
         repeat(MYFITNESSPAL_EXIT_CONFIRMATION_CHECKS) { index ->
             delay(MYFITNESSPAL_EXIT_CONFIRMATION_INTERVAL_MS)
             val currentPackage = watcher.currentForegroundPackage()
-            val stillClosed = currentPackage in exitPackages
+            val stillClosed = currentPackage != MYFITNESSPAL_PACKAGE
             recordDiagnostic(
                 event = "myfitnesspal_exit_confirmation",
                 status = if (stillClosed) HealthConnectLogStatus.DETECTED else HealthConnectLogStatus.PENDING,
@@ -204,9 +202,6 @@ class NutritionActiveSyncService : Service() {
         }
         return true
     }
-
-    private fun confirmedExitPackages(): Set<String> =
-        DEFAULT_EXIT_PACKAGES + applicationContext.packageName
 
     private suspend fun runSync(prefix: String, includeMyFitnessPalRecords: Boolean): NutritionSyncRunResult? {
         return runCatching {
@@ -393,13 +388,6 @@ class NutritionActiveSyncService : Service() {
         private const val MISSING_USAGE_ACCESS_LOG_COOLDOWN_MS = 10 * 60_000L
         private const val DEXCOM_SYNC_INTERVAL_MS = 15_000L
         private const val MYFITNESSPAL_PACKAGE = "com.myfitnesspal.android"
-        private val DEFAULT_EXIT_PACKAGES = setOf(
-            "com.mi.android.globallauncher",
-            "com.android.launcher",
-            "com.android.launcher3",
-            "com.google.android.apps.nexuslauncher",
-        )
-
         fun start(context: Context) {
             val intent = Intent(context, NutritionActiveSyncService::class.java)
             androidx.core.content.ContextCompat.startForegroundService(context, intent)

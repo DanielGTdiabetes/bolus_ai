@@ -3,9 +3,30 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock
 from datetime import datetime, timedelta, timezone
 
-from app.services.pattern_analysis import run_analysis_service, get_summary_service
+from app.services.pattern_analysis import run_analysis_service, get_summary_service, get_meal_slot
 from app.models.analysis import BolusPostAnalysis
 from app.models.settings import UserSettings
+
+
+def test_meal_slot_uses_user_timezone_for_evening_dinner():
+    settings = UserSettings()
+    bolus_at = datetime(2026, 7, 5, 17, 0, tzinfo=timezone.utc)
+
+    assert get_meal_slot(bolus_at, settings) == "dinner"
+
+
+def test_meal_slot_keeps_post_dinner_night_as_dinner():
+    settings = UserSettings()
+    bolus_at = datetime(2026, 7, 5, 23, 0, tzinfo=timezone.utc)
+
+    assert get_meal_slot(bolus_at, settings) == "dinner"
+
+
+def test_meal_slot_keeps_afternoon_between_lunch_and_dinner_as_snack():
+    settings = UserSettings()
+    bolus_at = datetime(2026, 7, 5, 16, 0, tzinfo=timezone.utc)
+
+    assert get_meal_slot(bolus_at, settings) == "snack"
 
 @pytest.mark.asyncio
 async def test_bolus_patterns_empty():

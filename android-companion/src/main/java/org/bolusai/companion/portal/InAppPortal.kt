@@ -198,7 +198,11 @@ fun InAppPortal(
                             override fun shouldOverrideUrlLoading(
                                 view: WebView,
                                 request: WebResourceRequest,
-                            ): Boolean = request.url.host !in allowedHosts
+                            ): Boolean {
+                                val url = request.url
+                                if (url.host in allowedHosts) return false
+                                return openExternalUrl(context, url)
+                            }
 
                             override fun onPageFinished(view: WebView, url: String) {
                                 canGoBack = view.canGoBack()
@@ -275,4 +279,19 @@ fun InAppPortal(
             webView = null
         }
     }
+}
+
+private fun openExternalUrl(context: android.content.Context, uri: Uri): Boolean {
+    val scheme = uri.scheme?.lowercase()
+    if (scheme != "http" && scheme != "https" && scheme != "mailto" && scheme != "tel") {
+        return true
+    }
+    return runCatching {
+        val intent = Intent(Intent.ACTION_VIEW, uri).apply {
+            addCategory(Intent.CATEGORY_BROWSABLE)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        context.startActivity(intent)
+        true
+    }.getOrDefault(true)
 }
