@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -40,6 +41,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.bolusai.companion.data.AppSettings
 import org.bolusai.companion.network.ActiveEndpoint
@@ -84,6 +86,7 @@ fun InAppPortal(
     var fileCallback by remember { mutableStateOf<ValueCallback<Array<Uri>>?>(null) }
     var pendingIntent by remember { mutableStateOf<Intent?>(null) }
     var resolveAttempt by remember { mutableStateOf(0) }
+    var resolving by remember { mutableStateOf(false) }
 
     val scaleState by scaleManager.state.collectAsState()
 
@@ -166,6 +169,7 @@ fun InAppPortal(
 
     LaunchedEffect(settings.primaryUrl, settings.backupUrl, route, resolveAttempt) {
         error = null
+        resolving = true
         val status = ServerStatusClient().resolve(settings.primaryUrl, settings.backupUrl)
         val baseUrl = when (status.activeEndpoint) {
             ActiveEndpoint.PRIMARY -> settings.primaryUrl
@@ -178,6 +182,13 @@ fun InAppPortal(
         } else {
             resolvedUrl = buildPortalUrl(baseUrl, route)
         }
+        resolving = false
+    }
+
+    LaunchedEffect(error) {
+        if (error == null) return@LaunchedEffect
+        delay(12_000)
+        resolveAttempt += 1
     }
 
     BackHandler(enabled = canGoBack) {
@@ -186,14 +197,34 @@ fun InAppPortal(
 
     Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         when {
-            error != null -> Column(
+            resolving -> Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier.padding(24.dp),
             ) {
-                Text(error.orEmpty(), color = MaterialTheme.colorScheme.error)
+                CircularProgressIndicator()
                 Spacer(Modifier.height(12.dp))
-                Button(onClick = { resolveAttempt += 1 }) {
-                    Text("Reintentar")
+                Text("Conectando con Bolus AI", style = MaterialTheme.typography.titleMedium)
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "Buscando NAS o Render...",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
+            error != null -> Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.padding(28.dp),
+            ) {
+                Text("Bolus AI no responde", style = MaterialTheme.typography.titleMedium)
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    "La app volverá a comprobar la conexión automáticamente.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Spacer(Modifier.height(16.dp))
+                Button(onClick = { resolveAttempt += 1 }, modifier = Modifier.width(220.dp)) {
+                    Text("Comprobar ahora")
                 }
             }
             resolvedUrl == null -> CircularProgressIndicator()
