@@ -149,10 +149,8 @@ function PendingView() {
                     item={selectedItem}
                     onClose={() => setModalOpen(false)}
                     onConfirm={async (finalVal) => {
-                        // Logic to save settings & mark accepted
+                        // Confirm with backend first; then update local cache without a second sync.
                         const settings = getCalcParams();
-                        settings[selectedItem.meal_slot][selectedItem.parameter] = finalVal;
-                        saveCalcParams(settings);
 
                         await acceptSuggestion(selectedItem.id, "Aceptado por usuario", {
                             meal_slot: selectedItem.meal_slot,
@@ -160,6 +158,9 @@ function PendingView() {
                             old_value: selectedItem.currentVal,
                             new_value: finalVal
                         });
+
+                        settings[selectedItem.meal_slot][selectedItem.parameter] = finalVal;
+                        saveCalcParams(settings, true);
 
                         setModalOpen(false);
                         alert("Cambio aplicado.");

@@ -118,6 +118,21 @@ export async function toJson(response) {
   }
 }
 
+function errorMessage(data, fallback) {
+  const detail = data?.detail;
+  if (!detail) return fallback;
+  if (typeof detail === "string") return detail;
+  if (Array.isArray(detail)) {
+    return detail
+      .map((item) => item?.msg || item?.message || JSON.stringify(item))
+      .join("; ") || fallback;
+  }
+  if (typeof detail === "object") {
+    return detail.message || detail.error || JSON.stringify(detail);
+  }
+  return String(detail);
+}
+
 interface ApiOptions extends RequestInit {
   headers?: Record<string, string>;
 }
@@ -655,7 +670,7 @@ export async function acceptSuggestion(id, note, proposed_change) {
     body: JSON.stringify({ note, proposed_change }),
   });
   const data = await toJson(response);
-  if (!response.ok) throw new Error(data.detail || "Error al aceptar sugerencia");
+  if (!response.ok) throw new Error(errorMessage(data, "Error al aceptar sugerencia"));
   return data;
 }
 

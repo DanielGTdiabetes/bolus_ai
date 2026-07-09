@@ -15,8 +15,13 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -27,6 +32,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.unit.dp
 import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
@@ -77,6 +83,7 @@ fun InAppPortal(
     var canGoBack by remember { mutableStateOf(false) }
     var fileCallback by remember { mutableStateOf<ValueCallback<Array<Uri>>?>(null) }
     var pendingIntent by remember { mutableStateOf<Intent?>(null) }
+    var resolveAttempt by remember { mutableStateOf(0) }
 
     val scaleState by scaleManager.state.collectAsState()
 
@@ -157,7 +164,7 @@ fun InAppPortal(
         )
     }
 
-    LaunchedEffect(settings.primaryUrl, settings.backupUrl, route) {
+    LaunchedEffect(settings.primaryUrl, settings.backupUrl, route, resolveAttempt) {
         error = null
         val status = ServerStatusClient().resolve(settings.primaryUrl, settings.backupUrl)
         val baseUrl = when (status.activeEndpoint) {
@@ -179,7 +186,16 @@ fun InAppPortal(
 
     Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         when {
-            error != null -> Text(error.orEmpty(), color = MaterialTheme.colorScheme.error)
+            error != null -> Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.padding(24.dp),
+            ) {
+                Text(error.orEmpty(), color = MaterialTheme.colorScheme.error)
+                Spacer(Modifier.height(12.dp))
+                Button(onClick = { resolveAttempt += 1 }) {
+                    Text("Reintentar")
+                }
+            }
             resolvedUrl == null -> CircularProgressIndicator()
             else -> AndroidView(
                 modifier = Modifier.fillMaxSize(),

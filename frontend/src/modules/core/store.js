@@ -1,4 +1,4 @@
-import { getStoredToken, getStoredUser, getSettings, putSettings, importSettings } from '../../lib/api';
+import { getStoredToken, getStoredUser, getSettings, putSettings, importSettings, fetchMe, saveSession } from '../../lib/api';
 
 // Keys
 const CALC_PARAMS_KEY = "bolusai_calc_params";
@@ -220,6 +220,29 @@ export async function syncSettings() {
         }
     } catch (e) {
         console.error("Sync failed:", e);
+    }
+}
+
+export async function validateStoredSession() {
+    if (!state.token || !state.user) return false;
+
+    state.loadingUser = true;
+    try {
+        const data = await fetchMe();
+        if (data?.user) {
+            state.user = data.user;
+            saveSession(state.token, state.user);
+        }
+        return true;
+    } catch (e) {
+        const message = e?.message || "";
+        if (message.includes("Sesi") || message.includes("auth") || message.includes("token")) {
+            state.token = null;
+            state.user = null;
+        }
+        return false;
+    } finally {
+        state.loadingUser = false;
     }
 }
 
