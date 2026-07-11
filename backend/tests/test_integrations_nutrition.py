@@ -857,3 +857,101 @@ def test_same_source_retry_backfills_identity_for_legacy_treatment(client: TestC
         identities = session.execute(select(NutritionEventIdentity)).scalars().all()
     assert len(identities) == 1
     assert identities[0].treatment_id == legacy_id
+
+
+def test_same_source_distinct_origin_id_preserves_intentional_legacy_repeat(client: TestClient):
+    first_at = datetime.now(timezone.utc).replace(microsecond=0)
+    second_at = first_at + timedelta(minutes=8)
+    _create_treatment(
+        client,
+        id="legacy-first-meal",
+        user_id="admin",
+        event_type="Meal Bolus",
+        created_at=first_at.replace(tzinfo=None),
+        insulin=0.0,
+        carbs=24.0,
+        fat=8.0,
+        protein=12.0,
+        fiber=2.0,
+        notes=f"Imported from Health: {first_at.isoformat()} #imported source:health_connect",
+        entered_by="webhook-integration",
+        is_uploaded=False,
+    )
+    intentional_repeat = _nutrition_event(
+        source="Health Connect",
+        origin_id="different-stable-id",
+        date=second_at,
+    )
+
+    response = _ingest(client, intentional_repeat)
+
+    assert response.status_code == 200
+    assert response.json()["ingested_count"] == 1
+    assert len(_fetch_all_treatments(client)) == 2
+
+
+def test_two_nearby_legacy_coffees_with_distinct_ids_are_preserved(client: TestClient):
+    first_at = datetime.now(timezone.utc).replace(microsecond=0)
+    second_at = first_at + timedelta(minutes=6)
+    _create_treatment(
+        client,
+        id="legacy-coffee",
+        user_id="admin",
+        event_type="Meal Bolus",
+        created_at=first_at.replace(tzinfo=None),
+        insulin=0.0,
+        carbs=5.0,
+        fat=2.0,
+        protein=3.0,
+        fiber=0.0,
+        notes=f"Imported from Health: {first_at.isoformat()} #imported source:health_connect",
+        entered_by="webhook-integration",
+        is_uploaded=False,
+    )
+    second_coffee = _nutrition_event(
+        source="Health Connect",
+        origin_id="second-coffee-id",
+        date=second_at,
+        carbs=5.0,
+        fat=2.0,
+        protein=3.0,
+        fiber=None,
+    )
+
+    response = _ingest(client, second_coffee)
+
+    assert response.status_code == 200
+    assert response.json()["ingested_count"] == 1
+    assert len(_fetch_all_treatments(client)) == 2
+
+
+def test_same_source_legacy_exact_external_signature_deduplicates(client: TestClient):
+    event_at = datetime.now(timezone.utc).replace(microsecond=0)
+    origin_id = "legacy-stored-origin-id"
+    _create_treatment(
+        client,
+        id="legacy-with-origin",
+        user_id="admin",
+        event_type="Meal Bolus",
+        created_at=event_at.replace(tzinfo=None),
+        insulin=0.0,
+        carbs=24.0,
+        fat=8.0,
+        protein=12.0,
+        fiber=2.0,
+        notes=f"Imported from Health: {origin_id} #imported source:health_connect",
+        entered_by="webhook-integration",
+        is_uploaded=False,
+    )
+    retry = _nutrition_event(
+        source="Health Connect",
+        origin_id=origin_id,
+        date=event_at,
+    )
+
+    first_retry = _ingest(client, retry)
+    second_retry = _ingest(client, retry)
+
+    assert first_retry.json()["ingested_count"] == 0
+    assert second_retry.json()["ingested_count"] == 0
+    assert len(_fetch_all_treatments(client)) == 1
