@@ -1,6 +1,7 @@
 import asyncio
 import importlib
 import json
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -15,6 +16,7 @@ from app.core.security import TokenManager
 from app.core.settings import get_settings
 from app.models.settings import UserSettingsDB
 from app.models.treatment import Treatment
+from app.models.nutrition_event_identity import NutritionEventIdentity
 
 
 @pytest.fixture()
@@ -57,6 +59,7 @@ def client(tmp_path, monkeypatch):
 
     sync_engine = create_engine(f"sqlite:///{db_path}")
     Treatment.__table__.create(bind=sync_engine, checkfirst=True)
+    NutritionEventIdentity.__table__.create(bind=sync_engine, checkfirst=True)
     UserSettingsDB.__table__.create(bind=sync_engine, checkfirst=True)
     SessionLocal = sessionmaker(bind=sync_engine)
 
@@ -607,3 +610,184 @@ def test_nutrition_draft_endpoint_removed(client: TestClient):
     resp = client.get("/api/integrations/nutrition/draft")
     assert resp.status_code == 200
     assert '<div id="app"></div>' in resp.text
+
+
+def _nutrition_event(
+    *,
+    source: str,
+    origin_id: str,
+    date: datetime,
+    carbs: float = 24.0,
+    fat: float | None = 8.0,
+    protein: float | None = 12.0,
+    fiber: float | None = 2.0,
+    foods: list[str] | None = None,
+) -> dict:
+    payload = {
+        "source": source,
+        "origin_id": origin_id,
+        "date": date.isoformat(),
+        "carbs": carbs,
+        "foods": foods or [],
+    }
+    if fat is not None:
+        payload["fat"] = fat
+    if protein is not None:
+        payload["protein"] = protein
+    if fiber is not None:
+        payload["fiber"] = fiber
+    return payload
+
+
+def _ingest(client: TestClient, payload: dict):
+    return client.post(
+        "/api/integrations/nutrition",
+        headers={"X-Ingest-Key": "test-ingest-secret"},
+        json=payload,
+    )
+
+
+@pytest.mark.parametrize("source", ["Hermes Agent", "Health Connect"])
+def test_stable_external_id_is_idempotent_for_each_source(client: TestClient, source: str):
+    event_at = datetime.now(timezone.utc).replace(microsecond=0)
+    payload = _nutrition_event(source=source, origin_id=f"{source}-one", date=event_at)
+
+    first = _ingest(client, payload)
+    repeated = _ingest(client, payload)
+
+    assert first.json()["ingested_count"] == 1
+    assert repeated.json()["ingested_count"] == 0
+    assert len(_fetch_all_treatments(client)) == 1
+
+
+@pytest.mark.parametrize(
+    ("first_source", "second_source"),
+    [("Hermes Agent", "Health Connect"), ("Health Connect", "Hermes Agent")],
+)
+def test_equivalent_cross_source_events_share_one_treatment(
+    client: TestClient,
+    first_source: str,
+    second_source: str,
+):
+    event_at = datetime.now(timezone.utc).replace(microsecond=0)
+    first = _nutrition_event(source=first_source, origin_id="first-id", date=event_at)
+    second = _nutrition_event(
+        source=second_source,
+        origin_id="second-id",
+        date=event_at + timedelta(minutes=4),
+        carbs=24.4,
+        fat=8.3,
+        protein=11.7,
+    )
+
+    assert _ingest(client, first).json()["ingested_count"] == 1
+    assert _ingest(client, second).json()["ingested_count"] == 0
+    treatments = _fetch_all_treatments(client)
+    assert len(treatments) == 1
+    assert treatments[0].carbs == 24.0
+    assert treatments[0].insulin == 0.0
+
+
+def test_distinct_stable_ids_preserve_intentional_repeat_same_source(client: TestClient):
+    event_at = datetime.now(timezone.utc).replace(microsecond=0)
+    first = _nutrition_event(source="Health Connect", origin_id="coffee-1", date=event_at, carbs=5)
+    second = _nutrition_event(
+        source="Health Connect",
+        origin_id="coffee-2",
+        date=event_at + timedelta(minutes=10),
+        carbs=5,
+    )
+
+    assert _ingest(client, first).json()["ingested_count"] == 1
+    assert _ingest(client, second).json()["ingested_count"] == 1
+    assert len(_fetch_all_treatments(client)) == 2
+
+
+def test_same_macros_on_different_days_are_preserved(client: TestClient):
+    event_at = datetime.now(timezone.utc).replace(microsecond=0) - timedelta(days=2)
+    first = _nutrition_event(source="Hermes Agent", origin_id="day-one", date=event_at)
+    second = _nutrition_event(source="Health Connect", origin_id="day-two", date=event_at + timedelta(days=1))
+
+    assert _ingest(client, first).json()["ingested_count"] == 1
+    assert _ingest(client, second).json()["ingested_count"] == 1
+    assert len(_fetch_all_treatments(client)) == 2
+
+
+def test_cross_source_different_foods_are_not_collapsed(client: TestClient):
+    event_at = datetime.now(timezone.utc).replace(microsecond=0)
+    first = _nutrition_event(
+        source="Hermes Agent",
+        origin_id="pasta",
+        date=event_at,
+        foods=["pasta"],
+    )
+    second = _nutrition_event(
+        source="Health Connect",
+        origin_id="rice",
+        date=event_at + timedelta(minutes=2),
+        foods=["arroz"],
+    )
+
+    assert _ingest(client, first).json()["ingested_count"] == 1
+    assert _ingest(client, second).json()["ingested_count"] == 1
+
+
+def test_cross_source_same_foods_in_different_order_are_deduplicated(client: TestClient):
+    event_at = datetime.now(timezone.utc).replace(microsecond=0)
+    first = _nutrition_event(
+        source="Hermes Agent",
+        origin_id="same-food-hermes",
+        date=event_at,
+        foods=["Café con leche", "Pan integral"],
+    )
+    second = _nutrition_event(
+        source="Health Connect",
+        origin_id="same-food-health",
+        date=event_at + timedelta(minutes=2),
+        foods=["pan integral", "CAFE CON LECHE"],
+    )
+
+    assert _ingest(client, first).json()["ingested_count"] == 1
+    assert _ingest(client, second).json()["ingested_count"] == 0
+    assert len(_fetch_all_treatments(client)) == 1
+
+
+def test_missing_macros_enriches_instead_of_creating_second_event(client: TestClient):
+    event_at = datetime.now(timezone.utc).replace(microsecond=0)
+    hermes = _nutrition_event(
+        source="Hermes Agent",
+        origin_id="partial",
+        date=event_at,
+        fat=None,
+        protein=None,
+        fiber=None,
+    )
+    health = _nutrition_event(
+        source="Health Connect",
+        origin_id="complete",
+        date=event_at + timedelta(minutes=3),
+    )
+
+    assert _ingest(client, hermes).json()["ingested_count"] == 1
+    response = _ingest(client, health).json()
+    assert response["ingested_count"] == 0
+    assert response["updated_count"] == 1
+    treatments = _fetch_all_treatments(client)
+    assert len(treatments) == 1
+    assert treatments[0].fat == 8.0
+    assert treatments[0].protein == 12.0
+
+
+def test_two_simultaneous_retries_create_one_treatment(client: TestClient):
+    payload = _nutrition_event(
+        source="Health Connect",
+        origin_id="concurrent-event",
+        date=datetime.now(timezone.utc).replace(microsecond=0),
+    )
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        responses = list(pool.map(lambda _: _ingest(client, payload), range(2)))
+
+    assert all(response.status_code == 200 for response in responses)
+    assert sorted(response.json()["ingested_count"] for response in responses) == [0, 1]
+    assert len(_fetch_all_treatments(client)) == 1
