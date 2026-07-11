@@ -89,6 +89,15 @@ console.log("Running Bolus Simulation Utils Tests...");
         assert.equal(payload.units, "mgdl", "Units should always be mgdl");
         assert.equal(payload.start_bg, 150);
         assert.equal(payload.params.target_bg, 100, "Should pass target_bg");
+        assert.equal(payload.params.dia_minutes, 300, "DIA hours must be converted to minutes exactly once");
+        assert.equal(
+            Object.hasOwn(payload.params, "insulin_onset_minutes"),
+            false,
+            "Frontend must let the backend resolve insulin onset"
+        );
+
+        const explicitOnset = buildForecastPayload({ ...input, insulinOnsetMinutes: 15 });
+        assert.equal(explicitOnset.params.insulin_onset_minutes, 15, "Explicit onset override remains in minutes");
         console.log("Payload test passed");
     } catch (e) {
         if (e instanceof TypeError) {

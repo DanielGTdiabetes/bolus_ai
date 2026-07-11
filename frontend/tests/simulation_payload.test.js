@@ -1,5 +1,5 @@
 import assert from "assert";
-import { buildHistoryFromSnapshot, shouldDegradeSimulation } from "../src/pages/bolusSimulationUtils.js";
+import { buildForecastPayload, buildHistoryFromSnapshot, shouldDegradeSimulation } from "../src/pages/bolusSimulationUtils.js";
 
 const now = new Date("2025-01-01T12:00:00Z");
 
@@ -25,5 +25,19 @@ assert(events.carbs.some((c) => c.fiber_g === 12), "Debe permitir eventos solo f
 assert.strictEqual(shouldDegradeSimulation("unavailable", "ok"), true);
 assert.strictEqual(shouldDegradeSimulation("ok", "stale"), true);
 assert.strictEqual(shouldDegradeSimulation("ok", "ok"), false);
+
+const forecastPayload = buildForecastPayload({
+  bgVal: 120,
+  targetMgdl: 100,
+  isf: 50,
+  icr: 10,
+  dia: 4,
+  peak: 75,
+  insulinModel: "novorapid",
+  carbAbsorption: 180,
+  events,
+});
+assert.strictEqual(forecastPayload.params.dia_minutes, 240);
+assert.strictEqual(Object.hasOwn(forecastPayload.params, "insulin_onset_minutes"), false);
 
 console.log("simulation payload tests passed");

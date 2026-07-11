@@ -864,8 +864,9 @@ async def get_current_forecast(
     except Exception as nb_e:
         print(f"Neutral Basal Check Error: {nb_e}")
     
-    from app.services.forecast_params_resolver import resolve_warsaw_params
+    from app.services.forecast_params_resolver import resolve_insulin_action_params, resolve_warsaw_params
     resolve_warsaw_params(sim_params, user_settings)
+    resolve_insulin_action_params(sim_params, user_settings)
     
     # Import locally if not at top, or ensure top imports are enough
     # MomentumConfig is in app.models.forecast
@@ -903,14 +904,6 @@ async def get_current_forecast(
         except Exception as e:
             print(f"Resistance Calc Error (ISF): {e}")
             pass
-
-    # Apply Insulin Onset Delay (Physiological Lag)
-    # Shifts all rapid boluses into the future by onset_min (e.g. 10m)
-    onset_val = sim_params.insulin_onset_minutes or 0
-    if onset_val > 0:
-        for bolus in boluses:
-            if bolus.time_offset_min > 0:
-                bolus.time_offset_min += onset_val
 
     payload = ForecastSimulateRequest(
         start_bg=start_bg,
@@ -1541,30 +1534,8 @@ async def simulate_forecast(
                  print(f"DEBUG_FORECAST: basal_count={count_basal} daily_units_before={basal_daily_before:.2f} daily_units_after={basal_daily_after:.2f} has_history={has_history} start_bg={payload.start_bg}")
              except: pass
 
-        # Apply Insulin Onset Delay (Physiological Lag)
-        # Shifts all rapid boluses into the future by onset_min (e.g. 10m)
-        # ONLY apply to "Current/Proposed" boluses (offset >= -1), not history.
-        
-        # 1. Determine Onset Value
-        onset_val = 10 # Default
-        
-        if payload.params.insulin_onset_minutes is not None:
-            # Trusted Source: Frontend
-            onset_val = payload.params.insulin_onset_minutes
-        elif user_settings and user_settings.insulin and user_settings.insulin.name:
-            # Fallback: Backend Inference from Settings
-            iname = (user_settings.insulin.name or "").lower()
-            if "fiasp" in iname or "lyumjev" in iname:
-                onset_val = 5
-            elif any(x in iname for x in ["novorapid", "aspart", "humalog", "lispro", "apidra"]):
-                onset_val = 15
-        
-        # 2. Apply Shift
-        if onset_val > 0:
-            for bolus in payload.events.boluses:
-                # Include boluses at t=0 (Now) or slightly past to ensure lag is applied
-                if bolus.time_offset_min >= -1:
-                    bolus.time_offset_min += onset_val
+        from app.services.forecast_params_resolver import resolve_insulin_action_params
+        resolve_insulin_action_params(payload.params, user_settings)
 
         # Calculate Resistance Multiplier (If not provided) in /simulate
         # Uses ISF (Correction Factor) as reference
