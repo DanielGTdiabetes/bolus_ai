@@ -27,7 +27,7 @@ def client(tmp_path, monkeypatch):
 def test_restaurant_compare_guardrails_success(client):
     resp = client.post(
         "/api/restaurant/compare_plate",
-        data={"expectedCarbs": 60, "actualCarbs": 80, "confidence": 0.6},
+        json={"expectedCarbs": 60, "actualCarbs": 80, "confidence": 0.6},
     )
     assert resp.status_code == 200, resp.text
     payload = resp.json()
@@ -37,6 +37,6 @@ def test_restaurant_compare_guardrails_success(client):
 
 
 def test_restaurant_compare_requires_image_or_actual(client):
-    resp = client.post("/api/restaurant/compare_plate", data={"expectedCarbs": 60})
-    assert resp.status_code == 400
-    assert resp.json()["detail"] == "image_or_actual_required"
+    resp = client.post("/api/restaurant/compare_plate", json={"expectedCarbs": 60})
+    assert resp.status_code == 422
+    assert resp.json()["detail"][0]["loc"] == ["body", "actualCarbs"]

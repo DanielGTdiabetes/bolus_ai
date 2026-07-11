@@ -12,6 +12,7 @@ from app.models.evaluation import SuggestionEvaluation
 async def test_notifications_unread():
     user_id = str(uuid.uuid4())
     db = AsyncMock()
+    db.add = MagicMock()
     
     # Mock States (Initially empty for user)
     # 1. State Fetch
@@ -64,6 +65,7 @@ async def test_notifications_unread():
 async def test_mark_seen_flow():
     user_id = str(uuid.uuid4())
     db = AsyncMock()
+    db.add = MagicMock()
     
     # Step 1: Mark Seen
     # Upsert logic

@@ -10,6 +10,7 @@ from app.models.basal import BasalEntry, BasalCheckin, BasalNightSummary
 async def test_evaluate_change_improved():
     user_id = str(uuid.uuid4())
     db = AsyncMock()
+    db.add = MagicMock()
     
     # Mock Entries (Change from 10 to 12 u)
     change_date = date.today() - timedelta(days=8)
@@ -66,6 +67,7 @@ async def test_evaluate_change_improved():
 async def test_evaluate_change_worse_hypos():
     user_id = str(uuid.uuid4())
     db = AsyncMock()
+    db.add = MagicMock()
     
     change_date = date.today() - timedelta(days=8)
     e_new = BasalEntry(user_id=user_id, dose_u=15.0, effective_from=change_date) # Increased dose too much

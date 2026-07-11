@@ -112,7 +112,7 @@ class DummyContext:
 
 
 @pytest.mark.asyncio
-async def test_callback_accept_uses_add_treatment(monkeypatch):
+async def test_callback_accept_uses_add_treatment(monkeypatch, tmp_path):
     calls = {}
 
     async def fake_add_treatment(args):
@@ -127,8 +127,10 @@ async def test_callback_accept_uses_add_treatment(monkeypatch):
         lambda: type("Cfg", (), {"data": type("D", (), {"data_dir": "/tmp"})()})(),
     )
 
-    bot_service.SNAPSHOT_STORAGE.clear()
-    bot_service.SNAPSHOT_STORAGE["req1"] = {"units": 1.0, "carbs": 15, "notes": "unit test"}
+    monkeypatch.setattr(bot_service, "_snapshot_store", bot_service.SnapshotStore(tmp_path))
+    bot_service._get_snapshot_store().set(
+        "req1", {"units": 1.0, "carbs": 15, "notes": "unit test"}
+    )
 
     query = DummyQuery("accept|req1", "Texto base")
     update = type("U", (), {"callback_query": query})

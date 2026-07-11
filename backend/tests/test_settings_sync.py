@@ -10,6 +10,7 @@ from app.models.settings import UserSettingsDB
 async def test_get_settings_empty():
     user_id = str(uuid.uuid4())
     db = AsyncMock()
+    db.add = MagicMock()
     
     # Mock empty result
     mr = MagicMock()
@@ -24,6 +25,7 @@ async def test_get_settings_empty():
 async def test_import_settings():
     user_id = str(uuid.uuid4())
     db = AsyncMock()
+    db.add = MagicMock()
     
     # Mock Check: Empty
     mr = MagicMock()
@@ -42,6 +44,7 @@ async def test_import_settings():
 async def test_update_settings_success():
     user_id = str(uuid.uuid4())
     db = AsyncMock()
+    db.add = MagicMock()
     
     # Mock existing
     existing = UserSettingsDB(
@@ -66,6 +69,7 @@ async def test_update_settings_success():
 async def test_update_settings_conflict():
     user_id = str(uuid.uuid4())
     db = AsyncMock()
+    db.add = MagicMock()
     
     # Mock existing version 10
     existing = UserSettingsDB(
