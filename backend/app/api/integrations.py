@@ -1113,8 +1113,6 @@ async def ingest_nutrition(
                 elif external_id:
                     legacy_candidates = []
                     for candidate in candidates:
-                        if source_from_treatment(candidate) == incoming_source:
-                            continue
                         if await has_nutrition_identity(session, candidate.id):
                             continue
                         legacy_candidates.append(candidate)
@@ -1132,9 +1130,20 @@ async def ingest_nutrition(
                         c_fat = c.fat or 0
                         c_prot = c.protein or 0
                         c_fib = c.fiber or 0
+                        is_semantic_match = semantic_match is not None and c.id == semantic_match.id
+                        semantic_enrichment = is_semantic_match and (
+                            (c_fat <= 0.5 and t_fat > 0.5)
+                            or (c_prot <= 0.5 and t_protein > 0.5)
+                        )
                         
                         # 1. Exact Match (Duplicate)
-                        if abs(c_fat - t_fat) < 0.5 and abs(c_prot - t_protein) < 0.5:
+                        if (
+                            is_semantic_match
+                            and not semantic_enrichment
+                        ) or (
+                            abs(c_fat - t_fat) < 0.5
+                            and abs(c_prot - t_protein) < 0.5
+                        ):
                              # Check Fiber Update
                              if fiber_provided and incoming_fiber is not None:
                                  if should_update_fiber(float(c_fib), incoming_fiber):

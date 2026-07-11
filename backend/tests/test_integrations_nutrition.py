@@ -791,3 +791,69 @@ def test_two_simultaneous_retries_create_one_treatment(client: TestClient):
     assert all(response.status_code == 200 for response in responses)
     assert sorted(response.json()["ingested_count"] for response in responses) == [0, 1]
     assert len(_fetch_all_treatments(client)) == 1
+
+
+def test_semantic_match_is_not_rejected_by_stricter_legacy_macro_thresholds(client: TestClient):
+    event_at = datetime.now(timezone.utc).replace(microsecond=0)
+    hermes = _nutrition_event(
+        source="Hermes Agent",
+        origin_id="semantic-hermes",
+        date=event_at,
+        carbs=24.0,
+        fat=8.0,
+        protein=12.0,
+    )
+    health = _nutrition_event(
+        source="Health Connect",
+        origin_id="semantic-health",
+        date=event_at + timedelta(minutes=3),
+        carbs=23.2,
+        fat=7.2,
+        protein=11.2,
+    )
+
+    assert _ingest(client, hermes).json()["ingested_count"] == 1
+    response = _ingest(client, health)
+
+    assert response.status_code == 200
+    assert response.json()["ingested_count"] == 0
+    assert len(_fetch_all_treatments(client)) == 1
+
+
+def test_same_source_retry_backfills_identity_for_legacy_treatment(client: TestClient):
+    event_at = datetime.now(timezone.utc).replace(microsecond=0)
+    legacy_id = "legacy-health-connect"
+    _create_treatment(
+        client,
+        id=legacy_id,
+        user_id="admin",
+        event_type="Meal Bolus",
+        created_at=event_at.replace(tzinfo=None),
+        insulin=0.0,
+        carbs=24.0,
+        fat=8.0,
+        protein=12.0,
+        fiber=2.0,
+        notes=f"Imported from Health: {event_at.isoformat()} #imported source:health_connect",
+        entered_by="webhook-integration",
+        is_uploaded=False,
+    )
+    retry = _nutrition_event(
+        source="Health Connect",
+        origin_id="new-stable-id-after-migration",
+        date=event_at,
+    )
+
+    response = _ingest(client, retry)
+    repeated = _ingest(client, retry)
+
+    assert response.status_code == 200
+    assert response.json()["ingested_count"] == 0
+    assert repeated.json()["ingested_count"] == 0
+    treatments = _fetch_all_treatments(client)
+    assert [treatment.id for treatment in treatments] == [legacy_id]
+    session_factory = getattr(client, "_session_factory")
+    with session_factory() as session:
+        identities = session.execute(select(NutritionEventIdentity)).scalars().all()
+    assert len(identities) == 1
+    assert identities[0].treatment_id == legacy_id
