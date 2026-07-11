@@ -17,7 +17,8 @@ const treatments = [
 
 const events = buildHistoryFromSnapshot(iobData, treatments, now);
 
-assert(events.boluses.length >= 3, "Debe incluir bolos históricos y actuales");
+assert.strictEqual(events.boluses.length, 2, "El breakdown IOB debe ser la fuente autoritativa de bolos");
+assert.deepStrictEqual(events.boluses.map((b) => b.units), [1.0, 0.5]);
 assert(events.carbs.some((c) => c.grams === 20), "Debe incluir evento de carbohidratos con macros");
 assert(events.carbs.some((c) => c.fiber_g === 12), "Debe permitir eventos solo fibra");
 

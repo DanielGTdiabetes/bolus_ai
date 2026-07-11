@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+import json
 from types import SimpleNamespace
 
 import httpx
@@ -71,11 +72,14 @@ async def test_nightscout_upload_sgv_posts_expected_entry():
 
     assert result["status"] == "uploaded"
     assert requests[1].url.path == "/api/v1/entries"
-    assert requests[1].read().decode() == (
-        '[{"type":"sgv","sgv":123,"date":1750000000000,'
-        '"dateString":"2025-06-15T15:06:40Z","direction":"Flat",'
-        '"device":"Dexcom G7 via Bolus AI"}]'
-    )
+    assert json.loads(requests[1].read()) == [{
+        "type": "sgv",
+        "sgv": 123,
+        "date": 1_750_000_000_000,
+        "dateString": "2025-06-15T15:06:40Z",
+        "direction": "Flat",
+        "device": "Dexcom G7 via Bolus AI",
+    }]
     await client.aclose()
 
 

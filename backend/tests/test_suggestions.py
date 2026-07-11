@@ -19,6 +19,7 @@ from unittest.mock import patch
 async def test_generate_suggestions():
     user_id = "test_user"
     mock_db = AsyncMock()
+    mock_db.add = MagicMock()
     
     # 1. Mock Summary
     # We simulate: Breakfast 3h Short > 60% (valid quality)
@@ -58,6 +59,7 @@ async def test_generate_suggestions():
 async def test_generate_skipped_duplicate():
     user_id = "test_user"
     mock_db = AsyncMock()
+    mock_db.add = MagicMock()
     
     summary_data = {
         "by_meal": {
@@ -82,6 +84,7 @@ async def test_generate_skipped_duplicate():
 @pytest.mark.asyncio
 async def test_resolve_suggestion():
     mock_db = AsyncMock()
+    mock_db.add = MagicMock()
     sug_id = uuid.uuid4()
     user_id = "test_user"
     
