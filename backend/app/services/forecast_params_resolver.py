@@ -1,6 +1,7 @@
 from typing import Optional
 from app.models.settings import UserSettings
 from app.models.forecast import SimulationParams
+from app.services.math.curves import InsulinCurves
 
 def resolve_warsaw_params(
     params: SimulationParams,
@@ -32,6 +33,11 @@ def resolve_insulin_action_params(
     user_settings: Optional[UserSettings],
 ) -> None:
     """Resolve the simulation's minute-based insulin action contract once."""
+    if InsulinCurves.has_full_timeline(params.insulin_model):
+        # Interpolated curves own onset and peak from injection through DIA.
+        params.insulin_onset_minutes = None
+        return
+
     if params.insulin_onset_minutes is not None:
         return
 

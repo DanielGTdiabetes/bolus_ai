@@ -141,7 +141,8 @@ class InsulinCurves:
     """
 
     @staticmethod
-    def has_embedded_onset(model_type: str) -> bool:
+    def has_full_timeline(model_type: str) -> bool:
+        """Whether activity, onset and peak are all defined by tabulated data."""
         return InterpolatedCurves.has_curve(model_type)
     
     @staticmethod

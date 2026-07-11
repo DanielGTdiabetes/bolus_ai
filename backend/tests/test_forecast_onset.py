@@ -87,7 +87,7 @@ def test_generic_curve_applies_explicit_onset_once():
     params = _params(onset_minutes=15, dia_minutes=60)
     params.insulin_peak_minutes = 30
 
-    assert not InsulinCurves.has_embedded_onset(params.insulin_model)
+    assert not InsulinCurves.has_full_timeline(params.insulin_model)
     assert _rapid_insulin_activity(10, params) == 0
     assert _rapid_insulin_activity(20, params) > 0
 
@@ -108,6 +108,38 @@ def test_interpolated_curve_uses_unshifted_elapsed_time(model):
     assert InterpolatedCurves.has_curve(model)
     assert expected > 0
     assert _rapid_insulin_activity(elapsed_minutes, params) == pytest.approx(expected)
+
+
+@pytest.mark.parametrize(
+    ("model", "before_minute", "start_minute"),
+    [("fiasp", 0, 1), ("novorapid", 15, 20)],
+)
+def test_interpolated_curve_onset_matches_tabulated_timeline(
+    model, before_minute, start_minute
+):
+    params = _params(onset_minutes=5 if model == "fiasp" else 15)
+    params.insulin_model = model
+
+    assert _rapid_insulin_activity(before_minute, params) == 0
+    assert _rapid_insulin_activity(start_minute, params) == pytest.approx(
+        InterpolatedCurves.get_activity(model, start_minute, params.dia_minutes)
+    )
+    assert _rapid_insulin_activity(start_minute, params) > 0
+
+
+@pytest.mark.parametrize(
+    ("model", "tabulated_peak_minute"),
+    [("fiasp", 105), ("novorapid", 120)],
+)
+def test_interpolated_curve_peak_comes_from_table(model, tabulated_peak_minute):
+    params = _params(onset_minutes=5 if model == "fiasp" else 15)
+    params.insulin_model = model
+    samples = {
+        minute: _rapid_insulin_activity(minute, params)
+        for minute in range(0, params.dia_minutes + 1, 15)
+    }
+
+    assert max(samples, key=samples.get) == tabulated_peak_minute
 
 
 @pytest.mark.parametrize("model", ["novorapid", "fiasp"])
@@ -168,6 +200,18 @@ def test_backend_resolves_onset_once_from_insulin_settings():
     resolve_insulin_action_params(params, settings)
 
     assert params.insulin_onset_minutes == 15
+
+
+@pytest.mark.parametrize("model", ["fiasp", "novorapid"])
+def test_backend_does_not_resolve_external_onset_for_full_timeline(model):
+    params = _params(onset_minutes=5 if model == "fiasp" else 15)
+    params.insulin_model = model
+    settings = MagicMock()
+    settings.insulin.name = model
+
+    resolve_insulin_action_params(params, settings)
+
+    assert params.insulin_onset_minutes is None
 
 
 def test_backend_rejects_resolved_onset_outside_total_dia():
