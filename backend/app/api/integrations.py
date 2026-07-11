@@ -1115,6 +1115,14 @@ async def ingest_nutrition(
                     for candidate in candidates:
                         if await has_nutrition_identity(session, candidate.id):
                             continue
+                        if source_from_treatment(candidate) == incoming_source:
+                            # Same-source time/macros are not proof of identity: an
+                            # intentional repeat may look identical. Direct legacy
+                            # imports used the raw timestamp as their import signature,
+                            # so require that exact persisted signature before backfill.
+                            legacy_import_sig = f"Imported from Health: {date_key} #imported"
+                            if legacy_import_sig not in (candidate.notes or ""):
+                                continue
                         legacy_candidates.append(candidate)
                     candidates = legacy_candidates
                 
