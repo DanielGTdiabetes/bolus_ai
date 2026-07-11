@@ -1120,8 +1120,9 @@ async def ingest_nutrition(
                             # intentional repeat may look identical. Direct legacy
                             # imports used the raw timestamp as their import signature,
                             # so require that exact persisted signature before backfill.
-                            legacy_import_sig = f"Imported from Health: {date_key} #imported"
-                            if legacy_import_sig not in (candidate.notes or ""):
+                            legacy_raw_timestamp = str(meal.get("ts") or "").strip()
+                            legacy_import_sig = f"Imported from Health: {legacy_raw_timestamp} #imported"
+                            if not legacy_raw_timestamp or legacy_import_sig not in (candidate.notes or ""):
                                 continue
                         legacy_candidates.append(candidate)
                     candidates = legacy_candidates
