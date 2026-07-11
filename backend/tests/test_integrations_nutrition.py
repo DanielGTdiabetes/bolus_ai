@@ -647,6 +647,41 @@ def _ingest(client: TestClient, payload: dict):
     )
 
 
+def _health_metric_event(
+    *,
+    origin_id: str,
+    raw_timestamp: str,
+    carbs: float = 24.0,
+    fat: float = 8.0,
+    protein: float = 12.0,
+    fiber: float = 2.0,
+) -> dict:
+    values = {
+        "carbohydrates": carbs,
+        "total_fat": fat,
+        "protein": protein,
+        "fiber": fiber,
+    }
+    return {
+        "data": {
+            "metrics": [
+                {
+                    "name": name,
+                    "data": [
+                        {
+                            "qty": value,
+                            "date": raw_timestamp,
+                            "source": "Health Connect",
+                            "origin_id": origin_id,
+                        }
+                    ],
+                }
+                for name, value in values.items()
+            ]
+        }
+    }
+
+
 @pytest.mark.parametrize("source", ["Hermes Agent", "Health Connect"])
 def test_stable_external_id_is_idempotent_for_each_source(client: TestClient, source: str):
     event_at = datetime.now(timezone.utc).replace(microsecond=0)
@@ -955,3 +990,94 @@ def test_same_source_legacy_exact_external_signature_deduplicates(client: TestCl
     assert first_retry.json()["ingested_count"] == 0
     assert second_retry.json()["ingested_count"] == 0
     assert len(_fetch_all_treatments(client)) == 1
+
+
+def test_health_metric_legacy_retry_uses_raw_timestamp_not_origin_group_key(client: TestClient):
+    raw_timestamp = "2026-07-11 12:30:00 +0000"
+    event_at = datetime(2026, 7, 11, 12, 30)
+    origin_id = "health-stable-origin"
+    _create_treatment(
+        client,
+        id="legacy-health-metric",
+        user_id="admin",
+        event_type="Meal Bolus",
+        created_at=event_at,
+        insulin=0.0,
+        carbs=24.0,
+        fat=8.0,
+        protein=12.0,
+        fiber=2.0,
+        notes=f"Imported from Health: {raw_timestamp} #imported source:health_connect",
+        entered_by="webhook-integration",
+        is_uploaded=False,
+    )
+    payload = _health_metric_event(origin_id=origin_id, raw_timestamp=raw_timestamp)
+
+    response = _ingest(client, payload)
+
+    assert response.status_code == 200
+    assert response.json()["ingested_count"] == 0
+    assert len(_fetch_all_treatments(client)) == 1
+    session_factory = getattr(client, "_session_factory")
+    with session_factory() as session:
+        identity = session.execute(select(NutritionEventIdentity)).scalar_one()
+    assert identity.treatment_id == "legacy-health-metric"
+
+
+def test_health_metric_distinct_origin_and_timestamp_preserves_new_event(client: TestClient):
+    first_raw_timestamp = "2026-07-11 12:40:00 +0000"
+    second_raw_timestamp = "2026-07-11 12:47:00 +0000"
+    _create_treatment(
+        client,
+        id="legacy-health-first",
+        user_id="admin",
+        event_type="Meal Bolus",
+        created_at=datetime(2026, 7, 11, 12, 40),
+        insulin=0.0,
+        carbs=24.0,
+        fat=8.0,
+        protein=12.0,
+        fiber=2.0,
+        notes=f"Imported from Health: {first_raw_timestamp} #imported source:health_connect",
+        entered_by="webhook-integration",
+        is_uploaded=False,
+    )
+    payload = _health_metric_event(
+        origin_id="different-health-origin",
+        raw_timestamp=second_raw_timestamp,
+    )
+
+    response = _ingest(client, payload)
+
+    assert response.status_code == 200
+    assert response.json()["ingested_count"] == 1
+    assert len(_fetch_all_treatments(client)) == 2
+
+
+def test_health_metric_same_origin_is_idempotent(client: TestClient):
+    payload = _health_metric_event(
+        origin_id="same-health-origin",
+        raw_timestamp="2026-07-11 13:00:00 +0000",
+    )
+
+    first = _ingest(client, payload)
+    repeated = _ingest(client, payload)
+
+    assert first.json()["ingested_count"] == 1
+    assert repeated.json()["ingested_count"] == 0
+    assert len(_fetch_all_treatments(client)) == 1
+
+
+def test_health_metric_intentional_same_source_meals_are_preserved(client: TestClient):
+    first = _health_metric_event(
+        origin_id="intentional-health-1",
+        raw_timestamp="2026-07-11 13:10:00 +0000",
+    )
+    second = _health_metric_event(
+        origin_id="intentional-health-2",
+        raw_timestamp="2026-07-11 13:17:00 +0000",
+    )
+
+    assert _ingest(client, first).json()["ingested_count"] == 1
+    assert _ingest(client, second).json()["ingested_count"] == 1
+    assert len(_fetch_all_treatments(client)) == 2
