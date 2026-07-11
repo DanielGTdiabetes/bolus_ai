@@ -16,6 +16,14 @@ logger = logging.getLogger(__name__)
 
 def _rapid_insulin_activity(t_since_injection_min: float, params) -> float:
     """Return activity using the canonical injection-to-DIA window, in minutes."""
+    if InsulinCurves.has_embedded_onset(params.insulin_model):
+        return InsulinCurves.get_activity(
+            t_since_injection_min,
+            params.dia_minutes,
+            params.insulin_peak_minutes,
+            params.insulin_model,
+        )
+
     onset_minutes = params.insulin_onset_minutes or 0
     action_elapsed_minutes = t_since_injection_min - onset_minutes
     action_duration_minutes = params.dia_minutes - onset_minutes

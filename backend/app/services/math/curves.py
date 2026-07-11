@@ -27,6 +27,11 @@ class InterpolatedCurves:
     _CACHE = {} # Stores (total_area, cdf_points)
 
     @classmethod
+    def has_curve(cls, key: str) -> bool:
+        """Whether the model provides a complete injection-to-DIA profile."""
+        return key.lower() in cls._DATA
+
+    @classmethod
     def _ensure_cache(cls, key: str):
         if key in cls._CACHE: return
         points = cls._DATA.get(key)
@@ -134,6 +139,10 @@ class InsulinCurves:
     """
     Standard insulin activity models + Proxy to InterpolatedCurves.
     """
+
+    @staticmethod
+    def has_embedded_onset(model_type: str) -> bool:
+        return InterpolatedCurves.has_curve(model_type)
     
     @staticmethod
     def _walsh_tau(peak_min, duration_min):

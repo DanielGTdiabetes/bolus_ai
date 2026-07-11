@@ -12,6 +12,7 @@ from app.models.forecast import (
     SimulationParams,
 )
 from app.services.forecast_engine import ForecastEngine, _rapid_insulin_activity
+from app.services.math.curves import InsulinCurves, InterpolatedCurves
 from app.services.forecast_params_resolver import resolve_insulin_action_params
 
 
@@ -80,6 +81,70 @@ def test_activity_starts_at_onset_and_ends_at_total_dia():
     assert _rapid_insulin_activity(15.001, params) > 0
     assert _rapid_insulin_activity(59.999, params) > 0
     assert _rapid_insulin_activity(60, params) == 0
+
+
+def test_generic_curve_applies_explicit_onset_once():
+    params = _params(onset_minutes=15, dia_minutes=60)
+    params.insulin_peak_minutes = 30
+
+    assert not InsulinCurves.has_embedded_onset(params.insulin_model)
+    assert _rapid_insulin_activity(10, params) == 0
+    assert _rapid_insulin_activity(20, params) > 0
+
+
+@pytest.mark.parametrize("model", ["novorapid", "fiasp"])
+def test_interpolated_curve_uses_unshifted_elapsed_time(model):
+    params = _params(onset_minutes=15, dia_minutes=300)
+    params.insulin_model = model
+    elapsed_minutes = 20
+
+    expected = InsulinCurves.get_activity(
+        elapsed_minutes,
+        params.dia_minutes,
+        params.insulin_peak_minutes,
+        model,
+    )
+
+    assert InterpolatedCurves.has_curve(model)
+    assert expected > 0
+    assert _rapid_insulin_activity(elapsed_minutes, params) == pytest.approx(expected)
+
+
+@pytest.mark.parametrize("model", ["novorapid", "fiasp"])
+def test_interpolated_curve_still_ends_at_total_dia(model):
+    params = _params(onset_minutes=15, dia_minutes=360)
+    params.insulin_model = model
+
+    assert _rapid_insulin_activity(359.999, params) > 0
+    assert _rapid_insulin_activity(360, params) == 0
+
+
+@pytest.mark.asyncio
+async def test_simulation_endpoint_matches_engine_for_interpolated_curve():
+    payload = ForecastSimulateRequest(
+        start_bg=200,
+        horizon_minutes=60,
+        params=_params(onset_minutes=15),
+        events=ForecastEvents(
+            boluses=[ForecastEventBolus(time_offset_min=-20, units=1)]
+        ),
+        momentum=MomentumConfig(enabled=False),
+    )
+    payload.params.insulin_model = "novorapid"
+    expected = ForecastEngine.calculate_forecast(payload.model_copy(deep=True))
+    session = AsyncMock()
+    result = MagicMock()
+    result.scalars.return_value.all.return_value = []
+    session.execute.return_value = result
+
+    with patch("app.api.forecast.get_ns_config", return_value=None), patch(
+        "app.api.forecast.get_user_settings_service", return_value=None
+    ):
+        response = await simulate_forecast(
+            payload, user=MagicMock(username="testuser"), session=session
+        )
+
+    assert response.components == expected.components
 
 
 def test_forecast_onset_zero_and_nonzero_use_same_minute_contract():
