@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import uuid
+import sys
 from typing import AsyncGenerator, Optional, List, Any
 from datetime import datetime
 
@@ -13,6 +14,71 @@ from sqlalchemy.pool import NullPool, StaticPool
 from app.core.settings import get_settings
 
 logger = logging.getLogger("uvicorn")
+
+
+POSTGRES_SCHEMA_INIT_LOCK_ID = 781625014337
+
+
+def _uses_postgres_advisory_lock() -> bool:
+    return bool(
+        _async_engine
+        and _async_engine.url.drivername.startswith("postgresql")
+    )
+
+
+async def _acquire_postgres_schema_init_lock(conn):
+    if not _uses_postgres_advisory_lock():
+        return False
+
+    await conn.execute(text(f"SELECT pg_advisory_lock({POSTGRES_SCHEMA_INIT_LOCK_ID})"))
+    return True
+
+
+async def _release_postgres_schema_init_lock(conn):
+    await conn.execute(text(f"SELECT pg_advisory_unlock({POSTGRES_SCHEMA_INIT_LOCK_ID})"))
+
+
+async def _rollback_postgres_schema_init_transaction(conn):
+    in_transaction = getattr(conn, "in_transaction", None)
+    if not callable(in_transaction) or not in_transaction():
+        return False
+
+    rollback = getattr(conn, "rollback", None)
+    if rollback is None:
+        return False
+
+    result = rollback()
+    if hasattr(result, "__await__"):
+        await result
+    return True
+
+
+async def _invalidate_or_close_schema_init_connection(conn, exc: BaseException):
+    try:
+        invalidate = getattr(conn, "invalidate", None)
+        if invalidate is not None:
+            result = invalidate(exc)
+            if hasattr(result, "__await__"):
+                await result
+            return "invalidated"
+
+        close = getattr(conn, "close", None)
+        if close is not None:
+            result = close()
+            if hasattr(result, "__await__"):
+                await result
+            return "closed"
+    except Exception:
+        logger.exception(
+            "Failed to invalidate or close PostgreSQL schema init connection "
+            "after advisory lock release failure"
+        )
+        raise
+
+    raise RuntimeError(
+        "Could not invalidate or close PostgreSQL schema init connection after "
+        "advisory lock release failure"
+    )
 
 # Retry configuration for database connection
 DB_RETRY_ATTEMPTS = 10
@@ -474,13 +540,55 @@ async def create_tables():
     for attempt in range(1, DB_RETRY_ATTEMPTS + 1):
         try:
             async with _async_engine.connect() as conn:
-                await _ensure_postgres_public_schema(conn)
-                # Create all (only creates new tables)
-                await conn.run_sync(Base.metadata.create_all)
-                # Apply column migrations
-                await migrate_schema(conn)
-                logger.info(f"✅ Database tables created (attempt {attempt})")
-                return
+                lock_acquired = await _acquire_postgres_schema_init_lock(conn)
+                try:
+                    await _ensure_postgres_public_schema(conn)
+                    # Create all (only creates new tables)
+                    await conn.run_sync(Base.metadata.create_all)
+                    # Apply column migrations
+                    await migrate_schema(conn)
+                    logger.info(f"✅ Database tables created (attempt {attempt})")
+                    return
+                finally:
+                    if lock_acquired:
+                        active_exc = sys.exc_info()[1]
+                        try:
+                            rolled_back = await _rollback_postgres_schema_init_transaction(conn)
+                            if rolled_back:
+                                logger.info(
+                                    "Rolled back PostgreSQL schema init transaction "
+                                    "before releasing advisory lock"
+                                )
+                            await _release_postgres_schema_init_lock(conn)
+                        except Exception as lock_cleanup_error:
+                            try:
+                                action = await _invalidate_or_close_schema_init_connection(
+                                    conn,
+                                    lock_cleanup_error,
+                                )
+                            except Exception:
+                                logger.exception(
+                                    "Failed to invalidate or close PostgreSQL schema "
+                                    "init connection after advisory lock cleanup failed"
+                                )
+                                if active_exc is None:
+                                    raise
+                            else:
+                                logger.exception(
+                                    "Failed to safely release PostgreSQL schema init "
+                                    "advisory lock; connection was %s to avoid "
+                                    "returning a locked or aborted connection to "
+                                    "the pool",
+                                    action,
+                                )
+                                if active_exc is None:
+                                    raise
+
+                            logger.error(
+                                "Preserving original schema initialization error "
+                                "after advisory lock cleanup also failed: %s",
+                                active_exc,
+                            )
         except Exception as e:
             last_error = e
             error_msg = str(e).lower()
