@@ -22,6 +22,12 @@ from app.models.treatment import Treatment
 from app.services.store import DataStore
 from app.services.nightscout_client import NightscoutClient, NightscoutError
 from app.services.nightscout_secrets_service import get_ns_config
+from app.services.nutrition_shadow_matcher import (
+    NutritionShadowEvent,
+    classify_nutrition_candidate,
+    extract_import_fingerprint,
+    parse_nutrition_shadow_mode,
+)
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -1052,6 +1058,37 @@ async def ingest_nutrition(
                 )
                 result = await session.execute(stmt)
                 candidates = result.scalars().all()
+
+                if parse_nutrition_shadow_mode(os.getenv("NUTRITION_DEDUPE_MODE")) == "shadow":
+                    incoming_event = NutritionShadowEvent(
+                        user_id=username,
+                        occurred_at=item_ts,
+                        carbs=t_carbs,
+                        source=meal.get("source") or source,
+                        fingerprint=meal.get("fingerprint"),
+                    )
+                    for candidate in candidates:
+                        candidate_event = NutritionShadowEvent(
+                            user_id=candidate.user_id,
+                            occurred_at=candidate.created_at,
+                            carbs=candidate.carbs,
+                            source=(
+                                "hermes"
+                                if "hermes" in (candidate.notes or "").lower()
+                                else candidate.entered_by
+                            ),
+                            fingerprint=extract_import_fingerprint(candidate.notes),
+                        )
+                        classification = classify_nutrition_candidate(incoming_event, candidate_event)
+                        logger.info(
+                            "nutrition_dedup_shadow ingest_id=%s mode=shadow classification=%s "
+                            "incoming_source=%s candidate_source=%s candidate_id=%s",
+                            ingest_id,
+                            classification,
+                            incoming_event.source,
+                            candidate_event.source,
+                            candidate.id,
+                        )
                 
                 is_duplicate = False
                 for c in candidates:
