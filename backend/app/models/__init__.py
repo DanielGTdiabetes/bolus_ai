@@ -5,7 +5,6 @@ from .evaluation import SuggestionEvaluation
 from .notifications import UserNotificationState, PushSubscription
 from .nightscout_secrets import NightscoutSecrets
 from .treatment import Treatment
-from .nutrition_event_identity import NutritionEventIdentity
 from .learning import MealEntry, MealOutcome
 from .meal_learning import MealExperience, MealCluster
 from .user_data import FavoriteFood, SupplyItem

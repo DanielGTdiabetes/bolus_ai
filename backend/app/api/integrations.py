@@ -19,17 +19,6 @@ from app.core.settings import Settings, get_settings
 from app.models.settings import UserSettings, UserSettingsDB
 from app.models.basal import BasalEntry
 from app.models.treatment import Treatment
-from app.services.nutrition_deduplication import (
-    acquire_nutrition_transaction_lock,
-    claim_external_identity,
-    find_semantic_duplicate,
-    has_nutrition_identity,
-    masked_key,
-    normalize_foods,
-    normalize_source,
-    source_from_treatment,
-    treatment_for_external_identity,
-)
 from app.services.store import DataStore
 from app.services.nightscout_client import NightscoutClient, NightscoutError
 from app.services.nightscout_secrets_service import get_ns_config
@@ -855,11 +844,7 @@ async def ingest_nutrition(
                          "p": p,
                          "fib": fib if fib is not None else 0.0,
                          "ts": ts_key,
-                         "fiber_provided": fiber_provided,
-                         "source": real_payload.get("source") or real_payload.get("origin") or "unknown",
-                         "fingerprint": real_payload.get("origin_id") or real_payload.get("external_id") or real_payload.get("request_id"),
-                         "meal_type": real_payload.get("meal_type") or real_payload.get("meal_slot"),
-                         "foods": real_payload.get("foods") or ([real_payload.get("name")] if real_payload.get("name") else []),
+                         "fiber_provided": fiber_provided
                      }
                      logger.info(f"Parsed Direct Payload: C={c} F={f} P={p} Fib={fib}")
 
@@ -989,36 +974,13 @@ async def ingest_nutrition(
                 # with the original event in the DB's created_at field.
                 import_key = meal.get("fingerprint") or date_key
                 import_sig = f"Imported from Health: {import_key} #imported"
-                incoming_source = normalize_source(meal.get("source") or source)
-                external_id = str(meal.get("fingerprint") or "").strip() or None
-                incoming_foods = normalize_foods(meal.get("foods"))
-                await acquire_nutrition_transaction_lock(session, username)
-                existing_strict, identity_key = await treatment_for_external_identity(
-                    session,
-                    user_id=username,
-                    source=incoming_source,
-                    external_id=external_id,
-                )
-                if existing_strict is None:
-                    stmt_strict = select(Treatment).where(
-                        Treatment.user_id == username,
-                        Treatment.notes.contains(import_sig),
-                    )
-                    result_strict = await session.execute(stmt_strict)
-                    existing_strict = result_strict.scalars().first()
+                stmt_strict = select(Treatment).where(Treatment.notes.contains(import_sig))
+                result_strict = await session.execute(stmt_strict)
+                existing_strict = result_strict.scalars().first()
                 
 
 
                 if existing_strict:
-                     await claim_external_identity(
-                         session,
-                         treatment_id=existing_strict.id,
-                         user_id=username,
-                         source=incoming_source,
-                         external_id=external_id,
-                         strategy="external_id",
-                         foods=incoming_foods,
-                     )
                      # Check for ANY meaningful change (Correction/Edit in Source)
                      changes = []
                      existing_carbs = float(existing_strict.carbs or 0)
@@ -1058,14 +1020,6 @@ async def ingest_nutrition(
                          )
                      else:
                          skipped_count += 1
-                         await session.commit()
-                         logger.info(
-                             "nutrition_dedup action=duplicate strategy=external_id original_source=%s duplicate_source=%s key=%s reason=stable_external_id treatment_id=%s",
-                             source_from_treatment(existing_strict),
-                             incoming_source,
-                             masked_key(identity_key),
-                             existing_strict.id,
-                         )
                          logger.info(
                              "nutrition_ingest_action ingest_id=%s action=skip id=%s timestamp=%s",
                              ingest_id,
@@ -1095,42 +1049,11 @@ async def ingest_nutrition(
                 )
                 result = await session.execute(stmt)
                 candidates = result.scalars().all()
-
-                semantic_match, semantic_strategy = await find_semantic_duplicate(
-                    session,
-                    user_id=username,
-                    source=incoming_source,
-                    event_at=item_ts,
-                    received_at=now_utc,
-                    carbs=t_carbs,
-                    fat=t_fat if t_fat > 0 else None,
-                    protein=t_protein if t_protein > 0 else None,
-                    fiber=incoming_fiber,
-                    foods=incoming_foods,
-                )
-                if semantic_match is not None:
-                    candidates = [semantic_match]
-                elif external_id:
-                    legacy_candidates = []
-                    for candidate in candidates:
-                        if await has_nutrition_identity(session, candidate.id):
-                            continue
-                        if source_from_treatment(candidate) == incoming_source:
-                            # Same-source time/macros are not proof of identity: an
-                            # intentional repeat may look identical. Direct legacy
-                            # imports used the raw timestamp as their import signature,
-                            # so require that exact persisted signature before backfill.
-                            legacy_raw_timestamp = str(meal.get("ts") or "").strip()
-                            legacy_import_sig = f"Imported from Health: {legacy_raw_timestamp} #imported"
-                            if not legacy_raw_timestamp or legacy_import_sig not in (candidate.notes or ""):
-                                continue
-                        legacy_candidates.append(candidate)
-                    candidates = legacy_candidates
                 
                 is_duplicate = False
                 for c in candidates:
                     # Check if it's the same meal (Carbs very close)
-                    if abs(c.carbs - t_carbs) <= 1.0:
+                    if abs(c.carbs - t_carbs) < 0.5:
                         
                         # ENRICHMENT CHECK:
                         # If existing lacks Fat/Protein/Fiber and incoming HAS it, update it.
@@ -1139,20 +1062,9 @@ async def ingest_nutrition(
                         c_fat = c.fat or 0
                         c_prot = c.protein or 0
                         c_fib = c.fiber or 0
-                        is_semantic_match = semantic_match is not None and c.id == semantic_match.id
-                        semantic_enrichment = is_semantic_match and (
-                            (c_fat <= 0.5 and t_fat > 0.5)
-                            or (c_prot <= 0.5 and t_protein > 0.5)
-                        )
                         
                         # 1. Exact Match (Duplicate)
-                        if (
-                            is_semantic_match
-                            and not semantic_enrichment
-                        ) or (
-                            abs(c_fat - t_fat) < 0.5
-                            and abs(c_prot - t_protein) < 0.5
-                        ):
+                        if abs(c_fat - t_fat) < 0.5 and abs(c_prot - t_protein) < 0.5:
                              # Check Fiber Update
                              if fiber_provided and incoming_fiber is not None:
                                  if should_update_fiber(float(c_fib), incoming_fiber):
@@ -1170,24 +1082,6 @@ async def ingest_nutrition(
                                      )
                              is_duplicate = True
                              skipped_count += 1
-                             await claim_external_identity(
-                                 session,
-                                 treatment_id=c.id,
-                                 user_id=username,
-                                 source=incoming_source,
-                                 external_id=external_id,
-                                 strategy=semantic_strategy or "legacy_time_macros",
-                                 foods=incoming_foods,
-                             )
-                             await session.commit()
-                             logger.info(
-                                 "nutrition_dedup action=duplicate strategy=%s original_source=%s duplicate_source=%s key=%s reason=equivalent_time_macros treatment_id=%s",
-                                 semantic_strategy or "legacy_time_macros",
-                                 source_from_treatment(c),
-                                 incoming_source,
-                                 masked_key(identity_key),
-                                 c.id,
-                             )
                              logger.info(
                                  "nutrition_ingest_action ingest_id=%s action=skip id=%s timestamp=%s",
                                  ingest_id,
@@ -1213,15 +1107,6 @@ async def ingest_nutrition(
                              
                              c.notes = (c.notes or "") + " [Enriched]"
                              session.add(c)
-                             await claim_external_identity(
-                                 session,
-                                 treatment_id=c.id,
-                                 user_id=username,
-                                 source=incoming_source,
-                                 external_id=external_id,
-                                 strategy=semantic_strategy or "macro_enrichment",
-                                 foods=incoming_foods,
-                             )
                              await session.commit()
                              updated_count += 1
                              updated_ids.append(c.id) # Track for notification (Macro enrichment)
@@ -1239,15 +1124,6 @@ async def ingest_nutrition(
                         if fiber_provided and incoming_fiber is not None and abs((c.fiber or 0) - incoming_fiber) > 0.1:
                              c.fiber = float(incoming_fiber)
                              session.add(c)
-                             await claim_external_identity(
-                                 session,
-                                 treatment_id=c.id,
-                                 user_id=username,
-                                 source=incoming_source,
-                                 external_id=external_id,
-                                 strategy=semantic_strategy or "fiber_enrichment",
-                                 foods=incoming_foods,
-                             )
                              await session.commit()
                              updated_count += 1
                              updated_ids.append(c.id) # Track
@@ -1281,20 +1157,11 @@ async def ingest_nutrition(
                     fat=t_fat,
                     protein=t_protein,
                     fiber=t_fiber,
-                    notes=f"Imported from Health: {import_key} #imported source:{incoming_source}",
+                    notes=f"Imported from Health: {import_key} #imported",
                     entered_by="webhook-integration",
                     is_uploaded=False
                 )
                 session.add(new_t)
-                await claim_external_identity(
-                    session,
-                    treatment_id=tid,
-                    user_id=username,
-                    source=incoming_source,
-                    external_id=external_id,
-                    strategy="created",
-                    foods=incoming_foods,
-                )
                 created_ids.append(tid)
                 count += 1
                 logger.info(
@@ -1302,13 +1169,6 @@ async def ingest_nutrition(
                     ingest_id,
                     tid,
                     date_key,
-                )
-                logger.info(
-                    "nutrition_dedup action=accepted strategy=%s source=%s key=%s reason=new_event treatment_id=%s",
-                    "external_id" if external_id else "legacy",
-                    incoming_source,
-                    masked_key(identity_key),
-                    tid,
                 )
                 
             await session.commit()
