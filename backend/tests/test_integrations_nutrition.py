@@ -97,8 +97,8 @@ def client(tmp_path, monkeypatch):
     settings_module.get_settings.cache_clear()
 
 
-def _auth_headers(client: TestClient) -> dict[str, str]:
-    token = TokenManager(get_settings()).create_access_token("admin")
+def _auth_headers(client: TestClient, username: str = "admin") -> dict[str, str]:
+    token = TokenManager(get_settings()).create_access_token(username)
     return {"Authorization": f"Bearer {token}"}
 
 
@@ -263,6 +263,61 @@ def test_edit_updates_existing_meal(client: TestClient):
     treatments = _fetch_all_treatments(client)
     assert len(treatments) == 1
     assert treatments[0].carbs == pytest.approx(18.0)
+
+
+def test_strict_lookup_is_scoped_to_authenticated_user(client: TestClient):
+    timestamp = _recent_timestamp()
+    fingerprint = "shared-fingerprint"
+    import_signature = f"Imported from Health: {fingerprint} #imported"
+    _create_treatment(
+        client,
+        id="other-user-meal",
+        user_id="other-user",
+        event_type="Meal Bolus",
+        created_at=datetime.fromisoformat(timestamp).replace(tzinfo=None),
+        insulin=0.0,
+        carbs=10.0,
+        fat=0.0,
+        protein=0.0,
+        fiber=0.0,
+        notes=import_signature,
+        entered_by="webhook-integration",
+        is_uploaded=False,
+    )
+    payload = {
+        "data": {
+            "metrics": [
+                {
+                    "name": "carbohydrates",
+                    "data": [
+                        {
+                            "qty": 30.0,
+                            "date": timestamp,
+                            "source": "MyFitnessPal",
+                            "meal_fingerprint": fingerprint,
+                            "meal_type": "3",
+                        }
+                    ],
+                }
+            ]
+        }
+    }
+
+    response = client.post(
+        "/api/integrations/nutrition",
+        headers=_auth_headers(client, "target-user"),
+        json=payload,
+    )
+
+    assert response.status_code == 200
+    assert response.json()["ingested_count"] == 1
+    treatments = _fetch_all_treatments(client)
+    assert len(treatments) == 2
+    treatments_by_user = {treatment.user_id: treatment for treatment in treatments}
+    assert treatments_by_user["other-user"].carbs == pytest.approx(10.0)
+    assert treatments_by_user["other-user"].notes == import_signature
+    assert treatments_by_user["target-user"].carbs == pytest.approx(30.0)
+    assert treatments_by_user["target-user"].notes == import_signature
 
 
 def test_triggers_notification_for_valid_meal(client: TestClient, monkeypatch: pytest.MonkeyPatch):

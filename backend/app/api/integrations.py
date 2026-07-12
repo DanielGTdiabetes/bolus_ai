@@ -974,7 +974,10 @@ async def ingest_nutrition(
                 # with the original event in the DB's created_at field.
                 import_key = meal.get("fingerprint") or date_key
                 import_sig = f"Imported from Health: {import_key} #imported"
-                stmt_strict = select(Treatment).where(Treatment.notes.contains(import_sig))
+                stmt_strict = select(Treatment).where(
+                    Treatment.user_id == username,
+                    Treatment.notes.contains(import_sig),
+                )
                 result_strict = await session.execute(stmt_strict)
                 existing_strict = result_strict.scalars().first()
                 
