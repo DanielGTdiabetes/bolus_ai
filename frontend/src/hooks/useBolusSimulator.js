@@ -99,20 +99,6 @@ export function useBolusSimulator() {
                 carbs: [...historyEvents.carbs, ...primaryCarbs]
             };
 
-            // Determine Onset based on Settings (Insulin Name/Type) - Source of Truth
-            // We use settings.insulin.name, falling back to params if needed
-            const settingsInsulinName = context.settings?.insulin?.name || "";
-            const modelLower = (settingsInsulinName || insulinModel || "").toLowerCase();
-
-            let insulinOnset = 10; // Default
-            if (modelLower.includes('fiasp') || modelLower.includes('lyumjev')) {
-                insulinOnset = 5;
-            } else if (modelLower.includes('novorapid') || modelLower.includes('aspart') ||
-                modelLower.includes('humalog') || modelLower.includes('lispro') ||
-                modelLower.includes('apidra')) {
-                insulinOnset = 15;
-            }
-
             const payload = buildForecastPayload({
                 bgVal,
                 targetMgdl,
@@ -123,7 +109,6 @@ export function useBolusSimulator() {
                 insulinModel,
                 carbAbsorption: (settingsAbsorption?.[slot] || 180),
                 basalDailyUnits: params.tdd_u ? (params.tdd_u * 0.5) : undefined,
-                insulinOnset,
                 settings: context.settings,
                 slot,
                 events

@@ -14,6 +14,28 @@ from app.services.math.basal import BasalModels
 logger = logging.getLogger(__name__)
 
 
+def _rapid_insulin_activity(t_since_injection_min: float, params) -> float:
+    """Return activity using the canonical injection-to-DIA window, in minutes."""
+    if InsulinCurves.has_full_timeline(params.insulin_model):
+        return InsulinCurves.get_activity(
+            t_since_injection_min,
+            params.dia_minutes,
+            params.insulin_peak_minutes,
+            params.insulin_model,
+        )
+
+    onset_minutes = params.insulin_onset_minutes or 0
+    action_elapsed_minutes = t_since_injection_min - onset_minutes
+    action_duration_minutes = params.dia_minutes - onset_minutes
+    action_peak_minutes = max(1, params.insulin_peak_minutes - onset_minutes)
+    return InsulinCurves.get_activity(
+        action_elapsed_minutes,
+        action_duration_minutes,
+        action_peak_minutes,
+        params.insulin_model,
+    )
+
+
 def _get_reference_rate_at(t_min: float, params) -> float:
     """
     Returns the expected basal reference rate (U/min) at simulation time t_min.
@@ -101,10 +123,10 @@ class ForecastEngine:
                  for k in range(n_chunks):
                      t_chunk_offset = k * chunk_step
                      t_since_chunk = t_since - t_chunk_offset
-                     r = InsulinCurves.get_activity(t_since_chunk, req.params.dia_minutes, req.params.insulin_peak_minutes, req.params.insulin_model)
+                     r = _rapid_insulin_activity(t_since_chunk, req.params)
                      ins_rate_0 += r * u_per_chunk
              else:
-                 r = InsulinCurves.get_activity(t_since, req.params.dia_minutes, req.params.insulin_peak_minutes, req.params.insulin_model)
+                 r = _rapid_insulin_activity(t_since, req.params)
                  ins_rate_0 += r * b.units
         
         # Carb Slope at t=0
@@ -256,11 +278,11 @@ class ForecastEngine:
                         t_chunk_offset = k * chunk_step
                         t_since_chunk = t_since_inj - t_chunk_offset
                         
-                        rate = InsulinCurves.get_activity(t_since_chunk, req.params.dia_minutes, req.params.insulin_peak_minutes, req.params.insulin_model)
+                        rate = _rapid_insulin_activity(t_since_chunk, req.params)
                         total_insulin_activity += rate * u_per_chunk
                 else:
                     # Instant Bolus
-                    rate = InsulinCurves.get_activity(t_since_inj, req.params.dia_minutes, req.params.insulin_peak_minutes, req.params.insulin_model)
+                    rate = _rapid_insulin_activity(t_since_inj, req.params)
                     total_insulin_activity += rate * b.units
             
             # Apply Sensitivity Multiplier (Resistance)

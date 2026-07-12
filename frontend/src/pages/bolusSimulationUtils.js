@@ -79,7 +79,7 @@ export function buildForecastPayload({
   insulinModel,
   carbAbsorption,
   basalDailyUnits,
-  insulinOnset,
+  insulinOnsetMinutes,
   settings, // Add settings to calc multiplier
   slot,
   events
@@ -113,7 +113,9 @@ export function buildForecastPayload({
       insulin_peak_minutes: peak,
       carb_absorption_minutes: carbAbsorption,
       insulin_model: insulinModel,
-      insulin_onset_minutes: insulinOnset,
+      ...(insulinOnsetMinutes !== undefined && insulinOnsetMinutes !== null
+        ? { insulin_onset_minutes: insulinOnsetMinutes }
+        : {}),
       insulin_sensitivity_multiplier: sensitivityMultiplier,
       target_bg: targetMgdl,
       basal_daily_units: 0, // ERROR FIX: Force 0 to avoid massive spike (Simulator assumes missing basal if we send this but no history)

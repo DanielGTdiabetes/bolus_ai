@@ -15,10 +15,10 @@ class BasalScheduleEntry(BaseModel):
 class SimulationParams(BaseModel):
     isf: float = Field(..., description="Insulin Sensitivity Factor (mg/dL / U)")
     icr: float = Field(..., description="Insulin Carb Ratio (g / U)")
-    dia_minutes: int = Field(360, description="Duration of Insulin Action in minutes")
+    dia_minutes: int = Field(360, gt=0, description="Total insulin action window in minutes, measured from injection")
     carb_absorption_minutes: int = Field(180, description="Duration of Carb Absorption in minutes")
-    insulin_peak_minutes: int = Field(75, description="Peak activity time of insulin (e.g. 75 for Rapid, 55 for Fiasp)")
-    insulin_onset_minutes: Optional[int] = Field(None, description="Delay before insulin starts acting (physiological onset). None = Auto-detect.")
+    insulin_peak_minutes: int = Field(75, description="Peak activity time in minutes for generic curves; interpolated profiles use their tabulated peak")
+    insulin_onset_minutes: Optional[int] = Field(None, ge=0, description="Explicit onset in minutes for generic curves; interpolated profiles contain their full injection-to-DIA timeline")
     insulin_model: str = Field("linear", description="Type of insulin model: 'linear', 'exponential', 'fiasp', 'novorapid'")
     insulin_sensitivity_multiplier: Optional[float] = Field(None, description="Global multiplier for insulin efficacy (<1.0 = resistance)")
     basal_daily_units: float = Field(0.0, description="Users typical daily basal dose for reference. If 0, assumes current active is correct.")
@@ -43,6 +43,12 @@ class SimulationParams(BaseModel):
     def _validate_warsaw(cls, v: Optional[float]) -> Optional[float]:
         if v is None or v <= 0:
             return 0.1
+        return v
+
+    @field_validator("insulin_onset_minutes")
+    def _validate_insulin_onset(cls, v: Optional[int], info) -> Optional[int]:
+        if v is not None and v >= info.data.get("dia_minutes", 360):
+            raise ValueError("insulin_onset_minutes must be lower than dia_minutes")
         return v
     
 class ForecastEventBolus(BaseModel):
