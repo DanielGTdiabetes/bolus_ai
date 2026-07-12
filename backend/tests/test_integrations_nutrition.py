@@ -131,6 +131,48 @@ def _delete_treatment(client: TestClient, treatment_id: str) -> None:
             session.commit()
 
 
+def _health_connect_meal_payload(timestamp: str, fingerprint: str = "shared-meal") -> dict:
+    return {
+        "data": {
+            "metrics": [
+                {
+                    "name": "carbohydrates",
+                    "data": [
+                        {
+                            "qty": 30,
+                            "date": timestamp,
+                            "source": "MyFitnessPal",
+                            "meal_fingerprint": fingerprint,
+                        }
+                    ],
+                },
+                {
+                    "name": "total_fat",
+                    "data": [
+                        {
+                            "qty": 4,
+                            "date": timestamp,
+                            "source": "MyFitnessPal",
+                            "meal_fingerprint": fingerprint,
+                        }
+                    ],
+                },
+                {
+                    "name": "protein",
+                    "data": [
+                        {
+                            "qty": 5,
+                            "date": timestamp,
+                            "source": "MyFitnessPal",
+                            "meal_fingerprint": fingerprint,
+                        }
+                    ],
+                },
+            ]
+        }
+    }
+
+
 def test_mobile_bolus_settings_requires_ingest_key(client: TestClient):
     resp = client.get("/api/integrations/mobile/bolus-settings")
 
@@ -511,6 +553,80 @@ def test_health_connect_daily_dump_dedupes_against_recent_hermes_meal(client: Te
     treatments = _fetch_all_treatments(client)
     assert len(treatments) == 1
     assert treatments[0].id == "hermes-dinner"
+
+
+def test_nutrition_shadow_mode_off_does_not_run_or_log_matcher(
+    client: TestClient, monkeypatch, caplog
+):
+    monkeypatch.setenv("NUTRITION_DEDUPE_MODE", "off")
+    timestamp = _recent_timestamp()
+    fingerprint = "shadow-off-meal"
+    _create_treatment(
+        client,
+        id="shadow-off-candidate",
+        user_id="admin",
+        event_type="Meal Bolus",
+        created_at=datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(minutes=2),
+        insulin=0.0,
+        carbs=30.0,
+        fat=10.0,
+        protein=10.0,
+        fiber=0.0,
+        notes="Hermes Imported from Health: different-existing-meal #imported",
+        entered_by="webhook-integration",
+        is_uploaded=False,
+    )
+
+    def fail_if_called(*args, **kwargs):
+        raise AssertionError("shadow matcher must not run while mode is off")
+
+    monkeypatch.setattr("app.api.integrations.classify_nutrition_candidate", fail_if_called)
+    caplog.set_level("INFO", logger="app.api.integrations")
+
+    response = client.post(
+        "/api/integrations/nutrition?key=test-ingest-secret",
+        json=_health_connect_meal_payload(timestamp, fingerprint),
+    )
+
+    assert response.status_code == 200
+    assert response.json()["ingested_count"] == 1
+    assert "nutrition_dedup_shadow" not in caplog.text
+    assert len(_fetch_all_treatments(client)) == 2
+
+
+def test_nutrition_shadow_mode_logs_but_does_not_suppress_meal(
+    client: TestClient, monkeypatch, caplog
+):
+    monkeypatch.setenv("NUTRITION_DEDUPE_MODE", "shadow")
+    timestamp = _recent_timestamp()
+    fingerprint = "shadow-probable-meal"
+    _create_treatment(
+        client,
+        id="shadow-probable-candidate",
+        user_id="admin",
+        event_type="Meal Bolus",
+        created_at=datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(minutes=2),
+        insulin=0.0,
+        carbs=30.0,
+        fat=10.0,
+        protein=10.0,
+        fiber=0.0,
+        notes="Hermes Imported from Health: different-existing-meal #imported",
+        entered_by="webhook-integration",
+        is_uploaded=False,
+    )
+    caplog.set_level("INFO", logger="app.api.integrations")
+
+    response = client.post(
+        "/api/integrations/nutrition?key=test-ingest-secret",
+        json=_health_connect_meal_payload(timestamp, fingerprint),
+    )
+
+    assert response.status_code == 200
+    assert response.json()["ingested_count"] == 1
+    assert "nutrition_dedup_shadow" in caplog.text
+    assert "classification=ambiguous" in caplog.text
+    assert len(_fetch_all_treatments(client)) == 2
 
 
 def test_rejects_missing_or_wrong_secret(client: TestClient):
