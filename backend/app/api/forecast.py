@@ -1562,8 +1562,8 @@ async def simulate_forecast(
         # 2. Apply Shift
         if onset_val > 0:
             for bolus in payload.events.boluses:
-                # Include boluses at t=0 (Now) or slightly past to ensure lag is applied
-                if bolus.time_offset_min >= -1:
+                # Historical/current injections already start their clock at the recorded time.
+                if bolus.time_offset_min > 0:
                     bolus.time_offset_min += onset_val
 
         # Calculate Resistance Multiplier (If not provided) in /simulate
