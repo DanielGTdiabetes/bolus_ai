@@ -17,6 +17,8 @@ logger = logging.getLogger("uvicorn")
 # Retry configuration for database connection
 DB_RETRY_ATTEMPTS = 10
 DB_RETRY_DELAY_SECONDS = 3
+POSTGRES_SCHEMA_INIT_LOCK_KEY = 684252915001
+
 
 
 async def wait_for_db_ready(max_attempts: int = DB_RETRY_ATTEMPTS, delay: float = DB_RETRY_DELAY_SECONDS) -> bool:
@@ -446,6 +448,36 @@ async def migrate_schema(conn):
         logger.error(f"❌ Database Migration Error: {e}")
         # Don't raise, allow app to try and start, but the error will be in logs.
 
+def _is_postgres_engine() -> bool:
+    return bool(_async_engine and _async_engine.url.drivername.startswith("postgresql"))
+
+
+async def _acquire_postgres_schema_init_lock(conn) -> bool:
+    """Serialize PostgreSQL startup DDL across concurrent app instances."""
+    if not _is_postgres_engine():
+        return False
+
+    logger.info("Waiting for PostgreSQL schema initialization advisory lock")
+    await conn.execute(text("SELECT pg_advisory_lock(:lock_key)"), {"lock_key": POSTGRES_SCHEMA_INIT_LOCK_KEY})
+    logger.info("Acquired PostgreSQL schema initialization advisory lock")
+    return True
+
+
+async def _release_postgres_schema_init_lock(conn) -> None:
+    """Release the startup DDL advisory lock, rolling back aborted tx first."""
+    if not _is_postgres_engine():
+        return
+
+    try:
+        await conn.rollback()
+    except Exception as exc:
+        logger.warning("Could not rollback before releasing schema init lock: %s", exc)
+
+    await conn.execute(text("SELECT pg_advisory_unlock(:lock_key)"), {"lock_key": POSTGRES_SCHEMA_INIT_LOCK_KEY})
+    await conn.commit()
+    logger.info("Released PostgreSQL schema initialization advisory lock")
+
+
 async def _ensure_postgres_public_schema(conn):
     """Ensure PostgreSQL connections have a usable schema before DDL.
 
@@ -457,7 +489,7 @@ async def _ensure_postgres_public_schema(conn):
     app robust even when connection-level server_settings are ignored by a
     proxy or were not applied to an already-open connection.
     """
-    if not _async_engine or _async_engine.url.drivername.startswith("sqlite"):
+    if not _is_postgres_engine():
         return
 
     await conn.execute(text("CREATE SCHEMA IF NOT EXISTS public"))
@@ -474,13 +506,22 @@ async def create_tables():
     for attempt in range(1, DB_RETRY_ATTEMPTS + 1):
         try:
             async with _async_engine.connect() as conn:
-                await _ensure_postgres_public_schema(conn)
-                # Create all (only creates new tables)
-                await conn.run_sync(Base.metadata.create_all)
-                # Apply column migrations
-                await migrate_schema(conn)
-                logger.info(f"✅ Database tables created (attempt {attempt})")
-                return
+                lock_acquired = False
+                try:
+                    lock_acquired = await _acquire_postgres_schema_init_lock(conn)
+                    await _ensure_postgres_public_schema(conn)
+                    # Create all (only creates new tables)
+                    await conn.run_sync(Base.metadata.create_all)
+                    # Apply column migrations
+                    await migrate_schema(conn)
+                    logger.info(f"✅ Database tables created (attempt {attempt})")
+                    return
+                finally:
+                    if lock_acquired:
+                        try:
+                            await _release_postgres_schema_init_lock(conn)
+                        except Exception as exc:
+                            logger.error("Failed to release PostgreSQL schema init lock: %s", exc)
         except Exception as e:
             last_error = e
             error_msg = str(e).lower()
