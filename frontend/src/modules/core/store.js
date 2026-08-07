@@ -1,4 +1,5 @@
-import { getStoredToken, getStoredUser, getSettings, putSettings, importSettings, fetchMe, saveSession } from '../../lib/api';
+import { getStoredToken, getStoredUser, getSettings, putSettings, importSettings, fetchMe, saveSession, clearSession } from '../../lib/api';
+import { sessionUserFromResponse } from './authRouting.js';
 
 // Keys
 const CALC_PARAMS_KEY = "bolusai_calc_params";
@@ -229,14 +230,15 @@ export async function validateStoredSession() {
     state.loadingUser = true;
     try {
         const data = await fetchMe();
-        if (data?.user) {
-            state.user = data.user;
-            saveSession(state.token, state.user);
-        }
+        const user = sessionUserFromResponse(data);
+        if (!user) throw new Error("Respuesta de sesión inválida");
+        state.user = user;
+        saveSession(state.token, state.user);
         return true;
     } catch (e) {
         const message = e?.message || "";
-        if (message.includes("Sesi") || message.includes("auth") || message.includes("token")) {
+        if (message.includes("Sesi") || message.includes("sesi") || message.includes("auth") || message.includes("token")) {
+            clearSession();
             state.token = null;
             state.user = null;
         }
