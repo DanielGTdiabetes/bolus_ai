@@ -496,6 +496,14 @@ async def _lock_postgres_schema_initialization(conn):
     )
 
 
+def _create_metadata_tables(sync_conn, force_public_schema: bool) -> None:
+    if force_public_schema:
+        sync_conn = sync_conn.execution_options(
+            schema_translate_map={None: "public"},
+        )
+    Base.metadata.create_all(sync_conn)
+
+
 async def create_tables():
     """Create database tables with retry logic for container startup."""
     if not _async_engine:
@@ -509,7 +517,11 @@ async def create_tables():
                 await _ensure_postgres_public_schema(conn)
                 await _lock_postgres_schema_initialization(conn)
                 # Create all (only creates new tables)
-                await conn.run_sync(Base.metadata.create_all)
+                force_public_schema = not _async_engine.url.drivername.startswith("sqlite")
+                await conn.run_sync(
+                    _create_metadata_tables,
+                    force_public_schema,
+                )
                 # Apply column migrations
                 await migrate_schema(conn)
                 logger.info(f"✅ Database tables created (attempt {attempt})")
