@@ -96,7 +96,9 @@ export function CompanionPanel({ showPreferences = false }) {
                             {isSnoozed && <div style={{ color: '#6366f1', fontSize: '0.78rem', marginTop: '0.35rem' }}>Silenciado temporalmente</div>}
                             {isAcknowledged && <div style={{ color: '#0f766e', fontSize: '0.78rem', marginTop: '0.35rem' }}>Entendido · sigo vigilando</div>}
                             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginTop: '0.7rem' }}>
-                                <Button size="sm" onClick={() => navigate(episode.route)}>Revisar</Button>
+                                <Button size="sm" onClick={() => navigate(episode.route)}>
+                                    {episode.action_label || episode.context?.action_label || 'Revisar'}
+                                </Button>
                                 {!isSnoozed && !isAcknowledged && <Button size="sm" variant="secondary" onClick={() => act(episode.id, 'acknowledge')}>Entendido</Button>}
                                 {!isSnoozed && !isAcknowledged && <Button size="sm" variant="ghost" onClick={() => act(episode.id, 'snooze', 30)}>30 min</Button>}
                                 <Button size="sm" variant="ghost" onClick={() => act(episode.id, 'dismiss')}>Descartar</Button>

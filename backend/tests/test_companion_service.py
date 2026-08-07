@@ -8,6 +8,7 @@ from sqlalchemy import select
 from app.core.db import get_db_session_context
 from app.models.companion import CompanionEpisode
 from app.services.companion_service import (
+    _sustained_high_guidance,
     _upsert_episode,
     _utcnow,
     act_on_episode,
@@ -17,6 +18,25 @@ from app.services.companion_service import (
     resolve_episode_by_fingerprint,
 )
 from app.models.schemas import NightscoutSGV
+
+
+def test_sustained_high_guidance_waits_when_insulin_is_active():
+    message, route, context = _sustained_high_guidance(1.2)
+
+    assert route == "#/forecast"
+    assert context["action_label"] == "Ver tendencia"
+    assert context["correction_status"] == "wait_active_insulin"
+    assert "No añadas ahora otra dosis de corrección" in message
+    assert "calculadora" not in message
+
+
+def test_sustained_high_guidance_opens_correction_only_with_low_iob():
+    message, route, context = _sustained_high_guidance(0.2)
+
+    assert route == "#/bolus"
+    assert context["action_label"] == "Valorar corrección"
+    assert context["correction_status"] == "review_possible"
+    assert "calculadora" in message
 
 
 @pytest.mark.asyncio

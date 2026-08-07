@@ -32,6 +32,7 @@ def _aware(value: Optional[datetime]) -> Optional[datetime]:
 
 
 def serialize_episode(row: CompanionEpisode) -> dict[str, Any]:
+    context = row.context or {}
     return {
         "id": str(row.id),
         "kind": row.kind,
@@ -40,13 +41,33 @@ def serialize_episode(row: CompanionEpisode) -> dict[str, Any]:
         "title": row.title,
         "message": row.message,
         "route": row.route,
-        "context": row.context or {},
+        "context": context,
+        "action_label": context.get("action_label") or "Revisar",
         "opened_at": _aware(row.opened_at),
         "updated_at": _aware(row.updated_at),
         "last_notified_at": _aware(row.last_notified_at),
         "acknowledged_at": _aware(row.acknowledged_at),
         "snoozed_until": _aware(row.snoozed_until),
     }
+
+
+def _sustained_high_guidance(iob_u: float) -> tuple[str, str, dict[str, str]]:
+    """Keep the high-glucose action consistent with the active-insulin advice."""
+    if iob_u >= 0.5:
+        return (
+            f"Llevas varias lecturas altas y aún quedan aproximadamente {iob_u:.1f} U activas. "
+            "No añadas ahora otra dosis de corrección: abre la tendencia y espera a comprobar "
+            "el efecto para evitar solapamientos.",
+            "#/forecast",
+            {"action_label": "Ver tendencia", "correction_status": "wait_active_insulin"},
+        )
+    return (
+        "La glucosa sigue alta y hay poca insulina activa. Revisa primero la tendencia, los "
+        "hidratos pendientes y otras causas posibles; si quieres, valora una corrección en la "
+        "calculadora, que aplicará tus parámetros e IOB.",
+        "#/bolus",
+        {"action_label": "Valorar corrección", "correction_status": "review_possible"},
+    )
 
 
 async def get_or_create_preferences(user_id: str, db: AsyncSession) -> CompanionPreference:
@@ -409,19 +430,16 @@ async def evaluate_companion_state(user_id: str, db: AsyncSession) -> dict[str, 
                     fingerprint = "sustained_high:active"
                     observed.add(fingerprint)
                     snapshot["state"] = "needs_attention"
-                    if iob >= 0.5:
-                        message = (
-                            f"Llevas varias lecturas altas y aún quedan unas {iob:.1f} U activas. "
-                            "Evita apilar insulina: revisa la tendencia y espera el efecto antes de recalcular."
-                        )
-                    else:
-                        message = (
-                            "La glucosa sigue alta y hay poca insulina activa. Revisa causas posibles "
-                            "y abre la calculadora si quieres valorar una corrección con tus parámetros."
-                        )
+                    message, route, action_context = _sustained_high_guidance(iob)
                     await _upsert_episode(
                         user_id, fingerprint, "sustained_high", "high", "Glucosa alta mantenida",
-                        message, "#/bolus", {"bg": current_bg, "slope": round(slope, 2), "iob_u": iob, "cob_g": cob}, db,
+                        message, route, {
+                            "bg": current_bg,
+                            "slope": round(slope, 2),
+                            "iob_u": iob,
+                            "cob_g": cob,
+                            **action_context,
+                        }, db,
                     )
                 elif slope >= 1.5 and predicted >= 160:
                     fingerprint = "rapid_rise:active"
