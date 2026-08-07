@@ -8,10 +8,11 @@
     "build": "vite build",
     "preview": "vite preview",
     "smoke": "node scripts/smoke-preview.mjs",
-    "test": "npm run test:api-client && npm run test:simulation-utils && npm run test:simulation-payload",
+    "test": "npm run test:api-client && npm run test:simulation-utils && npm run test:simulation-payload && npm run test:frontend-recovery",
     "test:api-client": "node tests/apiClientCore.test.js",
     "test:simulation-utils": "node tests/bolusSimulationUtils.test.js",
-    "test:simulation-payload": "node tests/simulation_payload.test.js"
+    "test:simulation-payload": "node tests/simulation_payload.test.js",
+    "test:frontend-recovery": "node tests/frontendRecovery.test.js"
   },
   "devDependencies": {
     "@types/react": "^19.2.7",
