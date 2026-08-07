@@ -176,7 +176,7 @@ export default function NotificationsPage() {
 
     return (
         <>
-            <Header title="Notificaciones" showBack={true} />
+            <Header title="Compañero" showBack={false} />
             <main className="page" style={{ padding: '1rem' }}>
                 <CompanionPanel showPreferences={true} />
                 <h3 style={{ marginBottom: '1rem', color: '#64748b' }}>Avisos y Alertas</h3>
@@ -271,7 +271,7 @@ export default function NotificationsPage() {
                     ))}
                 </div>
             </main>
-            <BottomNav />
+            <BottomNav activeTab="companion" />
         </>
     );
 }

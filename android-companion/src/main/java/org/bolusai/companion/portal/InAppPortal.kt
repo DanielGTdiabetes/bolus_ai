@@ -37,6 +37,8 @@ import androidx.compose.ui.unit.dp
 import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.platform.LocalContext
@@ -68,6 +70,31 @@ class AndroidScaleInterface(
     }
 }
 
+class AndroidCompanionInterface(
+    private val onOpenMobileHome: () -> Unit,
+    private val onOpenDiagnostics: () -> Unit,
+    private val onOpenMobileSettings: () -> Unit,
+    private val onOpenNativeScale: () -> Unit,
+) {
+    private val mainHandler = Handler(Looper.getMainLooper())
+
+    private fun dispatch(action: () -> Unit) {
+        mainHandler.post(action)
+    }
+
+    @android.webkit.JavascriptInterface
+    fun openMobileHome() = dispatch(onOpenMobileHome)
+
+    @android.webkit.JavascriptInterface
+    fun openDiagnostics() = dispatch(onOpenDiagnostics)
+
+    @android.webkit.JavascriptInterface
+    fun openMobileSettings() = dispatch(onOpenMobileSettings)
+
+    @android.webkit.JavascriptInterface
+    fun openNativeScale() = dispatch(onOpenNativeScale)
+}
+
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 fun InAppPortal(
@@ -75,6 +102,9 @@ fun InAppPortal(
     scaleManager: ProzisScaleManager,
     route: String,
     onOpenNativeScale: () -> Unit,
+    onOpenMobileHome: () -> Unit,
+    onOpenDiagnostics: () -> Unit,
+    onOpenMobileSettings: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -121,6 +151,19 @@ fun InAppPortal(
         AndroidScaleInterface(scaleManager) {
             connectScaleWithPermission()
         }
+    }
+    val androidCompanionInterface = remember(
+        onOpenMobileHome,
+        onOpenDiagnostics,
+        onOpenMobileSettings,
+        onOpenNativeScale,
+    ) {
+        AndroidCompanionInterface(
+            onOpenMobileHome = onOpenMobileHome,
+            onOpenDiagnostics = onOpenDiagnostics,
+            onOpenMobileSettings = onOpenMobileSettings,
+            onOpenNativeScale = onOpenNativeScale,
+        )
     }
 
     val filePicker = rememberLauncherForActivityResult(
@@ -241,6 +284,7 @@ fun InAppPortal(
                         this.settings.allowFileAccess = false
                         this.settings.allowContentAccess = true
                         addJavascriptInterface(androidScaleInterface, "AndroidScaleInterface")
+                        addJavascriptInterface(androidCompanionInterface, "AndroidCompanionInterface")
                         webViewClient = object : WebViewClient() {
                             override fun shouldOverrideUrlLoading(
                                 view: WebView,
@@ -306,12 +350,16 @@ fun InAppPortal(
                                 return true
                             }
                         }
+                        tag = resolvedUrl
                         loadUrl(resolvedUrl!!)
                         webView = this
                     }
                 },
                 update = { view ->
-                    if (view.url != resolvedUrl) view.loadUrl(resolvedUrl!!)
+                    if (view.tag != resolvedUrl) {
+                        view.tag = resolvedUrl
+                        view.loadUrl(resolvedUrl!!)
+                    }
                 },
             )
         }

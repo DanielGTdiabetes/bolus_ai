@@ -163,6 +163,32 @@ header.topbar {
   font-size: 1.25rem;
 }
 
+.header-action-button,
+.brand-mark {
+  width: 38px;
+  height: 38px;
+  border: 0;
+  border-radius: 12px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.header-action-button {
+  background: var(--border-light);
+  color: var(--text-secondary);
+  font-size: 1.65rem;
+}
+
+.brand-mark {
+  background: linear-gradient(135deg, var(--primary), #2563eb);
+  color: white;
+  font-size: 1rem;
+  font-weight: 800;
+  box-shadow: 0 6px 16px rgba(13, 148, 136, 0.2);
+}
+
 .has-dot::after {
   content: '';
   position: absolute;
@@ -502,6 +528,8 @@ header.topbar {
   border-top: 1px solid var(--border-light);
   z-index: 100;
   box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.03);
+  padding-left: 0.35rem;
+  padding-right: 0.35rem;
 }
 
 .nav-btn {
@@ -512,16 +540,27 @@ header.topbar {
   background: none;
   border: none;
   color: var(--text-muted);
-  padding: 0.5rem;
+  padding: 0.45rem 0.2rem;
   width: 20%;
+  min-width: 0;
+  cursor: pointer;
+  border-radius: 14px;
 }
 
 .nav-btn.active {
   color: var(--primary);
+  background: var(--primary-soft);
 }
 
 .nav-icon {
-  font-size: 1.5rem;
+  width: 26px;
+  height: 26px;
+  border-radius: 9px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.15rem;
+  font-weight: 800;
   transition: transform 0.2s;
 }
 
@@ -532,6 +571,165 @@ header.topbar {
 .nav-lbl {
   font-size: 0.7rem;
   font-weight: 600;
+}
+
+/* --- UNIFIED MOBILE MENU --- */
+.menu-page {
+  padding-top: 0.5rem;
+}
+
+.menu-intro {
+  padding: 0.75rem 0 1rem;
+}
+
+.menu-intro h1 {
+  margin: 0.2rem 0 0.35rem;
+  color: var(--text-main);
+  font-size: 1.55rem;
+  line-height: 1.2;
+}
+
+.menu-intro p {
+  margin: 0;
+  color: #64748b;
+  font-size: 0.9rem;
+}
+
+.eyebrow {
+  color: var(--primary);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.menu-section {
+  margin-bottom: 1.25rem;
+}
+
+.menu-section > h2,
+.android-tools-heading h2 {
+  margin: 0 0 0.55rem;
+  color: #64748b;
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.menu-card {
+  margin: 0;
+  padding: 0;
+  border-radius: 18px;
+  box-shadow: 0 3px 18px rgba(15, 23, 42, 0.04);
+  overflow: hidden;
+}
+
+.menu-row {
+  width: 100%;
+  min-height: 68px;
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  padding: 0.75rem 0.9rem;
+  border: 0;
+  border-bottom: 1px solid var(--border-light);
+  background: white;
+  text-align: left;
+  cursor: pointer;
+}
+
+.menu-row:last-child {
+  border-bottom: 0;
+}
+
+.menu-row:active {
+  background: #f8fafc;
+}
+
+.menu-icon {
+  width: 40px;
+  height: 40px;
+  flex: 0 0 40px;
+  border-radius: 13px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.15rem;
+  font-weight: 800;
+}
+
+.menu-copy {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.menu-copy strong {
+  color: var(--text-secondary);
+  font-size: 0.94rem;
+}
+
+.menu-copy small {
+  color: #94a3b8;
+  font-size: 0.76rem;
+  line-height: 1.35;
+}
+
+.menu-chevron {
+  color: #cbd5e1;
+  font-size: 1.45rem;
+}
+
+.tone-indigo, .tone-violet { color: #6d28d9; background: #f5f3ff; }
+.tone-blue { color: #2563eb; background: #eff6ff; }
+.tone-teal, .tone-green { color: #0f766e; background: #ecfdf5; }
+.tone-amber, .tone-orange { color: #c2410c; background: #fff7ed; }
+.tone-pink, .tone-rose { color: #be185d; background: #fdf2f8; }
+.tone-cyan { color: #0369a1; background: #e0f2fe; }
+.tone-slate { color: #475569; background: #f1f5f9; }
+.tone-red { color: #b91c1c; background: #fef2f2; }
+
+.android-tools {
+  padding: 0.9rem;
+  border: 1px solid #a7f3d0;
+  border-radius: 20px;
+  background: linear-gradient(145deg, #ecfdf5, #eff6ff);
+}
+
+.android-tools-heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.65rem;
+}
+
+.android-tools-heading h2 {
+  margin: 0.12rem 0 0;
+  color: #0f766e;
+}
+
+.connected-pill {
+  padding: 0.22rem 0.55rem;
+  border-radius: 999px;
+  background: #d1fae5;
+  color: #047857;
+  font-size: 0.7rem;
+  font-weight: 750;
+}
+
+.logout-row {
+  width: 100%;
+  margin: 0.25rem 0 1rem;
+  padding: 0.85rem;
+  border: 1px solid #fecaca;
+  border-radius: 14px;
+  background: #fff;
+  color: #b91c1c;
+  font-weight: 700;
+  cursor: pointer;
 }
 
 /* --- FORMS & INPUTS (Bolus/Scan) --- */

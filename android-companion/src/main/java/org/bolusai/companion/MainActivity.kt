@@ -137,9 +137,9 @@ class MainActivity : ComponentActivity() {
 }
 
 private enum class CompanionScreen(val label: String) {
-    HOME("Inicio"),
+    HOME("Móvil"),
     PORTAL_MENU("Menú"),
-    BOLUS("Bolo"),
+    BOLUS("Sin conexión"),
     MEALS("Comidas"),
     DIAGNOSTICS("Estado"),
     SETTINGS("Más"),
@@ -148,18 +148,18 @@ private enum class CompanionScreen(val label: String) {
 }
 
 private val primaryScreens = listOf(
+    CompanionScreen.WEB,
     CompanionScreen.HOME,
-    CompanionScreen.PORTAL_MENU,
-    CompanionScreen.BOLUS,
+    CompanionScreen.DIAGNOSTICS,
     CompanionScreen.SETTINGS,
 )
 
 private val expandedScreens = listOf(
+    CompanionScreen.WEB,
     CompanionScreen.HOME,
-    CompanionScreen.PORTAL_MENU,
-    CompanionScreen.BOLUS,
-    CompanionScreen.MEALS,
     CompanionScreen.DIAGNOSTICS,
+    CompanionScreen.MEALS,
+    CompanionScreen.BOLUS,
     CompanionScreen.SETTINGS,
 )
 
@@ -200,56 +200,15 @@ fun BolusCompanionApp() {
 
     BolusAiTheme {
         if (screen == CompanionScreen.WEB) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(MaterialTheme.colorScheme.background),
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .statusBarsPadding()
-                        .background(MaterialTheme.colorScheme.surface)
-                        .padding(horizontal = 8.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(34.dp)
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(
-                                Brush.linearGradient(
-                                    listOf(
-                                        MaterialTheme.colorScheme.primary,
-                                        MaterialTheme.colorScheme.secondary,
-                                    ),
-                                ),
-                            ),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text("B", color = Color.White, fontWeight = FontWeight.Bold)
-                    }
-                    Text(
-                        "Bolus AI",
-                        style = MaterialTheme.typography.titleMedium,
-                        modifier = Modifier.weight(1f),
-                    )
-                    IconButton(onClick = { screen = CompanionScreen.PORTAL_MENU }) {
-                        Icon(Icons.Outlined.GridView, contentDescription = "Todas las funciones")
-                    }
-                    IconButton(onClick = { screen = CompanionScreen.SETTINGS }) {
-                        Icon(Icons.Outlined.Settings, contentDescription = "Integraciones Android")
-                    }
-                }
-                Box(Modifier.weight(1f)) {
-                    WebScreen(
-                        settings = settings,
-                        scaleManager = scaleManager,
-                        route = portalRoute,
-                        onOpenScale = { screen = CompanionScreen.SCALE },
-                    )
-                }
-            }
+            WebScreen(
+                settings = settings,
+                scaleManager = scaleManager,
+                route = portalRoute,
+                onOpenScale = { screen = CompanionScreen.SCALE },
+                onOpenMobileHome = { screen = CompanionScreen.HOME },
+                onOpenDiagnostics = { screen = CompanionScreen.DIAGNOSTICS },
+                onOpenMobileSettings = { screen = CompanionScreen.SETTINGS },
+            )
         } else {
             BoxWithConstraints(Modifier.fillMaxSize()) {
                 val expanded = maxWidth >= 600.dp
@@ -521,11 +480,11 @@ private fun HomeScreen(settings: AppSettings, queueItems: List<MealQueueItem>, n
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 QuickActionCard(
-                    title = "Todo Bolus AI",
-                    subtitle = "Abrir funciones",
-                    icon = Icons.Outlined.GridView,
+                    title = "Volver a Bolus AI",
+                    subtitle = "Inicio y compañero",
+                    icon = Icons.Outlined.Cloud,
                     modifier = Modifier.weight(1f),
-                ) { navigate(CompanionScreen.PORTAL_MENU) }
+                ) { navigate(CompanionScreen.WEB) }
                 QuickActionCard(
                     title = "Sincronizar",
                     subtitle = if (pendingCount > 0) "$pendingCount pendientes" else "Todo al día",
@@ -1571,12 +1530,18 @@ private fun WebScreen(
     scaleManager: ProzisScaleManager,
     route: String,
     onOpenScale: () -> Unit,
+    onOpenMobileHome: () -> Unit,
+    onOpenDiagnostics: () -> Unit,
+    onOpenMobileSettings: () -> Unit,
 ) {
     InAppPortal(
         settings = settings,
         scaleManager = scaleManager,
         route = route,
         onOpenNativeScale = onOpenScale,
+        onOpenMobileHome = onOpenMobileHome,
+        onOpenDiagnostics = onOpenDiagnostics,
+        onOpenMobileSettings = onOpenMobileSettings,
     )
 }
 

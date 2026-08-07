@@ -3,22 +3,21 @@ import { navigate } from '../../modules/core/navigation';
 
 export function BottomNav({ activeTab = 'home' }) {
     const items = [
-        { id: 'home', icon: '🏠', label: 'Inicio', hash: '#/' },
-        { id: 'scan', icon: '📷', label: 'Escanear', hash: '#/scan' },
-        { id: 'bolus', icon: '💉', label: 'Bolo', hash: '#/bolus' },
-        { id: 'basal', icon: '📉', label: 'Basal', hash: '#/basal' },
-        { id: 'forecast', icon: '🔮', label: 'Futuro', hash: '#/forecast' },
-        { id: 'menu', icon: '☰', label: 'Menú', hash: '#/menu' }
+        { id: 'home', icon: '⌂', label: 'Inicio', hash: '#/', aliases: ['home'] },
+        { id: 'companion', icon: '♥', label: 'Compañero', hash: '#/notifications', aliases: ['companion', 'notifications', 'forecast', 'basal', 'suggestions'] },
+        { id: 'scan', icon: '◎', label: 'Escanear', hash: '#/scan', aliases: ['scan', 'scale'] },
+        { id: 'bolus', icon: '+', label: 'Bolo', hash: '#/bolus', aliases: ['bolus'] },
+        { id: 'menu', icon: '☰', label: 'Más', hash: '#/menu', aliases: ['menu', 'history', 'settings', 'learning', 'supplies'] }
     ];
 
     return (
-        <nav className="bottom-nav" style={{ overflowX: 'auto', justifyContent: 'flex-start', gap: '0.5rem', paddingLeft: '0.5rem', paddingRight: '0.5rem' }}>
+        <nav className="bottom-nav" aria-label="Navegación principal">
             {items.map(item => (
                 <button
                     key={item.id}
-                    className={`nav-btn ${activeTab === item.id ? 'active' : ''}`}
+                    className={`nav-btn ${item.aliases.includes(activeTab) ? 'active' : ''}`}
                     onClick={() => navigate(item.hash)}
-                    style={{ minWidth: '60px', width: 'auto', padding: '0.5rem 0.2rem' }}
+                    aria-current={item.aliases.includes(activeTab) ? 'page' : undefined}
                 >
                     <span className="nav-icon">{item.icon}</span>
                     <span className="nav-lbl">{item.label}</span>
