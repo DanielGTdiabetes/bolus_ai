@@ -9,6 +9,7 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy import text, select
 from sqlalchemy.engine import make_url
 from sqlalchemy.pool import NullPool, StaticPool
+from sqlalchemy.schema import CreateIndex, CreateTable
 
 from app.core.settings import get_settings
 
@@ -501,47 +502,20 @@ def _create_metadata_tables(sync_conn, force_public_schema: bool) -> None:
         Base.metadata.create_all(sync_conn)
         return
 
-    # On Neon, SQLAlchemy's table inspector can occasionally report an
-    # existing relation as missing through the pooled asyncpg connection.  A
-    # subsequent CREATE TABLE then aborts startup with DuplicateTableError.
-    # Read PostgreSQL's catalogue directly and only create genuinely missing
-    # tables.  Existing data is never altered by this step.
-    existing_tables = set()
-    for table in Base.metadata.sorted_tables:
-        relation_kind = sync_conn.execute(
-            text(
-                """
-                SELECT c.relkind
-                FROM pg_catalog.pg_class AS c
-                JOIN pg_catalog.pg_namespace AS n ON n.oid = c.relnamespace
-                WHERE n.nspname = 'public' AND c.relname = :table_name
-                """
-            ),
-            {"table_name": table.name},
-        ).scalar_one_or_none()
-        if relation_kind in {"r", "p", "f"}:
-            existing_tables.add(table.name)
-        elif relation_kind is not None:
-            raise RuntimeError(
-                f"PostgreSQL relation public.{table.name} has incompatible "
-                f"kind {relation_kind!r}; refusing to overwrite it"
-            )
-
-    missing_tables = [
-        table for table in Base.metadata.sorted_tables
-        if table.name not in existing_tables
-    ]
-    if not missing_tables:
-        return
-
+    # Neon can race between SQLAlchemy's existence check and CREATE TABLE
+    # during a Render rollout. PostgreSQL's native IF NOT EXISTS is atomic,
+    # so an already-present relation is preserved instead of aborting startup.
     public_conn = sync_conn.execution_options(
         schema_translate_map={None: "public"},
     )
-    Base.metadata.create_all(
-        public_conn,
-        tables=missing_tables,
-        checkfirst=False,
-    )
+    for table in Base.metadata.sorted_tables:
+        public_conn.execute(CreateTable(table, if_not_exists=True))
+
+    # Table.create normally creates explicit indexes after the table. Mirror
+    # that behavior with the same atomic protection.
+    for table in Base.metadata.sorted_tables:
+        for index in table.indexes:
+            public_conn.execute(CreateIndex(index, if_not_exists=True))
 
 
 async def create_tables():
