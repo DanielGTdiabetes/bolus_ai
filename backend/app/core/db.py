@@ -17,6 +17,24 @@ logger = logging.getLogger("uvicorn")
 # Retry configuration for database connection
 DB_RETRY_ATTEMPTS = 10
 DB_RETRY_DELAY_SECONDS = 3
+SCHEMA_INIT_ADVISORY_LOCK_ID = 2026080701
+
+
+def _is_schema_init_retryable(exc: Exception) -> bool:
+    error_msg = str(exc).lower()
+    transient_phrases = (
+        "shutting down",
+        "connection refused",
+        "could not connect",
+        "connection reset",
+        "timeout",
+        "not ready",
+    )
+    schema_race = (
+        "duplicatetableerror" in error_msg
+        or ("relation" in error_msg and "already exists" in error_msg)
+    )
+    return schema_race or any(phrase in error_msg for phrase in transient_phrases)
 
 
 async def wait_for_db_ready(max_attempts: int = DB_RETRY_ATTEMPTS, delay: float = DB_RETRY_DELAY_SECONDS) -> bool:
@@ -464,6 +482,20 @@ async def _ensure_postgres_public_schema(conn):
     await conn.execute(text("SET search_path TO public"))
 
 
+async def _lock_postgres_schema_initialization(conn):
+    """Serialize startup DDL across overlapping Render/NAS processes.
+
+    The transaction-level lock is released automatically by the commit in
+    ``migrate_schema`` or by rollback when the connection context exits.
+    """
+    if not _async_engine or _async_engine.url.drivername.startswith("sqlite"):
+        return
+    await conn.execute(
+        text("SELECT pg_advisory_xact_lock(:lock_id)"),
+        {"lock_id": SCHEMA_INIT_ADVISORY_LOCK_ID},
+    )
+
+
 async def create_tables():
     """Create database tables with retry logic for container startup."""
     if not _async_engine:
@@ -475,6 +507,7 @@ async def create_tables():
         try:
             async with _async_engine.connect() as conn:
                 await _ensure_postgres_public_schema(conn)
+                await _lock_postgres_schema_initialization(conn)
                 # Create all (only creates new tables)
                 await conn.run_sync(Base.metadata.create_all)
                 # Apply column migrations
@@ -483,21 +516,10 @@ async def create_tables():
                 return
         except Exception as e:
             last_error = e
-            error_msg = str(e).lower()
-
-            # Check if it's a transient connection error
-            is_transient = any(phrase in error_msg for phrase in [
-                "shutting down",
-                "connection refused",
-                "could not connect",
-                "connection reset",
-                "timeout",
-                "not ready",
-            ])
-
-            if is_transient and attempt < DB_RETRY_ATTEMPTS:
+            if _is_schema_init_retryable(e) and attempt < DB_RETRY_ATTEMPTS:
                 logger.warning(
-                    f"⏳ Database not ready (attempt {attempt}/{DB_RETRY_ATTEMPTS}): {e}. "
+                    f"⏳ Database schema initialization will retry "
+                    f"(attempt {attempt}/{DB_RETRY_ATTEMPTS}): {type(e).__name__}. "
                     f"Retrying in {DB_RETRY_DELAY_SECONDS}s..."
                 )
                 await asyncio.sleep(DB_RETRY_DELAY_SECONDS)
