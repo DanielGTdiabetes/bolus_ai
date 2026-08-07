@@ -7,34 +7,73 @@ import org.json.JSONObject
 class GlucoseQueueRepository(context: Context) {
     private val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
-    @Synchronized
     fun enqueue(readings: List<GlucoseReading>) {
         if (readings.isEmpty()) return
-        val merged = (load() + readings)
-            .distinctBy { it.dedupeKey }
-            .sortedBy { it.timestampSeconds }
-            .takeLast(MAX_QUEUE_SIZE)
-        merged.lastOrNull()?.let { persistLatest(it) }
-        persist(merged)
+        synchronized(PROCESS_LOCK) {
+            val merged = GlucoseQueueCodec.merge(load(), readings, MAX_QUEUE_SIZE)
+            val editor = prefs.edit().putString(KEY, GlucoseQueueCodec.encode(merged))
+            merged.lastOrNull()?.let { editor.putString(KEY_LATEST, it.toJson().toString()) }
+            editor.apply()
+        }
     }
 
-    @Synchronized
-    fun pending(): List<GlucoseReading> = load()
+    fun pending(): List<GlucoseReading> = synchronized(PROCESS_LOCK) { load() }
 
-    @Synchronized
     fun latest(maxAgeMillis: Long, nowMillis: Long = System.currentTimeMillis()): GlucoseReading? {
-        val latest = loadLatest() ?: return null
-        val ageMillis = nowMillis - latest.timestampSeconds * 1000
-        return latest.takeIf { ageMillis in 0..maxAgeMillis }
+        return synchronized(PROCESS_LOCK) {
+            val latest = loadLatest() ?: return@synchronized null
+            val ageMillis = nowMillis - latest.timestampSeconds * 1000
+            latest.takeIf { ageMillis in 0..maxAgeMillis }
+        }
     }
 
-    @Synchronized
     fun markSent(reading: GlucoseReading) {
-        persist(load().filterNot { it.dedupeKey == reading.dedupeKey })
+        synchronized(PROCESS_LOCK) {
+            val remaining = load().filterNot { it.dedupeKey == reading.dedupeKey }
+            prefs.edit().putString(KEY, GlucoseQueueCodec.encode(remaining)).apply()
+        }
     }
 
-    private fun load(): List<GlucoseReading> = runCatching {
-        val array = JSONArray(prefs.getString(KEY, "[]"))
+    private fun load(): List<GlucoseReading> =
+        GlucoseQueueCodec.decode(prefs.getString(KEY, "[]").orEmpty())
+
+    private fun loadLatest(): GlucoseReading? = runCatching {
+        val item = JSONObject(prefs.getString(KEY_LATEST, "") ?: "")
+        GlucoseReading(
+            glucoseMgdl = item.getInt("glucose_mgdl"),
+            timestampSeconds = item.getLong("timestamp"),
+            trendArrow = item.optString("trend_arrow", "NONE"),
+            sensorType = item.optString("sensor_type", "G7"),
+            sourcePackage = item.optString("source_package", "com.dexcom.g7"),
+        ).takeIf { GlucoseReading.isValid(it.glucoseMgdl, it.timestampSeconds) }
+    }.getOrNull()
+
+    private companion object {
+        const val PREFS = "bolus_ai_dexcom_glucose_queue"
+        const val KEY = "pending"
+        const val KEY_LATEST = "latest"
+        const val MAX_QUEUE_SIZE = 2_016 // Seven days at one reading every five minutes.
+        val PROCESS_LOCK = Any()
+    }
+}
+
+internal object GlucoseQueueCodec {
+    fun merge(
+        existing: List<GlucoseReading>,
+        incoming: List<GlucoseReading>,
+        maxSize: Int,
+    ): List<GlucoseReading> = (existing + incoming)
+        .filter { GlucoseReading.isValid(it.glucoseMgdl, it.timestampSeconds) }
+        .distinctBy { it.dedupeKey }
+        .sortedBy { it.timestampSeconds }
+        .takeLast(maxSize)
+
+    fun encode(readings: List<GlucoseReading>): String = JSONArray().apply {
+        readings.forEach { put(JSONObject(it.toJson().toString())) }
+    }.toString()
+
+    fun decode(raw: String): List<GlucoseReading> = runCatching {
+        val array = JSONArray(raw.ifBlank { "[]" })
         buildList {
             for (index in 0 until array.length()) {
                 val item = array.getJSONObject(index)
@@ -49,32 +88,4 @@ class GlucoseQueueRepository(context: Context) {
             }
         }
     }.getOrDefault(emptyList())
-
-    private fun persist(readings: List<GlucoseReading>) {
-        val array = JSONArray()
-        readings.forEach { array.put(JSONObject(it.toJson().toString())) }
-        prefs.edit().putString(KEY, array.toString()).apply()
-    }
-
-    private fun loadLatest(): GlucoseReading? = runCatching {
-        val item = JSONObject(prefs.getString(KEY_LATEST, "") ?: "")
-        GlucoseReading(
-            glucoseMgdl = item.getInt("glucose_mgdl"),
-            timestampSeconds = item.getLong("timestamp"),
-            trendArrow = item.optString("trend_arrow", "NONE"),
-            sensorType = item.optString("sensor_type", "G7"),
-            sourcePackage = item.optString("source_package", "com.dexcom.g7"),
-        ).takeIf { GlucoseReading.isValid(it.glucoseMgdl, it.timestampSeconds) }
-    }.getOrNull()
-
-    private fun persistLatest(reading: GlucoseReading) {
-        prefs.edit().putString(KEY_LATEST, reading.toJson().toString()).apply()
-    }
-
-    private companion object {
-        const val PREFS = "bolus_ai_dexcom_glucose_queue"
-        const val KEY = "pending"
-        const val KEY_LATEST = "latest"
-        const val MAX_QUEUE_SIZE = 2_016 // Seven days at one reading every five minutes.
-    }
 }

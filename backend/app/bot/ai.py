@@ -3,6 +3,7 @@ import asyncio
 import google.generativeai as genai
 from typing import Optional, Literal
 from app.core import config
+from app.services.vision import PROMPT_SYSTEM as FOOD_VISION_PROMPT
 
 logger = logging.getLogger(__name__)
 
@@ -61,7 +62,7 @@ async def analyze_image(image_bytes: bytes, mime_type: str = "image/jpeg", api_k
             
             # Add Timeout (25s)
             response = await asyncio.wait_for(
-                model.generate_content_async([prompt, cookie_picture]),
+                model.generate_content_async([FOOD_VISION_PROMPT, prompt, cookie_picture]),
                 timeout=25.0
             )
             return response.text

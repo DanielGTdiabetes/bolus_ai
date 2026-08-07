@@ -1843,7 +1843,9 @@ async def run_glucose_monitor_job() -> None:
         return
 
     try:
-        await proactive.trend_alert(trigger="auto")
+        # A single persistent episode engine owns proactive glucose alerts.
+        # This survives restarts/failover and avoids duplicate trend messages.
+        await proactive.companion_check(trigger="auto")
         
         # [ML] Data Collection Step
         try:
@@ -2335,6 +2337,17 @@ async def on_new_meal_received(carbs: float, fat: float, protein: float, fiber: 
     # 1. Gather Context
     store = DataStore(Path(settings.data.data_dir))
     user_settings, resolved_user_id = await resolve_bot_user_settings()
+    companion_user_id = resolved_user_id or config.get_bot_default_username()
+
+    if origin_id:
+        from app.services.companion_service import get_episode_by_fingerprint
+        async with SessionLocal() as session:
+            existing_episode = await get_episode_by_fingerprint(
+                companion_user_id, f"meal_detected:{origin_id}", session
+            )
+        if existing_episode and existing_episode.status not in ("resolved", "expired"):
+            logger.info("meal_event_persistent_duplicate_skipped event_id=%s", origin_id)
+            return
     
     bg_val = None
     bg_trend = None
@@ -2514,6 +2527,17 @@ async def on_new_meal_received(carbs: float, fat: float, protein: float, fiber: 
     # 3. Message (Strict Format matching Core Engine)
     # -----------------------------------------------------
     rec_u = rec.total_u_final
+
+    downward_trends = {"DoubleDown", "SingleDown", "FortyFiveDown", "down", "falling"}
+    configured_wait = max(0, int(user_settings.insulin.pre_bolus_min or 0))
+    if bg_val is None or is_stale_reading:
+        wait_message = "Espera previa: sin estimar porque la glucosa no es fiable."
+    elif bg_val < 90 or bg_trend in downward_trends:
+        wait_message = "Espera previa: no recomendada con glucosa baja o descendente; revisa tu pauta."
+    elif rec_u <= 0:
+        wait_message = "Espera previa: no aplica porque no hay bolo de comida."
+    else:
+        wait_message = f"Espera orientativa tras confirmar el bolo: {configured_wait} min (tu perfil)."
     
     lines = []
     # Sanitize source for MarkdownV2
@@ -2530,6 +2554,8 @@ async def on_new_meal_received(carbs: float, fat: float, protein: float, fiber: 
     lines.append(f"🍽️ **Nueva Comida Detectada** ({safe_source})")
     lines.append("")
     lines.append(f"Resultado: **{rec_u} U**")
+    lines.append("")
+    lines.append(wait_message)
     lines.append("")
     
     # Use the explanation from the core engine to match App exactly
@@ -2579,6 +2605,24 @@ async def on_new_meal_received(carbs: float, fat: float, protein: float, fiber: 
             parse_mode="Markdown",
             log_context="proactive_meal",
         )
+        if origin_id:
+            from app.services.companion_service import record_meal_episode
+            async with SessionLocal() as session:
+                await record_meal_episode(
+                    companion_user_id,
+                    origin_id,
+                    wait_message,
+                    {
+                        "carbs_g": carbs,
+                        "fat_g": fat,
+                        "protein_g": protein,
+                        "fiber_g": fiber,
+                        "bg": bg_val,
+                        "trend": bg_trend,
+                        "wait_minutes": configured_wait if "orientativa" in wait_message else None,
+                    },
+                    session,
+                )
     except Exception as e:
         logger.error(f"Failed to send proactive message: {e}")
 
@@ -2680,6 +2724,14 @@ async def _handle_snapshot_callback(query, data: str) -> None:
                   await edit_message_text_safe(query, f"{base_text}\n\n❌ Descartado.")
              
              _get_snapshot_store().pop(request_id, None)
+             if origin_id:
+                  from app.services.companion_service import resolve_episode_by_fingerprint
+                  async with SessionLocal() as session:
+                       await resolve_episode_by_fingerprint(
+                           snapshot.get("user_id") or config.get_bot_default_username(),
+                           f"meal_detected:{origin_id}",
+                           session,
+                       )
              return
             
         rec = snapshot.get("rec")
@@ -2738,6 +2790,15 @@ async def _handle_snapshot_callback(query, data: str) -> None:
             health.record_action(f"callback:accept:{request_id}", False, error_msg)
             await edit_message_text_safe(query, text=f"{base_text}\n\n❌ Error: {_escape_md_v1(error_msg)}", parse_mode="Markdown")
             return
+
+        if origin_id:
+             from app.services.companion_service import resolve_episode_by_fingerprint
+             async with SessionLocal() as session:
+                  await resolve_episode_by_fingerprint(
+                      snapshot.get("user_id") or config.get_bot_default_username(),
+                      f"meal_detected:{origin_id}",
+                      session,
+                  )
 
         success_msg = f"{base_text}\n\nRegistrado ✅ {units} U"
         if dual_info: success_msg += dual_info
@@ -2895,6 +2956,36 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     # Always Answer
     try: await query.answer()
     except: pass
+
+    # --- Persistent Companion Episode ---
+    if data.startswith("companion|"):
+        try:
+            _, action, episode_id = data.split("|", 2)
+            action_map = {"ack": "acknowledge", "snooze": "snooze", "dismiss": "dismiss"}
+            if action not in action_map:
+                raise ValueError("unknown companion action")
+            user_settings, resolved_user_id = await get_bot_user_settings_with_user_id()
+            username = _resolve_bolus_user_id(user_settings, resolved_user_id)
+            from uuid import UUID
+            from app.services.companion_service import act_on_episode
+            async with SessionLocal() as session:
+                row = await act_on_episode(
+                    username, UUID(episode_id), action_map[action], session,
+                    snooze_minutes=30,
+                )
+            suffix = {
+                "ack": "✅ Entendido. Seguiré vigilando sin repetir este aviso.",
+                "snooze": "🔕 Silenciado 30 minutos.",
+                "dismiss": "🗑️ Aviso descartado hasta que la situación se resuelva y vuelva a aparecer.",
+            }[action]
+            original = query.message.text or row.title
+            await edit_message_text_safe(query, f"{original}\n\n{suffix}")
+            health.record_action(f"companion:{action}", True)
+        except Exception as exc:
+            logger.error("Companion callback failed: %s", exc)
+            await edit_message_text_safe(query, "No he podido guardar la acción. Inténtalo de nuevo.")
+            health.record_action("companion:callback", False, str(exc))
+        return
 
     # --- Autosens Flow ---
     if data.startswith("autosens_confirm|"):

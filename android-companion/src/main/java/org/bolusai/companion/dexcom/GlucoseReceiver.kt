@@ -4,13 +4,19 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
+import com.wtachtsugar.shared.GlucoseSender
+import com.wtachtsugar.shared.GlucoseReading as WearGlucoseReading
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import org.bolusai.companion.data.AppSettingsRepository
 import org.bolusai.companion.worker.GlucoseSyncScheduler
 
 class GlucoseReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != ACTION) return
-        if (!AppSettingsRepository(context).current().dexcomGlucoseSyncEnabled) return
+        val settings = AppSettingsRepository(context).current()
+        if (!settings.dexcomGlucoseSyncEnabled) return
 
         val extras = intent.extras ?: return
         val sensorType = extras.getString("sensorType").orEmpty()
@@ -28,7 +34,28 @@ class GlucoseReceiver : BroadcastReceiver() {
         }
         if (readings.isEmpty()) return
 
-        GlucoseQueueRepository(context).enqueue(readings)
+        val queue = GlucoseQueueRepository(context)
+        queue.enqueue(readings)
+        GlucoseSyncDiagnosticsRepository(context).recordBroadcast(
+            readingTimestampSeconds = readings.maxOf { it.timestampSeconds },
+            queueSize = queue.pending().size,
+        )
+        if (settings.wearGlucoseForwardEnabled) {
+            readings.forEach { reading ->
+                CoroutineScope(Dispatchers.IO).launch {
+                    GlucoseSender.send(
+                        context.applicationContext,
+                        WearGlucoseReading(
+                            glucoseValue = reading.glucoseMgdl,
+                            timestampSeconds = reading.timestampSeconds,
+                            trendArrow = reading.trendArrow,
+                            sentAtMillis = System.currentTimeMillis(),
+                            source = "dexcom_g7",
+                        ),
+                    )
+                }
+            }
+        }
         GlucoseSyncScheduler.syncNow(context)
     }
 

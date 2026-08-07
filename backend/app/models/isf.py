@@ -23,6 +23,7 @@ class IsfBucketStat(BaseModel):
     label: str   # "Madrugada", etc.
     events_count: int
     median_isf: Optional[float]
+    observed_range: Optional[tuple[float, float]] = None
     current_isf: float
     change_ratio: float  # e.g. 0.15 for +15%
     status: str          # "ok", "weak", "strong", "insufficient_data"
@@ -44,3 +45,7 @@ class IsfAnalysisResponse(BaseModel):
     blocked_recent_hypo: bool = False
     global_reason_flags: List[str] = Field(default_factory=list)
     runs: List[IsfRunSummary] = Field(default_factory=list)
+    discarded_events_count: int = 0
+    discarded_reasons: dict[str, int] = Field(default_factory=dict)
+    methodology: str = "correction_only_dia_window"
+    auto_change_allowed: bool = False

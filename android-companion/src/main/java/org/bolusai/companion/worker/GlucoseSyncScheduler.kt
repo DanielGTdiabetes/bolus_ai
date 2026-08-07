@@ -23,7 +23,7 @@ object GlucoseSyncScheduler {
             .build()
         WorkManager.getInstance(context.applicationContext).enqueueUniqueWork(
             WORK_NAME,
-            ExistingWorkPolicy.APPEND_OR_REPLACE,
+            ExistingWorkPolicy.KEEP,
             request,
         )
     }

@@ -11,6 +11,9 @@ from app.services.nightscout_client import NightscoutClient
 def test_dexcom_trends_are_normalized_for_nightscout():
     assert integrations._nightscout_direction("FortyFiveUp") == "FortyFiveUp"
     assert integrations._nightscout_direction("SINGLE_DOWN") == "SingleDown"
+    assert integrations._nightscout_direction("RISING_SLOWLY") == "FortyFiveUp"
+    assert integrations._nightscout_direction("RISING_QUICKLY") == "DoubleUp"
+    assert integrations._nightscout_direction("FALLING") == "SingleDown"
     assert integrations._nightscout_direction("unexpected") == "NONE"
 
 

@@ -3,6 +3,7 @@ import { Header } from '../components/layout/Header';
 import { BottomNav } from '../components/layout/BottomNav';
 import { Card, Button } from '../components/ui/Atoms';
 import { navigate } from '../modules/core/navigation';
+import { CompanionPanel } from '../components/companion/CompanionPanel';
 
 export default function NotificationsPage() {
     const [alerts, setAlerts] = useState([]);
@@ -129,7 +130,9 @@ export default function NotificationsPage() {
             }
 
             // Check Forecast Warning
-            const forecastWarn = localStorage.getItem('forecast_warning') === 'true';
+            const forecastDismissedAt = parseInt(localStorage.getItem('forecast_warning_dismissed_at') || '0');
+            const forecastWarn = localStorage.getItem('forecast_warning') === 'true'
+                && Date.now() - forecastDismissedAt > 30 * 60 * 1000;
             if (forecastWarn) {
                 list.push({
                     id: 'forecast-alert',
@@ -164,6 +167,7 @@ export default function NotificationsPage() {
 
         if (id === 'forecast-alert') {
             localStorage.setItem('forecast_warning_dismissed_at', Date.now().toString());
+            localStorage.setItem('forecast_warning', 'false');
             window.dispatchEvent(new Event('forecast-update'));
         }
 
@@ -174,6 +178,7 @@ export default function NotificationsPage() {
         <>
             <Header title="Notificaciones" showBack={true} />
             <main className="page" style={{ padding: '1rem' }}>
+                <CompanionPanel showPreferences={true} />
                 <h3 style={{ marginBottom: '1rem', color: '#64748b' }}>Avisos y Alertas</h3>
 
                 {alerts.length === 0 && (

@@ -3,9 +3,9 @@ package org.bolusai.companion.worker
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
+import android.app.ForegroundServiceStartNotAllowedException
 import android.content.Context
 import android.content.Intent
-import android.content.IntentFilter
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
@@ -24,7 +24,7 @@ import org.bolusai.companion.diagnostics.HealthConnectLogRepository
 import org.bolusai.companion.diagnostics.HealthConnectLogStatus
 import org.bolusai.companion.dexcom.DexcomEventSyncRepository
 import org.bolusai.companion.dexcom.DexcomEventWriter
-import org.bolusai.companion.dexcom.GlucoseReceiver
+import org.bolusai.companion.dexcom.GlucoseSyncDiagnosticsRepository
 import org.bolusai.companion.network.DexcomBolusEventClient
 import org.bolusai.companion.network.HermesMfpSyncTriggerClient
 import org.bolusai.companion.network.HermesMfpSyncTriggerResult
@@ -38,20 +38,33 @@ class NutritionActiveSyncService : Service() {
     private var lastMyFitnessPalExitSyncAt = 0L
     private var lastMissingUsageAccessLogAt = 0L
     private var lastUsageTransitionCheckAt = 0L
-    private var dynamicGlucoseReceiver: GlucoseReceiver? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
             recordDiagnostic("active_sync_stop", HealthConnectLogStatus.PENDING, "Service stop requested")
-            stopSelf()
+            GlucoseSyncDiagnosticsRepository(applicationContext).recordServiceState("stopped", "Stop requested")
+            stopSelf(startId)
             return START_NOT_STICKY
         }
 
-        startForegroundServiceNotification("Revisando comidas")
-        registerDynamicGlucoseReceiver()
-        if (syncStarted) return START_STICKY
+        val foregroundFailure = startForegroundServiceNotification("Revisando comidas")
+        if (foregroundFailure != null) {
+            recordDiagnostic(
+                "active_sync_start_rejected",
+                HealthConnectLogStatus.ERROR,
+                foregroundFailure,
+            )
+            GlucoseSyncDiagnosticsRepository(applicationContext).recordServiceState(
+                "start_rejected",
+                foregroundFailure,
+            )
+            stopSelf(startId)
+            return START_NOT_STICKY
+        }
+        if (syncStarted) return START_NOT_STICKY
         syncStarted = true
         recordDiagnostic("active_sync_start", HealthConnectLogStatus.PENDING, "Foreground nutrition sync started")
+        GlucoseSyncDiagnosticsRepository(applicationContext).recordServiceState("running")
         scope.launch { watchMyFitnessPalExit() }
         scope.launch { syncDexcomBolusEvents() }
         scope.launch {
@@ -62,42 +75,48 @@ class NutritionActiveSyncService : Service() {
                 }
             }
         }
-        return START_STICKY
+        return START_NOT_STICKY
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
+    override fun onTimeout(startId: Int, fgsType: Int) {
+        recordDiagnostic(
+            "active_sync_timeout",
+            HealthConnectLogStatus.ERROR,
+            "Android foreground-service timeout (type=$fgsType)",
+        )
+        GlucoseSyncDiagnosticsRepository(applicationContext).recordServiceTimeout(fgsType)
+        syncStarted = false
+        scope.cancel()
+        stopSelf(startId)
+    }
+
     override fun onDestroy() {
         recordDiagnostic("active_sync_destroy", HealthConnectLogStatus.PENDING, "Foreground nutrition sync destroyed")
-        unregisterDynamicGlucoseReceiver()
+        if (GlucoseSyncDiagnosticsRepository(applicationContext).snapshot().serviceState != "timed_out") {
+            GlucoseSyncDiagnosticsRepository(applicationContext).recordServiceState("stopped")
+        }
         scope.cancel()
         super.onDestroy()
     }
 
-    private fun registerDynamicGlucoseReceiver() {
-        if (dynamicGlucoseReceiver != null) return
-        dynamicGlucoseReceiver = GlucoseReceiver()
-        val filter = IntentFilter(DEXCOM_EXTERNAL_BROADCAST_ACTION)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            registerReceiver(dynamicGlucoseReceiver, filter, Context.RECEIVER_EXPORTED)
-        } else {
-            registerReceiver(dynamicGlucoseReceiver, filter)
-        }
-    }
-
-    private fun unregisterDynamicGlucoseReceiver() {
-        dynamicGlucoseReceiver?.let { runCatching { unregisterReceiver(it) } }
-        dynamicGlucoseReceiver = null
-    }
-
-    private fun startForegroundServiceNotification(message: String) {
+    private fun startForegroundServiceNotification(message: String): String? {
         ensureNotificationChannel()
         val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
         } else {
             0
         }
-        ServiceCompat.startForeground(this, NOTIFICATION_ID, notification(message), type)
+        return try {
+            ServiceCompat.startForeground(this, NOTIFICATION_ID, notification(message), type)
+            null
+        } catch (error: RuntimeException) {
+            val expectedRejection = error is SecurityException ||
+                (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && error is ForegroundServiceStartNotAllowedException)
+            if (!expectedRejection) throw error
+            error::class.java.simpleName
+        }
     }
 
     private fun updateNotification(message: String) {
@@ -319,6 +338,17 @@ class NutritionActiveSyncService : Service() {
                     val sent = when (event.eventKind) {
                         "INSULIN" -> {
                             val insulinType = event.insulinType ?: "FAST_ACTING"
+                            val isFast = insulinType == "FAST_ACTING"
+                            val isSlow = insulinType == "LONG_ACTING"
+                            val allowed = when {
+                                isFast -> settings.dexcomWriteInsulinFastEnabled
+                                isSlow -> settings.dexcomWriteInsulinSlowEnabled
+                                else -> settings.dexcomWriteEnabled
+                            }
+                            if (!allowed) {
+                                repository.markProcessed(event.id, event.timestamp)
+                                continue
+                            }
                             val units = event.insulinUnits
                             if (units == null) {
                                 false
@@ -331,7 +361,7 @@ class NutritionActiveSyncService : Service() {
                                     insulinUnits = units,
                                     insulinType = insulinType,
                                     glucoseMgdl = event.glucoseMgdl,
-                                    useLatestGlucoseWhenMissing = insulinType == "LONG_ACTING",
+                                    useLatestGlucoseWhenMissing = isSlow,
                                     timestamp = event.timestamp,
                                 )
                                 if (insulinSent) {
@@ -341,6 +371,10 @@ class NutritionActiveSyncService : Service() {
                             }
                         }
                         "CARBS" -> {
+                            if (!settings.dexcomWriteCarbsEnabled) {
+                                repository.markProcessed(event.id, event.timestamp)
+                                continue
+                            }
                             val grams = event.carbsGrams
                             grams != null && DexcomEventWriter.sendCarbsEvent(
                                 context = applicationContext,
@@ -383,7 +417,9 @@ class NutritionActiveSyncService : Service() {
         .setSmallIcon(R.drawable.ic_launcher)
         .setContentTitle("Bolus AI Companion")
         .setContentText(message)
-        .setOngoing(true)
+        // Android still identifies this as a foreground-service notification,
+        // but the app no longer marks it as an additional non-dismissible alert.
+        .setOngoing(false)
         .setOnlyAlertOnce(true)
         .setPriority(NotificationCompat.PRIORITY_LOW)
         .build()
@@ -416,7 +452,6 @@ class NutritionActiveSyncService : Service() {
         private const val MISSING_USAGE_ACCESS_LOG_COOLDOWN_MS = 10 * 60_000L
         private const val DEXCOM_SYNC_INTERVAL_MS = 15_000L
         private const val DEXCOM_EVENT_LOOKBACK_MS = 48 * 60 * 60_000L
-        private const val DEXCOM_EXTERNAL_BROADCAST_ACTION = "com.dexcom.cgm.EXTERNAL_BROADCAST"
         private const val MYFITNESSPAL_PACKAGE = "com.myfitnesspal.android"
         fun start(context: Context) {
             val intent = Intent(context, NutritionActiveSyncService::class.java)

@@ -11,7 +11,6 @@ from app.core.settings import get_settings
 from app.services.store import DataStore
 from app.services.nightscout_client import NightscoutClient, get_nightscout_client
 from app.services.treatment_retrieval import get_recent_treatments_db
-from app.services.iob import compute_iob_from_sources
 from app.models.bolus_v2 import BolusRequestV2, BolusResponseV2, GlucoseUsed
 from app.services.basal_repo import get_latest_basal_dose
 from app.services.nightscout_secrets_service import get_ns_config
@@ -983,6 +982,62 @@ async def light_guardian(username: str = "admin", chat_id: Optional[int] = None)
     except Exception as exc:
         logger.warning("Guardian job failed: %s", exc)
 
+
+async def companion_check(
+    username: str = "admin",
+    chat_id: Optional[int] = None,
+    trigger: str = "auto",
+) -> None:
+    """Evaluate once, persist the episode, and deliver only messages that are due."""
+    try:
+        user_settings, resolved_user = await context_builder.get_bot_user_settings_with_user()
+        username = resolved_user or username
+        if not user_settings.bot.enabled and trigger == "auto":
+            record_proactive_status("companion", False, "bot_disabled")
+            return
+    except Exception as exc:
+        record_proactive_status("companion", False, f"settings_error:{exc}")
+        return
+
+    final_chat_id = chat_id or await _get_chat_id()
+    from app.core.db import SessionLocal
+    from app.services.companion_service import (
+        evaluate_companion_state,
+        episodes_due_for_notification,
+        mark_episode_notified,
+    )
+
+    try:
+        async with SessionLocal() as session:
+            await evaluate_companion_state(username, session)
+            due = await episodes_due_for_notification(username, session)
+            if not final_chat_id or not due:
+                record_proactive_status("companion", False, "no_episode_due")
+                return
+
+            # One message per cycle: highest priority wins, avoiding alert bursts.
+            episode = due[0]
+            keyboard = InlineKeyboardMarkup([
+                [
+                    InlineKeyboardButton("✅ Entendido", callback_data=f"companion|ack|{episode.id}"),
+                    InlineKeyboardButton("🔕 30 min", callback_data=f"companion|snooze|{episode.id}"),
+                ],
+                [InlineKeyboardButton("Descartar", callback_data=f"companion|dismiss|{episode.id}")],
+            ])
+            icon = {"critical": "🚨", "high": "⚠️", "medium": "📌"}.get(episode.severity, "ℹ️")
+            text = f"{icon} *{episode.title}*\n\n{episode.message}"
+            await _send(
+                None, final_chat_id, text,
+                log_context="companion_episode",
+                parse_mode="Markdown",
+                reply_markup=keyboard,
+            )
+            await mark_episode_notified(episode, session)
+            record_proactive_status("companion", True, f"sent:{episode.kind}")
+    except Exception as exc:
+        logger.exception("Companion check failed")
+        record_proactive_status("companion", False, f"error:{exc}")
+
 async def trend_alert(username: str = "admin", chat_id: Optional[int] = None, trigger: str = "auto") -> None:
     # 1. Load User Config & Defaults
     try:
@@ -1167,47 +1222,6 @@ async def trend_alert(username: str = "admin", chat_id: Optional[int] = None, tr
         "points_used": len(values)
     }
     
-    # Mini-corrección: subida lenta sin IOB activo
-    if direction == "rise" and bg_last > 140:
-        try:
-            now = datetime.now(timezone.utc)
-            iob_u, _, iob_info, _ = await compute_iob_from_sources(
-                now, user_settings, client,
-                DataStore(Path(get_settings().data.data_dir)),
-                user_id=username,
-            )
-            if iob_u is not None and iob_u > 0.3:
-                logger.info(f"Mini-corrección omitida: IOB={iob_u:.2f}U activo")
-            else:
-                # CF según hora del día
-                now_local = now.astimezone()
-                hour = now_local.hour
-                if 6 <= hour < 11:
-                    slot = "breakfast"
-                elif 11 <= hour < 16:
-                    slot = "lunch"
-                elif 16 <= hour < 21:
-                    slot = "dinner"
-                else:
-                    slot = "snack"
-                cf = getattr(user_settings.cf, slot, 30.0) if user_settings.cf else 30.0
-                target = getattr(user_settings.targets, "mid", 110.0) if user_settings.targets else 110.0
-                diff = bg_last - target
-                if diff > 0:
-                    needed = diff / cf
-                    safeguarded = needed * 0.35  # 35% de corrección completa
-                    step = getattr(user_settings, "round_step_u", 0.5) or 0.5
-                    micro_u = round(safeguarded / step) * step
-                    # Max: 10% del TDD estimado (o 1.0U como tope absoluto)
-                    tdd_est = getattr(user_settings, "tdd_total", 30.0) or 30.0
-                    max_micro = max(0.5, min(tdd_est * 0.10, 1.0))
-                    if micro_u >= step:
-                        micro_u = min(micro_u, max_micro)
-                        payload["suggested_micro_u"] = micro_u
-                        payload["micro_iob_u"] = round(iob_u or 0, 2)
-        except Exception as e:
-            logger.error(f"Mini-corrección calc error: {e}")
-
     from app.bot.llm import router
     await router.handle_event(username, chat_id, "trend_alert", payload)
     

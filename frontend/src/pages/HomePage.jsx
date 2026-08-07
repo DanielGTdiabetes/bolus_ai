@@ -14,6 +14,7 @@ import { getDualPlan, getDualPlanTiming, syncSettings } from '../modules/core/st
 import { RESTAURANT_MODE_ENABLED } from '../lib/featureFlags';
 
 import { MainGlucoseChart } from '../components/charts/MainGlucoseChart';
+import { CompanionPanel } from '../components/companion/CompanionPanel';
 
 function GlucoseHero({ onRefresh }) {
     const [data, setData] = useState(null);
@@ -702,7 +703,8 @@ export default function HomePage() {
             <main className="page" style={{ paddingBottom: '90px' }}>
                 <GlucoseHero onRefresh={refreshSignal} />
 
-                <RestaurantActivePanel />
+                <CompanionPanel />
+                {RESTAURANT_MODE_ENABLED && <RestaurantActivePanel />}
                 {activePlan && !dualHidden && (
                     <DualBolusPanel
                         onHide={() => setDualHidden(true)}

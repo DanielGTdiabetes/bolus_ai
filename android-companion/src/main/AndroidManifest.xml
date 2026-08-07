@@ -44,8 +44,7 @@
 
         <receiver
             android:name=".dexcom.GlucoseReceiver"
-            android:exported="true"
-            android:permission="com.dexcom.cgm.EXTERNAL_PERMISSION">
+            android:exported="true">
             <intent-filter>
                 <action android:name="com.dexcom.cgm.EXTERNAL_BROADCAST" />
             </intent-filter>

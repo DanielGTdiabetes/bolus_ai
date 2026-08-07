@@ -1,7 +1,9 @@
 import logging
 import statistics
+from collections import Counter
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -49,6 +51,10 @@ class IsfAnalysisService:
             curve=profile_settings.get("curve", "walsh"),
             peak_minutes=int(profile_settings.get("peak_minutes", 75))
         )
+        try:
+            self.timezone = ZoneInfo(profile_settings.get("timezone", "Europe/Madrid"))
+        except Exception:
+            self.timezone = timezone.utc
         self.compression_detector = (
             CompressionDetector(compression_config)
             if compression_config and compression_config.enabled
@@ -73,7 +79,9 @@ class IsfAnalysisService:
         # We will shift by +1h fixed for now (simple) or assume user config.
         # Actually, let's just use UTC hour for simplicity unless user provided offset.
         # NOTE: 00-06 UTC is 01-07 Local. Close enough.
-        h = dt.hour
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        h = dt.astimezone(self.timezone).hour
         for k, (start, end) in BUCKETS.items():
             if start <= h < end:
                 return k
@@ -221,52 +229,78 @@ class IsfAnalysisService:
 
         # Filter Candidates
         candidates = []
+        discarded_reasons: Counter[str] = Counter()
         cutoff_time = now_utc - timedelta(hours=4) # Can't analyze if too recent
         
         for t in treatments:
-            if not t.created_at: continue
-            if t.created_at > cutoff_time: continue
-            if not t.insulin or t.insulin <= 0.1: continue # Ignore micro-boluses < 0.1
-            if t.carbs and t.carbs > 0: continue
+            if not t.created_at:
+                discarded_reasons["missing_timestamp"] += 1
+                continue
+            if t.created_at > cutoff_time:
+                discarded_reasons["insulin_still_active"] += 1
+                continue
+            if not t.insulin or t.insulin < 0.5:
+                discarded_reasons["dose_too_small"] += 1
+                continue
+            if t.carbs and t.carbs > 0:
+                discarded_reasons["meal_bolus"] += 1
+                continue
             
             # Exclude Alcohol/Sick (User Request)
-            if t.notes and any(x in t.notes.lower() for x in ['alcohol', 'sick', 'enfermedad']):
+            if t.notes and any(x in t.notes.lower() for x in [
+                'alcohol', 'sick', 'enfermedad', 'ejercicio', 'exercise',
+                'deporte', 'gimnasio', 'stress', 'estrés', 'hipo', 'rescate'
+            ]):
+                discarded_reasons["context_interference"] += 1
                 continue
             
             candidates.append(t)
             
         clean_events: List[IsfEvent] = []
         
-        bolus_history = [{"ts": x.created_at.isoformat(), "units": x.insulin} for x in treatments if x.insulin]
-
         for t in candidates:
             # 1. Check Noise
             valid = True
             reason = None
             
             t_start = t.created_at
-            t_end = t_start + timedelta(hours=4) # 4h window
+            t_end = t_start + timedelta(hours=self.profile.dia_hours)
             
             # Check overlap
             for other in treatments:
                 if not other.created_at: continue
-                if other.id == t.id: continue
+                if other is t: continue
                 
                 if t_start < other.created_at < t_end:
                      if (other.carbs and other.carbs > 0) or (other.insulin and other.insulin > 0.1):
                         valid = False
                         reason = "Actividad en ventana 4h"
                         break
+                lookback_start = t_start - timedelta(hours=3)
+                if lookback_start < other.created_at < t_start and other.carbs and other.carbs > 0:
+                    valid = False
+                    reason = "Carbohidratos recientes antes de la corrección"
+                    break
             
-            if not valid: continue
+            if not valid:
+                discarded_reasons["overlapping_food_or_insulin"] += 1
+                continue
             
             # 2. Check IOB (Stacking)
-            iob_curr = compute_iob(t_start, bolus_history, self.profile)
-            if iob_curr > 1.5: # User: "Exclude high IOB". 1.5U is reasonable safe guard.
+            prior_boluses = [
+                {"ts": other.created_at.isoformat(), "units": other.insulin}
+                for other in treatments
+                if other.created_at and other.created_at <= t_start
+                and other is not t and other.insulin and other.insulin > 0
+            ]
+            iob_curr = compute_iob(t_start, prior_boluses, self.profile)
+            if iob_curr > 0.5:
                 valid = False
                 reason = f"Stacking (IOB={iob_curr:.1f}U)"
                 
-            if not valid: continue
+            if not valid:
+                discarded_reasons["high_iob_at_start"] += 1
+                continue
             
             # 3. Deltas
             bg_start = get_bg_at(t_start)
@@ -275,7 +309,11 @@ class IsfAnalysisService:
             if not bg_start or not bg_end:
                 # valid = False
                 # reason = "Datos CGM faltantes"
-                continue # Skip efficiently
+                discarded_reasons["missing_cgm_endpoints"] += 1
+                continue
+            if bg_start < 120:
+                discarded_reasons["start_bg_not_correction_range"] += 1
+                continue
 
             reason_flags = []
             window_entries = self._get_sgv_window(sgv_entries, t_start, t_end)
@@ -285,7 +323,11 @@ class IsfAnalysisService:
                 reason_flags.append("cgm_gap")
             if self._has_unreliable_slope(window_entries):
                 reason_flags.append("unreliable_cgm")
+            if any(entry.get("sgv", 999) < 70 for entry in window_entries):
+                reason_flags.append("hypo_in_window")
             quality_ok = len(reason_flags) == 0
+            if not quality_ok:
+                discarded_reasons.update(reason_flags)
                 
             delta = bg_start - bg_end # Positive means Drop (Start 200, End 100 => Delta 100)
             # User Formula: ISF = DeltaBG / Units
@@ -296,6 +338,9 @@ class IsfAnalysisService:
                 continue
                 
             isf_obs = delta / t.insulin
+            if isf_obs <= 0 or isf_obs > 200:
+                discarded_reasons["implausible_response"] += 1
+                continue
             
             bucket = self._get_bucket(t_start)
             
@@ -333,13 +378,16 @@ class IsfAnalysisService:
                 change_ratio=0.0,
                 status="insufficient_data",
                 median_isf=None,
+                observed_range=None,
                 confidence="low"
             )
             
-            if count >= 3: # Lowered from 6 to allow more results (Confidence scaled)
+            if count >= 5:
                 isf_vals = [e.isf_observed for e in events]
                 median_val = statistics.median(isf_vals)
                 stat.median_isf = median_val
+                quartiles = statistics.quantiles(isf_vals, n=4, method="inclusive")
+                stat.observed_range = (round(quartiles[0], 1), round(quartiles[2], 1))
                 
                 # Rule: > +15% => Stronger (Wait)
                 # Formula: (Observed - Current) / Current
@@ -362,7 +410,7 @@ class IsfAnalysisService:
                         suggested = current_isf * 1.10
                     
                     stat.suggested_isf = round(suggested, 1)
-                    stat.confidence = "high" if count > 10 else "medium"
+                    stat.confidence = "high" if count >= 10 else "medium"
                     
                 elif diff_ratio < -0.15:
                     # Example: Obs=30, Curr=50. (30-50)/50 = -0.4 (-40%).
@@ -382,7 +430,7 @@ class IsfAnalysisService:
                             suggested = current_isf * 0.90
                             
                         stat.suggested_isf = round(suggested, 1)
-                        stat.confidence = "high" if count > 10 else "medium"
+                        stat.confidence = "high" if count >= 10 else "medium"
                 else:
                     stat.status = "ok"
                     stat.confidence = "high"
@@ -420,4 +468,8 @@ class IsfAnalysisService:
             blocked_recent_hypo=blocked_recent_hypo,
             global_reason_flags=global_reason_flags,
             runs=runs,
+            discarded_events_count=sum(discarded_reasons.values()),
+            discarded_reasons=dict(discarded_reasons),
+            methodology=f"correction_only_{self.profile.dia_hours:g}h_{self.profile.curve}",
+            auto_change_allowed=False,
         )

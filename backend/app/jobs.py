@@ -417,37 +417,16 @@ def setup_periodic_tasks():
         async def _run_basal():
             await jobs_state.run_job("basal", proactive.basal_reminder)
 
-        async def _run_premeal():
-            await jobs_state.run_job("premeal", proactive.premeal_nudge)
-
         async def _run_combo():
              # combo_followup might also follow the pattern
             await proactive.combo_followup()
 
 
 
-        async def _run_app_notifications():
-             await jobs_state.run_job("app_notifications", proactive.check_app_notifications)
-
         schedule_task(_run_basal, CronTrigger(minute='*/45'), "basal_reminder")
         jobs_state.refresh_next_run("basal")
 
-        schedule_task(_run_premeal, CronTrigger(minute='*/30'), "premeal_nudge")
-        jobs_state.refresh_next_run("premeal")
         schedule_task(_run_combo, CronTrigger(minute='*/30'), "combo_followup")
-        
-        # Schedule Notification Check (Every 2 hours, aligned with cooldown)
-        schedule_task(_run_app_notifications, CronTrigger(hour='*/2', minute='0'), "app_notifications")
-        jobs_state.refresh_next_run("app_notifications")
-
-        async def _run_isf_check():
-            try:
-                await jobs_state.run_job("isf_check", proactive.check_isf_suggestions)
-            except AttributeError:
-                pass # proactive might not have it yet if hot-reloading issues, but usually fine
-
-        schedule_task(_run_isf_check, CronTrigger(hour=8, minute=0), "isf_check")
-        jobs_state.refresh_next_run("isf_check")
 
         async def _run_active_plans():
             await jobs_state.run_job("active_plans_check", proactive.check_active_plans)
@@ -456,16 +435,8 @@ def setup_periodic_tasks():
         jobs_state.refresh_next_run("active_plans_check")
 
         # Missing Jobs (Audit Remediation)
-        async def _run_trend_alert():
-             # Trigger auto
-             await jobs_state.run_job("trend_alert", proactive.trend_alert)
-
         async def _run_supplies_check():
              await jobs_state.run_job("supplies_check", proactive.check_supplies_status)
-
-        # Trend alert: frequent check (e.g. every 10 min)
-        schedule_task(_run_trend_alert, CronTrigger(minute='*/10'), "trend_alert")
-        jobs_state.refresh_next_run("trend_alert")
 
         # Supplies check: Daily at 9:00 AM
         schedule_task(_run_supplies_check, CronTrigger(hour=9, minute=0), "supplies_check")

@@ -8,6 +8,9 @@ from app.models.schemas import NightscoutSGV
 class FoodItemEstimate(BaseModel):
     name: str
     carbs_g: float
+    carbs_range_g: Optional[tuple[float, float]] = None
+    confidence: Optional[Literal["low", "medium", "high"]] = None
+    portion_basis: Optional[str] = None
     fat_g: Optional[float] = 0.0
     protein_g: Optional[float] = 0.0
     fiber_g: Optional[float] = 0.0
@@ -44,6 +47,13 @@ class VisionEstimateResponse(BaseModel):
     slow_absorption_score: float = Field(ge=0.0, le=1.0)
     assumptions: list[str]
     needs_user_input: list[UserInputQuestion]
+    reference_used: bool = False
+    reference_type: Literal["scale", "insulin_pen", "plate", "none"] = "none"
+    reference_confidence: Literal["low", "medium", "high"] = "low"
+    pen_fully_visible: Optional[bool] = None
+    same_plane_confidence: Literal["low", "medium", "high"] = "low"
+    provider_used: Optional[str] = None
+    model_used: Optional[str] = None
     glucose_used: GlucoseUsed
     bolus: Optional[VisionBolusRecommendation] = None
     learning_hint: Optional[dict] = None  # {suggest_extended: bool, reason: str, evidence: dict}

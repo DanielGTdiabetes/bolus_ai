@@ -28,7 +28,11 @@ class AppSettingsRepository(context: Context) {
     fun setNutritionSyncEnabled(value: Boolean) = update(read().copy(nutritionSyncEnabled = value))
     fun setMyFitnessPalAssistEnabled(value: Boolean) = update(read().copy(myFitnessPalAssistEnabled = value))
     fun setDexcomWriteEnabled(value: Boolean) = update(read().copy(dexcomWriteEnabled = value))
+    fun setDexcomWriteInsulinFastEnabled(value: Boolean) = update(read().copy(dexcomWriteInsulinFastEnabled = value))
+    fun setDexcomWriteInsulinSlowEnabled(value: Boolean) = update(read().copy(dexcomWriteInsulinSlowEnabled = value))
+    fun setDexcomWriteCarbsEnabled(value: Boolean) = update(read().copy(dexcomWriteCarbsEnabled = value))
     fun setDexcomGlucoseSyncEnabled(value: Boolean) = update(read().copy(dexcomGlucoseSyncEnabled = value))
+    fun setWearGlucoseForwardEnabled(value: Boolean) = update(read().copy(wearGlucoseForwardEnabled = value))
     fun setLogRetentionDays(value: Int) = update(read().copy(logRetentionDays = value))
 
     private fun read(): AppSettings = AppSettings(
@@ -40,7 +44,11 @@ class AppSettingsRepository(context: Context) {
         nutritionSyncEnabled = prefs.getBoolean("nutritionSyncEnabled", false),
         myFitnessPalAssistEnabled = prefs.getBoolean("myFitnessPalAssistEnabled", false),
         dexcomWriteEnabled = prefs.getBoolean("dexcom_write_enabled", false),
+        dexcomWriteInsulinFastEnabled = prefs.getBoolean("dexcom_write_insulin_fast_enabled", false),
+        dexcomWriteInsulinSlowEnabled = prefs.getBoolean("dexcom_write_insulin_slow_enabled", false),
+        dexcomWriteCarbsEnabled = prefs.getBoolean("dexcom_write_carbs_enabled", false),
         dexcomGlucoseSyncEnabled = prefs.getBoolean("dexcom_glucose_sync_enabled", true),
+        wearGlucoseForwardEnabled = prefs.getBoolean("wear_glucose_forward_enabled", false),
         logRetentionDays = prefs.getInt("logRetentionDays", 30),
     )
 
@@ -52,7 +60,11 @@ class AppSettingsRepository(context: Context) {
             .putBoolean("nutritionSyncEnabled", settings.nutritionSyncEnabled)
             .putBoolean("myFitnessPalAssistEnabled", settings.myFitnessPalAssistEnabled)
             .putBoolean("dexcom_write_enabled", settings.dexcomWriteEnabled)
+            .putBoolean("dexcom_write_insulin_fast_enabled", settings.dexcomWriteInsulinFastEnabled)
+            .putBoolean("dexcom_write_insulin_slow_enabled", settings.dexcomWriteInsulinSlowEnabled)
+            .putBoolean("dexcom_write_carbs_enabled", settings.dexcomWriteCarbsEnabled)
             .putBoolean("dexcom_glucose_sync_enabled", settings.dexcomGlucoseSyncEnabled)
+            .putBoolean("wear_glucose_forward_enabled", settings.wearGlucoseForwardEnabled)
             .putInt("logRetentionDays", settings.logRetentionDays)
             .apply()
         state.value = settings

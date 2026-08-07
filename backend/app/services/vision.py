@@ -29,8 +29,10 @@ The user relies on the "Warsaw Method" for insulin dosing. This method uses Fat 
 **FIDUCIAL MARKER INSTRUCTION:**
 If you detect a **RED INSULIN PEN** (NovoPen Echo Plus style, cylindrical, dark red metallic) in the image, use it as a **FIDUCIAL MARKER** for scale.
 - The pen measures **exactly 16.5 cm (165 mm)** in length.
-- Use this precise length to calculate the real world dimensions (diameter/volume) of the plates and food portions.
-- If present, explicitly mention in the "assumptions" field that you used the insulin pen for scale calibration.
+- Only use it when the complete pen is visible and approximately on the same plane as the food.
+- Perspective can distort scale: report low reference confidence instead of pretending precision.
+- A kitchen scale is optional. Never assume a weight when none was supplied.
+- A known plate or the pen can help, but never turn a single image into false certainty.
 
 **HOLIDAY/SEASONAL CONTEXT:**
 If you detect typical Spanish Christmas sweets (Turrón, Polvorón, Mazapán, Roscón), assume HIGH carbohydrate density (typically 50-60g carbs/100g) and high fat content. Do not underestimate their density.
@@ -42,11 +44,12 @@ Output STRICT JSON (RFC 8259 compliant).
 - Concise notes (max 10 words)
 Structure:
 {
-  "items": [{"name": "...", "carbs_g": number, "fat_g": number, "protein_g": number, "fiber_g": number, "notes": "..."}],
+  "items": [{"name": "...", "carbs_g": number, "carbs_range_g": [low, high], "confidence": "low"|"medium"|"high", "portion_basis": "weight|pen|plate|visual", "fat_g": number, "protein_g": number, "fiber_g": number, "notes": "..."}],
   "confidence": "low"|"medium"|"high",
   "fat_score": 0.0 to 1.0 (1.0 = very high fat/protein content like pizza, burger, creamy pasta),
   "slow_absorption_score": 0.0 to 1.0 (1.0 = very slow absorption expected),
   "assumptions": ["assumption1", ...],
+  "reference": {"used": true|false, "type": "scale"|"insulin_pen"|"plate"|"none", "confidence": "low"|"medium"|"high", "pen_fully_visible": true|false|null, "same_plane_confidence": "low"|"medium"|"high"},
   "needs_user_input": [{"id": "q1", "question": "...", "options": ["..."]}] (only if critical ambiguity exists)
 }
 Be conservative. If portion is unclear, state assumptions.
@@ -113,10 +116,17 @@ async def estimate_meal_from_image(
     else:
         data = await _estimate_with_openai(image_bytes, mime_type, hints, settings)
 
-    return _parse_estimation_data(data)
+    result = _parse_estimation_data(data, hints)
+    result.provider_used = provider
+    result.model_used = (
+        (settings.vision.gemini_model or get_gemini_model())
+        if provider == "gemini"
+        else (settings.vision.openai_model or "gpt-4o")
+    )
+    return result
 
 
-def _parse_estimation_data(data: dict) -> VisionEstimateResponse:
+def _parse_estimation_data(data: dict, hints: Optional[dict] = None) -> VisionEstimateResponse:
     items = [FoodItemEstimate(**item) for item in data.get("items", [])]
     total_g = sum(i.carbs_g for i in items)
     
@@ -127,8 +137,25 @@ def _parse_estimation_data(data: dict) -> VisionEstimateResponse:
     conf = data.get("confidence", "low")
     margin = 0.3 if conf == "low" else (0.2 if conf == "medium" else 0.1)
     
-    range_min = round(total_g * (1 - margin))
-    range_max = round(total_g * (1 + margin))
+    item_ranges = [item.carbs_range_g for item in items if item.carbs_range_g]
+    if len(item_ranges) == len(items) and item_ranges:
+        range_min = round(sum(value[0] for value in item_ranges))
+        range_max = round(sum(value[1] for value in item_ranges))
+    else:
+        range_min = round(total_g * (1 - margin))
+        range_max = round(total_g * (1 + margin))
+    reference = data.get("reference") or {}
+    if hints and hints.get("plate_weight_grams"):
+        reference = {**reference, "used": True, "type": "scale", "confidence": "high"}
+    reference_type = reference.get("type", "none")
+    if reference_type not in {"scale", "insulin_pen", "plate", "none"}:
+        reference_type = "none"
+    reference_confidence = reference.get("confidence", "low")
+    if reference_confidence not in {"low", "medium", "high"}:
+        reference_confidence = "low"
+    plane_confidence = reference.get("same_plane_confidence", "low")
+    if plane_confidence not in {"low", "medium", "high"}:
+        plane_confidence = "low"
 
     return VisionEstimateResponse(
         carbs_estimate_g=total_g,
@@ -139,6 +166,11 @@ def _parse_estimation_data(data: dict) -> VisionEstimateResponse:
         slow_absorption_score=data.get("slow_absorption_score", 0.0),
         assumptions=data.get("assumptions", []),
         needs_user_input=data.get("needs_user_input", []),
+        reference_used=bool(reference.get("used", False)),
+        reference_type=reference_type,
+        reference_confidence=reference_confidence,
+        pen_fully_visible=reference.get("pen_fully_visible"),
+        same_plane_confidence=plane_confidence,
         glucose_used=GlucoseUsed(mgdl=None, source=None),
         bolus=None,
         # We can attach raw totals in comments or logging if needed, 
@@ -230,7 +262,12 @@ async def _estimate_with_gemini(image_bytes: bytes, mime_type: str, hints: dict,
 
 
 def _build_user_prompt(hints: dict) -> str:
-    user_prompt = "Estimate carbs for this meal."
+    user_prompt = (
+        "Estimate this meal with an honest carbohydrate interval for every item. "
+        "First look for an explicit weight, a fully visible 16.5 cm red insulin pen, "
+        "or a clearly known plate. If none is reliable, use visual estimation and lower confidence. "
+        "The user may not have a scale, so weight is never required."
+    )
     if hints.get("portion_hint"):
         user_prompt += f" Portion hint: {hints['portion_hint']}."
     if hints.get("meal_slot"):

@@ -73,7 +73,8 @@ async def analyze_isf(
         profile_settings = {
             "dia_hours": user_settings.iob.dia_hours,
             "curve": user_settings.iob.curve,
-            "peak_minutes": user_settings.iob.peak_minutes
+            "peak_minutes": user_settings.iob.peak_minutes,
+            "timezone": user_settings.timezone or "Europe/Madrid",
         }
     except Exception as e:
         await client.aclose()

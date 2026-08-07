@@ -22,7 +22,6 @@ val portalDestinations = listOf(
     PortalDestination("Predicción", "Evolución estimada de glucosa", "#/forecast", PortalGroup.DAILY),
     PortalDestination("Historial", "Bolos, comidas y tratamientos", "#/history", PortalGroup.DAILY),
 
-    PortalDestination("Modo restaurante", "Carta, platos y comparación acumulada", "#/restaurant", PortalGroup.FOOD),
     PortalDestination("Báscula", "Conexión Bluetooth y pesaje", "#/scale", PortalGroup.FOOD),
     PortalDestination("Base de alimentos", "Consulta de alimentos y macros", "#/food-db", PortalGroup.FOOD),
     PortalDestination("Mis platos", "Favoritos y biblioteca personal", "#/favorites", PortalGroup.FOOD),

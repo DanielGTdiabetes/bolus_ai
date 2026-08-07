@@ -64,6 +64,7 @@ async def test_notifications_unread():
 async def test_mark_seen_flow():
     user_id = str(uuid.uuid4())
     db = AsyncMock()
+    db.add = MagicMock()
     
     # Step 1: Mark Seen
     # Upsert logic
@@ -115,10 +116,9 @@ async def test_mark_seen_flow():
         
         summary = await get_notification_summary_service(user_id, db)
         
-    # Suggestion: exists, but unread = False (because seen_at > created_at)
+    # Suggestion: the same dismissed batch stays hidden until a newer one exists.
     # Evaluation: empty list
     # Basal: None
     
     assert summary["has_unread"] is False
-    assert len(summary["items"]) == 1 # Only suggestions (read)
-    assert summary["items"][0]["unread"] is False
+    assert summary["items"] == []

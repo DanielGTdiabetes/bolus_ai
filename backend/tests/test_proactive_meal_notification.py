@@ -52,4 +52,5 @@ async def test_proactive_meal_notification_fallback_username(monkeypatch: pytest
 
     assert sent["chat_id"] == 123
     assert "Nueva Comida Detectada" in sent["text"]
+    assert "15 min" in sent["text"]
     assert "proactive_meal_username_fallback" in caplog.text

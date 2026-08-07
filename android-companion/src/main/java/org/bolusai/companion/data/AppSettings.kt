@@ -8,6 +8,10 @@ data class AppSettings(
     val nutritionSyncEnabled: Boolean = false,
     val myFitnessPalAssistEnabled: Boolean = false,
     val dexcomWriteEnabled: Boolean = false,
+    val dexcomWriteInsulinFastEnabled: Boolean = false,
+    val dexcomWriteInsulinSlowEnabled: Boolean = false,
+    val dexcomWriteCarbsEnabled: Boolean = false,
     val dexcomGlucoseSyncEnabled: Boolean = true,
+    val wearGlucoseForwardEnabled: Boolean = false,
     val logRetentionDays: Int = 30,
 )

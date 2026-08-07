@@ -39,7 +39,7 @@ async def test_recent_hypo_blocks_decrease(monkeypatch):
     treatments = []
     sgv_data = []
 
-    for days_back in (2, 3, 4):
+    for days_back in (2, 3, 4, 5, 6):
         t_start = base_time - timedelta(days=days_back)
         t_end = t_start + timedelta(hours=4)
         treatments.append(Treatment(created_at=t_start, insulin=2.0, carbs=0))

@@ -1543,6 +1543,19 @@ AI_TOOL_DECLARATIONS = [
     }
 ]
 
+# Restaurant mode is retired from user-facing and conversational surfaces. The
+# implementation remains for one release so historic sessions can be migrated,
+# but the language model can no longer invoke these operations.
+_RETIRED_TOOL_NAMES = {
+    "start_restaurant_session",
+    "add_plate_to_session",
+    "end_restaurant_session",
+}
+AI_TOOL_DECLARATIONS = [
+    declaration for declaration in AI_TOOL_DECLARATIONS
+    if declaration.get("name") not in _RETIRED_TOOL_NAMES
+]
+
 
 async def check_supplies_stock(tool_input: dict[str, Any]) -> SupplyCheckResult | ToolError:
     try:

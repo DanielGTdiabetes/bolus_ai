@@ -1,6 +1,6 @@
 
 import logging
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, desc, update
 
@@ -62,37 +62,8 @@ async def get_notification_summary_service(user_id: str, db: AsyncSession):
                 "unread": True,
                 "priority": "medium"
             })
-        else:
-            # Even if read, user implies we might list them? 'abrir panel ... listar items'.
-            # PROMPT clarification: "Si no tienes seen... considera no visto".
-            # "Items (solo estos 3)". If seen, does it disappear from list?
-            # "Solo avisos accionables". If I already saw it, do I need to see it again in the list?
-            # Probably yes, until action taken. But red dot goes away.
-            # Let's include it with unread=False for UI logic?
-            # Prompt example response shows items. It doesn't explicitly say hide if read.
-            # BUT 'basal_review_today' says "Revisa ... y aun no se ha marcado visto".
-            # This implies if seen, it disappears from list?
-            # Let's assume list contains ACTIVE alerts. Unread status denotes NEW.
-            # EXCEPT basal advice: if seen for today, maybe we hide it to reduce noise?
-            # "Basal review today: Condicion ... y aun no se ha marcado visto".
-            # This implies if seen, it is GONE from list.
-            #
-            # Let's apply "Hide if seen" for basal review.
-            # For suggestions:Pending exists regardless of seen.
-            # "suggestion_pending ... Condicion: existen parameter_suggestion".
-            # It doesn't say "and not seen".
-            # Red dot logic: "Punto rojo se enciende si hay >= 1 aviso no visto".
-            # So list shows Pending Suggestions (even if seen), but red dot is off.
-
-            items.append({
-                "type": "suggestion_pending",
-                "count": count_pend,
-                "title": "Sugerencias pendientes",
-                "message": f"Tienes {count_pend} sugerencias por revisar.",
-                "route": "#/suggestions",
-                "unread": False,
-                "priority": "medium"
-            })
+        # Once dismissed, the same pending batch remains hidden. A newly-created
+        # suggestion has a later timestamp and becomes visible again.
 
     # --- Check 2: Evaluation Ready ---
     # Evaluations accepted but not seen/acknowledged.
@@ -217,7 +188,15 @@ async def get_notification_summary_service(user_id: str, db: AsyncSession):
                         # Unique Key for this alert (per meal id or per hour?)
                         key_alert = f"post_meal_alert_{last_meal.id}"
                         
-                        if key_alert not in state_map:
+                        dismissed_at = state_map.get("post_prandial_warning")
+                        meal_created_at = last_meal.created_at
+                        if dismissed_at and dismissed_at.tzinfo is None:
+                            dismissed_at = dismissed_at.replace(tzinfo=timezone.utc)
+                        if meal_created_at and meal_created_at.tzinfo is None:
+                            meal_created_at = meal_created_at.replace(tzinfo=timezone.utc)
+                        if key_alert not in state_map and (
+                            not dismissed_at or dismissed_at < meal_created_at
+                        ):
                             items.append({
                                 "type": "post_prandial_warning",
                                 "count": 1,

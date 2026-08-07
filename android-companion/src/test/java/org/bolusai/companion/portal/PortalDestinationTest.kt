@@ -1,6 +1,7 @@
 package org.bolusai.companion.portal
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -24,7 +25,6 @@ class PortalDestinationTest {
                     "#/bolus",
                     "#/basal",
                     "#/history",
-                    "#/restaurant",
                     "#/scale",
                     "#/learning",
                     "#/suggestions",
@@ -33,5 +33,6 @@ class PortalDestinationTest {
                 ),
             ),
         )
+        assertFalse(routes.contains("#/restaurant"))
     }
 }

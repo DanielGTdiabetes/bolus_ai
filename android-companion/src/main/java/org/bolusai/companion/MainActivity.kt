@@ -83,6 +83,7 @@ import androidx.core.content.ContextCompat
 import androidx.health.connect.client.HealthConnectClient
 import androidx.health.connect.client.PermissionController
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 import org.bolusai.companion.data.AppSettings
 import org.bolusai.companion.data.AppSettingsRepository
 import org.bolusai.companion.accessibility.MyFitnessPalAssistantService
@@ -91,6 +92,10 @@ import org.bolusai.companion.diagnostics.HealthConnectLogRepository
 import org.bolusai.companion.diagnostics.LogExporter
 import org.bolusai.companion.diagnostics.LogShare
 import org.bolusai.companion.dexcom.DexcomEventWriter
+import org.bolusai.companion.dexcom.GlucoseQueueRepository
+import org.bolusai.companion.dexcom.GlucoseReading
+import org.bolusai.companion.dexcom.GlucoseSyncDiagnostics
+import org.bolusai.companion.dexcom.GlucoseSyncDiagnosticsRepository
 import org.bolusai.companion.health.HealthConnectAvailability
 import org.bolusai.companion.health.HealthConnectState
 import org.bolusai.companion.health.HealthPermissions
@@ -1217,7 +1222,7 @@ private fun SettingsScreen(
                     Text("Dexcom G7 modificada", style = MaterialTheme.typography.titleMedium)
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         Text(
-                            "Sincronizar insulina rápida, insulina lenta e hidratos",
+                            "Activar sincronización con Dexcom",
                             modifier = Modifier.weight(1f),
                         )
                         Switch(
@@ -1227,6 +1232,34 @@ private fun SettingsScreen(
                                 dexcomTestMessage = ""
                             },
                         )
+                    }
+                    if (settings.dexcomWriteEnabled) {
+                        Text(
+                            "Elige qué eventos enviar a Dexcom:",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Text("Insulina rápida (Fiasp)", modifier = Modifier.weight(1f))
+                            Switch(
+                                checked = settings.dexcomWriteInsulinFastEnabled,
+                                onCheckedChange = repository::setDexcomWriteInsulinFastEnabled,
+                            )
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Text("Insulina lenta", modifier = Modifier.weight(1f))
+                            Switch(
+                                checked = settings.dexcomWriteInsulinSlowEnabled,
+                                onCheckedChange = repository::setDexcomWriteInsulinSlowEnabled,
+                            )
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Text("Comida / Hidratos", modifier = Modifier.weight(1f))
+                            Switch(
+                                checked = settings.dexcomWriteCarbsEnabled,
+                                onCheckedChange = repository::setDexcomWriteCarbsEnabled,
+                            )
+                        }
                     }
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         Text(
@@ -1242,6 +1275,16 @@ private fun SettingsScreen(
                         "La glucosa se guarda en cola si no hay red y se envía primero al NAS y después a Render.",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text(
+                            "Reenviar glucosa al reloj Wear OS",
+                            modifier = Modifier.weight(1f),
+                        )
+                        Switch(
+                            checked = settings.wearGlucoseForwardEnabled,
+                            onCheckedChange = repository::setWearGlucoseForwardEnabled,
+                        )
+                    }
                     Text(
                         if (hasDexcomPermission) {
                             "Permiso de lectura Dexcom concedido"
@@ -1377,14 +1420,37 @@ private fun DiagnosticsScreen(
     val scope = rememberCoroutineScope()
     val exporter = remember { LogExporter() }
     val share = remember { LogShare(context) }
+    val glucoseQueueRepository = remember { GlucoseQueueRepository(context) }
+    val glucoseDiagnosticsRepository = remember { GlucoseSyncDiagnosticsRepository(context) }
     var exportPreview by remember { mutableStateOf("") }
+    var glucoseDiagnostics by remember { mutableStateOf(glucoseDiagnosticsRepository.snapshot()) }
+    var latestGlucose by remember {
+        mutableStateOf(glucoseQueueRepository.latest(Long.MAX_VALUE))
+    }
+    var nowMillis by remember { mutableStateOf(System.currentTimeMillis()) }
     val last = queueItems.firstOrNull()
+
+    LaunchedEffect(Unit) {
+        while (true) {
+            glucoseDiagnostics = glucoseDiagnosticsRepository.snapshot()
+            latestGlucose = glucoseQueueRepository.latest(Long.MAX_VALUE)
+            nowMillis = System.currentTimeMillis()
+            delay(5_000)
+        }
+    }
 
     LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         item { Text("Health Connect: ${HealthConnectAvailability(context).status()}") }
         item { Text("Automatizacion MyFitnessPal: ${if (settings.nutritionSyncEnabled) "ON" else "OFF"}") }
         item { Text("Cola: ${queueItems.size} elementos - ultimo endpoint: ${last?.endpointUsed ?: "-"}") }
         item { Text("Ultimo error: ${last?.lastError ?: "-"}") }
+        item {
+            GlucoseDiagnosticsCard(
+                diagnostics = glucoseDiagnostics,
+                latestGlucose = latestGlucose,
+                nowMillis = nowMillis,
+            )
+        }
         item {
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -1445,6 +1511,59 @@ private fun DiagnosticsScreen(
         }
     }
 }
+
+@Composable
+private fun GlucoseDiagnosticsCard(
+    diagnostics: GlucoseSyncDiagnostics,
+    latestGlucose: GlucoseReading?,
+    nowMillis: Long,
+) {
+    val broadcastAgeMinutes = ageMinutes(diagnostics.lastBroadcastAtMillis, nowMillis)
+    val uploadAgeMinutes = ageMinutes(diagnostics.lastUploadSuccessAtMillis, nowMillis)
+    val status = when {
+        diagnostics.lastBroadcastAtMillis == 0L -> "Todavia no se ha recibido glucosa de Dexcom"
+        broadcastAgeMinutes != null && broadcastAgeMinutes > 12 -> "Dexcom no ha entregado una lectura reciente"
+        diagnostics.queueSize > 0 && (uploadAgeMinutes == null || uploadAgeMinutes > 12) ->
+            "Dexcom tiene datos, pero quedan pendientes de subir"
+        else -> "Flujo Dexcom a Nightscout operativo"
+    }
+
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text("Glucosa Dexcom", style = MaterialTheme.typography.titleMedium)
+            Text(status)
+            Text(
+                "Ultima recepcion: ${formatDiagnosticTime(diagnostics.lastBroadcastAtMillis)}" +
+                    (broadcastAgeMinutes?.let { " (hace $it min)" } ?: ""),
+            )
+            Text(
+                "Ultima lectura local: " +
+                    (latestGlucose?.let { "${it.glucoseMgdl} mg/dL a las ${formatDiagnosticTime(it.timestampSeconds * 1000)}" }
+                        ?: "-"),
+            )
+            Text("Cola de glucosa: ${diagnostics.queueSize}")
+            Text(
+                "Ultimo envio aceptado: ${formatDiagnosticTime(diagnostics.lastUploadSuccessAtMillis)}" +
+                    " · ${diagnostics.lastEndpoint.ifBlank { "-" }}" +
+                    " · HTTP ${diagnostics.lastStatusCode ?: "-"}",
+            )
+            Text("Servicio auxiliar: ${diagnostics.serviceState}")
+            if (diagnostics.lastServiceTimeoutAtMillis > 0) {
+                Text("Ultimo timeout: ${formatDiagnosticTime(diagnostics.lastServiceTimeoutAtMillis)}")
+            }
+            if (diagnostics.lastError.isNotBlank()) Text("Error de subida: ${diagnostics.lastError}")
+            if (diagnostics.serviceDetail.isNotBlank()) Text("Detalle del servicio: ${diagnostics.serviceDetail}")
+        }
+    }
+}
+
+private fun ageMinutes(timestampMillis: Long, nowMillis: Long): Long? {
+    if (timestampMillis <= 0) return null
+    return ((nowMillis - timestampMillis).coerceAtLeast(0) / 60_000)
+}
+
+private fun formatDiagnosticTime(timestampMillis: Long): String =
+    if (timestampMillis <= 0) "-" else formatInstantMillis(timestampMillis)
 
 @Composable
 private fun WebScreen(

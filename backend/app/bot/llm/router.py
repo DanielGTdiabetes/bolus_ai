@@ -516,7 +516,6 @@ async def handle_event(username: str, chat_id: int, event_type: str, payload: Di
         window = payload.get("window_minutes", 30)
         delta_arrow = payload.get("delta_arrow", f"{delta_total:+}")
         
-        micro_u = payload.get("suggested_micro_u")
         buttons = []
         
         if direction == "rise":
@@ -525,26 +524,10 @@ async def handle_event(username: str, chat_id: int, event_type: str, payload: Di
                  f"Ahora: **{curr}** mg/dL ({delta_arrow})\n"
                  f"Últimos {window} min: +{abs(delta_total)} (≈ {slope:+.2f} mg/dL/min)\n"
              )
-             if micro_u:
-                 # Load Step from settings (dynamic)
-                 try:
-                     user_settings = await context_builder.get_bot_user_settings_safe()
-                     step = user_settings.round_step_u or 0.5
-                 except:
-                     step = 0.5
-                 
-                 # Round to Step
-                 if step > 0:
-                     rounded_micro = round(float(micro_u) / step) * step
-                 else:
-                     rounded_micro = float(micro_u)
-
-                 if rounded_micro > 0:
-                     text += f"\n💡 **Sugerencia:** Un micro-bolo de **{rounded_micro:g} U** podría aplanar la curva."
-                     buttons.append([InlineKeyboardButton("💉 Calcular Corrección", callback_data="run_cmd|corrige")])
-                 
+             text += "\n\nSi quieres valorar insulina, usa la calculadora de corrección; este aviso no propone una dosis."
+             buttons.append([InlineKeyboardButton("Calcular corrección", callback_data="run_cmd|corrige")])
              text += f"\n\n¿Ha habido estrés, fallo de infusión o comida no registrada?"
-             reason = f"sent_trend_rise(slope={slope}, delta={delta_total}, window={window}, micro={micro_u})"
+             reason = f"sent_trend_rise(slope={slope}, delta={delta_total}, window={window})"
         else:
              text = (
                  f"📉 **Bajada rápida sin comida/bolo reciente**\n\n"

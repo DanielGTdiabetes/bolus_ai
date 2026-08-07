@@ -13,8 +13,8 @@ android {
         applicationId = "org.bolusai.companion"
         minSdk = 26
         targetSdk = 36
-        versionCode = 6
-        versionName = "0.2.0-alpha3"
+        versionCode = 7
+        versionName = "0.2.0-alpha4"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -50,6 +50,8 @@ dependencies {
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
     kapt("androidx.room:room-compiler:2.6.1")
     implementation("androidx.work:work-runtime-ktx:2.9.1")
+    implementation("com.google.android.gms:play-services-wearable:18.1.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.9.0")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
     testImplementation("junit:junit:4.13.2")

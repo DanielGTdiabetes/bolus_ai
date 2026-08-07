@@ -50,7 +50,7 @@ export default function ScanPage() {
         navigate('#/bolus');
     };
 
-    const showRestaurantFlow = !useSimpleMode;
+    const showRestaurantFlow = RESTAURANT_MODE_ENABLED && !useSimpleMode;
     const headerTitle = showRestaurantFlow ? 'Sesión restaurante' : 'Escanear / Pesar';
 
     const handlePlateUpdate = (newEntries) => {
@@ -239,11 +239,14 @@ function CameraSection({ scaleGrams, plateEntries, onAddEntry, scanMode, setScan
                 // AUTO ADD (Classic Behavior)
                 const entry = {
                     carbs: result.carbs_estimate_g,
+                    carbsRange: result.carbs_range_g,
                     weight: netWeight,
                     fat: totalFat,
                     protein: totalProt,
                     img: state.currentImageBase64,
-                    name: result.food_name || "Alimento IA"
+                    name: result.food_name || "Alimento IA",
+                    visionReference: result.reference_type || 'none',
+                    visionConfidence: result.confidence,
                 };
 
                 onAddEntry(entry);
@@ -256,6 +259,14 @@ function CameraSection({ scaleGrams, plateEntries, onAddEntry, scanMode, setScan
                 const cautionNotes = [];
                 if (result.confidence === 'low') {
                     cautionNotes.push('baja confianza');
+                }
+                if (result.carbs_range_g?.length === 2) {
+                    cautionNotes.push(`rango ${Math.round(result.carbs_range_g[0])}–${Math.round(result.carbs_range_g[1])} g`);
+                }
+                if (!netWeight && result.reference_type === 'none') {
+                    cautionNotes.push('porción estimada solo por imagen');
+                } else if (result.reference_type === 'insulin_pen') {
+                    cautionNotes.push(`pluma usada como referencia (${result.reference_confidence})`);
                 }
                 if (result.needs_user_input && result.needs_user_input.length > 0) {
                     cautionNotes.push(result.needs_user_input[0].question);
@@ -356,7 +367,7 @@ function CameraSection({ scaleGrams, plateEntries, onAddEntry, scanMode, setScan
                     }}>
                     <span style={{ fontSize: '1.4rem' }}>🍽️</span> Un Plato
                 </button>
-                <button
+                {RESTAURANT_MODE_ENABLED && <button
                     onClick={() => setScanMode('menu')}
                     style={{
                         flex: 1, padding: '12px', borderRadius: '12px', border: 'none',
@@ -368,7 +379,7 @@ function CameraSection({ scaleGrams, plateEntries, onAddEntry, scanMode, setScan
                         display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', fontSize: '1rem'
                     }}>
                     <span style={{ fontSize: '1.4rem' }}>📜</span> Carta
-                </button>
+                </button>}
             </div>
 
             {/* Show specific UI based on mode */}

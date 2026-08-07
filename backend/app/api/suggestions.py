@@ -97,8 +97,12 @@ async def accept_suggestion(
     user=Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session)
 ):
+    res = await resolve_suggestion_service(id, user.id, "accept", payload.note, db, payload.proposed_change)
+    if not res:
+        raise HTTPException(status_code=404, detail="Suggestion not found")
     
-    # 1. Attempt to apply settings change if provided
+    # Apply settings only after the suggestion has been resolved. If this
+    # secondary sync fails, the acceptance should still be reported as OK.
     if payload.proposed_change:
         try:
             pc = payload.proposed_change
@@ -140,10 +144,7 @@ async def accept_suggestion(
             # We continue to resolve the suggestion even if settings update fails
             # preventing the UI from getting stuck, but logging the error.
 
-    res = await resolve_suggestion_service(id, user.id, "accept", payload.note, db, payload.proposed_change)
-    if not res:
-        raise HTTPException(status_code=404, detail="Suggestion not found")
-    return {"status": "accepted", "id": res.id}
+    return {"status": "accepted", "id": str(id)}
 
 @router.post("/{id}/reject")
 async def reject_suggestion(
@@ -155,7 +156,7 @@ async def reject_suggestion(
     res = await resolve_suggestion_service(id, user.id, "reject", payload.note, db)
     if not res:
         raise HTTPException(status_code=404, detail="Suggestion not found")
-    return {"status": "rejected", "id": res.id}
+    return {"status": "rejected", "id": str(id)}
 
 # --- Evaluation Endpoints ---
 

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useStore } from '../../hooks/useStore';
 import { navigate } from '../../modules/core/navigation';
-import { getNotificationsSummary, logout } from '../../lib/api';
+import { getCompanionActiveEpisodes, getNotificationsSummary, logout } from '../../lib/api';
 
 export function Header({ title = "Bolus AI", showBack = false, notificationActive = false, onNotificationClick }) {
     const user = useStore(s => s.user);
@@ -38,8 +38,14 @@ export function Header({ title = "Bolus AI", showBack = false, notificationActiv
 
         const checkBackend = async () => {
             try {
-                const summary = await getNotificationsSummary();
-                setHasBackendNotifications(summary && summary.items && summary.items.length > 0);
+                const [summary, companion] = await Promise.all([
+                    getNotificationsSummary(),
+                    getCompanionActiveEpisodes(),
+                ]);
+                const hasCompanionAlert = (companion?.episodes || []).some(item =>
+                    !['snoozed', 'monitoring'].includes(item.status) && item.severity !== 'info'
+                );
+                setHasBackendNotifications(Boolean(summary?.has_unread || hasCompanionAlert));
             } catch {
                 // Silent fail
             }
@@ -53,6 +59,7 @@ export function Header({ title = "Bolus AI", showBack = false, notificationActiv
         window.addEventListener('storage', handleStorage);
         // Custom event for same-window updates
         window.addEventListener('forecast-update', handleStorage);
+        window.addEventListener('companion-update', checkBackend);
 
         // Interval for backend notifications (every 60s)
         const interval = setInterval(checkBackend, 60000);
@@ -60,6 +67,7 @@ export function Header({ title = "Bolus AI", showBack = false, notificationActiv
         return () => {
             window.removeEventListener('storage', handleStorage);
             window.removeEventListener('forecast-update', handleStorage);
+            window.removeEventListener('companion-update', checkBackend);
             clearInterval(interval);
         };
     }, []);

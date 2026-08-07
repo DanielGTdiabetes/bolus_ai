@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { Button } from '../ui/Atoms';
 import { fetchIsfAnalysis } from '../../lib/api';
-import { getCalcParams, saveCalcParams } from '../../modules/core/store';
 
 const COLORS = {
     ok: '#22c55e', // green
@@ -104,6 +103,10 @@ export function IsfAnalyzer() {
                 </div>
             )}
 
+            <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', color: '#1e3a8a', padding: '0.8rem', borderRadius: '10px', fontSize: '0.84rem' }}>
+                Esto es una comprobación, no un cambio automático. Se han usado {cleanEventCount} correcciones limpias y descartado {result.discarded_events_count || 0}. Cualquier ajuste debe revisarse y confirmarse aparte.
+            </div>
+
             <div style={{ display: 'grid', gap: '1rem' }}>
                 {result.buckets.map(bucket => (
                     <BucketCard key={bucket.bucket} stat={bucket} />
@@ -176,28 +179,6 @@ function BucketCard({ stat }) {
     const color = COLORS[stat.status] || COLORS.insufficient_data;
     const label = LABELS[stat.status] || stat.status;
 
-    const handleApply = () => {
-        if (!window.confirm(`¿Confirmas cambiar el ISF de ${stat.current_isf} a ${stat.suggested_isf} para el horario ${stat.label}?`)) return;
-
-        const store = getCalcParams() || {};
-        const map = {
-            "morn": "breakfast",
-            "afternoon": "lunch",
-            "night": "dinner",
-            "madrugada": "dinner"
-        };
-        const slot = map[stat.bucket] || "lunch";
-
-        // Load default structure if missing
-        if (!store[slot]) store[slot] = { isf: 50, icr: 10, target: 110 };
-
-        store[slot].isf = stat.suggested_isf;
-        saveCalcParams(store);
-
-        alert("¡Cambio aplicado correctamente! Se ha actualizado la configuración.");
-        window.location.reload(); // Refresh to reflect changes in SettingsPage
-    };
-
     return (
         <div style={{
             background: 'white',
@@ -256,6 +237,12 @@ function BucketCard({ stat }) {
                 </div>
             )}
 
+            {stat.observed_range && (
+                <div style={{ paddingLeft: '0.5rem', marginTop: '0.4rem', fontSize: '0.78rem', color: '#64748b' }}>
+                    Rango observado central: {stat.observed_range[0]}–{stat.observed_range[1]} mg/dL/U · confianza {stat.confidence}
+                </div>
+            )}
+
             {isActionable && stat.suggested_isf && (
                 <div style={{ marginTop: '1rem', paddingLeft: '0.5rem', paddingTop: '0.8rem', borderTop: '1px solid #f8fafc' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
@@ -273,9 +260,9 @@ function BucketCard({ stat }) {
                         <span style={{ fontSize: '1.1rem', fontWeight: 800, color: '#1e293b' }}>{stat.suggested_isf}</span>
                     </div>
                     <div style={{ marginTop: '0.5rem' }}>
-                        <Button onClick={handleApply} style={{ width: '100%', justifyContent: 'center' }}>
-                            ✅ Aceptar y Aplicar ISF
-                        </Button>
+                        <div style={{ fontSize: '0.8rem', color: '#92400e', background: '#fffbeb', padding: '0.65rem', borderRadius: '8px' }}>
+                            Valor orientativo. Revísalo en tu perfil junto con el número de eventos y la incertidumbre; no se aplicará desde este análisis.
+                        </div>
                     </div>
                 </div>
             )}
