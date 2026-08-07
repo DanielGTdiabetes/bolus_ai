@@ -25,6 +25,7 @@ import org.bolusai.companion.diagnostics.HealthConnectLogStatus
 import org.bolusai.companion.dexcom.DexcomEventSyncRepository
 import org.bolusai.companion.dexcom.DexcomEventWriter
 import org.bolusai.companion.dexcom.GlucoseSyncDiagnosticsRepository
+import org.bolusai.companion.dexcom.shouldSkipProcessedEvent
 import org.bolusai.companion.network.DexcomBolusEventClient
 import org.bolusai.companion.network.HermesMfpSyncTriggerClient
 import org.bolusai.companion.network.HermesMfpSyncTriggerResult
@@ -334,7 +335,7 @@ class NutritionActiveSyncService : Service() {
                     )
                 }
                 for (event in result.events) {
-                    if (repository.isProcessed(event.id)) continue
+                    if (shouldSkipProcessedEvent(event.id, repository::isProcessed)) continue
                     val sent = when (event.eventKind) {
                         "INSULIN" -> {
                             val insulinType = event.insulinType ?: "FAST_ACTING"

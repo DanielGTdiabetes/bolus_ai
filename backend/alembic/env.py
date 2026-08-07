@@ -71,10 +71,11 @@ def run_migrations_offline() -> None:
 
 
 def do_run_migrations(connection: Connection) -> None:
+    is_postgresql = connection.dialect.name == "postgresql"
     context.configure(
         connection=connection, 
         target_metadata=target_metadata,
-        version_table_schema="public", # Force schema for asyncpg
+        version_table_schema="public" if is_postgresql else None,
         include_schemas=False # Ensure we only touch what we expect
     )
 

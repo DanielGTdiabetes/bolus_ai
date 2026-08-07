@@ -12,6 +12,7 @@ from app.services.evaluation_engine import evaluate_suggestion_service
 @pytest.mark.asyncio
 async def test_evaluate_suggestion_improved():
     db = AsyncMock()
+    db.add = MagicMock()
     user_id = str(uuid.uuid4())
     mid = datetime.now() 
     sug_id = uuid.uuid4()
@@ -83,6 +84,7 @@ async def test_evaluate_suggestion_improved():
 @pytest.mark.asyncio
 async def test_evaluate_insufficient():
     db = AsyncMock()
+    db.add = MagicMock()
     user_id = str(uuid.uuid4())
     mid = datetime.now()
     sug_id = uuid.uuid4()
@@ -116,4 +118,3 @@ async def test_evaluate_insufficient():
     res = await evaluate_suggestion_service(str(sug_id), user_id, 7, db)
     
     assert res.result == "insufficient"
-

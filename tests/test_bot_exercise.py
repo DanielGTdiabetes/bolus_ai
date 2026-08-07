@@ -56,9 +56,10 @@ class DummyContext:
 
 
 @pytest.mark.asyncio
-async def test_exercise_callback_triggers_calc_with_payload(monkeypatch):
+async def test_exercise_callback_triggers_calc_with_payload(monkeypatch, tmp_path):
     req_id = "req456"
-    service.SNAPSHOT_STORAGE[req_id] = {
+    monkeypatch.setattr(service, "_snapshot_store", service.SnapshotStore(tmp_path))
+    service._get_snapshot_store().set(req_id, {
         "carbs": 10.0,
         "fat": 0.0,
         "protein": 0.0,
@@ -66,7 +67,7 @@ async def test_exercise_callback_triggers_calc_with_payload(monkeypatch):
         "notes": "",
         "payload": BolusRequestV2(carbs_g=10.0, target_mgdl=100, meal_slot="lunch"),
         "ts": time.time(),
-    }
+    })
 
     captured = {}
 
@@ -119,4 +120,4 @@ async def test_exercise_callback_triggers_calc_with_payload(monkeypatch):
     assert req_v2.exercise.minutes == 30
     assert req_v2.exercise.intensity == "moderate"
     assert "exercise_flow" not in context.user_data
-    service.SNAPSHOT_STORAGE.pop(req_id, None)
+    service._get_snapshot_store().pop(req_id, None)

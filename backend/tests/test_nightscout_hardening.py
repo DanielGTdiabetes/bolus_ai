@@ -7,11 +7,11 @@ async def test_treatments_empty_body():
     """Test handling of empty response body from Nightscout"""
     mock_client = AsyncMock()
     # Mocking httpx response
-    mock_response = AsyncMock()
+    mock_response = MagicMock()
     mock_response.status_code = 200
     mock_response.content = b"" # Empty byte string
     mock_response.text = ""
-    mock_response.raise_for_status = AsyncMock()
+    mock_response.raise_for_status = Mock()
     
     mock_client.get.return_value = mock_response
 

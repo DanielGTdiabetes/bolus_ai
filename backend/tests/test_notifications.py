@@ -12,6 +12,7 @@ from app.models.evaluation import SuggestionEvaluation
 async def test_notifications_unread():
     user_id = str(uuid.uuid4())
     db = AsyncMock()
+    db.add = MagicMock()
     
     # Mock States (Initially empty for user)
     # 1. State Fetch

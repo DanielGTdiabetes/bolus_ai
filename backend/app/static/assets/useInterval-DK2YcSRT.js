@@ -1,0 +1,1 @@
+import{r as e}from"./bridge-BF-DN9Kr.js";function f(r,t){const n=e.useRef();e.useEffect(()=>{n.current=r},[r]),e.useEffect(()=>{function u(){n.current()}if(t!==null){let s=setInterval(u,t);return()=>clearInterval(s)}},[t])}export{f as u};

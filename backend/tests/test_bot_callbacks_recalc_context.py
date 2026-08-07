@@ -42,8 +42,9 @@ class DummyUpdate:
 
 
 @pytest.fixture(autouse=True)
-def _clear_snapshots() -> None:
-    service.SNAPSHOT_STORAGE.clear()
+def _isolated_snapshots(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    store = service.SnapshotStore(tmp_path)
+    monkeypatch.setattr(service, "_snapshot_store", store)
 
 
 @pytest.mark.asyncio
@@ -83,14 +84,14 @@ async def test_macro_edit_prefers_snapshot_user_id(monkeypatch: pytest.MonkeyPat
         meal_slot="lunch",
         target_mgdl=settings.targets.mid,
     )
-    service.SNAPSHOT_STORAGE[req_id] = {
+    service._get_snapshot_store().set(req_id, {
         "payload": req_v2,
         "rec": object(),
         "carbs": 5,
         "fat": 0.0,
         "protein": 0.0,
         "user_id": "snapshot_user",
-    }
+    })
 
     update = DummyUpdate("noop")
     context = types.SimpleNamespace(user_data={"editing_meal_request": req_id}, bot=object())
@@ -117,7 +118,7 @@ async def test_macro_edit_prefers_snapshot_user_id(monkeypatch: pytest.MonkeyPat
 
     await service._process_text_input_internal(update, context, "10 0 0")
 
-    snapshot = service.SNAPSHOT_STORAGE[req_id]
+    snapshot = service._get_snapshot_store().get(req_id)
     assert captured["username"] == "snapshot_user"
     assert snapshot["payload"].carbs_g == 10.0
     assert snapshot["payload"].fat_g == 0.0
@@ -135,14 +136,14 @@ async def test_set_slot_recalc_uses_snapshot_user_id(monkeypatch: pytest.MonkeyP
         meal_slot="breakfast",
         target_mgdl=settings.targets.mid,
     )
-    service.SNAPSHOT_STORAGE[req_id] = {
+    service._get_snapshot_store().set(req_id, {
         "payload": req_v2,
         "rec": object(),
         "carbs": 12,
         "fat": 0.0,
         "protein": 0.0,
         "user_id": "snapshot_user",
-    }
+    })
 
     update = DummyUpdate(f"set_slot|lunch|{req_id}")
     context = types.SimpleNamespace(user_data={}, bot=object())
@@ -165,6 +166,6 @@ async def test_set_slot_recalc_uses_snapshot_user_id(monkeypatch: pytest.MonkeyP
 
     await service.handle_callback(update, context)
 
-    snapshot = service.SNAPSHOT_STORAGE[req_id]
+    snapshot = service._get_snapshot_store().get(req_id)
     assert captured["username"] == "snapshot_user"
     assert snapshot["payload"].meal_slot == "lunch"

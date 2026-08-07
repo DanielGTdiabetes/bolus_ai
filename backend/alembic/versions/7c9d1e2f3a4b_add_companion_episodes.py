@@ -1,7 +1,7 @@
 """Add persistent companion episodes and preferences.
 
 Revision ID: 7c9d1e2f3a4b
-Revises: 2f3a4b5c6d7e
+Revises: clin001_nutrition_id
 Create Date: 2026-08-07 00:00:00.000000
 """
 from typing import Sequence, Union
@@ -11,7 +11,7 @@ import sqlalchemy as sa
 
 
 revision: str = "7c9d1e2f3a4b"
-down_revision: Union[str, Sequence[str], None] = "2f3a4b5c6d7e"
+down_revision: Union[str, Sequence[str], None] = "clin001_nutrition_id"
 branch_labels = None
 depends_on = None
 

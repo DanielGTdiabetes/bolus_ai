@@ -22,6 +22,12 @@ from app.models.treatment import Treatment
 from app.services.store import DataStore
 from app.services.nightscout_client import NightscoutClient, NightscoutError
 from app.services.nightscout_secrets_service import get_ns_config
+from app.services.nutrition_shadow_matcher import (
+    NutritionShadowEvent,
+    classify_nutrition_candidate,
+    extract_import_fingerprint,
+    parse_nutrition_shadow_mode,
+)
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -857,7 +863,8 @@ async def ingest_nutrition(
 
         before_daily_dump_filter = len(parsed_meals)
         parsed_meals = _filter_mfp_health_connect_daily_dump(parsed_meals)
-        if len(parsed_meals) != before_daily_dump_filter:
+        is_mfp_daily_dump = len(parsed_meals) != before_daily_dump_filter
+        if is_mfp_daily_dump:
             logger.info(
                 "nutrition_ingest_mfp_daily_dump_filtered ingest_id=%s before=%s after=%s",
                 ingest_id,
@@ -974,7 +981,10 @@ async def ingest_nutrition(
                 # with the original event in the DB's created_at field.
                 import_key = meal.get("fingerprint") or date_key
                 import_sig = f"Imported from Health: {import_key} #imported"
-                stmt_strict = select(Treatment).where(Treatment.notes.contains(import_sig))
+                stmt_strict = select(Treatment).where(
+                    Treatment.user_id == username,
+                    Treatment.notes.contains(import_sig),
+                )
                 result_strict = await session.execute(stmt_strict)
                 existing_strict = result_strict.scalars().first()
                 
@@ -1048,12 +1058,65 @@ async def ingest_nutrition(
                     Treatment.carbs <= (t_carbs + 1.0)
                 )
                 result = await session.execute(stmt)
-                candidates = result.scalars().all()
+                candidates = list(result.scalars().all())
+
+                # Health Connect can export every MFP meal with one synthetic/old
+                # timestamp. After reducing that daily dump to its latest meal,
+                # compare it with recent Hermes imports by macros as well. This
+                # prevents the same meal entering twice through both channels.
+                if is_mfp_daily_dump:
+                    recent_window_start = (
+                        datetime.now(timezone.utc) - timedelta(hours=3)
+                    ).replace(tzinfo=None)
+                    recent_stmt = select(Treatment).where(
+                        Treatment.user_id == username,
+                        Treatment.created_at >= recent_window_start,
+                        Treatment.carbs >= (t_carbs - 1.0),
+                        Treatment.carbs <= (t_carbs + 1.0),
+                    )
+                    recent_result = await session.execute(recent_stmt)
+                    candidates_by_id = {candidate.id: candidate for candidate in candidates}
+                    candidates_by_id.update(
+                        {candidate.id: candidate for candidate in recent_result.scalars().all()}
+                    )
+                    candidates = list(candidates_by_id.values())
+
+                if parse_nutrition_shadow_mode(os.getenv("NUTRITION_DEDUPE_MODE")) == "shadow":
+                    incoming_event = NutritionShadowEvent(
+                        user_id=username,
+                        occurred_at=item_ts,
+                        carbs=t_carbs,
+                        source=meal.get("source") or source,
+                        fingerprint=meal.get("fingerprint"),
+                    )
+                    for candidate in candidates:
+                        candidate_event = NutritionShadowEvent(
+                            user_id=candidate.user_id,
+                            occurred_at=candidate.created_at,
+                            carbs=candidate.carbs,
+                            source=(
+                                "hermes"
+                                if "hermes" in (candidate.notes or "").lower()
+                                else candidate.entered_by
+                            ),
+                            fingerprint=extract_import_fingerprint(candidate.notes),
+                        )
+                        classification = classify_nutrition_candidate(incoming_event, candidate_event)
+                        logger.info(
+                            "nutrition_dedup_shadow ingest_id=%s mode=shadow classification=%s "
+                            "incoming_source=%s candidate_source=%s candidate_id=%s",
+                            ingest_id,
+                            classification,
+                            incoming_event.source,
+                            candidate_event.source,
+                            candidate.id,
+                        )
                 
                 is_duplicate = False
                 for c in candidates:
                     # Check if it's the same meal (Carbs very close)
-                    if abs(c.carbs - t_carbs) < 0.5:
+                    carbs_tolerance = 1.0 if is_mfp_daily_dump else 0.5
+                    if abs(c.carbs - t_carbs) <= carbs_tolerance:
                         
                         # ENRICHMENT CHECK:
                         # If existing lacks Fat/Protein/Fiber and incoming HAS it, update it.
