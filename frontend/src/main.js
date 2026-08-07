@@ -108,10 +108,10 @@ initRouter();
 // Trigger Initial Render
 document.addEventListener('DOMContentLoaded', async () => {
   // Check backend health (DB mode)
-  import('./modules/core/store.js').then(({ checkBackendHealth, syncSettings }) => {
-    checkBackendHealth();
-    syncSettings();
-  });
+  const { checkBackendHealth, syncSettings, validateStoredSession } = await import('./modules/core/store.js');
+  await validateStoredSession();
+  checkBackendHealth();
+  syncSettings();
 
   router();
 

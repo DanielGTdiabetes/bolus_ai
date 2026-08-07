@@ -318,18 +318,26 @@ class NutritionActiveSyncService : Service() {
                     if (repository.isProcessed(event.id)) continue
                     val sent = when (event.eventKind) {
                         "INSULIN" -> {
+                            val insulinType = event.insulinType ?: "FAST_ACTING"
                             val units = event.insulinUnits
                             if (units == null) {
                                 false
+                            } else if (repository.hasInsulinBroadcast(insulinType, units, event.timestamp)) {
+                                repository.markProcessed(event.id, event.timestamp)
+                                continue
                             } else {
-                                DexcomEventWriter.sendInsulinEvent(
+                                val insulinSent = DexcomEventWriter.sendInsulinEvent(
                                     context = applicationContext,
                                     insulinUnits = units,
-                                    insulinType = event.insulinType ?: "FAST_ACTING",
+                                    insulinType = insulinType,
                                     glucoseMgdl = event.glucoseMgdl,
-                                    useLatestGlucoseWhenMissing = event.insulinType == "LONG_ACTING",
+                                    useLatestGlucoseWhenMissing = insulinType == "LONG_ACTING",
                                     timestamp = event.timestamp,
                                 )
+                                if (insulinSent) {
+                                    repository.markInsulinBroadcast(insulinType, units, event.timestamp)
+                                }
+                                insulinSent
                             }
                         }
                         "CARBS" -> {

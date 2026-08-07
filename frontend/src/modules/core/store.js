@@ -1,4 +1,5 @@
-import { getStoredToken, getStoredUser, getSettings, putSettings, importSettings } from '../../lib/api';
+import { getStoredToken, getStoredUser, getSettings, putSettings, importSettings, fetchMe, saveSession, clearSession } from '../../lib/api';
+import { sessionUserFromResponse } from './authRouting.js';
 
 // Keys
 const CALC_PARAMS_KEY = "bolusai_calc_params";
@@ -220,6 +221,30 @@ export async function syncSettings() {
         }
     } catch (e) {
         console.error("Sync failed:", e);
+    }
+}
+
+export async function validateStoredSession() {
+    if (!state.token || !state.user) return false;
+
+    state.loadingUser = true;
+    try {
+        const data = await fetchMe();
+        const user = sessionUserFromResponse(data);
+        if (!user) throw new Error("Respuesta de sesión inválida");
+        state.user = user;
+        saveSession(state.token, state.user);
+        return true;
+    } catch (e) {
+        const message = e?.message || "";
+        if (message.includes("Sesi") || message.includes("sesi") || message.includes("auth") || message.includes("token")) {
+            clearSession();
+            state.token = null;
+            state.user = null;
+        }
+        return false;
+    } finally {
+        state.loadingUser = false;
     }
 }
 

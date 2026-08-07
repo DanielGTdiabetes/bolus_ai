@@ -1,6 +1,7 @@
 import { state } from './store.js';
 import { logout } from '../../lib/api.js';
 import { navigate, redirectToLogin } from './navigation.js';
+import { loginRedirectFor } from './authRouting.js';
 
 // Route Handlers (These will be set by main.js to avoid circular imports during refactor)
 // Once all views are modularized, we can import them here or in a routes config.
@@ -28,11 +29,9 @@ export async function router() {
     const route = window.location.hash || "#/";
 
     // Auth Guard
-    if (!state.user && route !== "#/login") {
-        // We can't use viewRegistry['#/login'] directly if not registered yet?
-        // Assume login is registered.
-        const loginHandler = viewRegistry['#/login'];
-        if (loginHandler) loginHandler();
+    const authRedirect = loginRedirectFor(route, Boolean(state.user));
+    if (authRedirect) {
+        navigate(authRedirect);
         return;
     }
 
