@@ -38,10 +38,20 @@ def upgrade() -> None:
         sa.Column("expires_at", sa.DateTime(timezone=True), nullable=True),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("user_id", "fingerprint", name="uq_companion_episode_fingerprint"),
+        if_not_exists=True,
     )
-    op.create_index("ix_companion_episodes_user_id", "companion_episodes", ["user_id"])
-    op.create_index("ix_companion_episodes_kind", "companion_episodes", ["kind"])
-    op.create_index("ix_companion_episodes_status", "companion_episodes", ["status"])
+    op.create_index(
+        "ix_companion_episodes_user_id", "companion_episodes", ["user_id"],
+        if_not_exists=True,
+    )
+    op.create_index(
+        "ix_companion_episodes_kind", "companion_episodes", ["kind"],
+        if_not_exists=True,
+    )
+    op.create_index(
+        "ix_companion_episodes_status", "companion_episodes", ["status"],
+        if_not_exists=True,
+    )
     op.create_table(
         "companion_preferences",
         sa.Column("user_id", sa.String(), nullable=False),
@@ -53,6 +63,7 @@ def upgrade() -> None:
         sa.Column("repeat_high_minutes", sa.Integer(), nullable=False, server_default="120"),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
         sa.PrimaryKeyConstraint("user_id"),
+        if_not_exists=True,
     )
 
 
