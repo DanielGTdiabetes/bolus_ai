@@ -32,4 +32,12 @@ class DexcomEventSyncLedgerTest {
         assertFalse(basal == insulinEventFingerprint("LONG_ACTING", 17.0, 1235L))
         assertTrue(basal.contains("LONG_ACTING"))
     }
+
+    @Test
+    fun processedEventIsSkippedBeforeItCanBeBroadcastAgain() {
+        val processedIds = setOf("basal-17u")
+
+        assertTrue(shouldSkipProcessedEvent("basal-17u", processedIds::contains))
+        assertFalse(shouldSkipProcessedEvent("new-bolus", processedIds::contains))
+    }
 }

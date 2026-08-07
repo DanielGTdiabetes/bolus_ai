@@ -41,6 +41,11 @@ internal fun insulinEventFingerprint(
     timestamp: Long,
 ): String = "$timestamp|${insulinType.trim().uppercase(Locale.ROOT)}|${insulinUnits.toBits()}"
 
+internal fun shouldSkipProcessedEvent(
+    eventId: String,
+    isProcessed: (String) -> Boolean,
+): Boolean = isProcessed(eventId)
+
 class DexcomEventSyncRepository(context: Context) {
     private val prefs = context.getSharedPreferences("bolus_companion_dexcom_sync", Context.MODE_PRIVATE)
 
