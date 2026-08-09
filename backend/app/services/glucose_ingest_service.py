@@ -90,7 +90,12 @@ class GlucoseIngestData:
     sequence: Optional[int] = None
     sensor_type: Optional[str] = None
     source_package: Optional[str] = None
+    origin_installation_id: Optional[str] = None
     received_at: Optional[datetime] = None
+    received_at_watch: Optional[datetime] = None
+    received_at_phone: Optional[datetime] = None
+    outbox_sequence: Optional[int] = None
+    decision_eligible: bool = True
 
 
 @dataclass(slots=True)
@@ -105,6 +110,7 @@ def validate_ingest(data: GlucoseIngestData, now: Optional[datetime] = None) -> 
     measured_at = as_utc(data.measured_at)
     age = now - measured_at
     source = (data.source or "").strip().lower()
+    decision_eligible = bool(data.decision_eligible and source != "g7_direct_watch")
 
     reason: Optional[str] = None
     if source not in ALLOWED_SOURCES:
@@ -125,6 +131,7 @@ def validate_ingest(data: GlucoseIngestData, now: Optional[datetime] = None) -> 
         reason is None
         and not historical
         and not data.timestamp_uncertain
+        and decision_eligible
         and 40 <= int(data.glucose_mgdl) <= 400
     )
     return ("accepted" if reason is None else "rejected", reason, usable, historical)
@@ -160,6 +167,24 @@ async def ingest_glucose_reading(
             )
         )
     ).scalars().first()
+    origin_installation_id = _bounded_identifier(data.origin_installation_id)
+    if (
+        existing is None
+        and origin_installation_id
+        and session_id
+        and data.sequence is not None
+    ):
+        existing = (
+            await session.execute(
+                select(GlucoseReadingDB).where(
+                    GlucoseReadingDB.user_id == user_id,
+                    GlucoseReadingDB.source == source,
+                    GlucoseReadingDB.origin_installation_id == origin_installation_id,
+                    GlucoseReadingDB.sensor_session_id == session_id,
+                    GlucoseReadingDB.sequence == data.sequence,
+                )
+            )
+        ).scalars().first()
     if existing:
         # A point may first arrive as backfill and later as a live reading. Keep
         # the stable UID, but allow the live copy to restore dosing metadata.
@@ -172,14 +197,15 @@ async def ingest_glucose_reading(
             existing.received_at = max(as_utc(existing.received_at), received_at)
             existing.trend_arrow = _bounded_identifier(data.trend_arrow, 64) or existing.trend_arrow
             existing.trend_rate = data.trend_rate if data.trend_rate is not None else existing.trend_rate
-            if source in DIRECT_SOURCES and sync_to_nightscout and existing.sync_status == "not_required":
+            if source == "dexcom_android" and sync_to_nightscout and existing.sync_status == "not_required":
                 existing.sync_status = "pending"
             if flush:
                 await session.flush()
         return GlucoseIngestResult(status="duplicate", reading=existing, duplicate=True)
 
     validation_status, validation_reason, usable, historical = validate_ingest(data)
-    if source in DIRECT_SOURCES and sync_to_nightscout and validation_status == "accepted":
+    decision_eligible = bool(data.decision_eligible and source != "g7_direct_watch")
+    if source == "dexcom_android" and sync_to_nightscout and validation_status == "accepted":
         sync_status = "pending"
     elif source == "nightscout":
         sync_status = "synced"
@@ -193,11 +219,15 @@ async def ingest_glucose_reading(
         glucose_mgdl=int(data.glucose_mgdl),
         measured_at=measured_at,
         received_at=received_at,
+        received_at_watch=as_utc(data.received_at_watch) if data.received_at_watch else None,
+        received_at_phone=as_utc(data.received_at_phone) if data.received_at_phone else None,
         source=source,
         source_package=_bounded_identifier(data.source_package),
+        origin_installation_id=origin_installation_id,
         sensor_type=_bounded_identifier(data.sensor_type, 40),
         sensor_session_id=session_id,
         sequence=data.sequence,
+        outbox_sequence=data.outbox_sequence,
         trend_arrow=_bounded_identifier(data.trend_arrow, 64),
         trend_rate=data.trend_rate,
         sensor_state=_bounded_identifier(data.sensor_state, 64),
@@ -207,6 +237,7 @@ async def ingest_glucose_reading(
         validation_status=validation_status,
         validation_reason=validation_reason,
         usable_for_dosing=usable,
+        decision_eligible=decision_eligible,
         sync_status=sync_status,
     )
     session.add(row)

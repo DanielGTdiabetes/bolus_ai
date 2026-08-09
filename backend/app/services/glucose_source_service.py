@@ -201,7 +201,16 @@ def _choose_candidate(
     mode = settings.glucose_sources.mode
     chosen: Optional[GlucoseReadingDB] = None
     if mode == "auto":
-        chosen = allowed[0]
+        # Continuity-only/watch records remain visible in history but cannot
+        # displace a decision-eligible current source.
+        fresh_decision_candidates = [
+            row
+            for row in allowed
+            if row.usable_for_dosing
+            and datetime.now(timezone.utc) - as_utc(row.measured_at)
+            <= timedelta(minutes=settings.glucose_sources.max_age_minutes)
+        ]
+        chosen = fresh_decision_candidates[0] if fresh_decision_candidates else allowed[0]
     else:
         preferred = [row for row in allowed if row.source == mode]
         preferred_latest = preferred[0] if preferred else None

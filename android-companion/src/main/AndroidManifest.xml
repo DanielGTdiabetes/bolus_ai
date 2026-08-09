@@ -61,18 +61,6 @@
         </receiver>
 
         <service
-            android:name=".dexcom.WatchGlucoseUpstreamService"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="com.google.android.gms.wearable.DATA_CHANGED" />
-                <data
-                    android:scheme="wear"
-                    android:host="*"
-                    android:pathPrefix="/glucose/upstream/v1" />
-            </intent-filter>
-        </service>
-
-        <service
             android:name=".accessibility.MyFitnessPalAssistantService"
             android:exported="false"
             android:label="Bolus AI MyFitnessPal Assist"

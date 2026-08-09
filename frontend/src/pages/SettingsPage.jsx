@@ -148,7 +148,7 @@ function GlucoseSourcesPanel() {
         nightscout: 'Nightscout',
         dexcom_share: 'Dexcom Share',
         dexcom_android: 'App Dexcom directa',
-        g7_direct_watch: 'Reloj G7 directo'
+        g7_direct_watch: 'Reloj G7 (solo continuidad)'
     };
 
     return (
@@ -164,7 +164,11 @@ function GlucoseSourcesPanel() {
                 onChange={event => setConfig(previous => ({ ...previous, mode: event.target.value }))}
                 style={{ width: '100%', padding: '0.8rem', borderRadius: '8px', border: '1px solid #cbd5e1' }}
             >
-                {Object.entries(labels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                {Object.entries(labels).map(([value, label]) => (
+                    <option key={value} value={value} disabled={value === 'g7_direct_watch'}>
+                        {label}
+                    </option>
+                ))}
             </select>
 
             <Input
@@ -181,7 +185,7 @@ function GlucoseSourcesPanel() {
                 ['nightscout_enabled', 'Conectar lectura desde Nightscout'],
                 ['dexcom_share_enabled', 'Conectar lectura desde Dexcom Share'],
                 ['android_direct_enabled', 'Conectar app Dexcom directa'],
-                ['watch_direct_enabled', 'Conectar reloj G7 directo'],
+                ['watch_direct_enabled', 'Guardar reloj G7 como continuidad'],
                 ['sync_direct_to_nightscout', 'Replicar lecturas directas en Nightscout']
             ].map(([key, label]) => (
                 <label key={key} style={{ display: 'flex', alignItems: 'center', gap: '0.7rem' }}>

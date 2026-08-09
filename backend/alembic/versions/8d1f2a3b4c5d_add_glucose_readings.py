@@ -33,11 +33,15 @@ def upgrade() -> None:
         sa.Column("glucose_mgdl", sa.Integer(), nullable=False),
         sa.Column("measured_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("received_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("received_at_watch", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("received_at_phone", sa.DateTime(timezone=True), nullable=True),
         sa.Column("source", sa.String(length=40), nullable=False),
         sa.Column("source_package", sa.String(length=160), nullable=True),
+        sa.Column("origin_installation_id", sa.String(length=160), nullable=True),
         sa.Column("sensor_type", sa.String(length=40), nullable=True),
         sa.Column("sensor_session_id", sa.String(length=160), nullable=True),
         sa.Column("sequence", sa.Integer(), nullable=True),
+        sa.Column("outbox_sequence", sa.Integer(), nullable=True),
         sa.Column("trend_arrow", sa.String(length=64), nullable=True),
         sa.Column("trend_rate", sa.Float(), nullable=True),
         sa.Column("sensor_state", sa.String(length=64), nullable=True),
@@ -47,6 +51,7 @@ def upgrade() -> None:
         sa.Column("validation_status", sa.String(length=24), nullable=False),
         sa.Column("validation_reason", sa.String(length=160), nullable=True),
         sa.Column("usable_for_dosing", sa.Boolean(), nullable=False),
+        sa.Column("decision_eligible", sa.Boolean(), nullable=False),
         sa.Column("sync_status", sa.String(length=24), nullable=False),
         sa.Column("sync_attempts", sa.Integer(), nullable=False),
         sa.Column("synced_at", sa.DateTime(timezone=True), nullable=True),
@@ -55,6 +60,14 @@ def upgrade() -> None:
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("user_id", "reading_uid", name="uq_glucose_reading_user_uid"),
+        sa.UniqueConstraint(
+            "user_id",
+            "source",
+            "origin_installation_id",
+            "sensor_session_id",
+            "sequence",
+            name="uq_glucose_reading_sensor_sequence",
+        ),
     )
     op.create_index("ix_glucose_readings_user_id", "glucose_readings", ["user_id"])
     op.create_index(

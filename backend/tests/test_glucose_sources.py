@@ -34,8 +34,9 @@ async def test_direct_glucose_is_persisted_and_idempotent():
         second = await ingest_glucose_reading(session, user_id, payload)
 
     assert first.status == "accepted"
-    assert first.reading.sync_status == "pending"
-    assert first.reading.usable_for_dosing is True
+    assert first.reading.sync_status == "not_required"
+    assert first.reading.usable_for_dosing is False
+    assert first.reading.decision_eligible is False
     assert second.status == "duplicate"
     assert second.duplicate is True
     assert second.reading.id == first.reading.id
@@ -64,7 +65,7 @@ async def test_display_only_reading_is_audited_but_not_usable():
 
 
 @pytest.mark.asyncio
-async def test_auto_mode_selects_fresh_watch_reading():
+async def test_auto_mode_keeps_watch_as_continuity_only():
     user_id = _user()
     settings = UserSettings.default()
     settings.glucose_sources.mode = "auto"
@@ -93,10 +94,10 @@ async def test_auto_mode_selects_fresh_watch_reading():
             refresh_remote=False,
         )
 
-    assert resolved.status == "ok"
+    assert resolved.status == "unavailable"
     assert resolved.source == "g7_direct_watch"
     assert resolved.bg_mgdl == 131
-    assert resolved.usable_for_dosing is True
+    assert resolved.usable_for_dosing is False
 
 
 @pytest.mark.asyncio
@@ -236,7 +237,7 @@ async def test_live_duplicate_can_upgrade_recent_backfill_metadata():
     assert first.reading.id == duplicate.reading.id
     assert duplicate.duplicate is True
     assert duplicate.reading.historical is False
-    assert duplicate.reading.usable_for_dosing is True
+    assert duplicate.reading.usable_for_dosing is False
 
 
 @pytest.mark.asyncio
