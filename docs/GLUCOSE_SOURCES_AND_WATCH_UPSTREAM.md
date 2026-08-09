@@ -99,6 +99,10 @@ estado es `conflict` y Bolus AI exige una lectura posterior coherente.
 ## Despliegue
 
 1. Configurar la misma `CGM_INGEST_KEY` larga en Bolus AI y WtachSugar movil.
+   En el stack NAS incluido en este repositorio ya se configura automaticamente
+   un verificador SHA-256 no reversible mediante `CGM_INGEST_KEY_SHA256`; no es
+   necesario publicar alli la clave original. En Render se debe crear
+   manualmente `CGM_INGEST_KEY` con la clave original.
 2. Aplicar la migracion Alembic `8d1f2a3b4c5d`.
 3. Desplegar primero Bolus AI y despues el APK Companion.
 4. Mantener el modo `nightscout` y observar el panel de fuentes.

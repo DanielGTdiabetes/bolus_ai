@@ -180,6 +180,27 @@ def _watch_v1_payload(timestamp_ms: int, suffix: str):
     })
 
 
+def test_cgm_ingest_accepts_sha256_verifier(monkeypatch):
+    monkeypatch.delenv("CGM_INGEST_KEY", raising=False)
+    monkeypatch.delenv("NUTRITION_INGEST_SECRET", raising=False)
+    monkeypatch.delenv("NUTRITION_INGEST_KEY", raising=False)
+    monkeypatch.setenv(
+        "CGM_INGEST_KEY_SHA256",
+        "dc0ed4cef797aef89c3c220b8bf712a3f0f62479cbf22361ca2df4b4cbe6fe30",
+    )
+    request = SimpleNamespace(query_params={})
+
+    integrations._authorize_cgm_ingest_key(
+        request,
+        "test-watch-secret",
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        integrations._authorize_cgm_ingest_key(request, "wrong-key")
+
+    assert exc_info.value.status_code == 401
+
+
 @pytest.mark.asyncio
 async def test_watch_v1_contract_stores_continuity_only_and_returns_conflict(monkeypatch):
     monkeypatch.setenv("CGM_INGEST_KEY", "watch-secret")

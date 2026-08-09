@@ -1,3 +1,5 @@
+import hashlib
+import hmac
 import logging
 import math
 import os
@@ -403,9 +405,19 @@ def _authorize_ingest_key(request: Request, ingest_key_header: Optional[str]) ->
 def _authorize_cgm_ingest_key(request: Request, ingest_key_header: Optional[str]) -> None:
     provided_key = ingest_key_header or request.query_params.get("key")
     cgm_secret = os.getenv("CGM_INGEST_KEY")
+    cgm_secret_sha256 = os.getenv("CGM_INGEST_KEY_SHA256", "").strip().lower()
     legacy_secret = os.getenv("NUTRITION_INGEST_SECRET") or os.getenv("NUTRITION_INGEST_KEY")
-    if provided_key and provided_key in {secret for secret in (cgm_secret, legacy_secret) if secret}:
-        return
+    if provided_key:
+        if any(
+            hmac.compare_digest(provided_key, secret)
+            for secret in (cgm_secret, legacy_secret)
+            if secret
+        ):
+            return
+        if len(cgm_secret_sha256) == 64:
+            provided_digest = hashlib.sha256(provided_key.encode("utf-8")).hexdigest()
+            if hmac.compare_digest(provided_digest, cgm_secret_sha256):
+                return
     raise HTTPException(status_code=401, detail="Authentication required")
 
 
