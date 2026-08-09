@@ -43,7 +43,14 @@ export function ScaleSection({ onWeightUsed, onDataReceived }) {
             state.scale.connected = false;
         } else {
             try {
+                const usesAndroidBridge = typeof window !== 'undefined' && Boolean(window.AndroidScaleInterface);
                 await connectScale();
+                if (!usesAndroidBridge) {
+                    state.scale.connected = true;
+                    state.scale.scanning = false;
+                    state.scale.connecting = false;
+                    setScale({ ...state.scale });
+                }
                 if (window.scaleHandler) setOnData(window.scaleHandler);
             } catch (e) {
                 alert("Error conectando báscula: " + e.message);

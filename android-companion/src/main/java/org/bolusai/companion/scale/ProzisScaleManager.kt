@@ -36,6 +36,7 @@ class ProzisScaleManager(context: Context) {
     private var scanCallback: ScanCallback? = null
     private var gatt: BluetoothGatt? = null
     private var writeCharacteristic: BluetoothGattCharacteristic? = null
+    private val writeLock = Any()
     private val writeQueue = ArrayDeque<String>()
     private var writeInFlight = false
     private val weightHistory = ArrayDeque<Pair<Long, Int>>()
@@ -91,9 +92,11 @@ class ProzisScaleManager(context: Context) {
         runCatching { gatt?.disconnect() }
         runCatching { gatt?.close() }
         gatt = null
-        writeCharacteristic = null
-        writeQueue.clear()
-        writeInFlight = false
+        synchronized(writeLock) {
+            writeCharacteristic = null
+            writeQueue.clear()
+            writeInFlight = false
+        }
         weightHistory.clear()
         mutableState.value = ScaleState()
     }
@@ -114,11 +117,13 @@ class ProzisScaleManager(context: Context) {
     }
 
     private fun writeCommand(command: String) {
-        writeQueue.addLast(command)
-        drainWriteQueue()
+        synchronized(writeLock) {
+            writeQueue.addLast(command)
+            drainWriteQueueLocked()
+        }
     }
 
-    private fun drainWriteQueue() {
+    private fun drainWriteQueueLocked() {
         if (writeInFlight) return
         val characteristic = writeCharacteristic ?: return
         val command = writeQueue.removeFirstOrNull() ?: return
@@ -143,7 +148,11 @@ class ProzisScaleManager(context: Context) {
             mutableState.value = mutableState.value.copy(
                 message = "No se pudo enviar un comando a la báscula",
             )
-            mainHandler.post { drainWriteQueue() }
+            mainHandler.post {
+                synchronized(writeLock) {
+                    drainWriteQueueLocked()
+                }
+            }
         }
     }
 
@@ -159,7 +168,11 @@ class ProzisScaleManager(context: Context) {
                     gatt.discoverServices()
                 }
                 BluetoothProfile.STATE_DISCONNECTED -> {
-                    writeCharacteristic = null
+                    synchronized(writeLock) {
+                        writeCharacteristic = null
+                        writeQueue.clear()
+                        writeInFlight = false
+                    }
                     mutableState.value = ScaleState(message = "Báscula desconectada")
                 }
             }
@@ -170,7 +183,9 @@ class ProzisScaleManager(context: Context) {
                 mutableState.value = ScaleState(message = "Servicio de báscula no encontrado")
                 return
             }
-            writeCharacteristic = service.getCharacteristic(RX_UUID)
+            synchronized(writeLock) {
+                writeCharacteristic = service.getCharacteristic(RX_UUID)
+            }
             val notify = service.getCharacteristic(TX_UUID) ?: run {
                 mutableState.value = ScaleState(message = "Canal de peso no encontrado")
                 return
@@ -220,14 +235,16 @@ class ProzisScaleManager(context: Context) {
             characteristic: BluetoothGattCharacteristic,
             status: Int,
         ) {
-            writeInFlight = false
-            if (status != BluetoothGatt.GATT_SUCCESS) {
-                Log.w(TAG, "Escritura BLE fallida: status=$status")
-                mutableState.value = mutableState.value.copy(
-                    message = "La báscula rechazó un comando ($status)",
-                )
+            synchronized(writeLock) {
+                writeInFlight = false
+                if (status != BluetoothGatt.GATT_SUCCESS) {
+                    Log.w(TAG, "Escritura BLE fallida: status=$status")
+                    mutableState.value = mutableState.value.copy(
+                        message = "La báscula rechazó un comando ($status)",
+                    )
+                }
+                drainWriteQueueLocked()
             }
-            drainWriteQueue()
         }
     }
 
