@@ -4,8 +4,11 @@ from types import SimpleNamespace
 
 import httpx
 import pytest
+from fastapi import HTTPException
+from pydantic import ValidationError
 
 from app.api import integrations
+from app.core.db import SessionLocal
 from app.services.nightscout_client import NightscoutClient
 
 
@@ -111,3 +114,137 @@ async def test_nightscout_upload_sgv_skips_duplicate():
     assert result["status"] == "duplicate"
     assert post_count == 0
     await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_v2_watch_ingest_is_idempotent_and_stored_first(monkeypatch):
+    monkeypatch.setenv("CGM_INGEST_KEY", "cgm-secret")
+    timestamp = int(datetime.now(timezone.utc).timestamp())
+    uid = f"watch-v2-{timestamp}"
+    payload = integrations.MobileGlucoseEntryV2Request(
+        schema_version=2,
+        reading_uid=uid,
+        glucose_mgdl=117,
+        timestamp=timestamp,
+        trend_arrow="Flat",
+        sensor_state="OK",
+        sensor_session_id="opaque-session",
+        sequence=42,
+        sensor_type="G7",
+        source_package="org.wtachtsugar",
+        source="g7_direct_watch",
+    )
+
+    async with SessionLocal() as session:
+        first = await integrations.mobile_glucose_entry_v2(
+            payload=payload,
+            request=SimpleNamespace(query_params={}),
+            ingest_key_header="cgm-secret",
+            session=session,
+        )
+        second = await integrations.mobile_glucose_entry_v2(
+            payload=payload,
+            request=SimpleNamespace(query_params={}),
+            ingest_key_header="cgm-secret",
+            session=session,
+        )
+
+    assert first.status == "accepted"
+    assert first.reading_uid == uid
+    assert first.usable_for_dosing is False
+    assert first.sync_status == "not_required"
+    assert second.status == "duplicate"
+    assert second.duplicate is True
+
+
+def _watch_v1_payload(timestamp_ms: int, suffix: str):
+    return integrations.WatchGlucoseEntryV1Request.model_validate({
+        "schemaVersion": 1,
+        "readingId": f"watch-reading-{suffix}",
+        "originInstallationId": f"watch-installation-{suffix}",
+        "outboxSequence": 17,
+        "glucoseMgDl": 126,
+        "measuredAtEpochMillis": timestamp_ms,
+        "receivedAtWatchEpochMillis": timestamp_ms + 1_000,
+        "receivedAtPhoneEpochMillis": timestamp_ms + 2_000,
+        "trendRateMgDlPerMinute": 0.4,
+        "trendArrow": "Flat",
+        "sensorState": "OK",
+        "displayOnly": False,
+        "sensorSequence": 88,
+        "sessionId": f"sensor-session-{suffix}",
+        "historical": False,
+        "timestampUncertain": False,
+        "source": "g7_direct_watch",
+        "decisionEligible": False,
+    })
+
+
+@pytest.mark.asyncio
+async def test_watch_v1_contract_stores_continuity_only_and_returns_conflict(monkeypatch):
+    monkeypatch.setenv("CGM_INGEST_KEY", "watch-secret")
+    timestamp_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+    suffix = str(timestamp_ms)
+    payload = _watch_v1_payload(timestamp_ms, suffix)
+    request = SimpleNamespace(
+        query_params={},
+        headers={"x-forwarded-proto": "https"},
+        url=SimpleNamespace(scheme="https"),
+    )
+
+    async with SessionLocal() as session:
+        first = await integrations.mobile_glucose_entry(
+            payload=payload,
+            request=request,
+            ingest_key_header="watch-secret",
+            session=session,
+            settings=object(),
+        )
+        duplicate_by_sensor_identity = await integrations.mobile_glucose_entry(
+            payload=payload.model_copy(update={"reading_id": f"different-{suffix}"}),
+            request=request,
+            ingest_key_header="watch-secret",
+            session=session,
+            settings=object(),
+        )
+
+    assert first.status_code == 201
+    first_body = json.loads(first.body)
+    assert first_body["decisionEligible"] is False
+    assert first_body["duplicate"] is False
+    assert duplicate_by_sensor_identity.status_code == 409
+    assert json.loads(duplicate_by_sensor_identity.body)["duplicate"] is True
+
+
+@pytest.mark.asyncio
+async def test_watch_v1_contract_requires_https(monkeypatch):
+    monkeypatch.setenv("CGM_INGEST_KEY", "watch-secret")
+    timestamp_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+    payload = _watch_v1_payload(timestamp_ms, f"http-{timestamp_ms}")
+    request = SimpleNamespace(
+        query_params={},
+        headers={},
+        url=SimpleNamespace(scheme="http"),
+    )
+
+    async with SessionLocal() as session:
+        with pytest.raises(HTTPException) as exc_info:
+            await integrations.mobile_glucose_entry(
+                payload=payload,
+                request=request,
+                ingest_key_header="watch-secret",
+                session=session,
+                settings=object(),
+            )
+
+    assert exc_info.value.status_code == 403
+
+
+@pytest.mark.parametrize("invalid_value", [True, 0, "false", None])
+def test_watch_v1_contract_requires_exact_false(invalid_value):
+    timestamp_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+    raw = _watch_v1_payload(timestamp_ms, "invalid").model_dump(by_alias=True)
+    raw["decisionEligible"] = invalid_value
+
+    with pytest.raises(ValidationError):
+        integrations.WatchGlucoseEntryV1Request.model_validate(raw)

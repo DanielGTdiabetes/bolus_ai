@@ -143,32 +143,27 @@ async def get_notification_summary_service(user_id: str, db: AsyncSession):
     last_meal = (await db.execute(q_meal)).scalars().first()
     
     if last_meal:
-        # User ate ~2 hours ago. Check BG.
-        # We need Nightscout Client. Resolve config.
-        from app.services.nightscout_secrets_service import get_ns_config
-        ns_config = await get_ns_config(db, user_id)
-        
-        if ns_config and ns_config.enabled and ns_config.url:
-            current_bg = None
-            trend = None
-            try:
-                # Quick fetch
-                from app.services.nightscout_client import NightscoutClient
-                async with NightscoutClient(ns_config.url, ns_config.api_secret, timeout_seconds=4) as client:
-                    sgv = await client.get_latest_sgv()
-                    if sgv:
-                        current_bg = float(sgv.sgv)
-                        trend = sgv.direction
-            except Exception as e:
-                logger.error(f"Failed to fetch NS data for post-meal check: {e}")
-            
-            if current_bg and current_bg > 180:
+        # User ate ~2 hours ago. Resolve BG through the same validated source
+        # policy used by bolus calculations.
+        from app.services.glucose_source_service import resolve_current_glucose
+
+        current_bg = None
+        trend = None
+        try:
+            resolved = await resolve_current_glucose(db, user_id, refresh_remote=True)
+            if resolved.usable_for_dosing:
+                current_bg = resolved.bg_mgdl
+                trend = resolved.trend
+        except Exception as e:
+            logger.error("Failed to resolve glucose for post-meal check: %s", e)
+
+        if current_bg and current_bg > 180:
                 # High Post Meal. 
                 # INTELLIGENCE CHECKS:
                 
                 # 1. Trend Filter: If dropping fast, don't annoy.
-                is_dropping = trend in ['DoubleDown', 'SingleDown', 'FortyFiveDown']
-                if not is_dropping:
+            is_dropping = trend in ['DoubleDown', 'SingleDown', 'FortyFiveDown']
+            if not is_dropping:
                     
                     # 2. "Recent Coverage" Filter (The Dual Bolus / Correction Detector)
                     # Check for ANY bolus in the last 60 mins.

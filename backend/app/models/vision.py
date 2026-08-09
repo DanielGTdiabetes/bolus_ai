@@ -26,7 +26,9 @@ class UserInputQuestion(BaseModel):
 class GlucoseUsed(BaseModel):
     mgdl: Optional[int]
     trend: Optional[str] = None
-    source: Literal["nightscout", "manual"] | None = None
+    source: Literal[
+        "nightscout", "manual", "dexcom_share", "dexcom_android", "g7_direct_watch"
+    ] | None = None
 
 
 class VisionBolusRecommendation(BaseModel):

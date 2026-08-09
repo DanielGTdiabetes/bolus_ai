@@ -5,6 +5,7 @@ data class AppSettings(
     val backupUrl: String = "https://bolus-ai-1.onrender.com",
     val hermesMfpSyncTriggerUrl: String = "http://100.65.212.74:8776",
     val ingestKey: String = "",
+    val glucoseIngestKey: String = "",
     val nutritionSyncEnabled: Boolean = false,
     val myFitnessPalAssistEnabled: Boolean = false,
     val dexcomWriteEnabled: Boolean = false,

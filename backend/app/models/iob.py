@@ -8,7 +8,7 @@ COBStatus = Literal["ok", "unavailable", "partial", "stale"]
 
 class SourceStatus(BaseModel):
     source: str = "unknown"
-    status: Literal["ok", "error", "unavailable", "stale", "unknown"] = "unknown"
+    status: Literal["ok", "error", "unavailable", "stale", "conflict", "unknown"] = "unknown"
     reason: Optional[str] = None
     fetched_at: Optional[datetime] = None
 

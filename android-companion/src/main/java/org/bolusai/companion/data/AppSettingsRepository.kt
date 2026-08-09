@@ -25,6 +25,10 @@ class AppSettingsRepository(context: Context) {
         secretStore.writeIngestKey(value)
         state.value = read()
     }
+    fun updateGlucoseIngestKey(value: String) {
+        secretStore.writeGlucoseIngestKey(value)
+        state.value = read()
+    }
     fun setNutritionSyncEnabled(value: Boolean) = update(read().copy(nutritionSyncEnabled = value))
     fun setMyFitnessPalAssistEnabled(value: Boolean) = update(read().copy(myFitnessPalAssistEnabled = value))
     fun setDexcomWriteEnabled(value: Boolean) = update(read().copy(dexcomWriteEnabled = value))
@@ -41,6 +45,7 @@ class AppSettingsRepository(context: Context) {
         hermesMfpSyncTriggerUrl = prefs.getString("hermesMfpSyncTriggerUrl", AppSettings().hermesMfpSyncTriggerUrl)
             ?: AppSettings().hermesMfpSyncTriggerUrl,
         ingestKey = secretStore.readIngestKey(),
+        glucoseIngestKey = secretStore.readGlucoseIngestKey(),
         nutritionSyncEnabled = prefs.getBoolean("nutritionSyncEnabled", false),
         myFitnessPalAssistEnabled = prefs.getBoolean("myFitnessPalAssistEnabled", false),
         dexcomWriteEnabled = prefs.getBoolean("dexcom_write_enabled", false),

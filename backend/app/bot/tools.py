@@ -14,7 +14,7 @@ from app.core.db import SessionLocal
 from sqlalchemy import text
 from app.services.store import DataStore
 from app.services.nightscout_client import NightscoutClient, NightscoutError
-from app.services.dexcom_client import DexcomClient
+from app.services.glucose_source_service import resolve_current_glucose
 from app.services.iob import compute_iob_from_sources, compute_cob_from_sources
 from app.models.bolus_v2 import BolusRequestV2
 from app.services.forecast_engine import ForecastEngine
@@ -56,6 +56,8 @@ class BolusContext(BaseModel):
     config_hash: Optional[str] = None # Security: Configuration Snapshot Hash
     quality: str = "unknown"
     source: str = "unknown"
+    glucose_status: str = "unknown"
+    usable_for_dosing: bool = False
     
     # Daily Totals (Awareness)
     daily_insulin_u: float = 0.0
@@ -257,7 +259,7 @@ async def get_status_context(username: str = "admin", user_settings: Optional[Us
     except Exception as exc:
         return ToolError(type="config_error", message=f"No se pudo leer configuración: {exc}")
 
-    ns_client = _build_ns_client(user_settings)
+    ns_client = None
     now = datetime.now(timezone.utc)
     timestamp_str = now.isoformat()
     quality = "degraded"
@@ -265,88 +267,30 @@ async def get_status_context(username: str = "admin", user_settings: Optional[Us
     direction = None
     delta = None
 
-    ns_sgv = None
-    ns_age_min = 9999
-    
-    # 1. Try Nightscout
-    if ns_client:
-        try:
-            # Add timestamp to params to bust cache? NightscoutClient handles params.
-            # We can't easily add params here without modifying Client.
-            # But let's log extensively first.
-            ns_sgv = await ns_client.get_latest_sgv()
-            
-            ts_epoch_ms = float(ns_sgv.date)
-            # Ensure we are checking UTC
-            naive_ts = datetime.fromtimestamp(ts_epoch_ms / 1000.0)
-            ts = datetime.fromtimestamp(ts_epoch_ms / 1000.0, timezone.utc)
-            
-            # Recalculate NOW to be extremely precise
-            now_utc = datetime.now(timezone.utc)
-            # Use pre-calculated age or relative
-            age_min = (now_utc - ts).total_seconds() / 60
-            
-            # Debug log removed as issue is resolved
-
-
-            # Use it if reasonably fresh or if we have no other options yet
-            bg_val = float(ns_sgv.sgv)
-            direction = ns_sgv.direction or None
-            delta = ns_sgv.delta
-            
-            from app.utils.timezone import to_local, ZoneInfo
-            target_tz = None
-            if user_settings.timezone:
-                try:
-                    target_tz = ZoneInfo(user_settings.timezone)
-                except:
-                    pass
-
-            timestamp_str = to_local(ts, tz=target_tz).isoformat()
-            
-            quality = "live"
-            ns_age_min = age_min
-            
-        except Exception as exc:
-            logger.warning("NS sgv fetch failed: %s", exc)
-
-    # 2. Dexcom Fallback (If NS failed OR is stale > 10 min)
-    # We prioritize Nightscout (as per config), but if it's old/broken, we try Dexcom
-    use_dexcom = False
-    if bg_val is None: # NS Failed
-        use_dexcom = True
-    elif ns_age_min > 10: # NS Stale
-        use_dexcom = True
-        
-    if use_dexcom and user_settings.dexcom and user_settings.dexcom.enabled:
-        if user_settings.dexcom.username and user_settings.dexcom.password:
-            try:
-                logger.info("Values missing or stale (age=%.1f), attempting Dexcom Share fallback...", ns_age_min)
-                dex = DexcomClient(
-                    username=user_settings.dexcom.username,
-                    password=user_settings.dexcom.password,
-                    region=user_settings.dexcom.region
-                )
-                dx_reading = await dex.get_latest_sgv()
-                if dx_reading:
-                    # check if dexcom is actually newer than NS (if NS existed)
-                    dx_age = (now - dx_reading.date).total_seconds() / 60
-                    
-                    if dx_age < ns_age_min:
-                         bg_val = float(dx_reading.sgv)
-                         direction = dx_reading.trend
-                         delta = None # Dexcom client might not give delta easily
-                         from app.utils.timezone import to_local
-                         timestamp_str = to_local(dx_reading.date, tz=target_tz).isoformat()
-                         quality = "live"
-                         # We abuse 'source' to indicate origin? BotContext source defaults to 'unknown'
-                         # We can encode it in quality or just assume live.
-                         logger.info("Using Dexcom Share data (age=%.1f)", dx_age)
-                         # Set source explicit
-                         # Note: BolusContext source field definition logic below relies on ns_client existence?
-                         # We will fix source assignment.
-            except Exception as e:
-                logger.warning(f"Dexcom fallback failed: {e}")
+    glucose_source = "none"
+    glucose_age_min = None
+    try:
+        async with SessionLocal() as glucose_session:
+            selected = await resolve_current_glucose(
+                glucose_session,
+                username,
+                user_settings=user_settings,
+                refresh_remote=True,
+            )
+        bg_val = selected.bg_mgdl
+        direction = selected.trend
+        glucose_source = selected.source
+        glucose_age_min = selected.age_minutes
+        if selected.measured_at:
+            from app.utils.timezone import to_local
+            timestamp_str = to_local(selected.measured_at).isoformat()
+        quality = "live" if selected.status == "ok" else "degraded"
+        glucose_status = selected.status
+        glucose_usable = selected.usable_for_dosing
+    except Exception as exc:
+        logger.warning("Unified glucose context failed: %s", exc)
+        glucose_status = "unavailable"
+        glucose_usable = False
 
     store = DataStore(Path(get_settings().data.data_dir))
     cob_g = None
@@ -448,16 +392,7 @@ async def get_status_context(username: str = "admin", user_settings: Optional[Us
     # We should label based on the active data.
     
     # Let's use a heuristic:
-    if use_dexcom and bg_val:
-         # Check if value matches NS?
-         if ns_sgv and abs(float(ns_sgv.sgv) - bg_val) < 0.1:
-              src = "nightscout" # fallback failed, invalid, or identical
-         else:
-              src = "dexcom"
-    elif ns_sgv:
-         src = "nightscout"
-    else:
-         src = "db_fallback"
+    src = glucose_source
 
     return BolusContext(
         bg_mgdl=bg_val,
@@ -466,9 +401,11 @@ async def get_status_context(username: str = "admin", user_settings: Optional[Us
         iob_u=iob_u,
         cob_g=cob_g,
         timestamp=timestamp_str,
-        age_minutes=ns_age_min if (ns_sgv or use_dexcom) else None,
+        age_minutes=glucose_age_min,
         quality=quality,
         source=src,
+        glucose_status=glucose_status,
+        usable_for_dosing=glucose_usable,
         config_hash=user_settings.config_hash, 
         daily_insulin_u=round(daily_stats["insulin"], 2),
         daily_carbs_g=round(daily_stats["carbs"], 1),

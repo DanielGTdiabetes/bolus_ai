@@ -267,7 +267,7 @@ export async function getNightscoutStatus() {
 
 export async function getCurrentGlucose(config) {
   if (isAuthenticated()) {
-    const response = await apiFetch("/api/nightscout/current", {
+    const response = await apiFetch("/api/glucose/current", {
       method: "GET"
     });
     const data = await toJson(response);
@@ -296,9 +296,16 @@ export async function getCurrentGlucose(config) {
 
 export async function getGlucoseEntries(count = 36) { // 36 * 5 min = 3 hours
   const safeCount = count || 36;
-  const response = await apiFetch(`/api/nightscout/entries?count=${safeCount}`);
+  const response = await apiFetch(`/api/glucose/history?count=${safeCount}`);
   const data = await toJson(response);
   if (!response.ok) throw new Error(data.detail || "Error al obtener historial glucosa");
+  return data;
+}
+
+export async function getGlucoseSourcesStatus() {
+  const response = await apiFetch("/api/glucose/sources/status");
+  const data = await toJson(response);
+  if (!response.ok) throw new Error(data.detail || "Error al obtener fuentes de glucosa");
   return data;
 }
 

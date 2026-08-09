@@ -24,7 +24,7 @@ export default function ForecastPage() {
                 let bgVal = null;
                 // Handle different potential return shapes (array or object)
                 if (bgData) {
-                    if (bgData.bg_mgdl) bgVal = bgData.bg_mgdl; // /api/nightscout/current returns this (stateless/server)
+                    if (bgData.usable_for_dosing && bgData.bg_mgdl) bgVal = bgData.bg_mgdl;
                     else if (bgData.sgv) bgVal = bgData.sgv;    // Raw NS entry or fallback
                     // If array (raw entries)
                     else if (Array.isArray(bgData) && bgData.length > 0) {

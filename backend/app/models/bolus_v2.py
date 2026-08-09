@@ -92,7 +92,10 @@ class BolusRequestV2(BaseModel):
 
 class GlucoseUsed(BaseModel):
     mgdl: Optional[float]
-    source: Literal["manual", "nightscout", "none"]
+    source: Literal[
+        "manual", "nightscout", "dexcom_share", "dexcom_android",
+        "g7_direct_watch", "none"
+    ]
     trend: Optional[str] = None
     age_minutes: Optional[float] = None 
     is_stale: bool = False           

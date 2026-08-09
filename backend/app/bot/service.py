@@ -2364,7 +2364,13 @@ async def on_new_meal_received(carbs: float, fat: float, protein: float, fiber: 
              iob_u = ctx_res.iob_u
         
         # Prefer the glucose from get_status_context as it is validated and robust
-        if ctx_res.bg_mgdl is not None:
+        # `unknown` is retained for compatibility with pre-v2 context producers,
+        # which already performed their own freshness check. The current
+        # resolver always sends an explicit status and boolean.
+        legacy_context_usable = ctx_res.glucose_status == "unknown"
+        if ctx_res.bg_mgdl is not None and (
+            ctx_res.usable_for_dosing or legacy_context_usable
+        ):
              bg_val = ctx_res.bg_mgdl
              bg_trend = ctx_res.direction
              bg_source = ctx_res.source
@@ -2454,7 +2460,7 @@ async def on_new_meal_received(carbs: float, fat: float, protein: float, fiber: 
             logger.warning(f"Local DB glucose fallback failed: {exc}")
             return False
 
-    if not fetched:
+    if not fetched and isinstance(ctx_res, tools.ToolError):
         if prefer_nightscout:
             fetched = await _fetch_from_nightscout()
             if not fetched and dexcom_ready:
@@ -2464,7 +2470,7 @@ async def on_new_meal_received(carbs: float, fat: float, protein: float, fiber: 
             if not fetched and prefer_nightscout:
                 fetched = await _fetch_from_nightscout()
     
-    if not fetched:
+    if not fetched and isinstance(ctx_res, tools.ToolError):
         await _fetch_from_local_db()
 
     if bg_datetime:

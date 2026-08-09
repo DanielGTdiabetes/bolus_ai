@@ -1,6 +1,8 @@
 package org.bolusai.companion.dexcom
 
 import android.content.Context
+import org.json.JSONArray
+import org.json.JSONObject
 import org.bolusai.companion.diagnostics.Sanitizer
 import org.bolusai.companion.network.ActiveEndpoint
 
@@ -16,6 +18,13 @@ data class GlucoseSyncDiagnostics(
     val serviceState: String = "unknown",
     val lastServiceTimeoutAtMillis: Long = 0,
     val serviceDetail: String = "",
+    val events: List<GlucoseDiagnosticEvent> = emptyList(),
+)
+
+data class GlucoseDiagnosticEvent(
+    val atMillis: Long,
+    val type: String,
+    val detail: String,
 )
 
 class GlucoseSyncDiagnosticsRepository(context: Context) {
@@ -23,7 +32,15 @@ class GlucoseSyncDiagnosticsRepository(context: Context) {
 
     fun snapshot(): GlucoseSyncDiagnostics = synchronized(PROCESS_LOCK) { read() }
 
-    fun recordBroadcast(readingTimestampSeconds: Long, queueSize: Int) = update {
+    fun clearEvents() = synchronized(PROCESS_LOCK) {
+        write(read().copy(events = emptyList()))
+    }
+
+    fun recordBroadcast(
+        readingTimestampSeconds: Long,
+        queueSize: Int,
+        source: String = "dexcom_android",
+    ) = update("received", "$source · lectura=$readingTimestampSeconds · cola=$queueSize") {
         it.copy(
             lastBroadcastAtMillis = System.currentTimeMillis(),
             lastReadingTimestampSeconds = readingTimestampSeconds,
@@ -31,7 +48,7 @@ class GlucoseSyncDiagnosticsRepository(context: Context) {
         )
     }
 
-    fun recordUploadAttempt(queueSize: Int) = update {
+    fun recordUploadAttempt(queueSize: Int) = update("upload_attempt", "cola=$queueSize") {
         it.copy(
             lastUploadAttemptAtMillis = System.currentTimeMillis(),
             queueSize = queueSize,
@@ -39,7 +56,16 @@ class GlucoseSyncDiagnosticsRepository(context: Context) {
         )
     }
 
-    fun recordUploadSuccess(endpoint: ActiveEndpoint, statusCode: Int?, queueSize: Int) = update {
+    fun recordUploadSuccess(
+        endpoint: ActiveEndpoint,
+        statusCode: Int?,
+        queueSize: Int,
+        detail: String = "",
+    ) = update(
+        "upload_success",
+        "${endpoint.name.lowercase()} · HTTP ${statusCode ?: "-"} · cola=$queueSize" +
+            detail.takeIf { it.isNotBlank() }?.let { " · ${Sanitizer.sanitize(it, 120)}" }.orEmpty(),
+    ) {
         it.copy(
             lastUploadSuccessAtMillis = System.currentTimeMillis(),
             lastEndpoint = endpoint.name.lowercase(),
@@ -49,7 +75,10 @@ class GlucoseSyncDiagnosticsRepository(context: Context) {
         )
     }
 
-    fun recordUploadFailure(statusCode: Int?, detail: String, queueSize: Int) = update {
+    fun recordUploadFailure(statusCode: Int?, detail: String, queueSize: Int) = update(
+        "upload_failure",
+        "HTTP ${statusCode ?: "-"} · cola=$queueSize · ${Sanitizer.sanitize(detail, 160)}",
+    ) {
         it.copy(
             lastStatusCode = statusCode,
             lastError = Sanitizer.sanitize(detail, 240),
@@ -57,14 +86,20 @@ class GlucoseSyncDiagnosticsRepository(context: Context) {
         )
     }
 
-    fun recordServiceState(state: String, detail: String = "") = update {
+    fun recordServiceState(state: String, detail: String = "") = update(
+        "service_$state",
+        Sanitizer.sanitize(detail.ifBlank { state }, 160),
+    ) {
         it.copy(
             serviceState = state,
             serviceDetail = Sanitizer.sanitize(detail, 240),
         )
     }
 
-    fun recordServiceTimeout(fgsType: Int) = update {
+    fun recordServiceTimeout(fgsType: Int) = update(
+        "service_timeout",
+        "foreground-service type=$fgsType",
+    ) {
         it.copy(
             serviceState = "timed_out",
             lastServiceTimeoutAtMillis = System.currentTimeMillis(),
@@ -72,9 +107,32 @@ class GlucoseSyncDiagnosticsRepository(context: Context) {
         )
     }
 
-    private fun update(transform: (GlucoseSyncDiagnostics) -> GlucoseSyncDiagnostics) {
+    fun recordRejected(source: String, detail: String, queueSize: Int) = update(
+        "rejected",
+        "$source · ${Sanitizer.sanitize(detail, 160)} · cola=$queueSize",
+    ) {
+        it.copy(queueSize = queueSize)
+    }
+
+    private fun update(
+        eventType: String,
+        eventDetail: String,
+        transform: (GlucoseSyncDiagnostics) -> GlucoseSyncDiagnostics,
+    ) {
         synchronized(PROCESS_LOCK) {
-            write(transform(read()))
+            val current = read()
+            val updated = transform(current).copy(
+                events = (
+                    listOf(
+                        GlucoseDiagnosticEvent(
+                            atMillis = System.currentTimeMillis(),
+                            type = eventType,
+                            detail = Sanitizer.sanitize(eventDetail, 240),
+                        ),
+                    ) + current.events
+                ).take(MAX_EVENTS),
+            )
+            write(updated)
         }
     }
 
@@ -90,7 +148,24 @@ class GlucoseSyncDiagnosticsRepository(context: Context) {
         serviceState = prefs.getString("service_state", "unknown").orEmpty(),
         lastServiceTimeoutAtMillis = prefs.getLong("last_service_timeout_at", 0),
         serviceDetail = prefs.getString("service_detail", "").orEmpty(),
+        events = readEvents(),
     )
+
+    private fun readEvents(): List<GlucoseDiagnosticEvent> = runCatching {
+        val array = JSONArray(prefs.getString("events", "[]").orEmpty().ifBlank { "[]" })
+        buildList {
+            for (index in 0 until array.length()) {
+                val item = array.getJSONObject(index)
+                add(
+                    GlucoseDiagnosticEvent(
+                        atMillis = item.optLong("at"),
+                        type = item.optString("type"),
+                        detail = item.optString("detail"),
+                    ),
+                )
+            }
+        }
+    }.getOrDefault(emptyList())
 
     private fun write(value: GlucoseSyncDiagnostics) {
         prefs.edit()
@@ -105,11 +180,25 @@ class GlucoseSyncDiagnosticsRepository(context: Context) {
             .putString("service_state", value.serviceState)
             .putLong("last_service_timeout_at", value.lastServiceTimeoutAtMillis)
             .putString("service_detail", value.serviceDetail)
+            .putString(
+                "events",
+                JSONArray().apply {
+                    value.events.forEach { event ->
+                        put(
+                            JSONObject()
+                                .put("at", event.atMillis)
+                                .put("type", event.type)
+                                .put("detail", event.detail),
+                        )
+                    }
+                }.toString(),
+            )
             .apply()
     }
 
     private companion object {
         const val PREFS = "bolus_ai_dexcom_glucose_diagnostics"
+        const val MAX_EVENTS = 30
         val PROCESS_LOCK = Any()
     }
 }

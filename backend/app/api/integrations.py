@@ -4,11 +4,13 @@ import os
 import uuid
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal, ROUND_HALF_UP
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional, Union
 
 from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query, Request
-from pydantic import BaseModel, Field
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, field_validator
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.bot.user_settings_resolver import resolve_bot_user_settings
@@ -17,11 +19,17 @@ from app.core.db import get_db_session
 from app.core.security import TokenManager, get_token_manager, get_current_user, CurrentUser
 from app.core.settings import Settings, get_settings
 from app.models.settings import UserSettings, UserSettingsDB
+from app.models.glucose_reading import GlucoseReadingDB
 from app.models.basal import BasalEntry
 from app.models.treatment import Treatment
 from app.services.store import DataStore
 from app.services.nightscout_client import NightscoutClient, NightscoutError
 from app.services.nightscout_secrets_service import get_ns_config
+from app.services.glucose_ingest_service import (
+    GlucoseIngestData,
+    epoch_to_utc,
+    ingest_glucose_reading,
+)
 from app.services.nutrition_shadow_matcher import (
     NutritionShadowEvent,
     classify_nutrition_candidate,
@@ -202,11 +210,114 @@ class MobileGlucoseEntryRequest(BaseModel):
     source_package: str = Field(default="com.dexcom.g7", max_length=128)
 
 
+class WatchGlucoseEntryV1Request(BaseModel):
+    """Exact WtachSugar -> Bolus AI continuity contract."""
+
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    schema_version: StrictInt = Field(alias="schemaVersion")
+    reading_id: str = Field(alias="readingId", min_length=1, max_length=160)
+    origin_installation_id: str = Field(
+        alias="originInstallationId", min_length=1, max_length=160
+    )
+    outbox_sequence: int = Field(alias="outboxSequence", ge=0)
+    glucose_mgdl: int = Field(alias="glucoseMgDl", ge=1, le=400)
+    measured_at_epoch_millis: int = Field(alias="measuredAtEpochMillis", gt=0)
+    received_at_watch_epoch_millis: int = Field(
+        alias="receivedAtWatchEpochMillis", gt=0
+    )
+    received_at_phone_epoch_millis: int = Field(
+        alias="receivedAtPhoneEpochMillis", gt=0
+    )
+    trend_rate_mgdl_per_minute: Optional[float] = Field(
+        alias="trendRateMgDlPerMinute", ge=-20, le=20
+    )
+    trend_arrow: str = Field(alias="trendArrow", max_length=64)
+    sensor_state: str = Field(alias="sensorState", max_length=64)
+    display_only: bool = Field(alias="displayOnly")
+    sensor_sequence: int = Field(alias="sensorSequence", ge=0)
+    session_id: str = Field(alias="sessionId", min_length=1, max_length=160)
+    historical: bool
+    timestamp_uncertain: bool = Field(alias="timestampUncertain")
+    source: Literal["g7_direct_watch"]
+    decision_eligible: StrictBool = Field(alias="decisionEligible")
+
+    @field_validator("schema_version")
+    @classmethod
+    def require_schema_v1(cls, value: int) -> int:
+        if value != 1:
+            raise ValueError("schemaVersion must be exactly 1")
+        return value
+
+    @field_validator("decision_eligible")
+    @classmethod
+    def require_continuity_only(cls, value: bool) -> bool:
+        if value is not False:
+            raise ValueError("decisionEligible must be exactly false")
+        return value
+
+
 class MobileGlucoseEntryResponse(BaseModel):
     status: str
     glucose_mgdl: int
     timestamp_ms: int
     direction: str
+    reading_uid: Optional[str] = None
+    local_status: str = "not_stored"
+    nightscout_status: str = "unknown"
+
+
+class WatchGlucoseEntryV1Response(BaseModel):
+    status: str
+    readingId: str
+    source: Literal["g7_direct_watch"]
+    decisionEligible: Literal[False]
+    duplicate: bool
+    validationReason: Optional[str] = None
+
+
+class MobileGlucoseEntryV2Request(BaseModel):
+    schema_version: int = Field(default=2, ge=2, le=10)
+    reading_uid: Optional[str] = Field(default=None, max_length=160)
+    glucose_mgdl: int = Field(ge=1, le=400)
+    timestamp: int = Field(gt=0, description="Epoch seconds or milliseconds from the sensor")
+    received_at: Optional[int] = Field(default=None, gt=0)
+    trend_arrow: str = Field(default="NONE", max_length=64)
+    trend_rate: Optional[float] = Field(default=None, ge=-20, le=20)
+    sensor_state: Optional[str] = Field(default=None, max_length=64)
+    display_only: bool = False
+    historical: bool = False
+    timestamp_uncertain: bool = False
+    sensor_session_id: Optional[str] = Field(default=None, max_length=160)
+    sequence: Optional[int] = Field(default=None, ge=0)
+    sensor_type: str = Field(default="G7", max_length=32)
+    source_package: Optional[str] = Field(default=None, max_length=128)
+    source: Literal["dexcom_android", "g7_direct_watch"]
+
+
+class MobileGlucoseEntryV2Response(BaseModel):
+    status: str
+    reading_uid: str
+    glucose_mgdl: int
+    timestamp_ms: int
+    source: str
+    validation_reason: Optional[str] = None
+    usable_for_dosing: bool
+    historical: bool
+    sync_status: str
+    duplicate: bool = False
+
+
+class MobileGlucoseBatchRequest(BaseModel):
+    readings: List[MobileGlucoseEntryV2Request] = Field(min_length=1, max_length=100)
+
+
+class MobileGlucoseBatchResponse(BaseModel):
+    status: str
+    accepted: int
+    rejected: int
+    duplicates: int
+    readings: List[MobileGlucoseEntryV2Response]
 
 
 def _utc_timestamp_ms(value: datetime) -> int:
@@ -287,6 +398,27 @@ def _authorize_ingest_key(request: Request, ingest_key_header: Optional[str]) ->
     if ingest_secret and provided_key == ingest_secret:
         return
     raise HTTPException(status_code=401, detail="Authentication required")
+
+
+def _authorize_cgm_ingest_key(request: Request, ingest_key_header: Optional[str]) -> None:
+    provided_key = ingest_key_header or request.query_params.get("key")
+    cgm_secret = os.getenv("CGM_INGEST_KEY")
+    legacy_secret = os.getenv("NUTRITION_INGEST_SECRET") or os.getenv("NUTRITION_INGEST_KEY")
+    if provided_key and provided_key in {secret for secret in (cgm_secret, legacy_secret) if secret}:
+        return
+    raise HTTPException(status_code=401, detail="Authentication required")
+
+
+def _require_https_cgm_ingest(request: Request) -> None:
+    if os.getenv("ALLOW_INSECURE_CGM_INGEST", "").strip().lower() in {"1", "true", "yes"}:
+        return
+    headers = getattr(request, "headers", {})
+    forwarded_proto = str(headers.get("x-forwarded-proto", "")).split(",", 1)[0].strip().lower()
+    request_url = getattr(request, "url", None)
+    scheme = str(getattr(request_url, "scheme", "")).lower()
+    if scheme == "https" or forwarded_proto == "https":
+        return
+    raise HTTPException(status_code=403, detail="HTTPS required for glucose ingest")
 
 
 DEXCOM_TO_NIGHTSCOUT_TREND = {
@@ -535,16 +667,101 @@ def _dedupe_dexcom_carbs_events(events: List[MobileBolusEventResponse]) -> List[
     return deduped
 
 
-@router.post("/mobile/glucose-entry", response_model=MobileGlucoseEntryResponse)
+@router.post(
+    "/mobile/glucose-entry",
+    response_model=Union[MobileGlucoseEntryResponse, WatchGlucoseEntryV1Response],
+)
 async def mobile_glucose_entry(
-    payload: MobileGlucoseEntryRequest,
+    payload: Union[MobileGlucoseEntryRequest, WatchGlucoseEntryV1Request],
     request: Request,
     ingest_key_header: Optional[str] = Header(None, alias="X-Ingest-Key"),
     session: AsyncSession = Depends(get_db_session),
     settings: Settings = Depends(get_settings),
 ):
     """Receive a protected Dexcom G7 broadcast forwarded by the Android app."""
-    _authorize_ingest_key(request, ingest_key_header)
+    _authorize_cgm_ingest_key(request, ingest_key_header)
+    if isinstance(payload, WatchGlucoseEntryV1Request):
+        _require_https_cgm_ingest(request)
+        _, user_id, _ = await _load_mobile_bolus_settings(session)
+        try:
+            result = await ingest_glucose_reading(
+                session,
+                user_id,
+                GlucoseIngestData(
+                    schema_version=payload.schema_version,
+                    reading_uid=payload.reading_id,
+                    glucose_mgdl=payload.glucose_mgdl,
+                    measured_at=epoch_to_utc(payload.measured_at_epoch_millis),
+                    received_at=datetime.now(timezone.utc),
+                    received_at_watch=epoch_to_utc(payload.received_at_watch_epoch_millis),
+                    received_at_phone=epoch_to_utc(payload.received_at_phone_epoch_millis),
+                    source=payload.source,
+                    trend_arrow=_nightscout_direction(payload.trend_arrow),
+                    trend_rate=payload.trend_rate_mgdl_per_minute,
+                    sensor_state=payload.sensor_state,
+                    display_only=payload.display_only,
+                    historical=payload.historical,
+                    timestamp_uncertain=payload.timestamp_uncertain,
+                    sensor_session_id=payload.session_id,
+                    sequence=payload.sensor_sequence,
+                    outbox_sequence=payload.outbox_sequence,
+                    sensor_type="G7",
+                    source_package="org.wtachtsugar",
+                    origin_installation_id=payload.origin_installation_id,
+                    decision_eligible=False,
+                ),
+                # Continuity-only watch readings must not re-enter the primary
+                # path indirectly through Nightscout.
+                sync_to_nightscout=False,
+            )
+            await session.commit()
+        except IntegrityError:
+            # A concurrent retry can pass the pre-insert lookup. The database
+            # constraints remain authoritative and the loser becomes a 409.
+            await session.rollback()
+            existing = (
+                await session.execute(
+                    select(GlucoseReadingDB).where(
+                        GlucoseReadingDB.user_id == user_id,
+                        GlucoseReadingDB.source == payload.source,
+                        (
+                            (GlucoseReadingDB.reading_uid == payload.reading_id)
+                            | (
+                                (GlucoseReadingDB.origin_installation_id == payload.origin_installation_id)
+                                & (GlucoseReadingDB.sensor_session_id == payload.session_id)
+                                & (GlucoseReadingDB.sequence == payload.sensor_sequence)
+                            )
+                        ),
+                    )
+                )
+            ).scalars().first()
+            if existing is None:
+                raise
+            return JSONResponse(
+                status_code=409,
+                content={
+                    "status": "duplicate",
+                    "readingId": existing.reading_uid,
+                    "source": existing.source,
+                    "decisionEligible": False,
+                    "duplicate": True,
+                    "validationReason": existing.validation_reason,
+                },
+            )
+        response_body = {
+            "status": result.status,
+            "readingId": result.reading.reading_uid,
+            "source": result.reading.source,
+            "decisionEligible": False,
+            "duplicate": result.duplicate,
+            "validationReason": result.reading.validation_reason,
+        }
+        if result.duplicate:
+            return JSONResponse(status_code=409, content=response_body)
+        if result.status == "rejected":
+            return JSONResponse(status_code=422, content=response_body)
+        return JSONResponse(status_code=201, content=response_body)
+
     if payload.source_package != "com.dexcom.g7" or payload.sensor_type.upper() != "G7":
         raise HTTPException(status_code=422, detail="Unsupported glucose source")
 
@@ -556,24 +773,184 @@ async def mobile_glucose_entry(
 
     timestamp_ms = payload.timestamp * 1000
     direction = _nightscout_direction(payload.trend_arrow)
-    client = await _mobile_nightscout_client(session, settings)
+    stored = None
+    if hasattr(session, "execute"):
+        _, user_id, _ = await _load_mobile_bolus_settings(session)
+        stored = await ingest_glucose_reading(
+            session,
+            user_id,
+            GlucoseIngestData(
+                glucose_mgdl=payload.glucose_mgdl,
+                measured_at=epoch_to_utc(payload.timestamp),
+                source="dexcom_android",
+                trend_arrow=direction,
+                sensor_type=payload.sensor_type,
+                source_package=payload.source_package,
+            ),
+        )
+        await session.commit()
+
+    nightscout_status = "pending"
+    client = None
     try:
+        client = await _mobile_nightscout_client(session, settings)
         result = await client.upload_sgv(
             glucose_mgdl=payload.glucose_mgdl,
             timestamp_ms=timestamp_ms,
             direction=direction,
         )
+        nightscout_status = str(result.get("status") or "uploaded")
     except NightscoutError as exc:
         logger.warning("Dexcom glucose upload to Nightscout failed: %s", exc)
-        raise HTTPException(status_code=502, detail="Nightscout rejected the glucose entry") from exc
+        nightscout_status = "pending"
+    except HTTPException as exc:
+        # The local copy is authoritative for continuity. Missing Nightscout
+        # configuration must not make the mobile sender discard the reading.
+        logger.warning("Dexcom glucose stored locally; Nightscout unavailable: %s", exc.detail)
+        nightscout_status = "pending"
+    except Exception as exc:
+        # Persistence already succeeded. A transient or unexpected remote error
+        # must never make the companion discard its local queue item.
+        logger.warning(
+            "Dexcom glucose stored locally; Nightscout upload failed: %s",
+            type(exc).__name__,
+        )
+        nightscout_status = "pending"
     finally:
-        await client.aclose()
+        if client:
+            await client.aclose()
+
+    if stored and stored.reading:
+        if nightscout_status in {"uploaded", "duplicate"}:
+            stored.reading.sync_status = "duplicate" if nightscout_status == "duplicate" else "synced"
+            stored.reading.synced_at = datetime.now(timezone.utc)
+            stored.reading.sync_error = None
+        else:
+            stored.reading.sync_status = "pending"
+        await session.commit()
 
     return MobileGlucoseEntryResponse(
-        status=result["status"],
+        status=nightscout_status if nightscout_status != "pending" else "stored",
         glucose_mgdl=payload.glucose_mgdl,
         timestamp_ms=timestamp_ms,
         direction=direction,
+        reading_uid=stored.reading.reading_uid if stored else None,
+        local_status=stored.status if stored else "legacy_forwarded",
+        nightscout_status=nightscout_status,
+    )
+
+
+def _v2_response(result) -> MobileGlucoseEntryV2Response:
+    row = result.reading
+    measured_at = row.measured_at
+    if measured_at.tzinfo is None:
+        measured_at = measured_at.replace(tzinfo=timezone.utc)
+    return MobileGlucoseEntryV2Response(
+        status=result.status,
+        reading_uid=row.reading_uid,
+        glucose_mgdl=row.glucose_mgdl,
+        timestamp_ms=int(measured_at.timestamp() * 1000),
+        source=row.source,
+        validation_reason=row.validation_reason,
+        usable_for_dosing=row.usable_for_dosing,
+        historical=row.historical,
+        sync_status=row.sync_status,
+        duplicate=result.duplicate,
+    )
+
+
+async def _ingest_v2_payload(
+    payload: MobileGlucoseEntryV2Request,
+    session: AsyncSession,
+    user_id: str,
+    *,
+    flush: bool = True,
+    sync_to_nightscout: bool = True,
+):
+    if payload.source == "dexcom_android" and payload.source_package not in {None, "com.dexcom.g7"}:
+        raise HTTPException(status_code=422, detail="Unsupported Android glucose source")
+    if payload.sensor_type.upper() != "G7":
+        raise HTTPException(status_code=422, detail="Unsupported glucose sensor")
+
+    is_watch_continuity = payload.source == "g7_direct_watch"
+    return await ingest_glucose_reading(
+        session,
+        user_id,
+        GlucoseIngestData(
+            schema_version=payload.schema_version,
+            reading_uid=payload.reading_uid,
+            glucose_mgdl=payload.glucose_mgdl,
+            measured_at=epoch_to_utc(payload.timestamp),
+            received_at=epoch_to_utc(payload.received_at) if payload.received_at else None,
+            source=payload.source,
+            trend_arrow=_nightscout_direction(payload.trend_arrow),
+            trend_rate=payload.trend_rate,
+            sensor_state=payload.sensor_state,
+            display_only=payload.display_only,
+            historical=payload.historical,
+            timestamp_uncertain=payload.timestamp_uncertain,
+            sensor_session_id=payload.sensor_session_id,
+            sequence=payload.sequence,
+            sensor_type=payload.sensor_type,
+            source_package=payload.source_package,
+            decision_eligible=not is_watch_continuity,
+        ),
+        sync_to_nightscout=sync_to_nightscout and not is_watch_continuity,
+        flush=flush,
+    )
+
+
+@router.post("/mobile/glucose-entry/v2", response_model=MobileGlucoseEntryV2Response)
+async def mobile_glucose_entry_v2(
+    payload: MobileGlucoseEntryV2Request,
+    request: Request,
+    ingest_key_header: Optional[str] = Header(None, alias="X-Ingest-Key"),
+    session: AsyncSession = Depends(get_db_session),
+):
+    """Store a versioned Android or direct-watch reading before external sync."""
+    _authorize_cgm_ingest_key(request, ingest_key_header)
+    user_settings, user_id, _ = await _load_mobile_bolus_settings(session)
+    result = await _ingest_v2_payload(
+        payload,
+        session,
+        user_id,
+        sync_to_nightscout=user_settings.glucose_sources.sync_direct_to_nightscout,
+    )
+    await session.commit()
+    return _v2_response(result)
+
+
+@router.post("/mobile/glucose-entries/batch", response_model=MobileGlucoseBatchResponse)
+async def mobile_glucose_entries_batch(
+    payload: MobileGlucoseBatchRequest,
+    request: Request,
+    ingest_key_header: Optional[str] = Header(None, alias="X-Ingest-Key"),
+    session: AsyncSession = Depends(get_db_session),
+):
+    """Persist ordered mobile/watch backfill without creating retrospective actions."""
+    _authorize_cgm_ingest_key(request, ingest_key_header)
+    user_settings, user_id, _ = await _load_mobile_bolus_settings(session)
+    results = []
+    for item in sorted(payload.readings, key=lambda reading: reading.timestamp):
+        # Batch delivery is always historical unless the newest item is still
+        # genuinely fresh; validation in the ingest service remains decisive.
+        results.append(
+            await _ingest_v2_payload(
+                item,
+                session,
+                user_id,
+                sync_to_nightscout=user_settings.glucose_sources.sync_direct_to_nightscout,
+            )
+        )
+    await session.commit()
+
+    responses = [_v2_response(result) for result in results]
+    return MobileGlucoseBatchResponse(
+        status="stored",
+        accepted=sum(1 for result in results if result.status == "accepted"),
+        rejected=sum(1 for result in results if result.status == "rejected"),
+        duplicates=sum(1 for result in results if result.duplicate),
+        readings=responses,
     )
 
 

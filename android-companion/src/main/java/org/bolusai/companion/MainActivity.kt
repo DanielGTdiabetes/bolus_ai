@@ -1062,6 +1062,9 @@ private fun SettingsScreen(
     var primary by remember(settings.primaryUrl) { mutableStateOf(settings.primaryUrl) }
     var backup by remember(settings.backupUrl) { mutableStateOf(settings.backupUrl) }
     var ingestKey by remember(settings.ingestKey) { mutableStateOf(settings.ingestKey) }
+    var glucoseIngestKey by remember(settings.glucoseIngestKey) {
+        mutableStateOf(settings.glucoseIngestKey)
+    }
     var mfpSearch by remember { mutableStateOf("") }
     var mfpAssistMessage by remember { mutableStateOf("") }
     var hasMfpAccessibility by remember { mutableStateOf(isMyFitnessPalAssistantEnabled(context)) }
@@ -1165,6 +1168,22 @@ private fun SettingsScreen(
             )
         }
         item { Button(onClick = { repository.updateIngestKey(ingestKey) }) { Text("Guardar clave") } }
+        item {
+            OutlinedTextField(
+                value = glucoseIngestKey,
+                onValueChange = { glucoseIngestKey = it },
+                label = { Text("Clave exclusiva de glucosa (opcional)") },
+                supportingText = { Text("Si se deja vacia, se usa la clave de integracion anterior.") },
+                visualTransformation = PasswordVisualTransformation(),
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+        item {
+            Button(onClick = { repository.updateGlucoseIngestKey(glucoseIngestKey) }) {
+                Text("Guardar clave de glucosa")
+            }
+        }
         item {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("Automatizacion MyFitnessPal")
@@ -1451,6 +1470,8 @@ private fun DiagnosticsScreen(
                     scope.launch {
                         queueRepository.clear()
                         logRepository.clear()
+                        glucoseDiagnosticsRepository.clearEvents()
+                        glucoseDiagnostics = glucoseDiagnosticsRepository.snapshot()
                     }
                 }) { Text("Borrar logs") }
             }
@@ -1512,6 +1533,17 @@ private fun GlucoseDiagnosticsCard(
             }
             if (diagnostics.lastError.isNotBlank()) Text("Error de subida: ${diagnostics.lastError}")
             if (diagnostics.serviceDetail.isNotBlank()) Text("Detalle del servicio: ${diagnostics.serviceDetail}")
+            Text("Registro de glucosa", style = MaterialTheme.typography.titleSmall)
+            if (diagnostics.events.isEmpty()) {
+                Text("Sin eventos de glucosa registrados")
+            } else {
+                diagnostics.events.take(12).forEach { event ->
+                    Text(
+                        "${formatDiagnosticTime(event.atMillis)} · ${event.type} · ${event.detail}",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+            }
         }
     }
 }

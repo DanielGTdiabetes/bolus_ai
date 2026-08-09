@@ -1,9 +1,8 @@
 from __future__ import annotations
 
 import logging
-import math
-from datetime import datetime, timedelta, timezone
-from typing import Literal, Optional
+from datetime import datetime, timezone
+from typing import Optional
 
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,7 +16,7 @@ from app.services.bolus_engine import calculate_bolus_v2
 from app.services import iob as iob_service
 from app.services.nightscout_client import NightscoutClient
 from app.services.nightscout_secrets_service import get_ns_config
-from app.services.smart_filter import CompressionDetector, FilterConfig
+from app.services.glucose_source_service import resolve_current_glucose
 from app.services.store import DataStore
 
 logger = logging.getLogger(__name__)
@@ -212,18 +211,10 @@ async def calculate_bolus_stateless_service(
         except Exception as e:
             logger.warning(f"Failed to fetch NS config from DB: {e}")
 
-    compression_config = FilterConfig(
-        enabled=user_settings.nightscout.filter_compression,
-        night_start_hour=user_settings.nightscout.filter_night_start_hour,
-        night_end_hour=user_settings.nightscout.filter_night_end_hour,
-        treatments_lookback_minutes=user_settings.nightscout.treatments_lookback_minutes,
-    )
-
-    # 3. Resolve Glucose (Manual vs Nightscout)
+    # 3. Resolve Glucose (manual override vs unified source resolver)
     resolved_bg: Optional[float] = payload.bg_mgdl
-    bg_source: Literal["manual", "nightscout", "none"] = (
-        "manual" if resolved_bg is not None else "none"
-    )
+    reported_bg: Optional[float] = resolved_bg
+    bg_source = "manual" if resolved_bg is not None else "none"
     bg_trend: Optional[str] = None
     bg_age_minutes: Optional[float] = None
     bg_is_stale: bool = False
@@ -235,74 +226,66 @@ async def calculate_bolus_stateless_service(
         fetched_at=datetime.now(timezone.utc),
     )
 
-    if resolved_bg is None and ns_config.enabled and ns_config.url:
-        logger.info(f"Attempting to fetch BG from Nightscout: {ns_config.url}")
+    if resolved_bg is None and session:
         try:
-            ns_client = NightscoutClient(
-                base_url=ns_config.url,
-                token=ns_config.token,
-                timeout_seconds=5,
+            selected = await resolve_current_glucose(
+                session,
+                user.username,
+                user_settings=user_settings,
+                refresh_remote=True,
             )
-            entries = []
-            if compression_config.enabled:
-                end_dt = datetime.now(timezone.utc)
-                start_dt = end_dt - timedelta(minutes=60)
-                entries = await ns_client.get_sgv_range(start_dt, end_dt, count=12)
+            bg_source = selected.source
+            bg_trend = selected.trend
+            bg_age_minutes = selected.age_minutes
+            bg_is_stale = selected.status == "stale"
+            compression_flag = selected.is_compression
+            compression_reason = selected.compression_reason
+            glucose_status.source = selected.source
+            glucose_status.status = selected.status
+            if selected.is_compression:
+                glucose_status.reason = "compression_suspected"
+            elif selected.status == "conflict":
+                glucose_status.reason = "source_conflict"
+            elif not selected.usable_for_dosing and selected.bg_mgdl is not None:
+                glucose_status.reason = "reading_not_usable_for_dosing"
 
-            if entries:
-                entries.sort(key=lambda x: x.date)
-                sgv = entries[-1]
-            else:
-                sgv = await ns_client.get_latest_sgv()
-
-            resolved_bg = float(sgv.sgv)
-            bg_source = "nightscout"
-            bg_trend = sgv.direction
-            glucose_status.source = "nightscout"
-
-            if compression_config.enabled and len(entries) > 1:
-                lookback_hours = max(
-                    1, math.ceil(compression_config.treatments_lookback_minutes / 60)
-                )
-                treatments = await ns_client.get_recent_treatments(
-                    hours=lookback_hours, limit=10
-                )
-                detector = CompressionDetector(config=compression_config)
-                processed = detector.detect(
-                    [e.model_dump() for e in entries],
-                    [t.model_dump() for t in treatments],
-                )
-                if processed:
-                    last_proc = processed[-1]
-                    if last_proc.get("date") == sgv.date:
-                        compression_flag = last_proc.get("is_compression", False)
-                        compression_reason = last_proc.get("compression_reason")
-                        if compression_flag:
-                            glucose_status.reason = "compression_suspected"
-
-            now_ms = datetime.now(timezone.utc).timestamp() * 1000
-            diff_ms = now_ms - sgv.date
-            diff_min = diff_ms / 60000.0
-
-            bg_age_minutes = diff_min
-            if diff_min > 10:
-                bg_is_stale = True
-                glucose_status.status = "stale"
-            else:
-                glucose_status.status = "ok"
-
-            logger.info(
-                "Nightscout fetch success: %s mg/dL, age=%.1fm", resolved_bg, diff_min
-            )
-
+            # Never feed stale, historical, uncertain or conflicting automatic
+            # glucose into the correction component.
+            reported_bg = selected.bg_mgdl
+            resolved_bg = selected.bg_mgdl if selected.usable_for_dosing else None
         except Exception as e:
-            logger.error(f"Nightscout fetch failed in calc: {e}")
+            logger.error("Unified glucose resolution failed in calc: %s", e)
             resolved_bg = None
             bg_source = "none"
             bg_trend = None
             bg_age_minutes = None
             bg_is_stale = False
             glucose_status.source = "none"
+            glucose_status.status = "unavailable"
+    if resolved_bg is None and bg_source == "none" and ns_config.enabled and ns_config.url:
+        # Compatibility for request-scoped Nightscout credentials that are not
+        # stored in the encrypted user table. Apply the same freshness gate.
+        try:
+            ns_client = NightscoutClient(
+                base_url=ns_config.url,
+                token=ns_config.token,
+                timeout_seconds=5,
+            )
+            sgv = await ns_client.get_latest_sgv()
+            reported_bg = float(sgv.sgv)
+            measured_at = datetime.fromtimestamp(sgv.date / 1000, tz=timezone.utc)
+            bg_age_minutes = max(
+                0.0,
+                (datetime.now(timezone.utc) - measured_at).total_seconds() / 60.0,
+            )
+            bg_source = "nightscout"
+            bg_trend = sgv.direction
+            bg_is_stale = bg_age_minutes > user_settings.glucose_sources.max_age_minutes
+            glucose_status.source = bg_source
+            glucose_status.status = "stale" if bg_is_stale else "ok"
+            resolved_bg = None if bg_is_stale else float(sgv.sgv)
+        except Exception as exc:
+            logger.error("Stateless Nightscout glucose fallback failed: %s", exc)
             glucose_status.status = "unavailable"
 
     db_events = []
@@ -526,7 +509,9 @@ async def calculate_bolus_stateless_service(
             iob_for_calc = iob_u
 
         glucose_info = GlucoseUsed(
-            mgdl=resolved_bg,
+            # Preserve the observed value for transparency while the engine uses
+            # only `resolved_bg`, which is None when the reading is unsafe.
+            mgdl=reported_bg,
             source=bg_source,
             trend=bg_trend,
             age_minutes=bg_age_minutes,
