@@ -137,6 +137,27 @@ class DexcomSettings(BaseModel):
     region: Optional[str] = "ous"
 
 
+class GlucoseSourceSettings(BaseModel):
+    """Selection and safety policy for current glucose resolution."""
+
+    # Keep the deployed behavior on migration. Users can opt into auto after
+    # direct sources have been observed in shadow mode.
+    mode: Literal[
+        "auto",
+        "nightscout",
+        "dexcom_share",
+        "dexcom_android",
+        "g7_direct_watch",
+    ] = "nightscout"
+    fallback_enabled: bool = True
+    max_age_minutes: int = Field(default=10, ge=5, le=30)
+    nightscout_enabled: bool = True
+    dexcom_share_enabled: bool = True
+    android_direct_enabled: bool = True
+    watch_direct_enabled: bool = False
+    sync_direct_to_nightscout: bool = True
+
+
 
 class TechneRoundingConfig(BaseModel):
     enabled: bool = False
@@ -293,6 +314,7 @@ class UserSettings(BaseModel):
     autosens: AutosensConfig = Field(default_factory=AutosensConfig)
     bot: BotConfig = Field(default_factory=BotConfig)
     dexcom: DexcomSettings = Field(default_factory=DexcomSettings)
+    glucose_sources: GlucoseSourceSettings = Field(default_factory=GlucoseSourceSettings)
     
     # Internal field to track update time from DB, not part of user input JSON usually
     updated_at: Optional[datetime] = None

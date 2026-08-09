@@ -12,7 +12,8 @@ import {
     getSettings, updateSettings, getLearningLogs, testDexcom,
     fetchIngestLogs,
     getMlStatus,
-    fetchBotProactiveStatus
+    fetchBotProactiveStatus,
+    getGlucoseSourcesStatus
 } from '../lib/api';
 import { IsfAnalyzer } from '../components/settings/IsfAnalyzer';
 
@@ -27,6 +28,7 @@ export default function SettingsPage() {
                 <Card>
                     <div className="tabs" style={{ display: 'flex', borderBottom: '1px solid #e2e8f0', marginBottom: '1rem', overflowX: 'auto', whiteSpace: 'nowrap', gap: '0.5rem', paddingBottom: '4px' }}>
                         <TabButton label="Nightscout" active={activeTab === 'ns'} onClick={() => setActiveTab('ns')} />
+                        <TabButton label="Fuentes glucosa" active={activeTab === 'glucose'} onClick={() => setActiveTab('glucose')} />
                         <TabButton label="Dexcom" active={activeTab === 'dexcom'} onClick={() => setActiveTab('dexcom')} />
                         <TabButton label="Cálculo" active={activeTab === 'calc'} onClick={() => setActiveTab('calc')} />
                         <TabButton label="IA / Visión" active={activeTab === 'vision'} onClick={() => setActiveTab('vision')} />
@@ -38,6 +40,7 @@ export default function SettingsPage() {
                     </div>
 
                     {activeTab === 'ns' && <NightscoutPanel />}
+                    {activeTab === 'glucose' && <GlucoseSourcesPanel />}
                     {activeTab === 'dexcom' && <DexcomPanel />}
                     {activeTab === 'calc' && <CalcParamsPanel />}
                     {activeTab === 'vision' && <VisionPanel />}
@@ -81,6 +84,153 @@ function TabButton({ label, active, onClick }) {
 }
 
 // --- PANELS ---
+
+function GlucoseSourcesPanel() {
+    const [config, setConfig] = useState({
+        mode: 'nightscout',
+        fallback_enabled: true,
+        max_age_minutes: 10,
+        nightscout_enabled: true,
+        dexcom_share_enabled: true,
+        android_direct_enabled: true,
+        watch_direct_enabled: false,
+        sync_direct_to_nightscout: true
+    });
+    const [sourceStatus, setSourceStatus] = useState(null);
+    const [version, setVersion] = useState(null);
+    const [message, setMessage] = useState(null);
+    const [loading, setLoading] = useState(true);
+
+    const load = async () => {
+        setLoading(true);
+        try {
+            const [settingsResult, statusResult] = await Promise.all([
+                getSettings(),
+                getGlucoseSourcesStatus().catch(() => null)
+            ]);
+            setConfig(previous => ({
+                ...previous,
+                ...(settingsResult.settings?.glucose_sources || {})
+            }));
+            setVersion(settingsResult.version);
+            setSourceStatus(statusResult);
+        } catch (error) {
+            setMessage({ type: 'error', text: error.message });
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    useEffect(() => { load(); }, []);
+
+    const save = async () => {
+        setMessage({ type: 'neutral', text: 'Guardando…' });
+        try {
+            const current = await getSettings();
+            const settings = {
+                ...(current.settings || {}),
+                glucose_sources: config,
+                version: current.version
+            };
+            const result = await updateSettings(settings);
+            setVersion(result.version ?? current.version);
+            setMessage({ type: 'success', text: 'Fuente de glucosa actualizada.' });
+            await load();
+        } catch (error) {
+            setMessage({ type: 'error', text: error.message });
+        }
+    };
+
+    if (loading) return <div>Cargando fuentes de glucosa…</div>;
+
+    const labels = {
+        auto: 'Automática (recomendada)',
+        nightscout: 'Nightscout',
+        dexcom_share: 'Dexcom Share',
+        dexcom_android: 'App Dexcom directa',
+        g7_direct_watch: 'Reloj G7 directo'
+    };
+
+    return (
+        <div className="stack">
+            <h3 style={{ marginTop: 0 }}>Fuente de glucosa</h3>
+            <p className="text-muted text-sm">
+                El modo automático usa la lectura válida más reciente y muestra claramente cuándo activa un respaldo.
+            </p>
+
+            <label style={{ fontWeight: 600 }}>Modo</label>
+            <select
+                value={config.mode}
+                onChange={event => setConfig(previous => ({ ...previous, mode: event.target.value }))}
+                style={{ width: '100%', padding: '0.8rem', borderRadius: '8px', border: '1px solid #cbd5e1' }}
+            >
+                {Object.entries(labels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+            </select>
+
+            <Input
+                label="Antigüedad máxima para correcciones (minutos)"
+                type="number"
+                min="5"
+                max="30"
+                value={config.max_age_minutes}
+                onChange={event => setConfig(previous => ({ ...previous, max_age_minutes: Number(event.target.value) }))}
+            />
+
+            {[
+                ['fallback_enabled', 'Permitir fuentes de respaldo'],
+                ['nightscout_enabled', 'Conectar lectura desde Nightscout'],
+                ['dexcom_share_enabled', 'Conectar lectura desde Dexcom Share'],
+                ['android_direct_enabled', 'Conectar app Dexcom directa'],
+                ['watch_direct_enabled', 'Conectar reloj G7 directo'],
+                ['sync_direct_to_nightscout', 'Replicar lecturas directas en Nightscout']
+            ].map(([key, label]) => (
+                <label key={key} style={{ display: 'flex', alignItems: 'center', gap: '0.7rem' }}>
+                    <input
+                        type="checkbox"
+                        checked={Boolean(config[key])}
+                        onChange={event => setConfig(previous => ({ ...previous, [key]: event.target.checked }))}
+                    />
+                    {label}
+                </label>
+            ))}
+
+            {sourceStatus && (
+                <div style={{ background: '#f8fafc', borderRadius: '10px', padding: '1rem' }}>
+                    <div style={{ fontWeight: 700, marginBottom: '0.7rem' }}>
+                        Activa: {labels[sourceStatus.active_source] || sourceStatus.active_source} · {sourceStatus.active_status}
+                    </div>
+                    <div className="stack" style={{ gap: '0.45rem' }}>
+                        {(sourceStatus.sources || []).map(source => (
+                            <div key={source.source} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem' }}>
+                                <span>
+                                    {labels[source.source] || source.source}
+                                    {!source.enabled && ' (desconectada manualmente)'}
+                                </span>
+                                <span>
+                                    {source.available ? `${source.glucose_mgdl} mg/dL · ${Math.round(source.age_minutes)} min` : 'Sin datos'}
+                                </span>
+                            </div>
+                        ))}
+                    </div>
+                    {sourceStatus.pending_sync > 0 && (
+                        <div style={{ marginTop: '0.7rem', color: '#92400e' }}>
+                            {sourceStatus.pending_sync} lecturas pendientes de Nightscout
+                        </div>
+                    )}
+                </div>
+            )}
+
+            <div style={{ display: 'flex', gap: '0.7rem' }}>
+                <Button onClick={save}>Guardar</Button>
+                <Button variant="secondary" onClick={load}>Actualizar estado</Button>
+            </div>
+            {message && (
+                <div style={{ color: message.type === 'error' ? '#b91c1c' : '#166534' }}>{message.text}</div>
+            )}
+            {version !== null && <div className="text-muted text-sm">Versión de ajustes: {version}</div>}
+        </div>
+    );
+}
 
 function NightscoutPanel() {
     const [url, setUrl] = useState('');

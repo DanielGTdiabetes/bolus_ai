@@ -23,8 +23,15 @@ class SecretStore(context: Context) {
         preferences.edit().putString(KEY_INGEST, value.trim()).apply()
     }
 
+    fun readGlucoseIngestKey(): String = preferences.getString(KEY_GLUCOSE_INGEST, "").orEmpty()
+
+    fun writeGlucoseIngestKey(value: String) {
+        preferences.edit().putString(KEY_GLUCOSE_INGEST, value.trim()).apply()
+    }
+
     private companion object {
         const val FILE_NAME = "bolus_companion_secrets"
         const val KEY_INGEST = "nutrition_ingest_key"
+        const val KEY_GLUCOSE_INGEST = "glucose_ingest_key"
     }
 }

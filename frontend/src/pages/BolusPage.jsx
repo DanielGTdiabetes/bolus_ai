@@ -86,7 +86,9 @@ export default function BolusPage() {
     const loadData = async () => {
         try {
             const bgData = await getCurrentGlucose(nsConfig);
-            if (bgData && bgData.bg_mgdl) setGlucose(String(Math.round(bgData.bg_mgdl)));
+            if (bgData?.usable_for_dosing && bgData.bg_mgdl) {
+                setGlucose(String(Math.round(bgData.bg_mgdl)));
+            }
 
             const iobData = await getIOBData(nsConfig);
             if (iobData) setIob(iobData.iob_u ?? iobData.iob_total ?? 0);

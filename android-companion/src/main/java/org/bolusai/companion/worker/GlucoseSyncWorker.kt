@@ -17,7 +17,8 @@ class GlucoseSyncWorker(
         val queue = GlucoseQueueRepository(applicationContext)
         val diagnostics = GlucoseSyncDiagnosticsRepository(applicationContext)
         if (!settings.dexcomGlucoseSyncEnabled) return Result.success()
-        if (settings.ingestKey.isBlank()) {
+        val glucoseIngestKey = settings.glucoseIngestKey.ifBlank { settings.ingestKey }
+        if (glucoseIngestKey.isBlank()) {
             diagnostics.recordUploadFailure(null, "Missing ingest key", queue.pending().size)
             return Result.failure()
         }
@@ -29,7 +30,7 @@ class GlucoseSyncWorker(
             val result = GlucoseIngestClient().send(
                 primaryUrl = settings.primaryUrl,
                 backupUrl = settings.backupUrl,
-                ingestKey = settings.ingestKey,
+                ingestKey = glucoseIngestKey,
                 reading = reading,
             )
             if (!result.ok) {
@@ -40,8 +41,15 @@ class GlucoseSyncWorker(
                     Result.failure()
                 }
             }
+            if (result.endpoint == org.bolusai.companion.network.ActiveEndpoint.BACKUP && settings.primaryUrl.isNotBlank()) {
+                // Keep the device-generated identity in the queue until the NAS
+                // acknowledges it. Replays to Render are idempotent, and this
+                // prevents Neon from becoming the only surviving copy.
+                diagnostics.recordUploadSuccess(result.endpoint, result.statusCode, pending.size, result.body)
+                return Result.retry()
+            }
             queue.markSent(reading)
-            diagnostics.recordUploadSuccess(result.endpoint, result.statusCode, queue.pending().size)
+            diagnostics.recordUploadSuccess(result.endpoint, result.statusCode, queue.pending().size, result.body)
         }
     }
 }

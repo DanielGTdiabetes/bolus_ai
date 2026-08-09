@@ -6,6 +6,7 @@ import httpx
 import pytest
 
 from app.api import integrations
+from app.core.db import SessionLocal
 from app.services.nightscout_client import NightscoutClient
 
 
@@ -111,3 +112,44 @@ async def test_nightscout_upload_sgv_skips_duplicate():
     assert result["status"] == "duplicate"
     assert post_count == 0
     await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_v2_watch_ingest_is_idempotent_and_stored_first(monkeypatch):
+    monkeypatch.setenv("CGM_INGEST_KEY", "cgm-secret")
+    timestamp = int(datetime.now(timezone.utc).timestamp())
+    uid = f"watch-v2-{timestamp}"
+    payload = integrations.MobileGlucoseEntryV2Request(
+        schema_version=2,
+        reading_uid=uid,
+        glucose_mgdl=117,
+        timestamp=timestamp,
+        trend_arrow="Flat",
+        sensor_state="OK",
+        sensor_session_id="opaque-session",
+        sequence=42,
+        sensor_type="G7",
+        source_package="org.wtachtsugar",
+        source="g7_direct_watch",
+    )
+
+    async with SessionLocal() as session:
+        first = await integrations.mobile_glucose_entry_v2(
+            payload=payload,
+            request=SimpleNamespace(query_params={}),
+            ingest_key_header="cgm-secret",
+            session=session,
+        )
+        second = await integrations.mobile_glucose_entry_v2(
+            payload=payload,
+            request=SimpleNamespace(query_params={}),
+            ingest_key_header="cgm-secret",
+            session=session,
+        )
+
+    assert first.status == "accepted"
+    assert first.reading_uid == uid
+    assert first.usable_for_dosing is True
+    assert first.sync_status == "pending"
+    assert second.status == "duplicate"
+    assert second.duplicate is True

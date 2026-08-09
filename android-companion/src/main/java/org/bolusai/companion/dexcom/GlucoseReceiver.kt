@@ -17,11 +17,16 @@ class GlucoseReceiver : BroadcastReceiver() {
         if (intent.action != ACTION) return
         val settings = AppSettingsRepository(context).current()
         if (!settings.dexcomGlucoseSyncEnabled) return
+        val diagnostics = GlucoseSyncDiagnosticsRepository(context)
+        val queue = GlucoseQueueRepository(context)
 
         val extras = intent.extras ?: return
         val sensorType = extras.getString("sensorType").orEmpty()
         val sourcePackage = extras.getString("packageName").orEmpty()
-        if (sensorType != "G7" || sourcePackage != DEXCOM_PACKAGE) return
+        if (sensorType != "G7" || sourcePackage != DEXCOM_PACKAGE) {
+            diagnostics.recordRejected("dexcom_android", "origen o sensor no admitido", queue.pending().size)
+            return
+        }
 
         val readingContainer = extras.bundleCompat("glucoseValues") ?: extras
         val directReading = readingContainer.toReading(sensorType, sourcePackage)
@@ -32,13 +37,16 @@ class GlucoseReceiver : BroadcastReceiver() {
                 .filter { it != "sensorType" && it != "packageName" && it != "glucoseValues" }
                 .mapNotNull { key -> readingContainer.bundleCompat(key)?.toReading(sensorType, sourcePackage) }
         }
-        if (readings.isEmpty()) return
+        if (readings.isEmpty()) {
+            diagnostics.recordRejected("dexcom_android", "broadcast sin lecturas validas", queue.pending().size)
+            return
+        }
 
-        val queue = GlucoseQueueRepository(context)
         queue.enqueue(readings)
-        GlucoseSyncDiagnosticsRepository(context).recordBroadcast(
+        diagnostics.recordBroadcast(
             readingTimestampSeconds = readings.maxOf { it.timestampSeconds },
             queueSize = queue.pending().size,
+            source = "dexcom_android",
         )
         if (settings.wearGlucoseForwardEnabled) {
             readings.forEach { reading ->

@@ -28,6 +28,7 @@ from app.services.autosens_service import AutosensService
 from app.services.smart_filter import FilterConfig
 from app.models.basal import BasalEntry
 from app.services.dexcom_client import DexcomClient
+from app.services.glucose_source_service import resolve_current_glucose
 from app.services.store import DataStore
 from pathlib import Path
 from app.services.iob import compute_iob_from_sources, compute_cob_from_sources
@@ -133,7 +134,7 @@ async def get_current_forecast(
     if not user_settings:
         raise HTTPException(status_code=400, detail="Settings not found")
 
-    # 2. Fetch Current BG & History (NS)
+    # 2. Resolve current BG centrally, then enrich with source history where available.
     ns_config = await get_ns_config(session, username)
     # Default fallback or explicit override
     start_bg = start_bg_param
@@ -141,6 +142,20 @@ async def get_current_forecast(
     
     recent_bg_series = []
     cgm_source = None
+
+    if start_bg is None:
+        try:
+            resolved_glucose = await resolve_current_glucose(
+                session,
+                username,
+                user_settings=user_settings,
+                refresh_remote=True,
+            )
+            if resolved_glucose.usable_for_dosing:
+                start_bg = resolved_glucose.bg_mgdl
+                cgm_source = resolved_glucose.source
+        except Exception as exc:
+            logger.warning("Unified glucose resolver failed for forecast: %s", exc)
     
     if ns_config and ns_config.enabled and ns_config.url:
         try:
@@ -160,9 +175,14 @@ async def get_current_forecast(
                 history_sgvs.sort(key=lambda x: x.date, reverse=True)
                 
                 # Use the very latest as start_bg IF not overridden
-                if start_bg_param is None:
-                    start_bg = float(history_sgvs[0].sgv)
-                cgm_source = "nightscout"
+                if start_bg is None:
+                    latest_age_minutes = max(
+                        0.0,
+                        (now_utc.timestamp() - history_sgvs[0].date / 1000.0) / 60.0,
+                    )
+                    if latest_age_minutes <= user_settings.glucose_sources.max_age_minutes:
+                        start_bg = float(history_sgvs[0].sgv)
+                        cgm_source = "nightscout"
                 
                 # Build series for momentum
                 # ForecastEngine expects: [{'minutes_ago': 0, 'value': 120}, ...]

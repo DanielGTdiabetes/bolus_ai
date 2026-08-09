@@ -39,7 +39,7 @@ function GlucoseHero({ onRefresh }) {
             try {
                 // Build dynamic query params
                 const params = new URLSearchParams();
-                if (current && current.bg_mgdl) {
+                if (current?.usable_for_dosing && current.bg_mgdl) {
                     params.append("start_bg", current.bg_mgdl);
                 }
 
@@ -97,17 +97,18 @@ function GlucoseHero({ onRefresh }) {
         }
     }, [onRefresh]);
 
-    const displayVal = data ? Math.round(data.bg_mgdl) : '--';
-    const displayArrow = data ? (data.trendArrow || formatTrend(data.trend, false)) : '--';
-    const displayTime = data ? `${Math.round(data.age_minutes)} min` : '--';
+    const hasGlucose = data?.bg_mgdl != null;
+    const displayVal = hasGlucose ? Math.round(data.bg_mgdl) : '--';
+    const displayArrow = hasGlucose ? (data.trendArrow || formatTrend(data.trend, false)) : '--';
+    const displayTime = data?.age_minutes != null ? `${Math.round(data.age_minutes)} min` : '--';
 
-    const isLow = data ? data.bg_mgdl <= 70 : false;
-    const arrowColor = data ? (data.bg_mgdl > 180 ? '#ef4444' : (isLow ? '#991b1b' : '#10b981')) : '#64748b';
+    const isLow = hasGlucose ? data.bg_mgdl <= 70 : false;
+    const arrowColor = hasGlucose ? (data.bg_mgdl > 180 ? '#ef4444' : (isLow ? '#991b1b' : '#10b981')) : '#64748b';
     const bgColor = isLow ? '#fef2f2' : '#fff';
     const borderColor = isLow ? '#ef4444' : '#fff';
     const boxShadow = isLow ? '0 0 0 2px #fecaca' : '0 4px 6px -1px rgba(0, 0, 0, 0.05)';
 
-    const isStale = data ? (data.is_stale || data.age_minutes > 12) : false;
+    const isStale = data ? (data.status !== 'ok' || data.is_stale || data.age_minutes > 12) : false;
     const timeBg = isStale ? '#fee2e2' : '#f1f5f9';
     const timeColor = isStale ? '#b91c1c' : '#64748b';
     const timeLabel = isStale ? `⚠️ HACE ${displayTime}` : `Hace ${displayTime}`;
@@ -144,6 +145,11 @@ function GlucoseHero({ onRefresh }) {
                 <span style={{ background: timeBg, color: timeColor, fontSize: '0.75rem', padding: '4px 8px', borderRadius: '12px', fontWeight: 600 }}>
                     {timeLabel}
                 </span>
+                {data?.source && (
+                    <div style={{ marginTop: '0.45rem', fontSize: '0.72rem', color: data.fallback_used ? '#92400e' : '#64748b' }}>
+                        Fuente: {data.source}{data.fallback_used ? ' · respaldo activado' : ''}
+                    </div>
+                )}
             </div>
 
             {/* Advanced Graph with Ambient Prediction */}

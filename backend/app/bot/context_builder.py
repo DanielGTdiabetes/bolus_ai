@@ -13,6 +13,8 @@ from app.models.settings import UserSettings
 from pathlib import Path
 from app.bot.user_settings_resolver import resolve_bot_user_settings
 from app.services.treatment_retrieval import get_recent_treatments_db, get_visible_treatment_name
+from app.core.db import SessionLocal
+from app.services.glucose_source_service import resolve_current_glucose
 
 logger = logging.getLogger(__name__)
 
@@ -75,19 +77,28 @@ async def build_context(username: str, chat_id: int) -> Dict[str, Any]:
                 timeout_seconds=5
             )
 
-        if ns_client:
-            # 3. BG Data
-            try:
-                sgv = await ns_client.get_latest_sgv()
-                ctx["bg"] = sgv.sgv
-                ctx["trend"] = sgv.direction
-                ctx["delta"] = sgv.delta
-                bg_ts = datetime.fromtimestamp(sgv.date / 1000.0, timezone.utc)
-                ctx["bg_age_min"] = int((datetime.now(timezone.utc) - bg_ts).total_seconds() / 60)
-            except Exception as e:
-                ctx["errors"].append(f"NS_BG_ERROR: {e}")
+        # 3. BG Data: use the same source/freshness policy as calculations.
+        try:
+            async with SessionLocal() as glucose_session:
+                selected = await resolve_current_glucose(
+                    glucose_session,
+                    resolved_user,
+                    user_settings=user_settings,
+                    refresh_remote=True,
+                )
+            ctx["bg"] = selected.bg_mgdl
+            ctx["trend"] = selected.trend
+            ctx["bg_age_min"] = selected.age_minutes
+            ctx["bg_source"] = selected.source
+            ctx["bg_status"] = selected.status
+            if selected.status != "ok":
                 ctx["quality"] = "degraded"
+                ctx["errors"].append(f"BG_STATUS:{selected.status}")
+        except Exception as e:
+            ctx["errors"].append(f"BG_RESOLVER_ERROR:{type(e).__name__}")
+            ctx["quality"] = "degraded"
 
+        if ns_client:
             # 4. IOB/COB
             try:
                 # We need data store for local history fallback
@@ -143,7 +154,7 @@ async def build_context(username: str, chat_id: int) -> Dict[str, Any]:
                 ctx["errors"].append(f"TREATMENTS_ERROR: {e}")
 
             await ns_client.aclose()
-        else:
+        elif ctx["bg"] is None:
             ctx["quality"] = "degraded"
             ctx["errors"].append("NO_NIGHTSCOUT_URL")
 

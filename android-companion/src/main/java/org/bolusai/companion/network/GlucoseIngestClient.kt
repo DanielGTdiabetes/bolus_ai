@@ -50,7 +50,7 @@ class HttpGlucosePoster : GlucosePoster {
         reading: GlucoseReading,
         endpoint: ActiveEndpoint,
     ): GlucoseIngestResult = runCatching {
-        val connection = URL(baseUrl.trimEnd('/') + "/api/integrations/mobile/glucose-entry")
+        val connection = URL(baseUrl.trimEnd('/') + "/api/integrations/mobile/glucose-entry/v2")
             .openConnection() as HttpURLConnection
         connection.connectTimeout = 10_000
         connection.readTimeout = 20_000

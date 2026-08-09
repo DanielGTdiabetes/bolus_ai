@@ -18,6 +18,7 @@ from .data import router as data_router
 from .nightscout_secrets import router as nightscout_secrets_router
 from .restaurant import router as restaurant_router
 from .companion import router as companion_router
+from .glucose import router as glucose_router
 
 api_router = APIRouter()
 api_router.include_router(health_router, prefix="/health", tags=["health"])
@@ -39,6 +40,7 @@ api_router.include_router(vision_router, prefix="/photo", tags=["vision"], inclu
 api_router.include_router(nightscout_secrets_router, prefix="/nightscout", tags=["nightscout_secrets"])
 api_router.include_router(restaurant_router, prefix="/restaurant", tags=["restaurant"])
 api_router.include_router(companion_router, prefix="/companion", tags=["companion"])
+api_router.include_router(glucose_router, prefix="/glucose", tags=["glucose"])
 from .user_data import router as user_data_router
 api_router.include_router(user_data_router, prefix="/user", tags=["user_data"])
 

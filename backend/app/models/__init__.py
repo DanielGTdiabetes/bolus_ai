@@ -12,6 +12,7 @@ from .injection import InjectionState
 from .temp_mode import TempModeDB
 from .bot_leader_lock import BotLeaderLock
 from .companion import CompanionEpisode, CompanionPreference
+from .glucose_reading import GlucoseReadingDB
 
 from .autosens import AutosensRun
 from .isf_run import IsfRun

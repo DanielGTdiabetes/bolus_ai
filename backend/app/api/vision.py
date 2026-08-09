@@ -23,6 +23,9 @@ from app.services.nightscout_client import NightscoutClient
 from app.services.store import DataStore
 from app.services.vision import estimate_meal_from_image, calculate_extended_split
 from app.services.bolus_engine import calculate_bolus_v2
+from app.core.db import get_db_session
+from sqlalchemy.ext.asyncio import AsyncSession
+from app.services.glucose_source_service import resolve_current_glucose
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -118,6 +121,7 @@ async def estimate_from_image(
     current_user: CurrentUser = Depends(get_current_user),
     settings: Settings = Depends(get_settings),
     store: DataStore = Depends(_data_store),
+    session: AsyncSession = Depends(get_db_session),
 ):
     try:
         request_id = request.headers.get("X-Request-Id") or str(uuid.uuid4())
@@ -205,7 +209,21 @@ async def estimate_from_image(
         # 3a. Resolve BG
         resolved_bg = bg_mgdl
         ns_source = None
-        
+
+        if resolved_bg is None and not nightscout_url:
+            try:
+                selected_glucose = await resolve_current_glucose(
+                    session,
+                    current_user.username,
+                    user_settings=user_settings,
+                    refresh_remote=True,
+                )
+                if selected_glucose.usable_for_dosing:
+                    resolved_bg = selected_glucose.bg_mgdl
+                    ns_source = selected_glucose.source
+            except Exception as exc:
+                logger.warning("Vision unified glucose resolution failed: %s", exc)
+
         if resolved_bg is None:
             ns_config = user_settings.nightscout
             

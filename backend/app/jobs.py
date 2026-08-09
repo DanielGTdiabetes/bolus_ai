@@ -359,6 +359,20 @@ async def run_ml_model_sync():
     await jobs_state.run_job("ml_model_sync", _run_ml_model_sync_task)
 
 
+async def _run_glucose_sync_task() -> None:
+    from app.core.db import SessionLocal
+    from app.services.glucose_sync_service import sync_pending_glucose_readings
+
+    async with SessionLocal() as session:
+        stats = await sync_pending_glucose_readings(session, limit=250)
+    if stats["processed"]:
+        logger.info("Glucose Nightscout sync completed: %s", stats)
+
+
+async def run_glucose_sync() -> None:
+    await jobs_state.run_job("glucose_sync", _run_glucose_sync_task)
+
+
 def setup_periodic_tasks():
     init_scheduler()
     
@@ -371,6 +385,10 @@ def setup_periodic_tasks():
         return # STOP HERE. Do not schedule normal data ingestion tasks.
 
     # --- Normal Operations (NAS Primary) ---
+
+    glucose_sync_trigger = CronTrigger(minute="*/2")
+    schedule_task(run_glucose_sync, glucose_sync_trigger, "glucose_sync")
+    jobs_state.refresh_next_run("glucose_sync")
 
     # Run at 07:00 AM every day
     trigger = CronTrigger(hour=7, minute=0)

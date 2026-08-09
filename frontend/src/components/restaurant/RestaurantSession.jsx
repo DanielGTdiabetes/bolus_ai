@@ -512,15 +512,15 @@ export function RestaurantSession() {
           <div style={{ display: 'grid', gap: '0.5rem', marginTop: '0.5rem' }}>
             {bgData && (
               <div style={{
-                background: (bgData.age_minutes > 15) ? '#fff7ed' : '#f1f5f9',
+                background: (bgData.status !== 'ok' || bgData.age_minutes > 15) ? '#fff7ed' : '#f1f5f9',
                 padding: '0.5rem',
                 borderRadius: '6px',
                 textAlign: 'center',
-                border: (bgData.age_minutes > 15) ? '1px solid #fdba74' : '1px solid #e2e8f0',
+                border: (bgData.status !== 'ok' || bgData.age_minutes > 15) ? '1px solid #fdba74' : '1px solid #e2e8f0',
                 marginBottom: '0.5rem'
               }}>
                 <div style={{ fontSize: '0.9rem', color: '#64748b' }}>
-                  Glucosa Actual {(bgData.age_minutes > 15) && <span style={{ color: '#c2410c', fontWeight: 'bold' }}>⚠️ {Math.round(bgData.age_minutes)} min</span>}
+                  Glucosa Actual {(bgData.status !== 'ok' || bgData.age_minutes > 15) && <span style={{ color: '#c2410c', fontWeight: 'bold' }}>⚠️ {bgData.status} · {Math.round(bgData.age_minutes)} min</span>}
                 </div>
                 <div style={{ fontSize: '1.5rem', fontWeight: 800, color: '#0f172a' }}>
                   {bgData.bg_mgdl} <span style={{ fontSize: '1rem' }}>{formatTrend(bgData.trend)}</span>

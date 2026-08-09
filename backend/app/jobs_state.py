@@ -17,6 +17,7 @@ JOB_KEYS_TO_SCHEDULER_IDS: dict[str, str] = {
     "data_cleanup": "data_cleanup",
     "combo_followup": "combo_followup",
     "ml_training_snapshot": "ml_training_snapshot",
+    "glucose_sync": "glucose_sync",
 }
 
 
