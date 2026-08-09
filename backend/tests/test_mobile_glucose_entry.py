@@ -169,7 +169,7 @@ def _watch_v1_payload(timestamp_ms: int, suffix: str):
         "receivedAtPhoneEpochMillis": timestamp_ms + 2_000,
         "trendRateMgDlPerMinute": 0.4,
         "trendArrow": "Flat",
-        "sensorState": "OK",
+        "sensorState": 0x06,
         "displayOnly": False,
         "sensorSequence": 88,
         "sessionId": f"sensor-session-{suffix}",
@@ -197,6 +197,20 @@ def test_cgm_ingest_accepts_sha256_verifier(monkeypatch):
 
     with pytest.raises(HTTPException) as exc_info:
         integrations._authorize_cgm_ingest_key(request, "wrong-key")
+
+    assert exc_info.value.status_code == 401
+
+
+def test_cgm_ingest_accepts_non_ascii_secret(monkeypatch):
+    monkeypatch.setenv("CGM_INGEST_KEY", "clave-segura-ñ")
+    monkeypatch.delenv("NUTRITION_INGEST_SECRET", raising=False)
+    monkeypatch.delenv("NUTRITION_INGEST_KEY", raising=False)
+    request = SimpleNamespace(query_params={})
+
+    integrations._authorize_cgm_ingest_key(request, "clave-segura-ñ")
+
+    with pytest.raises(HTTPException) as exc_info:
+        integrations._authorize_cgm_ingest_key(request, "clave-incorrecta-á")
 
     assert exc_info.value.status_code == 401
 
@@ -266,6 +280,25 @@ def test_watch_v1_contract_requires_exact_false(invalid_value):
     timestamp_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
     raw = _watch_v1_payload(timestamp_ms, "invalid").model_dump(by_alias=True)
     raw["decisionEligible"] = invalid_value
+
+    with pytest.raises(ValidationError):
+        integrations.WatchGlucoseEntryV1Request.model_validate(raw)
+
+
+@pytest.mark.parametrize(
+    ("field", "invalid_value"),
+    [
+        ("sensorState", "6"),
+        ("sensorState", 0x02),
+        ("displayOnly", True),
+        ("sensorSequence", 65536),
+        ("outboxSequence", 0),
+    ],
+)
+def test_watch_v1_contract_rejects_values_filtered_by_wtachsugar(field, invalid_value):
+    timestamp_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+    raw = _watch_v1_payload(timestamp_ms, "invalid-watch-value").model_dump(by_alias=True)
+    raw[field] = invalid_value
 
     with pytest.raises(ValidationError):
         integrations.WatchGlucoseEntryV1Request.model_validate(raw)

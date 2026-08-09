@@ -222,25 +222,25 @@ class WatchGlucoseEntryV1Request(BaseModel):
     origin_installation_id: str = Field(
         alias="originInstallationId", min_length=1, max_length=160
     )
-    outbox_sequence: int = Field(alias="outboxSequence", ge=0)
-    glucose_mgdl: int = Field(alias="glucoseMgDl", ge=1, le=400)
-    measured_at_epoch_millis: int = Field(alias="measuredAtEpochMillis", gt=0)
-    received_at_watch_epoch_millis: int = Field(
+    outbox_sequence: StrictInt = Field(alias="outboxSequence", gt=0)
+    glucose_mgdl: StrictInt = Field(alias="glucoseMgDl", ge=1, le=400)
+    measured_at_epoch_millis: StrictInt = Field(alias="measuredAtEpochMillis", gt=0)
+    received_at_watch_epoch_millis: StrictInt = Field(
         alias="receivedAtWatchEpochMillis", gt=0
     )
-    received_at_phone_epoch_millis: int = Field(
+    received_at_phone_epoch_millis: StrictInt = Field(
         alias="receivedAtPhoneEpochMillis", gt=0
     )
     trend_rate_mgdl_per_minute: Optional[float] = Field(
         alias="trendRateMgDlPerMinute", ge=-20, le=20
     )
     trend_arrow: str = Field(alias="trendArrow", max_length=64)
-    sensor_state: str = Field(alias="sensorState", max_length=64)
-    display_only: bool = Field(alias="displayOnly")
-    sensor_sequence: int = Field(alias="sensorSequence", ge=0)
+    sensor_state: StrictInt = Field(alias="sensorState", ge=0, le=255)
+    display_only: StrictBool = Field(alias="displayOnly")
+    sensor_sequence: StrictInt = Field(alias="sensorSequence", ge=0, le=65535)
     session_id: str = Field(alias="sessionId", min_length=1, max_length=160)
-    historical: bool
-    timestamp_uncertain: bool = Field(alias="timestampUncertain")
+    historical: StrictBool
+    timestamp_uncertain: StrictBool = Field(alias="timestampUncertain")
     source: Literal["g7_direct_watch"]
     decision_eligible: StrictBool = Field(alias="decisionEligible")
 
@@ -256,6 +256,20 @@ class WatchGlucoseEntryV1Request(BaseModel):
     def require_continuity_only(cls, value: bool) -> bool:
         if value is not False:
             raise ValueError("decisionEligible must be exactly false")
+        return value
+
+    @field_validator("sensor_state")
+    @classmethod
+    def require_usable_sensor_state(cls, value: int) -> int:
+        if value != 0x06:
+            raise ValueError("sensorState must be the usable G7 state 0x06")
+        return value
+
+    @field_validator("display_only")
+    @classmethod
+    def reject_display_only(cls, value: bool) -> bool:
+        if value is not False:
+            raise ValueError("displayOnly must be exactly false")
         return value
 
 
@@ -408,14 +422,15 @@ def _authorize_cgm_ingest_key(request: Request, ingest_key_header: Optional[str]
     cgm_secret_sha256 = os.getenv("CGM_INGEST_KEY_SHA256", "").strip().lower()
     legacy_secret = os.getenv("NUTRITION_INGEST_SECRET") or os.getenv("NUTRITION_INGEST_KEY")
     if provided_key:
+        provided_key_bytes = provided_key.encode("utf-8")
         if any(
-            hmac.compare_digest(provided_key, secret)
+            hmac.compare_digest(provided_key_bytes, secret.encode("utf-8"))
             for secret in (cgm_secret, legacy_secret)
             if secret
         ):
             return
         if len(cgm_secret_sha256) == 64:
-            provided_digest = hashlib.sha256(provided_key.encode("utf-8")).hexdigest()
+            provided_digest = hashlib.sha256(provided_key_bytes).hexdigest()
             if hmac.compare_digest(provided_digest, cgm_secret_sha256):
                 return
     raise HTTPException(status_code=401, detail="Authentication required")
@@ -710,7 +725,7 @@ async def mobile_glucose_entry(
                     source=payload.source,
                     trend_arrow=_nightscout_direction(payload.trend_arrow),
                     trend_rate=payload.trend_rate_mgdl_per_minute,
-                    sensor_state=payload.sensor_state,
+                    sensor_state=f"0x{payload.sensor_state:02X}",
                     display_only=payload.display_only,
                     historical=payload.historical,
                     timestamp_uncertain=payload.timestamp_uncertain,
