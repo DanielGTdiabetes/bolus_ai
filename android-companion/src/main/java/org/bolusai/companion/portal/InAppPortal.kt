@@ -43,12 +43,14 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.bolusai.companion.data.AppSettings
 import org.bolusai.companion.network.ActiveEndpoint
 import org.bolusai.companion.network.ServerStatusClient
 import org.bolusai.companion.scale.ProzisScaleManager
+import java.io.File
 
 class AndroidScaleInterface(
     private val scaleManager: ProzisScaleManager,
@@ -114,7 +116,7 @@ fun InAppPortal(
     var webView by remember { mutableStateOf<WebView?>(null) }
     var canGoBack by remember { mutableStateOf(false) }
     var fileCallback by remember { mutableStateOf<ValueCallback<Array<Uri>>?>(null) }
-    var pendingIntent by remember { mutableStateOf<Intent?>(null) }
+    var pendingCameraUri by remember { mutableStateOf<Uri?>(null) }
     var resolveAttempt by remember { mutableStateOf(0) }
     var resolving by remember { mutableStateOf(false) }
 
@@ -176,17 +178,26 @@ fun InAppPortal(
         )
     }
 
+    val cameraCapture = rememberLauncherForActivityResult(
+        ActivityResultContracts.TakePicture(),
+    ) { captured ->
+        val callback = fileCallback
+        val uri = pendingCameraUri
+        fileCallback = null
+        pendingCameraUri = null
+        callback?.onReceiveValue(if (captured && uri != null) arrayOf(uri) else null)
+    }
+
     val cameraPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) { isGranted ->
         val callback = fileCallback
-        val intent = pendingIntent
-        fileCallback = null
-        pendingIntent = null
-        if (isGranted && intent != null) {
-            fileCallback = callback
-            filePicker.launch(intent)
+        val uri = pendingCameraUri
+        if (isGranted && uri != null) {
+            cameraCapture.launch(uri)
         } else {
+            fileCallback = null
+            pendingCameraUri = null
             callback?.onReceiveValue(null)
         }
     }
@@ -195,9 +206,12 @@ fun InAppPortal(
         webView?.let { view ->
             val json = org.json.JSONObject().apply {
                 put("connected", scaleState.connected)
+                put("scanning", scaleState.scanning)
+                put("connecting", scaleState.connecting)
                 put("grams", scaleState.grams)
                 put("stable", scaleState.stable)
                 put("battery", scaleState.batteryPercent ?: org.json.JSONObject.NULL)
+                put("message", scaleState.message)
             }
             val js = "if (window.scaleHandler) { window.scaleHandler($json); }"
             view.evaluateJavascript(js, null)
@@ -299,9 +313,12 @@ fun InAppPortal(
                                 canGoBack = view.canGoBack()
                                 val json = org.json.JSONObject().apply {
                                     put("connected", scaleState.connected)
+                                    put("scanning", scaleState.scanning)
+                                    put("connecting", scaleState.connecting)
                                     put("grams", scaleState.grams)
                                     put("stable", scaleState.stable)
                                     put("battery", scaleState.batteryPercent ?: org.json.JSONObject.NULL)
+                                    put("message", scaleState.message)
                                 }
                                 view.evaluateJavascript("if (window.scaleHandler) { window.scaleHandler($json); }", null)
                             }
@@ -326,27 +343,33 @@ fun InAppPortal(
                             ): Boolean {
                                 fileCallback?.onReceiveValue(null)
                                 fileCallback = callback
+                                val requestsImageCapture = params.isCaptureEnabled &&
+                                    params.acceptTypes.any { type ->
+                                        type.isBlank() || type.startsWith("image/", ignoreCase = true)
+                                    }
+
+                                if (requestsImageCapture) {
+                                    val uri = createCameraOutputUri(context)
+                                    pendingCameraUri = uri
+                                    val hasCameraPermission = ContextCompat.checkSelfPermission(
+                                        context,
+                                        Manifest.permission.CAMERA,
+                                    ) == PackageManager.PERMISSION_GRANTED
+                                    if (hasCameraPermission) {
+                                        cameraCapture.launch(uri)
+                                    } else {
+                                        cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+                                    }
+                                    return true
+                                }
+
                                 val intent = runCatching { params.createIntent() }.getOrElse {
                                     Intent(Intent.ACTION_GET_CONTENT).apply {
                                         addCategory(Intent.CATEGORY_OPENABLE)
                                         type = "image/*"
                                     }
                                 }
-                                val isCamera = intent.action == android.provider.MediaStore.ACTION_IMAGE_CAPTURE ||
-                                        (intent.action == Intent.ACTION_CHOOSER &&
-                                                intent.getParcelableExtra<Intent>(Intent.EXTRA_INTENT)?.action == android.provider.MediaStore.ACTION_IMAGE_CAPTURE)
-                                                
-                                val hasCameraPermission = ContextCompat.checkSelfPermission(
-                                    context,
-                                    Manifest.permission.CAMERA
-                                ) == PackageManager.PERMISSION_GRANTED
-                                
-                                if (isCamera && !hasCameraPermission) {
-                                    pendingIntent = intent
-                                    cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
-                                } else {
-                                    filePicker.launch(intent)
-                                }
+                                filePicker.launch(intent)
                                 return true
                             }
                         }
@@ -369,11 +392,22 @@ fun InAppPortal(
         onDispose {
             fileCallback?.onReceiveValue(null)
             fileCallback = null
+            pendingCameraUri = null
             webView?.stopLoading()
             webView?.destroy()
             webView = null
         }
     }
+}
+
+private fun createCameraOutputUri(context: android.content.Context): Uri {
+    val directory = File(context.cacheDir, "camera").apply { mkdirs() }
+    val image = File.createTempFile("bolus_ai_", ".jpg", directory)
+    return FileProvider.getUriForFile(
+        context,
+        "${context.packageName}.fileprovider",
+        image,
+    )
 }
 
 private fun openExternalUrl(context: android.content.Context, uri: Uri): Boolean {

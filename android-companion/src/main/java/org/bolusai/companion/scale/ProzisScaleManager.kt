@@ -9,6 +9,7 @@ import android.bluetooth.BluetoothGattDescriptor
 import android.bluetooth.BluetoothGattService
 import android.bluetooth.BluetoothManager
 import android.bluetooth.BluetoothProfile
+import android.bluetooth.BluetoothStatusCodes
 import android.bluetooth.le.ScanCallback
 import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
@@ -16,6 +17,7 @@ import android.content.Context
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -34,8 +36,11 @@ class ProzisScaleManager(context: Context) {
     private var scanCallback: ScanCallback? = null
     private var gatt: BluetoothGatt? = null
     private var writeCharacteristic: BluetoothGattCharacteristic? = null
+    private val writeQueue = ArrayDeque<String>()
+    private var writeInFlight = false
     private val weightHistory = ArrayDeque<Pair<Long, Int>>()
     private var lastValidGrams = 0
+    private var lastPayloadHex: String? = null
 
     fun bluetoothAvailable(): Boolean = adapter?.isEnabled == true
 
@@ -87,6 +92,8 @@ class ProzisScaleManager(context: Context) {
         runCatching { gatt?.close() }
         gatt = null
         writeCharacteristic = null
+        writeQueue.clear()
+        writeInFlight = false
         weightHistory.clear()
         mutableState.value = ScaleState()
     }
@@ -107,19 +114,36 @@ class ProzisScaleManager(context: Context) {
     }
 
     private fun writeCommand(command: String) {
+        writeQueue.addLast(command)
+        drainWriteQueue()
+    }
+
+    private fun drainWriteQueue() {
+        if (writeInFlight) return
         val characteristic = writeCharacteristic ?: return
+        val command = writeQueue.removeFirstOrNull() ?: return
         val payload = command.toByteArray(StandardCharsets.UTF_8)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        val started = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             gatt?.writeCharacteristic(
                 characteristic,
                 payload,
                 BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT,
-            )
+            ) == BluetoothStatusCodes.SUCCESS
         } else {
             @Suppress("DEPRECATION")
             characteristic.value = payload
             @Suppress("DEPRECATION")
-            gatt?.writeCharacteristic(characteristic)
+            gatt?.writeCharacteristic(characteristic) == true
+        }
+        if (started) {
+            writeInFlight = true
+            Log.d(TAG, "BLE TX: $command")
+        } else {
+            Log.w(TAG, "No se pudo iniciar la escritura BLE: $command")
+            mutableState.value = mutableState.value.copy(
+                message = "No se pudo enviar un comando a la báscula",
+            )
+            mainHandler.post { drainWriteQueue() }
         }
     }
 
@@ -190,6 +214,21 @@ class ProzisScaleManager(context: Context) {
         ) {
             handlePayload(value)
         }
+
+        override fun onCharacteristicWrite(
+            gatt: BluetoothGatt,
+            characteristic: BluetoothGattCharacteristic,
+            status: Int,
+        ) {
+            writeInFlight = false
+            if (status != BluetoothGatt.GATT_SUCCESS) {
+                Log.w(TAG, "Escritura BLE fallida: status=$status")
+                mutableState.value = mutableState.value.copy(
+                    message = "La báscula rechazó un comando ($status)",
+                )
+            }
+            drainWriteQueue()
+        }
     }
 
     private fun markReady() {
@@ -204,6 +243,11 @@ class ProzisScaleManager(context: Context) {
     }
 
     private fun handlePayload(value: ByteArray) {
+        val payloadHex = value.joinToString(" ") { "%02X".format(it.toInt() and 0xFF) }
+        if (payloadHex != lastPayloadHex) {
+            Log.d(TAG, "BLE RX: $payloadHex")
+            lastPayloadHex = payloadHex
+        }
         val reading = ScalePayloadParser.parse(value)
         val inRange = reading != null
         val grams = reading?.grams?.also { lastValidGrams = it } ?: lastValidGrams
@@ -221,13 +265,13 @@ class ProzisScaleManager(context: Context) {
         mutableState.value = mutableState.value.copy(
             connected = true,
             grams = grams,
-            batteryPercent = reading?.batteryPercent ?: mutableState.value.batteryPercent,
             stable = stable,
             message = if (stable) "Peso estable" else "Pesando…",
         )
     }
 
     companion object {
+        private const val TAG = "ProzisScaleManager"
         private val SERVICE_UUID = UUID.fromString("6e400001-b5a3-f393-e0a9-e50e24dcca9e")
         private val RX_UUID = UUID.fromString("6e400002-b5a3-f393-e0a9-e50e24dcca9e")
         private val TX_UUID = UUID.fromString("6e400003-b5a3-f393-e0a9-e50e24dcca9e")
