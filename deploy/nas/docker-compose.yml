@@ -40,6 +40,9 @@ services:
       GOOGLE_API_KEY: ${GOOGLE_API_KEY}
 
       NUTRITION_INGEST_KEY: ${NUTRITION_INGEST_KEY}
+      # Verificador no reversible de la clave CGM. Permite que el stack NAS
+      # quede listo automaticamente sin publicar la clave real en GitHub.
+      CGM_INGEST_KEY_SHA256: ${CGM_INGEST_KEY_SHA256:-c148184d5370775fb3db439dd7d2c89c2491313fe3869a23f9ce4a42854837bf}
       AGENT_API_TOKEN: ${AGENT_API_TOKEN:-${NUTRITION_INGEST_KEY}}
       AGENT_ALLOWED_IPS: ${AGENT_ALLOWED_IPS:-192.168.0.234}
 
