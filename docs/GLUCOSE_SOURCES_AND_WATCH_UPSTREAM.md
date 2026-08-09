@@ -55,7 +55,7 @@ Campos obligatorios:
 | `receivedAtPhoneEpochMillis` | long | Recepcion transaccional en movil |
 | `trendRateMgDlPerMinute` | number/null | Tasa de cambio |
 | `trendArrow` | string | Tendencia |
-| `sensorState` | string | Estado G7 |
+| `sensorState` | int | Estado de algoritmo G7; debe ser `6` (`0x06`, utilizable) |
 | `displayOnly` | bool | Lectura solo visible |
 | `sensorSequence` | int | Secuencia del sensor |
 | `sessionId` | string | Sesion opaca del sensor |
