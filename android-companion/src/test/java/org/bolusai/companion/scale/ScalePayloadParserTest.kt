@@ -6,22 +6,21 @@ import org.junit.Test
 
 class ScalePayloadParserTest {
     @Test
-    fun parsesWeightAndBatteryFromPayload() {
+    fun parsesWeightFromPayload() {
         val reading = ScalePayloadParser.parse(
             byteArrayOf(0x00, 0x57, 0x00, 0x00, 0x01, 0xF4.toByte()),
         )
 
         assertEquals(500, reading?.grams)
-        assertEquals(87, reading?.batteryPercent)
     }
 
     @Test
-    fun clampsBatteryPercentage() {
+    fun parsesPayloadCapturedFromRealProzisScale() {
         val reading = ScalePayloadParser.parse(
-            byteArrayOf(0x00, 0xFF.toByte(), 0x00, 0x64),
+            byteArrayOf(0x06, 0x00, 0x00, 0x00, 0x00, 0xA2.toByte()),
         )
 
-        assertEquals(100, reading?.batteryPercent)
+        assertEquals(162, reading?.grams)
     }
 
     @Test

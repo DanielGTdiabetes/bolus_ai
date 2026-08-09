@@ -13,7 +13,14 @@ export function ScaleSection({ onWeightUsed, onDataReceived }) {
             if (typeof data.grams === 'number') state.scale.grams = data.grams;
             if (typeof data.stable === 'boolean') state.scale.stable = data.stable;
             if (typeof data.connected === 'boolean') state.scale.connected = data.connected;
-            if (typeof data.battery === 'number') state.scale.battery = data.battery;
+            if (typeof data.scanning === 'boolean') state.scale.scanning = data.scanning;
+            if (typeof data.connecting === 'boolean') state.scale.connecting = data.connecting;
+            if (typeof data.message === 'string') state.scale.message = data.message;
+            if (typeof data.battery === 'number') {
+                state.scale.battery = data.battery;
+            } else if (data.battery === null) {
+                delete state.scale.battery;
+            }
 
             // Update local
             setScale({ ...state.scale });
@@ -37,8 +44,6 @@ export function ScaleSection({ onWeightUsed, onDataReceived }) {
         } else {
             try {
                 await connectScale();
-                state.scale.connected = true;
-                setScale(prev => ({ ...prev, connected: true }));
                 if (window.scaleHandler) setOnData(window.scaleHandler);
             } catch (e) {
                 alert("Error conectando báscula: " + e.message);
@@ -68,11 +73,11 @@ export function ScaleSection({ onWeightUsed, onDataReceived }) {
                         padding: '0.25rem 0.75rem', borderRadius: '99px', fontSize: '0.75rem', fontWeight: 600,
                         background: scale.connected ? '#dcfce7' : '#f1f5f9', color: scale.connected ? '#166534' : '#64748b'
                     }}>
-                        {scale.connected ? 'Conectado' : 'Desconectado'}
+                        {scale.connected ? 'Conectado' : (scale.scanning || scale.connecting ? 'Conectando…' : 'Desconectado')}
                     </div>
-                    {scale.connected && scale.battery !== undefined && (
+                    {scale.connected && (
                         <div style={{ fontSize: '0.8rem', color: '#64748b', fontWeight: 600 }}>
-                            🔋 {scale.battery}%
+                            {scale.battery !== undefined ? `🔋 ${scale.battery}%` : '🔋 --'}
                         </div>
                     )}
                 </div>
@@ -84,8 +89,8 @@ export function ScaleSection({ onWeightUsed, onDataReceived }) {
             </div>
 
             <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem' }}>
-                <Button variant="secondary" onClick={handleConnect} style={{ flex: 1 }}>
-                    {scale.connected ? 'Desconectar' : 'Conectar'}
+                <Button variant="secondary" onClick={handleConnect} style={{ flex: 1 }} disabled={scale.scanning || scale.connecting}>
+                    {scale.connected ? 'Desconectar' : (scale.scanning || scale.connecting ? 'Conectando…' : 'Conectar')}
                 </Button>
                 <Button variant="ghost" onClick={handleTare} disabled={!scale.connected}>Tarar</Button>
                 <Button onClick={handleUseWeight} disabled={!scale.connected || !scale.grams}>Usar Peso</Button>
