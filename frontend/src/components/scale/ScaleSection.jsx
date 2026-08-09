@@ -5,7 +5,7 @@ import { state } from '../../modules/core/store';
 import { navigate } from '../../modules/core/navigation';
 
 export function ScaleSection({ onWeightUsed, onDataReceived }) {
-    const [scale, setScale] = useState(state.scale || { connected: false, grams: 0, stable: true });
+    const [scale, setScale] = useState(state.scale || { connected: false, grams: null, stable: false });
 
     useEffect(() => {
         const handler = (data) => {
@@ -39,11 +39,18 @@ export function ScaleSection({ onWeightUsed, onDataReceived }) {
     const handleConnect = async () => {
         if (scale.connected) {
             await disconnectScale();
-            setScale(prev => ({ ...prev, connected: false }));
             state.scale.connected = false;
+            state.scale.grams = null;
+            state.scale.stable = false;
+            setScale({ ...state.scale });
         } else {
             try {
                 const usesAndroidBridge = typeof window !== 'undefined' && Boolean(window.AndroidScaleInterface);
+                if (!usesAndroidBridge) {
+                    state.scale.grams = null;
+                    state.scale.stable = false;
+                    setScale({ ...state.scale });
+                }
                 await connectScale();
                 if (!usesAndroidBridge) {
                     state.scale.connected = true;
