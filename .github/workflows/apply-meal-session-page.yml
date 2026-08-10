@@ -1,0 +1,106 @@
+name: Apply meal session page UI
+
+on:
+  push:
+    branches:
+      - feat/meal-session-ui
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/meal-session-ui
+          fetch-depth: 0
+      - name: Add long-meal mobile flow to BolusPage
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('frontend/src/pages/BolusPage.jsx')
+          text = path.read_text(encoding='utf-8')
+
+          # Imports
+          import_anchor = "import { getCurrentGlucose, getIOBData, getFavorites, getLocalNsConfig, fetchRecentNutritionImports } from '../lib/api';\n"
+          import_extra = "import { getActiveMealSession, startMealSession, closeMealSession } from '../lib/mealSessionApi';\nimport { buildMealSessionPlatePayload, createMealSessionEventId, summarizeMealSessionProgress } from '../lib/mealSessionFlow';\n"
+          if import_anchor not in text:
+              raise SystemExit('meal-session page import anchor not found')
+          text = text.replace(import_anchor, import_anchor + import_extra, 1)
+
+          # State
+          state_anchor = '''    const [usedImportIds, setUsedImportIds] = useState([]);\n\n    // --- 2. Custom Hooks ---\n'''
+          state_replacement = '''    const [usedImportIds, setUsedImportIds] = useState([]);\n\n    // Long-meal / buffet session. This is bookkeeping only; dosing remains in\n    // the same central bolus engine used by every normal calculation.\n    const [mealSession, setMealSession] = useState(null);\n    const [mealSessionBusy, setMealSessionBusy] = useState(false);\n    const [pendingMealSessionPlate, setPendingMealSessionPlate] = useState(null);\n\n    // --- 2. Custom Hooks ---\n'''
+          if state_anchor not in text:
+              raise SystemExit('meal-session state anchor not found')
+          text = text.replace(state_anchor, state_replacement, 1)
+
+          # Loader
+          loader_anchor = '''    useEffect(() => {\n        // Init from State (Legacy/Transitions)\n'''
+          loader_block = '''    const loadMealSession = async () => {\n        try {\n            const active = await getActiveMealSession();\n            setMealSession(active);\n            if (active?.meal_slot) setSlot(active.meal_slot);\n            return active;\n        } catch (e) {\n            console.warn("Failed to load active meal session", e);\n            return null;\n        }\n    };\n\n'''
+          if loader_anchor not in text:
+              raise SystemExit('meal-session loader anchor not found')
+          text = text.replace(loader_anchor, loader_block + loader_anchor, 1)
+
+          init_anchor = '''        loadData();\n    }, []); // Check deps? checkOrphans are stable via useCallback? Yes.\n'''
+          init_replacement = '''        loadData();\n        loadMealSession();\n    }, []); // Initial page hydration only.\n'''
+          if init_anchor not in text:
+              raise SystemExit('meal-session init anchor not found')
+          text = text.replace(init_anchor, init_replacement, 1)
+
+          # Handlers
+          old_handlers = '''    const handleCalculateClick = (override = {}) => {\n        calculate({\n            glucose, carbs, slot, correctionOnly, dualEnabled,\n            alcoholEnabled, exercise: { planned: exerciseEnabled, minutes: exerciseMinutes, intensity: exerciseIntensity },\n            overrideParams: override,\n            carbProfile,\n            orphanContext: { isUsing: isUsingOrphan, data: orphanCarbs },\n            mealMeta: mealMetaRef.current\n        });\n    };\n\n    const handleSaveClick = (dose, siteId) => {\n        save({\n            confirmedDose: dose, siteId,\n            carbs, glucose, foodName,\n            orphanContext: { isUsing: isUsingOrphan, data: orphanCarbs },\n            mealMeta: mealMetaRef.current,\n            date, nsConfig, alcoholEnabled,\n            carbProfile,\n            plateItems,\n            mealSlot: slot\n        });\n    };\n'''
+          new_handlers = '''    const handleCalculateClick = (override = {}) => {\n        return calculate({\n            glucose, carbs, slot, correctionOnly, dualEnabled,\n            alcoholEnabled, exercise: { planned: exerciseEnabled, minutes: exerciseMinutes, intensity: exerciseIntensity },\n            overrideParams: override,\n            carbProfile,\n            orphanContext: { isUsing: isUsingOrphan, data: orphanCarbs },\n            mealMeta: mealMetaRef.current\n        });\n    };\n\n    const handleStartMealSession = async () => {\n        if (mealSessionBusy) return;\n        setMealSessionBusy(true);\n        try {\n            const active = await startMealSession({\n                mealSlot: slot,\n                label: 'Comida larga / buffet',\n                source: 'app',\n            });\n            setMealSession(active);\n            if (active?.meal_slot) setSlot(active.meal_slot);\n            setPendingMealSessionPlate(null);\n            showToast("Comida larga iniciada. Añade cada plato por separado.", "success", 4000);\n        } catch (e) {\n            showToast("No se pudo iniciar la comida larga: " + (e?.message || e), "warning", 5000);\n        } finally {\n            setMealSessionBusy(false);\n        }\n    };\n\n    const handleCloseMealSession = async () => {\n        if (!mealSession?.id || mealSessionBusy) return;\n        setMealSessionBusy(true);\n        try {\n            await closeMealSession(mealSession.id);\n            setMealSession(null);\n            setPendingMealSessionPlate(null);\n            showToast("Comida larga finalizada.", "success");\n        } catch (e) {\n            showToast("No se pudo finalizar la comida larga: " + (e?.message || e), "warning", 5000);\n        } finally {\n            setMealSessionBusy(false);\n        }\n    };\n\n    const handleAddPlateAndCalculate = async () => {\n        const carbsVal = parseFloat(carbs) || 0;\n        if (!mealSession?.id) return handleCalculateClick();\n        if (carbsVal <= 0) {\n            showToast("Introduce los HC de este plato antes de añadirlo.", "warning");\n            return;\n        }\n\n        const platePayload = buildMealSessionPlatePayload({\n            clientEventId: createMealSessionEventId(),\n            carbs: carbsVal,\n            mealMeta: mealMetaRef.current,\n            foodName,\n            source: 'app',\n        });\n        // Freeze the plate facts used for this recommendation. Nothing is\n        // persisted to the ledger until the user actually saves the bolus.\n        setPendingMealSessionPlate(platePayload);\n        return handleCalculateClick();\n    };\n\n    const handleSaveClick = async (dose, siteId) => {\n        const saveResult = await save({\n            confirmedDose: dose, siteId,\n            carbs, glucose, foodName,\n            orphanContext: { isUsing: isUsingOrphan, data: orphanCarbs },\n            mealMeta: mealMetaRef.current,\n            date, nsConfig, alcoholEnabled,\n            carbProfile,\n            plateItems,\n            mealSlot: slot,\n            mealSessionId: mealSession?.id || null,\n            mealSessionPlatePayload: pendingMealSessionPlate\n        });\n\n        if (mealSession?.id && saveResult?.treatment_id) {\n            setPendingMealSessionPlate(null);\n            if (saveResult.meal_session) {\n                setMealSession(saveResult.meal_session);\n            } else {\n                await loadMealSession();\n            }\n\n            // Prepare the same screen for the next plate. Session-level context\n            // (slot, alcohol, exercise) is retained; plate-specific data resets.\n            setCarbs('');\n            setCarbProfile(null);\n            setCorrectionOnly(false);\n            setDualEnabled(false);\n            resetMealContext();\n            setManualEntryEnabled(true);\n            const now = new Date();\n            setDate(new Date(now.getTime() - (now.getTimezoneOffset() * 60000)).toISOString().slice(0, 16));\n            await loadData();\n            showToast("Bolo añadido a la comida. Puedes introducir el siguiente plato.", "success", 4000);\n        }\n        return saveResult;\n    };\n'''
+          if old_handlers not in text:
+              raise SystemExit('meal-session handlers anchor not found')
+          text = text.replace(old_handlers, new_handlers, 1)
+
+          # Progress derived value
+          orphan_anchor = '''    const orphanDual = getOrphanDualStatus(orphanCarbs);\n\n\n    // --- 5. Render ---\n'''
+          orphan_replacement = '''    const orphanDual = getOrphanDualStatus(orphanCarbs);\n    const mealSessionProgress = summarizeMealSessionProgress(mealSession);\n\n\n    // --- 5. Render ---\n'''
+          if orphan_anchor not in text:
+              raise SystemExit('meal-session progress anchor not found')
+          text = text.replace(orphan_anchor, orphan_replacement, 1)
+
+          # Card after top toolbar
+          toolbar_anchor = '''                        </div>\n\n\n\n                        {/* Orphan Alert */}\n'''
+          card = '''                        </div>\n\n                        {mealSession ? (\n                            <div className="fade-in" style={{\n                                background: '#eff6ff', border: '1px solid #60a5fa',\n                                borderRadius: '12px', padding: '0.9rem',\n                                display: 'flex', flexDirection: 'column', gap: '8px'\n                            }}>\n                                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', alignItems: 'center' }}>\n                                    <div>\n                                        <div style={{ fontWeight: 800, color: '#1e3a8a' }}>🍽️ Comida larga activa</div>\n                                        <div style={{ fontSize: '0.78rem', color: '#475569', marginTop: '2px' }}>\n                                            Franja: {mealSession.meal_slot || slot}. Cada plato usa el calculador normal.\n                                        </div>\n                                    </div>\n                                    <Button variant="outline" className="text-xs" onClick={handleCloseMealSession} disabled={mealSessionBusy}>\n                                        Finalizar\n                                    </Button>\n                                </div>\n                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '6px', fontSize: '0.75rem' }}>\n                                    <div style={{ background: '#fff', borderRadius: '8px', padding: '6px', textAlign: 'center' }}>\n                                        <div style={{ color: '#64748b' }}>HC platos</div>\n                                        <strong>{mealSessionProgress.carbsRecordedG} g</strong>\n                                    </div>\n                                    <div style={{ background: '#fff', borderRadius: '8px', padding: '6px', textAlign: 'center' }}>\n                                        <div style={{ color: '#64748b' }}>HC en bolos</div>\n                                        <strong>{mealSessionProgress.carbsSubmittedForBolusG} g</strong>\n                                    </div>\n                                    <div style={{ background: '#fff', borderRadius: '8px', padding: '6px', textAlign: 'center' }}>\n                                        <div style={{ color: '#64748b' }}>Insulina reg.</div>\n                                        <strong>{mealSessionProgress.acceptedInsulinU} U</strong>\n                                    </div>\n                                </div>\n                                <div style={{ fontSize: '0.75rem', color: '#1e40af' }}>\n                                    Los HC nuevos no se descuentan por el IOB previo. El IOB sigue protegiendo la corrección y Autosens se aplica desde el backend cuando esté activo.\n                                </div>\n                            </div>\n                        ) : (\n                            <Button variant="outline" onClick={handleStartMealSession} disabled={mealSessionBusy} style={{ width: '100%' }}>\n                                {mealSessionBusy ? 'Iniciando...' : '🍽️ Iniciar comida larga / buffet'}\n                            </Button>\n                        )}\n\n                        {/* Orphan Alert */}\n'''
+          if toolbar_anchor not in text:
+              raise SystemExit('meal-session card anchor not found')
+          text = text.replace(toolbar_anchor, card, 1)
+
+          # Lock meal slot while session is active.
+          select_old = '<select value={slot} onChange={e => { setSlot(e.target.value); resetMealContext(); }} style={{ padding: \'0.5rem\', borderRadius: \'8px\', border: \'1px solid #cbd5e1\', background: \'#fff\' }}>'
+          select_new = '<select value={slot} disabled={!!mealSession} onChange={e => { setSlot(e.target.value); resetMealContext(); }} style={{ padding: \'0.5rem\', borderRadius: \'8px\', border: \'1px solid #cbd5e1\', background: mealSession ? \'#f1f5f9\' : \'#fff\' }}>'
+          if select_old not in text:
+              raise SystemExit('meal-session slot select anchor not found')
+          text = text.replace(select_old, select_new, 1)
+
+          # Active meal uses explicit plate action; corrections still use normal calculate.
+          button_old = '''                        <Button onClick={() => handleCalculateClick()} disabled={calculating} className="btn-primary" style={{ width: '100%', padding: '1rem', fontSize: '1.1rem' }}>\n                            {calculating ? 'Calculando...' : 'Calcular Bolo'}\n                        </Button>\n'''
+          button_new = '''                        {mealSession && !correctionOnly ? (\n                            <Button onClick={handleAddPlateAndCalculate} disabled={calculating || mealSessionBusy} className="btn-primary" style={{ width: '100%', padding: '1rem', fontSize: '1.1rem' }}>\n                                {calculating ? 'Calculando...' : 'Añadir este plato y calcular'}\n                            </Button>\n                        ) : (\n                            <Button onClick={() => handleCalculateClick()} disabled={calculating} className="btn-primary" style={{ width: '100%', padding: '1rem', fontSize: '1.1rem' }}>\n                                {calculating ? 'Calculando...' : (correctionOnly ? 'Calcular corrección' : 'Calcular Bolo')}\n                            </Button>\n                        )}\n'''
+          if button_old not in text:
+              raise SystemExit('meal-session calculate button anchor not found')
+          text = text.replace(button_old, button_new, 1)
+
+          # Going back from a result discards only the locally frozen plate; no
+          # ledger event has been persisted yet.
+          back_old = '                        onBack={() => { setResult(null); }}\n'
+          back_new = '                        onBack={() => { setResult(null); setPendingMealSessionPlate(null); }}\n'
+          if back_old not in text:
+              raise SystemExit('meal-session result back anchor not found')
+          text = text.replace(back_old, back_new, 1)
+
+          path.write_text(text, encoding='utf-8')
+          PY
+      - name: Commit patch and remove helper workflow
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/apply-meal-session-page.yml
+          git add frontend/src/pages/BolusPage.jsx
+          git commit -m "Add long-meal multi-plate flow to BolusPage"
+          git push origin HEAD:feat/meal-session-ui
