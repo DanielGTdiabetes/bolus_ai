@@ -11,7 +11,7 @@ from app.models.bolus_split import (
     RecalcSecondRequest,
     RecalcSecondResponse,
 )
-from app.models.bolus_v2 import BolusRequestV2, NightscoutConfigSimple
+from app.models.bolus_v2 import BolusRequestV2
 from app.services.bolus_calc_service import calculate_bolus_stateless_service
 from app.services.store import DataStore
 
@@ -78,31 +78,23 @@ async def recalc_second(
     user: CurrentUser,
     session: AsyncSession,
 ) -> RecalcSecondResponse:
-    """Recalculate a second tranche through the authoritative bolus service.
+    """Recalculate additional carbs/current correction via the central engine.
 
-    This function is intentionally only an adapter. The meal, correction and
-    IOB rules live in the central bolus engine used by every other interface.
+    The request may contain legacy ``params``/``nightscout`` fields from older
+    clients, but they are deliberately non-authoritative. Current ICR, ISF,
+    target, DIA, insulin model, limits, data sources and Autosens state are
+    resolved by ``calculate_bolus_stateless_service`` from backend user settings.
+
+    ``later_u_planned`` is retained as plan metadata for compatibility. This
+    adapter does not silently add it to the newly calculated dose; planned-dose
+    semantics are handled separately from new-carbohydrate/correction math.
     """
-    nightscout = None
-    if req.nightscout and req.nightscout.url:
-        nightscout = NightscoutConfigSimple(
-            url=req.nightscout.url,
-            token=req.nightscout.token,
-        )
-
     payload = BolusRequestV2(
         carbs_g=req.carbs_additional_g,
-        meal_slot="lunch",
-        target_mgdl=req.params.target_bg_mgdl,
-        cr_g_per_u=req.params.cr_g_per_u,
-        isf_mgdl_per_u=req.params.isf_mgdl_per_u,
-        dia_hours=req.params.dia_hours,
-        insulin_model=req.params.insulin_curve,
-        insulin_peak_minutes=req.params.peak_minutes,
-        round_step_u=req.params.round_step_u,
-        max_bolus_u=req.params.max_bolus_u,
-        nightscout=nightscout,
-        enable_autosens=False,
+        meal_slot=req.meal_slot,
+        # Important: no client dosing overrides and no enable_autosens override.
+        # Omission means the authenticated user's saved backend configuration
+        # remains authoritative, including Autosens when enabled.
     )
     result = await calculate_bolus_stateless_service(
         payload,
@@ -111,8 +103,12 @@ async def recalc_second(
         session=session,
     )
 
-    positive_correction = max(result.correction_u, 0.0)
-    iob_applied_to_correction = min(positive_correction, result.iob_u)
+    warnings = list(result.warnings or [])
+    if req.later_u_planned > 0:
+        warnings.append(
+            "La dosis planificada para más tarde se mantiene separada del "
+            "recálculo de hidratos adicionales/corrección actual."
+        )
 
     return RecalcSecondResponse(
         bg_now_mgdl=result.glucose.mgdl,
@@ -125,9 +121,9 @@ async def recalc_second(
         components=RecalcComponents(
             meal_u=result.meal_bolus_u,
             correction_u=result.correction_u,
-            iob_applied_u=round(iob_applied_to_correction, 2),
+            iob_applied_u=round(result.iob_applied_to_correction_u, 2),
         ),
-        cap_u=req.params.max_bolus_u,
+        cap_u=result.used_params.max_bolus_final,
         u2_recommended_u=result.total_u_final,
-        warnings=result.warnings,
+        warnings=warnings,
     )
