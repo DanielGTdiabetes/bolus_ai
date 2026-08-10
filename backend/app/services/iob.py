@@ -205,11 +205,11 @@ async def _load_iob_sources(
             raise RuntimeError("motor de base de datos no disponible")
         async with AsyncSession(engine) as session:
             cutoff = (now - timedelta(hours=settings.iob.dia_hours + 1)).replace(tzinfo=None)
-            params = {"cutoff": cutoff}
-            user_filter = ""
-            if user_id:
-                user_filter = "AND user_id = :user_id"
-                params["user_id"] = user_id
+            # Never query treatments across all users when caller identity is absent.
+            # A missing user_id intentionally matches no DB rows; local event sources
+            # can still provide IOB for legacy/offline callers.
+            params = {"cutoff": cutoff, "user_id": user_id or "__bolus_ai_no_user__"}
+            user_filter = "AND user_id = :user_id"
             query = text(f"""
                 SELECT id, nightscout_id, created_at, insulin, duration,
                        event_type, notes, entered_by
