@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import {
   buildMealSessionPlatePayload,
+  isMealSessionStale,
   summarizeMealSessionProgress,
 } from '../src/lib/mealSessionFlow.js';
 
@@ -47,6 +48,24 @@ assert.deepEqual(
     acceptedInsulinU: 3.5,
     eventCount: 4,
   },
+);
+
+const now = Date.parse('2026-08-10T12:00:00Z');
+assert.equal(
+  isMealSessionStale({ started_at: '2026-08-10T08:30:00' }, now),
+  false,
+  'backend naive timestamps are UTC and a recent session should resume',
+);
+assert.equal(
+  isMealSessionStale({ started_at: '2026-08-10T03:00:00' }, now),
+  true,
+  'sessions older than 8h must not lock a later meal to the old slot',
+);
+assert.equal(isMealSessionStale({ started_at: null }, now), true);
+assert.equal(
+  isMealSessionStale({ started_at: '2026-08-10T13:00:00' }, now),
+  true,
+  'significantly future timestamps are unsafe to resume',
 );
 
 console.log('mealSessionFlow tests passed');
