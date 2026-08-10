@@ -42,6 +42,7 @@ assert.equal(normalizedClient.later_u_planned, 2);
 assert.equal(normalizedClient.later_after_min, 90);
 assert.equal(normalizedClient.extended_duration_min, 120);
 assert.equal(normalizedClient.meal_slot, 'dinner');
+assert.equal(normalizedClient.created_at_ts, 1000);
 assert.equal(normalizedClient.status, 'pending');
 
 const warsawDual = {
@@ -76,6 +77,7 @@ assert.equal(normalizedWarsaw.upfront_u, 4);
 assert.equal(normalizedWarsaw.later_u_planned, 1.5);
 assert.equal(normalizedWarsaw.later_after_min, 180);
 assert.equal(normalizedWarsaw.extended_duration_min, 180);
+assert.equal(normalizedWarsaw.meal_slot, 'lunch');
 assert.equal(normalizedWarsaw.source, 'app-warsaw');
 
 assert.throws(
