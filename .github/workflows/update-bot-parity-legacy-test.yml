@@ -1,0 +1,38 @@
+name: Update bot parity legacy test
+
+on:
+  push:
+    branches:
+      - fix/bot-bolus-parity
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/bot-bolus-parity
+          fetch-depth: 0
+      - name: Replace obsolete correction test
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('backend/tests/test_bot_tools.py')
+          text = path.read_text(encoding='utf-8')
+          start = text.index('@pytest.mark.asyncio\nasync def test_calculate_correction_uses_status')
+          end = text.index('\n\n\nclass _DummyStore:', start)
+          new = '''@pytest.mark.asyncio\nasync def test_calculate_correction_uses_central_result(monkeypatch):\n    dummy_settings = UserSettings.default()\n\n    async def fake_resolver(*args, **kwargs):\n        return dummy_settings, \"tester\"\n\n    async def fake_calculator(payload, *, username):\n        assert username == \"tester\"\n        assert payload.carbs_g == 0\n        return type(\n            \"Rec\",\n            (),\n            {\n                \"total_u\": 0.8,\n                \"explain\": [\"motor central\"],\n                \"warnings\": [],\n                \"glucose\": type(\"G\", (), {\"mgdl\": 150.0})(),\n            },\n        )()\n\n    monkeypatch.setattr(tools, \"resolve_bot_user_settings\", fake_resolver)\n    monkeypatch.setattr(tools, \"_resolve_meal_slot\", lambda *_args, **_kwargs: \"lunch\")\n    monkeypatch.setattr(tools, \"calculate_bolus_for_bot\", fake_calculator)\n\n    res = await tools.calculate_correction()\n    assert res.units == 0.8\n    assert \"motor central\" in res.explanation\n'''
+          path.write_text(text[:start] + new + text[end:], encoding='utf-8')
+          PY
+      - name: Commit and remove helper workflow
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/update-bot-parity-legacy-test.yml
+          git add backend/tests/test_bot_tools.py
+          git commit -m "Update Telegram correction test for central engine"
+          git push origin HEAD:fix/bot-bolus-parity
