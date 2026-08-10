@@ -1,0 +1,45 @@
+name: Apply Warsaw delivery routing fix
+
+on:
+  push:
+    branches:
+      - fix/warsaw-delivery-routing
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/warsaw-delivery-routing
+          fetch-depth: 0
+      - name: Preserve backend dual delivery in API wrapper
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('frontend/src/lib/api.ts')
+          text = path.read_text(encoding='utf-8')
+
+          import_old = 'import { createApiFetch } from "./apiClientCore";\n'
+          import_new = import_old + 'import { resolveBackendBolusDelivery } from "./bolusDeliveryRouting";\n'
+          if import_old not in text:
+              raise SystemExit('api import anchor not found')
+          text = text.replace(import_old, import_new, 1)
+
+          start = text.index('export async function calculateBolusWithOptionalSplit(')
+          end = text.index('\n\nexport async function recalcSecondBolus(', start)
+          new = '''export async function calculateBolusWithOptionalSplit(calcPayload, splitSettings) {\n  const calcData = await calculateBolus(calcPayload);\n  const totalU = calcData.total_u_final ?? calcData.total_u ?? 0;\n  const backendDelivery = resolveBackendBolusDelivery(calcData);\n\n  // An explicitly enabled user split overrides the backend delivery schedule,\n  // but it never changes the authoritative total dose.\n  if (splitSettings && splitSettings.enabled && totalU > 0) {\n    try {\n      const planPayload = {\n        mode: \"dual\",\n        total_recommended_u: totalU,\n        round_step_u: splitSettings.round_step_u || 0.5,\n        dual: {\n          percent_now: splitSettings.percent_now || 70,\n          duration_min: splitSettings.duration_min || 150,\n          later_after_min: splitSettings.later_after_min || 150\n        }\n      };\n\n      const planData = await createBolusPlan(planPayload);\n\n      return {\n        kind: \"dual\",\n        calc: calcData,\n        plan: planData,\n        upfront_u: planData.now_u,\n        later_u: planData.later_u_planned,\n        duration_min: planData.extended_duration_min ?? planData.later_after_min\n      };\n\n    } catch (err) {\n      console.warn(\"Split plan failed; preserving backend delivery schedule\", err);\n      return {\n        ...backendDelivery,\n        error: \"Split plan failed: \" + err.message\n      };\n    }\n  }\n\n  // Critical: if Warsaw/fiber logic already returned a dual or extended dose,\n  // preserve that timing. Never collapse it into totalU delivered immediately.\n  return backendDelivery;\n}\n'''
+          path.write_text(text[:start] + new + text[end:], encoding='utf-8')
+          PY
+      - name: Commit and remove helper workflow
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/apply-warsaw-delivery-routing.yml
+          git add frontend/src/lib/api.ts
+          git commit -m "Preserve backend extended bolus delivery"
+          git push origin HEAD:fix/warsaw-delivery-routing
