@@ -25,7 +25,9 @@ class LearningService:
         fiber: float,
         bolus_data: dict, # {kind, total, upfront, later, delay}
         context: dict = None, # {bg, trend, etc}
-        notes: str = None
+        notes: str = None,
+        prediction_snapshot: dict = None,
+        applied_ratios: dict = None,
     ) -> MealEntry:
         """
         Records a new meal entry for future learning.
@@ -77,7 +79,9 @@ class LearningService:
             
             start_bg=context.get("bg") if context else None,
             start_trend=context.get("trend") if context else None,
-            start_iob=context.get("iob") if context else None
+            start_iob=context.get("iob") if context else None,
+            prediction_snapshot=prediction_snapshot,
+            applied_ratios=applied_ratios,
         )
         self.session.add(entry)
         await self.session.commit()
