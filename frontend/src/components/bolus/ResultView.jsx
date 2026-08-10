@@ -110,7 +110,7 @@ export function ResultView({
                 alert("No se pudo guardar el favorito, pero el bolo continuará.");
             }
         }
-        onSave(finalDose, injectionSite);
+        await onSave(finalDose, injectionSite);
     };
 
     return (
