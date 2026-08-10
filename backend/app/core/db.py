@@ -247,11 +247,16 @@ async def migrate_schema(conn):
         await conn.execute(text("ALTER TABLE treatments ADD COLUMN IF NOT EXISTS draft_id VARCHAR"))
         await conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_treatments_draft_id ON treatments (draft_id)"))
 
+        # 4c. retrospective calculation trace (never used as dosing input)
+        await conn.execute(text("ALTER TABLE treatments ADD COLUMN IF NOT EXISTS calculation_trace JSON"))
+
         # 5. fiber (favorite_foods)
         await conn.execute(text("ALTER TABLE favorite_foods ADD COLUMN IF NOT EXISTS fiber FLOAT DEFAULT 0.0"))
         
-        # 6. fiber_g (meal_entries)
+        # 6. meal_entries learning/audit columns
         await conn.execute(text("ALTER TABLE meal_entries ADD COLUMN IF NOT EXISTS fiber_g FLOAT DEFAULT 0.0"))
+        await conn.execute(text("ALTER TABLE meal_entries ADD COLUMN IF NOT EXISTS prediction_snapshot JSON"))
+        await conn.execute(text("ALTER TABLE meal_entries ADD COLUMN IF NOT EXISTS applied_ratios JSON"))
 
         # 7. supply_items (Ensure table exists if model sync failed)
         await conn.execute(text("""

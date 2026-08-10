@@ -166,6 +166,7 @@ class BolusAcceptRequest(BaseModel):
     enteredBy: str = "BolusAI"
     nightscout: Optional[dict] = None  # {url, token}
     meal_meta: Optional[dict] = None # {items: [], fat: 0, protein: 0, strategy: {}}
+    calculation_trace: Optional[dict] = None # Retrospective snapshot only; never dosing input
     injection_site: Optional[str] = None # Explicit site ID for rotation sync
 
 
@@ -184,28 +185,6 @@ async def save_treatment(
     learning_fat = payload.meal_meta.get("fat", payload.fat) if payload.meal_meta else payload.fat
     learning_protein = payload.meal_meta.get("protein", payload.protein) if payload.meal_meta else payload.protein
     learning_fiber = payload.meal_meta.get("fiber", payload.fiber) if payload.meal_meta else payload.fiber
-
-    # Optional: Save Meal Learning Data
-    if payload.meal_meta and session:
-        try:
-            ls = LearningService(session)
-            # Context (bg/trend) could be parsed from payload if we added it, 
-            # or we rely on what we have. 
-            # For now passing basic context from payload if available implicitly or none.
-            # Assuming payload.notes might contain BG info or we add it to meal_meta later.
-            
-            await ls.save_meal_entry(
-                user_id=user.username,
-                items=payload.meal_meta.get("items", []),
-                carbs=learning_carbs,
-                fat=learning_fat,
-                protein=learning_protein,
-                bolus_data=payload.meal_meta.get("strategy", {}),
-                context={}, # Todo: Pass BG/Trend explicitly if needed
-                fiber=learning_fiber
-            )
-        except Exception as e:
-            logger.error(f"Failed to save meal learning entry: {e}")
 
     # --- FIX: Ensure macros are populated from meal_meta if missing in top-level ---
     # Some frontend flows (e.g. Favorites) might populate meal_meta but leave top-level fat/protein as 0.
@@ -266,6 +245,7 @@ async def save_treatment(
         protein=payload.protein,
         fiber=payload.fiber,
         glucose=payload.glucose,
+        calculation_trace=payload.calculation_trace,
         created_at=created_dt,
         store=store,
         session=session,
@@ -274,6 +254,27 @@ async def save_treatment(
     )
 
     ns_error = result.ns_error
+
+    # Save learning memory only after the authoritative treatment reached DB.
+    # This prevents phantom meals when treatment persistence fails.
+    if payload.meal_meta and session and result.saved_db:
+        try:
+            trace = payload.calculation_trace or {}
+            ls = LearningService(session)
+            await ls.save_meal_entry(
+                user_id=user.username,
+                items=payload.meal_meta.get("items", []),
+                carbs=learning_carbs,
+                fat=learning_fat,
+                protein=learning_protein,
+                bolus_data=payload.meal_meta.get("strategy", {}),
+                context=trace.get("context", {}),
+                fiber=learning_fiber,
+                prediction_snapshot=trace.get("snapshot"),
+                applied_ratios=trace.get("applied_ratios"),
+            )
+        except Exception as e:
+            logger.error(f"Failed to save meal learning entry: {e}")
     
     # --- AUTOSENS ADVISOR TRIGGERS ---
     # We do this in background to avoid blocking the bolus response

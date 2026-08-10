@@ -129,6 +129,7 @@ class AddTreatmentRequest(BaseModel):
     replace_id: Optional[str] = None
     event_type: Optional[str] = None
     duration: Optional[float] = None
+    calculation_trace: Optional[dict] = None
 
 
 class AddTreatmentResult(BaseModel):
@@ -936,6 +937,7 @@ async def add_treatment(tool_input: dict[str, Any]) -> AddTreatmentResult | Tool
                 carb_profile=payload.carb_profile,
                 notes=notes,
                 entered_by="TelegramBot",
+                calculation_trace=payload.calculation_trace,
                 event_type=payload.event_type or ("Correction Bolus" if carbs == 0 else "Meal Bolus"),
                 created_at=datetime.now(timezone.utc),
                 store=store,
@@ -997,36 +999,38 @@ async def add_treatment(tool_input: dict[str, Any]) -> AddTreatmentResult | Tool
     site_info = None
     rotation_site = None
     if result.ok:
-        # Learning Hook (Memory)
-        try:
-            from app.services.learning_service import LearningService
-            async with SessionLocal() as session:
-                ls = LearningService(session)
+        # Learning Hook (Memory): only after the treatment reached DB.
+        if result.saved_db:
+            try:
+                from app.services.learning_service import LearningService
+                async with SessionLocal() as session:
+                    ls = LearningService(session)
 
-                strategy = {
-                    "kind": "normal",
-                    "total": insulin,
-                    "upfront": insulin,
-                    "later": 0,
-                    "delay": 0,
-                }
-                # Basic user resolution
-                l_user = user_id or "admin"
+                    strategy = {
+                        "kind": "normal",
+                        "total": insulin,
+                        "upfront": insulin,
+                        "later": 0,
+                        "delay": 0,
+                    }
+                    l_user = user_id or "admin"
+                    trace = payload.calculation_trace or {}
 
-                # Empty context for now
-                await ls.save_meal_entry(
-                    user_id=l_user,
-                    items=[],  # Auto-generate
-                    carbs=carbs,
-                    fat=float(payload.fat or 0),
-                    protein=float(payload.protein or 0),
-                    bolus_data=strategy,
-                    context={},
-                    notes=notes,
-                    fiber=float(payload.fiber or 0),
-                )
-        except Exception as mem_e:
-            logger.warning(f"Memory save failed: {mem_e}")
+                    await ls.save_meal_entry(
+                        user_id=l_user,
+                        items=[],  # Auto-generate
+                        carbs=carbs,
+                        fat=float(payload.fat or 0),
+                        protein=float(payload.protein or 0),
+                        bolus_data=strategy,
+                        context=trace.get("context", {}),
+                        notes=notes,
+                        fiber=float(payload.fiber or 0),
+                        prediction_snapshot=trace.get("snapshot"),
+                        applied_ratios=trace.get("applied_ratios"),
+                    )
+            except Exception as mem_e:
+                logger.warning(f"Memory save failed: {mem_e}")
 
         try:
             # Need user_id used in logging.

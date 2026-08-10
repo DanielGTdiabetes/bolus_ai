@@ -1,6 +1,6 @@
 from datetime import datetime
 from typing import Optional
-from sqlalchemy import String, Float, DateTime, Text, Boolean, UniqueConstraint
+from sqlalchemy import String, Float, DateTime, Text, Boolean, UniqueConstraint, JSON
 from sqlalchemy.orm import Mapped, mapped_column
 from app.core.db import Base
 
@@ -27,6 +27,7 @@ class Treatment(Base):
     
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     entered_by: Mapped[str] = mapped_column(String, nullable=True)
+    calculation_trace: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
 
     # Sync Status
     is_uploaded: Mapped[bool] = mapped_column(Boolean, default=False)

@@ -45,6 +45,7 @@ async def log_treatment(
     protein: float = 0.0,
     fiber: float = 0.0,
     glucose: Optional[float] = None,
+    calculation_trace: Optional[dict] = None,
     created_at: Optional[datetime] = None,
     store: Optional[DataStore] = None,
     session: Optional[AsyncSession] = None,
@@ -88,6 +89,7 @@ async def log_treatment(
                 "carb_profile": carb_profile,
                 "notes": notes,
                 "enteredBy": entered_by,
+                "calculation_trace": calculation_trace,
                 "type": "basal" if "basal" in event_type.lower() else "bolus",
                 "ts": created_iso,
                 "units": insulin,
@@ -135,6 +137,7 @@ async def log_treatment(
                     carb_profile=carb_profile,
                     notes=notes,
                     entered_by=entered_by,
+                    calculation_trace=calculation_trace,
                     is_uploaded=False,
                 )
                 active_session.add(db_treatment)

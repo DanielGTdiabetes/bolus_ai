@@ -71,6 +71,8 @@ class CalculationResult:
     meal_u: float = 0.0
     corr_u: float = 0.0
     iob_devoured: float = 0.0
+    effective_cr: float = 0.0
+    effective_isf: float = 0.0
     
     # Split
     upfront_u: float = 0.0
