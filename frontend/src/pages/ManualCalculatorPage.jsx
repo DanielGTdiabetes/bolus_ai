@@ -2,19 +2,52 @@ import React, { useEffect, useState } from 'react';
 import { ArrowLeft, AlertTriangle, RefreshCw } from 'lucide-react';
 import { Card, Button } from '../components/ui/Atoms';
 import { calculateManualBolus } from '../lib/manualBolusCore';
+import { getCalcParams } from '../modules/core/store';
+
+const MEAL_SLOTS = [
+    ['breakfast', 'Desayuno'],
+    ['lunch', 'Comida'],
+    ['dinner', 'Cena'],
+    ['snack', 'Snack'],
+];
 
 const ManualCalculatorPage = () => {
     const [glucose, setGlucose] = useState('');
     const [carbs, setCarbs] = useState('');
-    const [target, setTarget] = useState('110');
-    const [isf, setIsf] = useState('50');
-    const [icr, setIcr] = useState('10');
+    const [target, setTarget] = useState('');
+    const [isf, setIsf] = useState('');
+    const [icr, setIcr] = useState('');
     const [iob, setIob] = useState('');
     const [maxBolus, setMaxBolus] = useState('15');
     const [roundStep, setRoundStep] = useState('0.05');
+    const [mealSlot, setMealSlot] = useState('lunch');
+    const [storedParams, setStoredParams] = useState(null);
 
     const [result, setResult] = useState(null);
     const [error, setError] = useState('');
+
+    useEffect(() => {
+        const params = getCalcParams();
+        setStoredParams(params || null);
+
+        if (params?.max_bolus_u) setMaxBolus(String(params.max_bolus_u));
+        if (params?.round_step_u) setRoundStep(String(params.round_step_u));
+    }, []);
+
+    useEffect(() => {
+        const slotParams = storedParams?.[mealSlot];
+        if (!slotParams) return;
+
+        if (slotParams.target !== undefined && slotParams.target !== null) {
+            setTarget(String(slotParams.target));
+        }
+        if (slotParams.isf !== undefined && slotParams.isf !== null) {
+            setIsf(String(slotParams.isf));
+        }
+        if (slotParams.icr !== undefined && slotParams.icr !== null) {
+            setIcr(String(slotParams.icr));
+        }
+    }, [storedParams, mealSlot]);
 
     useEffect(() => {
         if ([glucose, carbs, target, isf, icr, iob].some((value) => value === '')) {
@@ -64,10 +97,29 @@ const ManualCalculatorPage = () => {
 
             <div className="bg-red-50 border border-red-200 p-3 rounded-lg text-sm text-red-800 space-y-2">
                 <p><strong>Modo offline:</strong> funciona sin red y no consulta Nightscout, CGM, Autosens, ejercicio ni otros ajustes dinámicos.</p>
-                <p>Introduce tus parámetros reales. Los hidratos son <strong>hidratos nuevos que quieres cubrir ahora</strong>. El IOB es obligatorio: escribe 0 únicamente si sabes que no tienes insulina rápida activa.</p>
+                <p>Los parámetros se cargan desde la última configuración guardada en este dispositivo cuando existe. Puedes revisarlos o modificarlos manualmente.</p>
+                <p>Los hidratos son <strong>hidratos nuevos que quieres cubrir ahora</strong>. El IOB es obligatorio: escribe 0 únicamente si sabes que no tienes insulina rápida activa.</p>
             </div>
 
             <Card className="p-4 space-y-4">
+                <div className="space-y-1">
+                    <label className="text-xs font-bold text-gray-500 uppercase">Perfil horario</label>
+                    <select
+                        className="w-full p-2 border rounded border-gray-300 bg-white"
+                        value={mealSlot}
+                        onChange={(e) => setMealSlot(e.target.value)}
+                    >
+                        {MEAL_SLOTS.map(([value, label]) => (
+                            <option key={value} value={value}>{label}</option>
+                        ))}
+                    </select>
+                    <span className="text-[10px] text-gray-400">
+                        {storedParams?.[mealSlot]
+                            ? 'ICR, ISF y objetivo cargados desde la última configuración local.'
+                            : 'No hay parámetros guardados para este horario. Introdúcelos manualmente.'}
+                    </span>
+                </div>
+
                 <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-1">
                         <label className="text-xs font-bold text-gray-500 uppercase">Glucosa (mg/dL)</label>
@@ -103,6 +155,7 @@ const ManualCalculatorPage = () => {
                             type="number"
                             min="60"
                             max="250"
+                            placeholder="obligatorio"
                             className="w-full text-lg font-medium p-1 border rounded bg-gray-50"
                             value={target}
                             onChange={(e) => setTarget(e.target.value)}
@@ -114,6 +167,7 @@ const ManualCalculatorPage = () => {
                             type="number"
                             min="5"
                             max="500"
+                            placeholder="obligatorio"
                             className="w-full text-lg font-medium p-1 border rounded bg-gray-50"
                             value={isf}
                             onChange={(e) => setIsf(e.target.value)}
@@ -125,6 +179,7 @@ const ManualCalculatorPage = () => {
                             type="number"
                             min="1"
                             max="200"
+                            placeholder="obligatorio"
                             className="w-full text-lg font-medium p-1 border rounded bg-gray-50"
                             value={icr}
                             onChange={(e) => setIcr(e.target.value)}
