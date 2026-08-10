@@ -132,6 +132,14 @@ class UsedParams(BaseModel):
     insulin_model: str = "linear"
     max_bolus_final: float
     isf_base: Optional[float] = None
+    effective_cr_g_per_u: Optional[float] = None
+    effective_isf_mgdl_per_u: Optional[float] = None
+    round_step_u: Optional[float] = None
+    max_correction_u: Optional[float] = None
+    max_iob_u: Optional[float] = None
+    min_bolus_interval_min: Optional[int] = None
+    techne_enabled: Optional[bool] = None
+    techne_max_step_change: Optional[float] = None
     autosens_ratio: float = 1.0
     autosens_reason: Optional[str] = None
     config_hash: Optional[str] = None
@@ -157,6 +165,7 @@ class BolusResponseV2(BaseModel):
     meal_bolus_u: float
     correction_u: float
     iob_u: float
+    iob_applied_to_correction_u: float = 0.0
     total_u_raw: float
     total_u_final: float
 

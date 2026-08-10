@@ -390,6 +390,9 @@ def _calculate_core(inp: CalculationInput) -> CalculationResult:
         total_u=final_total,
         meal_u=meal_u, # This includes simple warsaw
         corr_u=corr_u,
+        iob_devoured=iob_applied_to_correction,
+        effective_cr=cr,
+        effective_isf=isf,
         breakdown=explain,
         warnings=warnings,
         upfront_u=final_upfront,
@@ -466,6 +469,14 @@ def calculate_bolus_v2(
         insulin_model=settings.iob.curve,
         max_bolus_final=settings.max_bolus_u,
         isf_base=isf_base,
+        effective_cr_g_per_u=round(res.effective_cr, 3),
+        effective_isf_mgdl_per_u=round(res.effective_isf, 3),
+        round_step_u=settings.round_step_u,
+        max_correction_u=settings.max_correction_u,
+        max_iob_u=getattr(settings, 'max_iob_u', None),
+        min_bolus_interval_min=getattr(settings, 'min_bolus_interval_min', 0),
+        techne_enabled=settings.techne.enabled,
+        techne_max_step_change=settings.techne.max_step_change,
         autosens_ratio=autosens_ratio,
         autosens_reason=autosens_reason,
         config_hash=settings.config_hash
@@ -480,6 +491,7 @@ def calculate_bolus_v2(
         iob_u=round(iob_u, 2),
         meal_bolus_u=round(res.meal_u, 2),
         correction_u=round(res.corr_u, 2),
+        iob_applied_to_correction_u=round(res.iob_devoured, 2),
         total_u_raw=round(res.meal_u + res.corr_u, 2), # Approx
         total_u_final=res.total_u,
         glucose=glucose_info,
