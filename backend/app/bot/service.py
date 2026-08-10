@@ -39,6 +39,7 @@ from app.services.basal_repo import get_latest_basal_dose, upsert_basal_dose
 from app.models.bolus_v2 import BolusRequestV2, BolusResponseV2
 from app.bot.capabilities.registry import build_registry, Permission
 from app.bot.snapshot_store import SnapshotStore
+from app.bot.bolus_snapshot import build_slot_recalc_payload
 from app.services.bolus_trace import build_bolus_trace
 
 _snapshot_store: Optional[SnapshotStore] = None
@@ -3285,18 +3286,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                     return
                 
                 user_settings, resolved_user_id = await get_bot_user_settings_with_user_id()
-                base_payload = snapshot.get("payload")
-                if base_payload:
-                    req_v2 = base_payload.model_copy(deep=True)
-                    req_v2.meal_slot = slot
-                else:
-                    req_v2 = BolusRequestV2(
-                        carbs_g=snapshot["carbs"],
-                        fat_g=snapshot.get("fat", 0.0),
-                        protein_g=snapshot.get("protein", 0.0),
-                        meal_slot=slot,
-                        target_mgdl=user_settings.targets.mid,
-                    )
+                req_v2 = build_slot_recalc_payload(snapshot, slot)
 
                 req_v2.confirm_iob_unknown = True
                 req_v2.confirm_iob_stale = True
