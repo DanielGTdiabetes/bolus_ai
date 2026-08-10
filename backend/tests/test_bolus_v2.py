@@ -23,6 +23,12 @@ def calculate(*, carbs=20, bg=110, target=110, isf=30, icr=10, iob=0, **request_
     return calculate_bolus_v2(request, settings, iob_u=iob, glucose_info=glucose)
 
 
+def test_autosens_request_override_is_explicit_only():
+    assert BolusRequestV2(carbs_g=0).enable_autosens is None
+    assert BolusRequestV2(carbs_g=0, enable_autosens=False).enable_autosens is False
+    assert BolusRequestV2(carbs_g=0, enable_autosens=True).enable_autosens is True
+
+
 def test_meal_without_iob():
     result = calculate(iob=0)
     assert result.meal_bolus_u == 2.0
