@@ -45,6 +45,8 @@ async def test_structured_combo_followup_uses_planned_later_amount(monkeypatch):
 
     assert reply is not None
     assert "1.5 U" in reply.text
+    assert "¿Revisamos el plan?" in reply.text
+    assert "¿Registramos?" not in reply.text
     callbacks = [button.callback_data for row in reply.buttons for button in row]
     assert "combo_review|plan-1" in callbacks
     assert "combo_yes|tx-1" not in callbacks
