@@ -20,6 +20,7 @@ assert.deepEqual(payload, {
   label: 'Segundo plato',
   source: 'app',
 });
+assert.equal(payload.source, 'app');
 
 for (const forbidden of [
   'target_mgdl', 'cr_g_per_u', 'isf_mgdl_per_u', 'dia_hours',
