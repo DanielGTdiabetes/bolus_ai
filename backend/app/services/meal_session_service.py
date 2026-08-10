@@ -77,6 +77,10 @@ async def _load_session(
         select(MealSession)
         .options(selectinload(MealSession.events))
         .where(MealSession.id == session_id, MealSession.user_id == user_id)
+        # The same AsyncSession may already hold this MealSession with an older
+        # loaded events collection. Force refresh so summaries see newly
+        # appended ledger events instead of the stale identity-map collection.
+        .execution_options(populate_existing=True)
     )
     return (await db.execute(stmt)).scalars().first()
 
@@ -88,6 +92,7 @@ async def get_active_meal_session(db: AsyncSession, user_id: str) -> Optional[Me
         .where(MealSession.user_id == user_id, MealSession.status == ACTIVE_STATUS)
         .order_by(MealSession.started_at.desc())
         .limit(1)
+        .execution_options(populate_existing=True)
     )
     return (await db.execute(stmt)).scalars().first()
 
