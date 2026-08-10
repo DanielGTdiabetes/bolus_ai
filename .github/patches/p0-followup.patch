@@ -1,0 +1,36 @@
+diff --git a/backend/app/services/iob.py b/backend/app/services/iob.py
+--- a/backend/app/services/iob.py
++++ b/backend/app/services/iob.py
+@@ -177,6 +177,10 @@ async def _load_iob_sources(
+             if user_id:
+                 user_filter = "AND user_id = :user_id"
+                 params["user_id"] = user_id
++            else:
++                # Never query the shared treatment table without an identity.
++                # Stateless/local callers must remain isolated to their DataStore.
++                user_filter = "AND 1 = 0"
+             query = text(f"""
+                 SELECT id, nightscout_id, created_at, insulin, duration,
+                        event_type, notes, entered_by
+diff --git a/backend/app/services/treatment_logger.py b/backend/app/services/treatment_logger.py
+--- a/backend/app/services/treatment_logger.py
++++ b/backend/app/services/treatment_logger.py
+@@ -6,6 +6,7 @@ from pathlib import Path
+ from typing import Optional
+ 
++from sqlalchemy import select
+ from sqlalchemy.ext.asyncio import AsyncSession
+ 
+ from app.core.db import get_engine
+@@ -111,7 +112,10 @@ async def log_treatment(
+ 
+     if active_session:
+         try:
+-            db_treatment = await active_session.get(Treatment, treatment_id)
++            existing = await active_session.execute(
++                select(Treatment).where(Treatment.id == treatment_id)
++            )
++            db_treatment = existing.scalars().first()
+             if db_treatment is None:
+                 created_naive = created_dt.astimezone(timezone.utc).replace(tzinfo=None)
+                 db_treatment = Treatment(
