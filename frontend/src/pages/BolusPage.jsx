@@ -15,7 +15,7 @@ import { showToast } from '../components/ui/Toast';
 import { getCalcParams, state } from '../modules/core/store';
 import { getCurrentGlucose, getIOBData, getFavorites, getLocalNsConfig, fetchRecentNutritionImports } from '../lib/api';
 import { getActiveMealSession, startMealSession, closeMealSession } from '../lib/mealSessionApi';
-import { buildMealSessionPlatePayload, createMealSessionEventId, summarizeMealSessionProgress } from '../lib/mealSessionFlow';
+import { buildMealSessionPlatePayload, createMealSessionEventId, isMealSessionStale, summarizeMealSessionProgress } from '../lib/mealSessionFlow';
 
 export default function BolusPage() {
     // --- 1. State Management ---
@@ -112,6 +112,18 @@ export default function BolusPage() {
     const loadMealSession = async () => {
         try {
             const active = await getActiveMealSession();
+            if (active && isMealSessionStale(active)) {
+                // Never let an abandoned meal from hours ago lock the current
+                // calculation to yesterday's/previous meal slot.
+                try {
+                    await closeMealSession(active.id);
+                } catch (closeErr) {
+                    console.warn("Failed to close stale meal session", closeErr);
+                }
+                setMealSession(null);
+                setPendingMealSessionPlate(null);
+                return null;
+            }
             setMealSession(active);
             if (active?.meal_slot) setSlot(active.meal_slot);
             return active;
@@ -355,11 +367,16 @@ export default function BolusPage() {
         if (mealSessionBusy) return;
         setMealSessionBusy(true);
         try {
-            const active = await startMealSession({
+            const startArgs = {
                 mealSlot: slot,
                 label: 'Comida larga / buffet',
                 source: 'app',
-            });
+            };
+            let active = await startMealSession(startArgs);
+            if (active && isMealSessionStale(active)) {
+                await closeMealSession(active.id);
+                active = await startMealSession(startArgs);
+            }
             setMealSession(active);
             if (active?.meal_slot) setSlot(active.meal_slot);
             setPendingMealSessionPlate(null);
