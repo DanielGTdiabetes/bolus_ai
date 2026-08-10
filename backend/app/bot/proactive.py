@@ -20,6 +20,7 @@ from app.models.isf import IsfAnalysisResponse
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 from app.services.autosens_service import AutosensService
+from app.services.active_plan_store import load_active_plans, select_due_active_plan
 
 logger = logging.getLogger(__name__)
 
@@ -618,7 +619,54 @@ async def combo_followup(username: str = "admin", chat_id: Optional[int] = None)
              await _route({"reason_hint": "silenced_quiet_hours(combo_followup)"})
              return
 
-    # 4. Fetch Treatments
+    # 4. Prefer the structured active dual plan. This is the authoritative
+    # source for the planned later amount; treatment-note parsing below is only
+    # a legacy fallback for historical entries.
+    store = DataStore(Path(global_settings.data.data_dir))
+    events = store.load_events()
+    active_plans = load_active_plans(store)
+    pending_structured = [
+        plan for plan in active_plans
+        if plan.get("status", "pending") == "pending"
+        and float(plan.get("later_u_planned") or 0) > 0
+    ]
+    if pending_structured:
+        now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+        due_plan = select_due_active_plan(pending_structured, now_ms=now_ms)
+        if due_plan is None:
+            record_proactive_status("combo", False, "structured_plan_not_due")
+            return
+
+        created_raw = int(due_plan.get("created_at_ts") or 0)
+        if 0 < created_raw < 10_000_000_000:
+            created_raw *= 1000
+        plan_created = datetime.fromtimestamp(created_raw / 1000, tz=timezone.utc)
+        diff_min = max(0, int((datetime.now(timezone.utc) - plan_created).total_seconds() / 60))
+
+        status_res = await tools.execute_tool("get_status_context", {})
+        payload = {
+            "reason_hint": "eligible_candidate",
+            "structured_plan": True,
+            "plan_id": due_plan.get("plan_id") or due_plan.get("id"),
+            "treatment_id": due_plan.get("treatment_id") or due_plan.get("id"),
+            "planned_later_u": due_plan.get("later_u_planned"),
+            "upfront_u": due_plan.get("upfront_u"),
+            "total_recommended_u": due_plan.get("total_recommended_u"),
+            "meal_slot": due_plan.get("meal_slot"),
+            "source": due_plan.get("source"),
+            "bolus_at": plan_created.isoformat(),
+            "minutes_since": diff_min,
+            "delay_minutes": due_plan.get("later_after_min"),
+            "bg": getattr(status_res, "bg_mgdl", None),
+            "trend": getattr(status_res, "direction", "Flat"),
+            "delta": getattr(status_res, "delta_mgdl", 0),
+            "iob": getattr(status_res, "iob_u", None),
+        }
+        await _route(payload)
+        return
+
+    # 5. Legacy fallback: infer old duals from treatment notes.
+    # Never treat the first recorded insulin amount as a known second tranche.
     treatments = []
     try:
         treatments = await get_recent_treatments_db(hours=conf.window_hours)
