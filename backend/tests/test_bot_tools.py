@@ -1,4 +1,6 @@
 import asyncio
+from datetime import datetime, timezone
+from types import SimpleNamespace
 
 import pytest
 
@@ -6,6 +8,55 @@ from app.bot import tools
 from app.bot import service as bot_service
 from app.models.settings import UserSettings
 from app.services import treatment_logger
+
+
+@pytest.mark.asyncio
+async def test_get_status_context_uses_resolved_glucose_source(monkeypatch):
+    class DummyResult:
+        def fetchone(self):
+            return None
+
+    class DummySession:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def execute(self, _statement):
+            return DummyResult()
+
+    async def fake_resolve_current_glucose(*args, **kwargs):
+        return SimpleNamespace(
+            bg_mgdl=123.0,
+            trend="Flat",
+            source="dexcom_android",
+            age_minutes=2.0,
+            measured_at=datetime.now(timezone.utc),
+            status="ok",
+            usable_for_dosing=True,
+        )
+
+    async def fake_compute_iob(*args, **kwargs):
+        return 0.0, [], None, None
+
+    async def fake_compute_cob(*args, **kwargs):
+        return 0.0, None, None
+
+    monkeypatch.setattr(tools, "SessionLocal", lambda: DummySession())
+    monkeypatch.setattr(tools, "resolve_current_glucose", fake_resolve_current_glucose)
+    monkeypatch.setattr(tools, "compute_iob_from_sources", fake_compute_iob)
+    monkeypatch.setattr(tools, "compute_cob_from_sources", fake_compute_cob)
+    monkeypatch.setattr(tools, "DataStore", lambda *args, **kwargs: object())
+
+    result = await tools.get_status_context(
+        username="test-user",
+        user_settings=UserSettings.default(),
+    )
+
+    assert isinstance(result, tools.BolusContext)
+    assert result.bg_mgdl == pytest.approx(123.0)
+    assert result.source == "dexcom_android"
 
 
 @pytest.mark.asyncio

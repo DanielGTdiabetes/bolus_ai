@@ -6,12 +6,58 @@ Snapshots expire after TTL_SECONDS (default 30 min) and are purged on load.
 
 import json
 import logging
-import os
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Optional
 
+from pydantic import BaseModel
+
 logger = logging.getLogger(__name__)
+
+_TYPE_KEY = "__bolus_snapshot_type__"
+
+
+def _encode_snapshot_value(value: Any) -> Any:
+    """Keep callback-critical Pydantic values reconstructable after a restart."""
+    if isinstance(value, BaseModel):
+        supported_types = {
+            "BolusRequestV2",
+            "BolusResponseV2",
+        }
+        type_name = value.__class__.__name__
+        if type_name in supported_types:
+            return {
+                _TYPE_KEY: type_name,
+                "data": value.model_dump(mode="json"),
+            }
+    if isinstance(value, datetime):
+        return {
+            _TYPE_KEY: "datetime",
+            "value": value.isoformat(),
+        }
+    # Preserve the previous store behaviour for non-critical diagnostic values.
+    return str(value)
+
+
+def _decode_snapshot_value(value: dict[str, Any]) -> Any:
+    type_name = value.get(_TYPE_KEY)
+    if type_name == "datetime":
+        try:
+            return datetime.fromisoformat(value["value"])
+        except (KeyError, TypeError, ValueError):
+            return value
+    if type_name in {"BolusRequestV2", "BolusResponseV2"}:
+        try:
+            from app.models.bolus_v2 import BolusRequestV2, BolusResponseV2
+
+            model_type = {
+                "BolusRequestV2": BolusRequestV2,
+                "BolusResponseV2": BolusResponseV2,
+            }[type_name]
+            return model_type.model_validate(value["data"])
+        except (KeyError, TypeError, ValueError) as exc:
+            logger.warning("SnapshotStore: failed to restore %s: %s", type_name, exc)
+    return value
 
 
 class SnapshotStore:
@@ -26,7 +72,7 @@ class SnapshotStore:
         if self.path.exists():
             try:
                 with open(self.path, "r", encoding="utf-8") as f:
-                    data = json.load(f)
+                    data = json.load(f, object_hook=_decode_snapshot_value)
                 now = datetime.now(timezone.utc).timestamp()
                 self._cache = {
                     k: v for k, v in data.items()
@@ -44,7 +90,7 @@ class SnapshotStore:
         try:
             self.path.parent.mkdir(parents=True, exist_ok=True)
             with open(self.path, "w", encoding="utf-8") as f:
-                json.dump(self._cache, f, default=str)
+                json.dump(self._cache, f, default=_encode_snapshot_value)
         except IOError as e:
             logger.error(f"SnapshotStore: failed to persist: {e}")
 

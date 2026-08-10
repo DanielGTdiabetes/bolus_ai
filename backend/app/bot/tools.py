@@ -361,29 +361,6 @@ async def get_status_context(username: str = "admin", user_settings: Optional[Us
     except Exception as e:
         logger.warning(f"Failed to fetch daily stats from DB: {e}")
 
-    # Determine final source label
-    # valid_source logic:
-    # - If we got fresh Dexcom data -> 'dexcom'
-    # - If we rely on Nightscout (even if stale) -> 'nightscout'
-    # - Else -> 'db_fallback' or 'unknown'
-    
-
-    # Re-eval source based on what we have
-    # If we have a value and ns_client is unset -> db_fallback isn't quite right if we just have nothing.
-    
-    src = "unknown"
-    if ns_sgv and not (use_dexcom and float(ns_sgv.sgv) != bg_val):
-         src = "nightscout"
-    
-    # If we used Dexcom, bg_val would match dexcom reading. 
-    # But strictly, if we successfully fetched Dexcom, we should label it.
-    # Let's assume if use_dexcom is True and we have data, we likely tried. 
-    # But if fallback failed, we still have stale NS data.
-    # We should label based on the active data.
-    
-    # Let's use a heuristic:
-    src = glucose_source
-
     return BolusContext(
         bg_mgdl=bg_val,
         direction=direction,
@@ -393,7 +370,7 @@ async def get_status_context(username: str = "admin", user_settings: Optional[Us
         timestamp=timestamp_str,
         age_minutes=glucose_age_min,
         quality=quality,
-        source=src,
+        source=glucose_source,
         glucose_status=glucose_status,
         usable_for_dosing=glucose_usable,
         config_hash=user_settings.config_hash, 
