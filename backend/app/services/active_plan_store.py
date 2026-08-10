@@ -10,8 +10,10 @@ def _timestamp_ms(value: Any) -> Optional[int]:
         parsed = int(value)
     except (TypeError, ValueError):
         return None
+    if parsed <= 0:
+        return None
     # Backward compatibility if a historical caller stored epoch seconds.
-    if 0 < parsed < 10_000_000_000:
+    if parsed < 10_000_000_000:
         parsed *= 1000
     return parsed
 
