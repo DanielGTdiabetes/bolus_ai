@@ -53,7 +53,7 @@ def test_autosens_changes_effective_ratios_and_exposes_them_for_traceability():
         autosens_reason="regression",
     )
 
-    assert result.total_u == 2.4
+    assert result.total_u == pytest.approx(2.4)
     assert result.used_params.autosens_ratio == 1.2
     assert result.used_params.autosens_reason == "regression"
     assert result.used_params.effective_cr_g_per_u == pytest.approx(8.333, abs=0.001)
