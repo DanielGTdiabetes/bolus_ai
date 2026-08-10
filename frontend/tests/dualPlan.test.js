@@ -34,6 +34,7 @@ const normalizedClient = buildPersistentDualPlan({
 
 assert.equal(getAuthoritativeBolusTotal(clientDual), 6);
 assert.equal(normalizedClient.id, 'plan-123');
+assert.equal(normalizedClient.plan_id, 'plan-123');
 assert.equal(normalizedClient.treatment_id, 'tx-123');
 assert.equal(normalizedClient.total_recommended_u, 6);
 assert.equal(normalizedClient.upfront_u, 3.5);
@@ -41,6 +42,7 @@ assert.equal(normalizedClient.later_u_planned, 2);
 assert.equal(normalizedClient.later_after_min, 90);
 assert.equal(normalizedClient.extended_duration_min, 120);
 assert.equal(normalizedClient.meal_slot, 'dinner');
+assert.equal(normalizedClient.status, 'pending');
 
 const warsawDual = {
   kind: 'dual',
@@ -68,6 +70,7 @@ const normalizedWarsaw = buildPersistentDualPlan({
 assert.equal(getAuthoritativeBolusTotal(warsawDual), 5.5);
 assert.equal(normalizedWarsaw.id, 'tx-warsaw');
 assert.equal(normalizedWarsaw.plan_id, 'tx-warsaw');
+assert.equal(normalizedWarsaw.treatment_id, 'tx-warsaw');
 assert.equal(normalizedWarsaw.total_recommended_u, 5.5);
 assert.equal(normalizedWarsaw.upfront_u, 4);
 assert.equal(normalizedWarsaw.later_u_planned, 1.5);
