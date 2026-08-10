@@ -8,7 +8,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "smoke": "node scripts/smoke-preview.mjs",
-    "test": "npm run test:api-client && npm run test:simulation-utils && npm run test:simulation-payload && npm run test:frontend-recovery && npm run test:manual-bolus && npm run test:orphan-carbs && npm run test:bolus-delivery && npm run test:sick-mode && npm run test:online-bolus-payload && npm run test:bolus-trace && npm run test:dual-plan && npm run test:iob-ui-copy && npm run test:meal-session-flow",
+    "test": "npm run test:api-client && npm run test:simulation-utils && npm run test:simulation-payload && npm run test:frontend-recovery && npm run test:manual-bolus && npm run test:orphan-carbs && npm run test:bolus-delivery && npm run test:sick-mode && npm run test:online-bolus-payload && npm run test:bolus-trace && npm run test:dual-plan && npm run test:iob-ui-copy && npm run test:meal-session-flow && npm run test:meal-session-ui",
     "test:api-client": "node tests/apiClientCore.test.js",
     "test:simulation-utils": "node tests/bolusSimulationUtils.test.js",
     "test:simulation-payload": "node tests/simulation_payload.test.js",
@@ -21,7 +21,8 @@
     "test:bolus-trace": "node tests/bolusTrace.test.js",
     "test:dual-plan": "node tests/dualPlan.test.js",
     "test:iob-ui-copy": "node tests/iobUiCopy.test.js",
-    "test:meal-session-flow": "node tests/mealSessionFlow.test.js"
+    "test:meal-session-flow": "node tests/mealSessionFlow.test.js",
+    "test:meal-session-ui": "node tests/mealSessionUiContract.test.js"
   },
   "devDependencies": {
     "@types/react": "^19.2.7",
