@@ -14,6 +14,7 @@ assert.equal(sick.isf, 30);
 assert.equal(sick.active, true);
 assert.equal(sick.automaticDoseAdjustment, false);
 assert.match(sick.warning, /ajuste automático de dosis desactivado/i);
+assert.doesNotMatch(sick.warning, /20%|aumentada/i);
 
 assert.throws(
   () => resolveSickModeDosingPolicy({ icr: 0, isf: 30, isSick: true }),
