@@ -1,12 +1,18 @@
-
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import { fetchTreatments } from '../lib/api';
+import {
+    calculateCoveredCarbsForIngestion,
+    calculateNewCarbsToCover,
+    isLinkedToIngestion,
+} from '../lib/orphanCarbsCore';
 
 /**
- * Hook to detect "Orphan Carbs" (treatments with carbs but no insulin)
- * created in the last 60 minutes.
- * 
- * @returns {Object} { orphanCarbs, isUsingOrphan, setIsUsingOrphan, checkOrphans, dismissOrphan }
+ * Detecta una ingesta nutricional sin insulina asociada y, cuando esa misma
+ * ingesta se actualiza de forma acumulativa (por ejemplo 40 g -> 60 g), ofrece
+ * únicamente los HC nuevos todavía no cubiertos.
+ *
+ * La identidad de la ingesta es obligatoria para descontar cobertura previa.
+ * Nunca se suman bolos "Sincronizado" globales de otras comidas.
  */
 export function useOrphanDetection() {
     const [orphanCarbs, setOrphanCarbs] = useState(null);
@@ -14,78 +20,65 @@ export function useOrphanDetection() {
 
     const checkOrphans = useCallback(async () => {
         try {
-            const treatments = await fetchTreatments({ count: 10 });
-            if (!treatments || treatments.length === 0) return;
+            const treatments = await fetchTreatments({ count: 30 });
+            if (!treatments || treatments.length === 0) {
+                setOrphanCarbs(null);
+                return;
+            }
 
             const now = new Date();
-            // Find ALL potential orphans in the last 60 mins
-            const orphans = treatments.filter(t => {
+            const orphans = treatments.filter((t) => {
                 const tDate = new Date(t.created_at);
                 const diffMin = (now.getTime() - tDate.getTime()) / 60000;
                 const hasNutrition = (t.carbs > 0 || t.fat > 0 || t.protein > 0);
-                // Standard orphan check: Has nutrition, NO insulin (or 0), and recent (-5 to 60min)
                 return hasNutrition && (!t.insulin || t.insulin === 0) && diffMin > -5 && diffMin < 60;
             });
 
-            if (orphans.length > 0) {
-                // Sort by "Data Richness" (Carbs + Fat + Protein sum) DESC
-                orphans.sort((a, b) => {
-                    const sumA = (a.carbs || 0) + (a.fat || 0) + (a.protein || 0);
-                    const sumB = (b.carbs || 0) + (b.fat || 0) + (b.protein || 0);
-                    return sumB - sumA;
-                });
-
-                // Check if we already applied a partial amount recently?
-                // We look at *Saved Treatments* in the last 90 mins that were marked as "Sincronizado" (orphan usage).
-                const recentSaves = treatments.filter(t => {
-                    const tDate = new Date(t.created_at);
-                    const diffMin = (now.getTime() - tDate.getTime()) / 60000;
-                    // Check notes for "Sincronizado" or look for similarity
-                    return diffMin < 90 && t.notes && t.notes.includes("(Sincronizado)");
-                });
-
-                const bestOrphan = orphans[0];
-                let adjustedOrphan = { ...bestOrphan };
-                let diffCarbs = bestOrphan.carbs;
-                let alreadyApplied = 0;
-
-                if (recentSaves.length > 0) {
-                    // Sum up what we already covered
-                    alreadyApplied = recentSaves.reduce((acc, t) => acc + (t.carbs || 0), 0);
-
-                    // If the new total is just an accumulation, offer the difference
-                    if (bestOrphan.carbs > alreadyApplied) {
-                        diffCarbs = bestOrphan.carbs - alreadyApplied;
-                        adjustedOrphan._diffMode = true;
-                        adjustedOrphan._originalCarbs = bestOrphan.carbs;
-                        adjustedOrphan._alreadyApplied = alreadyApplied;
-                        adjustedOrphan._netCarbs = diffCarbs;
-
-                        // Net Macros (Prevent negatives)
-                        const alreadyAppliedFat = recentSaves.reduce((acc, t) => acc + (t.fat || 0), 0);
-                        const alreadyAppliedProtein = recentSaves.reduce((acc, t) => acc + (t.protein || 0), 0);
-                        const alreadyAppliedFiber = recentSaves.reduce((acc, t) => acc + (t.fiber || 0), 0);
-
-                        adjustedOrphan._netFat = Math.max(0, (bestOrphan.fat || 0) - alreadyAppliedFat);
-                        adjustedOrphan._netProtein = Math.max(0, (bestOrphan.protein || 0) - alreadyAppliedProtein);
-                        adjustedOrphan._netFiber = Math.max(0, (bestOrphan.fiber || 0) - alreadyAppliedFiber);
-
-                    } else if (bestOrphan.carbs <= alreadyApplied + 2) {
-                        // Close enough to consider covered
-                        adjustedOrphan._fullyCovered = true;
-                    }
-                }
-
-                if (!adjustedOrphan._fullyCovered) {
-                    setOrphanCarbs(adjustedOrphan);
-                } else {
-                    setOrphanCarbs(null);
-                }
-            } else {
-                 setOrphanCarbs(null);
+            if (orphans.length === 0) {
+                setOrphanCarbs(null);
+                return;
             }
+
+            orphans.sort((a, b) => {
+                const sumA = (a.carbs || 0) + (a.fat || 0) + (a.protein || 0);
+                const sumB = (b.carbs || 0) + (b.fat || 0) + (b.protein || 0);
+                return sumB - sumA;
+            });
+
+            const bestOrphan = orphans[0];
+            const adjustedOrphan = { ...bestOrphan };
+
+            // Only boluses explicitly linked to THIS ingestion can count as covered.
+            const linkedSaves = treatments.filter((t) => {
+                const tDate = new Date(t.created_at);
+                const diffMin = (now.getTime() - tDate.getTime()) / 60000;
+                return diffMin > -5 && diffMin < 180 && isLinkedToIngestion(t, bestOrphan.id);
+            });
+
+            const alreadyApplied = calculateCoveredCarbsForIngestion(linkedSaves, bestOrphan.id);
+            const totalCarbs = Number(bestOrphan.carbs || 0);
+            const diffCarbs = calculateNewCarbsToCover(totalCarbs, alreadyApplied);
+
+            if (alreadyApplied > 0) {
+                adjustedOrphan._diffMode = true;
+                adjustedOrphan._originalCarbs = totalCarbs;
+                adjustedOrphan._alreadyApplied = alreadyApplied;
+                adjustedOrphan._netCarbs = diffCarbs;
+
+                // Macro deltas remain best-effort. Treatment macros for linked boluses
+                // are intentionally zero to prevent COB duplication.
+                adjustedOrphan._netFat = bestOrphan.fat || 0;
+                adjustedOrphan._netProtein = bestOrphan.protein || 0;
+                adjustedOrphan._netFiber = bestOrphan.fiber || 0;
+            }
+
+            if (diffCarbs <= 2 && alreadyApplied > 0) {
+                adjustedOrphan._fullyCovered = true;
+            }
+
+            setOrphanCarbs(adjustedOrphan._fullyCovered ? null : adjustedOrphan);
         } catch (err) {
-            console.warn("Failed to fetch recent treatments for orphan detection", err);
+            console.warn('Failed to fetch recent treatments for orphan detection', err);
         }
     }, []);
 
@@ -99,6 +92,6 @@ export function useOrphanDetection() {
         isUsingOrphan,
         setIsUsingOrphan,
         checkOrphans,
-        dismissOrphan
+        dismissOrphan,
     };
 }

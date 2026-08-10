@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_engine
@@ -113,7 +114,10 @@ async def log_treatment(
 
     if active_session:
         try:
-            db_treatment = await active_session.get(Treatment, treatment_id)
+            existing_result = await active_session.execute(
+                select(Treatment).where(Treatment.id == treatment_id)
+            )
+            db_treatment = existing_result.scalars().first()
             if db_treatment is None:
                 created_naive = created_dt.astimezone(timezone.utc).replace(tzinfo=None)
                 db_treatment = Treatment(

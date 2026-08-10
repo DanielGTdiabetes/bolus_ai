@@ -8,11 +8,13 @@
     "build": "vite build",
     "preview": "vite preview",
     "smoke": "node scripts/smoke-preview.mjs",
-    "test": "npm run test:api-client && npm run test:simulation-utils && npm run test:simulation-payload && npm run test:frontend-recovery",
+    "test": "npm run test:api-client && npm run test:simulation-utils && npm run test:simulation-payload && npm run test:frontend-recovery && npm run test:manual-bolus && npm run test:orphan-carbs",
     "test:api-client": "node tests/apiClientCore.test.js",
     "test:simulation-utils": "node tests/bolusSimulationUtils.test.js",
     "test:simulation-payload": "node tests/simulation_payload.test.js",
-    "test:frontend-recovery": "node tests/frontendRecovery.test.js"
+    "test:frontend-recovery": "node tests/frontendRecovery.test.js",
+    "test:manual-bolus": "node tests/manualBolusCore.test.js",
+    "test:orphan-carbs": "node tests/orphanCarbsCore.test.js"
   },
   "devDependencies": {
     "@types/react": "^19.2.7",
