@@ -1,0 +1,122 @@
+name: Apply bolus trace persistence
+
+on:
+  push:
+    branches:
+      - fix/bolus-calculation-traceability
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/bolus-calculation-traceability
+          fetch-depth: 0
+      - name: Persist retrospective calculation trace
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          # Treatment model: nullable JSON audit payload.
+          path = Path('backend/app/models/treatment.py')
+          text = path.read_text(encoding='utf-8')
+          text = text.replace(
+              'from sqlalchemy import String, Float, DateTime, Text, Boolean, UniqueConstraint\n',
+              'from sqlalchemy import String, Float, DateTime, Text, Boolean, UniqueConstraint, JSON\n',
+              1,
+          )
+          old = '''    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)\n    entered_by: Mapped[str] = mapped_column(String, nullable=True)\n\n    # Sync Status\n'''
+          new = '''    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)\n    entered_by: Mapped[str] = mapped_column(String, nullable=True)\n    calculation_trace: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)\n\n    # Sync Status\n'''
+          if old not in text:
+              raise SystemExit('treatment model anchor not found')
+          path.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+          # Idempotent manual migration used by existing installations.
+          path = Path('backend/app/core/db.py')
+          text = path.read_text(encoding='utf-8')
+          old = '''        # 4b. draft_id (treatments)\n        await conn.execute(text("ALTER TABLE treatments ADD COLUMN IF NOT EXISTS draft_id VARCHAR"))\n        await conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_treatments_draft_id ON treatments (draft_id)"))\n\n        # 5. fiber (favorite_foods)\n'''
+          new = '''        # 4b. draft_id (treatments)\n        await conn.execute(text("ALTER TABLE treatments ADD COLUMN IF NOT EXISTS draft_id VARCHAR"))\n        await conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_treatments_draft_id ON treatments (draft_id)"))\n\n        # 4c. retrospective calculation trace (never used as dosing input)\n        await conn.execute(text("ALTER TABLE treatments ADD COLUMN IF NOT EXISTS calculation_trace JSON"))\n\n        # 5. fiber (favorite_foods)\n'''
+          if old not in text:
+              raise SystemExit('db migration anchor not found')
+          text = text.replace(old, new, 1)
+
+          old_meal = '''        # 6. fiber_g (meal_entries)\n        await conn.execute(text("ALTER TABLE meal_entries ADD COLUMN IF NOT EXISTS fiber_g FLOAT DEFAULT 0.0"))\n\n        # 7. supply_items (Ensure table exists if model sync failed)\n'''
+          new_meal = '''        # 6. meal_entries learning/audit columns\n        await conn.execute(text("ALTER TABLE meal_entries ADD COLUMN IF NOT EXISTS fiber_g FLOAT DEFAULT 0.0"))\n        await conn.execute(text("ALTER TABLE meal_entries ADD COLUMN IF NOT EXISTS prediction_snapshot JSON"))\n        await conn.execute(text("ALTER TABLE meal_entries ADD COLUMN IF NOT EXISTS applied_ratios JSON"))\n\n        # 7. supply_items (Ensure table exists if model sync failed)\n'''
+          if old_meal not in text:
+              raise SystemExit('meal migration anchor not found')
+          path.write_text(text.replace(old_meal, new_meal, 1), encoding='utf-8')
+
+          # Central treatment logger persists the same trace in DB + local backup.
+          path = Path('backend/app/services/treatment_logger.py')
+          text = path.read_text(encoding='utf-8')
+          old_sig = '''    glucose: Optional[float] = None,\n    created_at: Optional[datetime] = None,\n'''
+          new_sig = '''    glucose: Optional[float] = None,\n    calculation_trace: Optional[dict] = None,\n    created_at: Optional[datetime] = None,\n'''
+          if old_sig not in text:
+              raise SystemExit('treatment logger signature anchor not found')
+          text = text.replace(old_sig, new_sig, 1)
+
+          old_local = '''                "notes": notes,\n                "enteredBy": entered_by,\n                "type": "basal" if "basal" in event_type.lower() else "bolus",\n'''
+          new_local = '''                "notes": notes,\n                "enteredBy": entered_by,\n                "calculation_trace": calculation_trace,\n                "type": "basal" if "basal" in event_type.lower() else "bolus",\n'''
+          if old_local not in text:
+              raise SystemExit('local event trace anchor not found')
+          text = text.replace(old_local, new_local, 1)
+
+          old_db = '''                    notes=notes,\n                    entered_by=entered_by,\n                    is_uploaded=False,\n'''
+          new_db = '''                    notes=notes,\n                    entered_by=entered_by,\n                    calculation_trace=calculation_trace,\n                    is_uploaded=False,\n'''
+          if old_db not in text:
+              raise SystemExit('DB treatment trace anchor not found')
+          path.write_text(text.replace(old_db, new_db, 1), encoding='utf-8')
+
+          # Learning service consumes the same retrospective snapshot when present.
+          path = Path('backend/app/services/learning_service.py')
+          text = path.read_text(encoding='utf-8')
+          old_sig = '''        bolus_data: dict, # {kind, total, upfront, later, delay}\n        context: dict = None, # {bg, trend, etc}\n        notes: str = None\n'''
+          new_sig = '''        bolus_data: dict, # {kind, total, upfront, later, delay}\n        context: dict = None, # {bg, trend, etc}\n        notes: str = None,\n        prediction_snapshot: dict = None,\n        applied_ratios: dict = None,\n'''
+          if old_sig not in text:
+              raise SystemExit('learning signature anchor not found')
+          text = text.replace(old_sig, new_sig, 1)
+
+          old_entry = '''            start_bg=context.get("bg") if context else None,\n            start_trend=context.get("trend") if context else None,\n            start_iob=context.get("iob") if context else None\n        )\n'''
+          new_entry = '''            start_bg=context.get("bg") if context else None,\n            start_trend=context.get("trend") if context else None,\n            start_iob=context.get("iob") if context else None,\n            prediction_snapshot=prediction_snapshot,\n            applied_ratios=applied_ratios,\n        )\n'''
+          if old_entry not in text:
+              raise SystemExit('learning entry anchor not found')
+          path.write_text(text.replace(old_entry, new_entry, 1), encoding='utf-8')
+
+          # API accepts the trace, persists treatment first, then creates learning row.
+          path = Path('backend/app/api/bolus.py')
+          text = path.read_text(encoding='utf-8')
+          old_field = '''    meal_meta: Optional[dict] = None # {items: [], fat: 0, protein: 0, strategy: {}}\n    injection_site: Optional[str] = None # Explicit site ID for rotation sync\n'''
+          new_field = '''    meal_meta: Optional[dict] = None # {items: [], fat: 0, protein: 0, strategy: {}}\n    calculation_trace: Optional[dict] = None # Retrospective snapshot only; never dosing input\n    injection_site: Optional[str] = None # Explicit site ID for rotation sync\n'''
+          if old_field not in text:
+              raise SystemExit('BolusAcceptRequest trace field anchor not found')
+          text = text.replace(old_field, new_field, 1)
+
+          old_learning = '''    # Optional: Save Meal Learning Data\n    if payload.meal_meta and session:\n        try:\n            ls = LearningService(session)\n            # Context (bg/trend) could be parsed from payload if we added it, \n            # or we rely on what we have. \n            # For now passing basic context from payload if available implicitly or none.\n            # Assuming payload.notes might contain BG info or we add it to meal_meta later.\n            \n            await ls.save_meal_entry(\n                user_id=user.username,\n                items=payload.meal_meta.get("items", []),\n                carbs=learning_carbs,\n                fat=learning_fat,\n                protein=learning_protein,\n                bolus_data=payload.meal_meta.get("strategy", {}),\n                context={}, # Todo: Pass BG/Trend explicitly if needed\n                fiber=learning_fiber\n            )\n        except Exception as e:\n            logger.error(f"Failed to save meal learning entry: {e}")\n\n'''
+          if old_learning not in text:
+              raise SystemExit('pre-persistence learning block not found')
+          text = text.replace(old_learning, '', 1)
+
+          old_log = '''        glucose=payload.glucose,\n        created_at=created_dt,\n'''
+          new_log = '''        glucose=payload.glucose,\n        calculation_trace=payload.calculation_trace,\n        created_at=created_dt,\n'''
+          if old_log not in text:
+              raise SystemExit('API logger trace anchor not found')
+          text = text.replace(old_log, new_log, 1)
+
+          post_anchor = '''    ns_error = result.ns_error\n    \n    # --- AUTOSENS ADVISOR TRIGGERS ---\n'''
+          post_insert = '''    ns_error = result.ns_error\n\n    # Save learning memory only after the authoritative treatment reached DB.\n    # This prevents phantom meals when treatment persistence fails.\n    if payload.meal_meta and session and result.saved_db:\n        try:\n            trace = payload.calculation_trace or {}\n            ls = LearningService(session)\n            await ls.save_meal_entry(\n                user_id=user.username,\n                items=payload.meal_meta.get("items", []),\n                carbs=learning_carbs,\n                fat=learning_fat,\n                protein=learning_protein,\n                bolus_data=payload.meal_meta.get("strategy", {}),\n                context=trace.get("context", {}),\n                fiber=learning_fiber,\n                prediction_snapshot=trace.get("snapshot"),\n                applied_ratios=trace.get("applied_ratios"),\n            )\n        except Exception as e:\n            logger.error(f"Failed to save meal learning entry: {e}")\n    \n    # --- AUTOSENS ADVISOR TRIGGERS ---\n'''
+          if post_anchor not in text:
+              raise SystemExit('post treatment learning anchor not found')
+          path.write_text(text.replace(post_anchor, post_insert, 1), encoding='utf-8')
+          PY
+      - name: Commit patch and remove helper workflow
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/apply-bolus-trace-persistence.yml
+          git add backend/app/models/treatment.py backend/app/core/db.py backend/app/services/treatment_logger.py backend/app/services/learning_service.py backend/app/api/bolus.py
+          git commit -m "Persist bolus calculation snapshots"
+          git push origin HEAD:fix/bolus-calculation-traceability
