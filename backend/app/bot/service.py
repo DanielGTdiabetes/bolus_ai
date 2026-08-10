@@ -651,7 +651,6 @@ async def _hydrate_bolus_snapshot(
         BolusRequestV2(
             carbs_g=carbs,
             meal_slot=get_current_meal_slot(user_settings),
-            target_mgdl=user_settings.targets.mid,
             confirm_iob_unknown=True,
             confirm_iob_stale=True,
         ),
