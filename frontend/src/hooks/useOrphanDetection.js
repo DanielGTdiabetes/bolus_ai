@@ -1,31 +1,10 @@
 import { useState, useCallback } from 'react';
 import { fetchTreatments } from '../lib/api';
-
-function parseCoveredCarbs(notes) {
-    if (!notes) return null;
-
-    const explicit = notes.match(/\[covered_carbs=([0-9]+(?:[.,][0-9]+)?)\]/i);
-    if (explicit) {
-        const parsed = Number(explicit[1].replace(',', '.'));
-        return Number.isFinite(parsed) ? parsed : null;
-    }
-
-    // Legacy/current BolusAI notes preserve the dose-context carbs as "Gr: X"
-    // even when Treatment.carbs is deliberately stored as 0 for linked ingestions
-    // to avoid duplicating COB.
-    const legacy = notes.match(/\bGr:\s*([0-9]+(?:[.,][0-9]+)?)/i);
-    if (legacy) {
-        const parsed = Number(legacy[1].replace(',', '.'));
-        return Number.isFinite(parsed) ? parsed : null;
-    }
-
-    return null;
-}
-
-function isLinkedToIngestion(treatment, ingestionId) {
-    if (!treatment?.notes || !ingestionId) return false;
-    return treatment.notes.includes(`[linked_ingestion_id=${ingestionId}]`);
-}
+import {
+    calculateCoveredCarbsForIngestion,
+    calculateNewCarbsToCover,
+    isLinkedToIngestion,
+} from '../lib/orphanCarbsCore';
 
 /**
  * Detecta una ingesta nutricional sin insulina asociada y, cuando esa misma
@@ -70,27 +49,15 @@ export function useOrphanDetection() {
             const adjustedOrphan = { ...bestOrphan };
 
             // Only boluses explicitly linked to THIS ingestion can count as covered.
-            // This prevents a nearby unrelated meal from reducing the new-carbs delta.
             const linkedSaves = treatments.filter((t) => {
                 const tDate = new Date(t.created_at);
                 const diffMin = (now.getTime() - tDate.getTime()) / 60000;
                 return diffMin > -5 && diffMin < 180 && isLinkedToIngestion(t, bestOrphan.id);
             });
 
-            const coveredEntries = linkedSaves
-                .map((t) => {
-                    const parsed = parseCoveredCarbs(t.notes);
-                    if (parsed !== null) return parsed;
-                    // Legacy fallback only when the linked treatment actually kept carbs.
-                    const stored = Number(t.carbs || 0);
-                    return Number.isFinite(stored) && stored > 0 ? stored : 0;
-                })
-                .filter((value) => value > 0);
-
-            // Each linked bolus records how many NEW carbs that calculation covered.
-            const alreadyApplied = coveredEntries.reduce((sum, value) => sum + value, 0);
+            const alreadyApplied = calculateCoveredCarbsForIngestion(linkedSaves, bestOrphan.id);
             const totalCarbs = Number(bestOrphan.carbs || 0);
-            const diffCarbs = Math.max(0, totalCarbs - alreadyApplied);
+            const diffCarbs = calculateNewCarbsToCover(totalCarbs, alreadyApplied);
 
             if (alreadyApplied > 0) {
                 adjustedOrphan._diffMode = true;
@@ -98,16 +65,13 @@ export function useOrphanDetection() {
                 adjustedOrphan._alreadyApplied = alreadyApplied;
                 adjustedOrphan._netCarbs = diffCarbs;
 
-                // Macro deltas are best-effort only. Carbs are the dosing-critical contract.
-                // Linked bolus Treatment rows intentionally store macros as zero to avoid COB
-                // duplication, so we do not infer previous fat/protein/fiber from unrelated rows.
+                // Macro deltas remain best-effort. Treatment macros for linked boluses
+                // are intentionally zero to prevent COB duplication.
                 adjustedOrphan._netFat = bestOrphan.fat || 0;
                 adjustedOrphan._netProtein = bestOrphan.protein || 0;
                 adjustedOrphan._netFiber = bestOrphan.fiber || 0;
             }
 
-            // Small source corrections at/below the already-covered amount should not
-            // create a new dosing prompt.
             if (diffCarbs <= 2 && alreadyApplied > 0) {
                 adjustedOrphan._fullyCovered = true;
             }
