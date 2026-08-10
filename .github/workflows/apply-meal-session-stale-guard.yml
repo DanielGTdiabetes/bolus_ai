@@ -1,0 +1,54 @@
+name: Apply stale long-meal session guard
+
+on:
+  push:
+    branches:
+      - feat/meal-session-ui
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/meal-session-ui
+          fetch-depth: 0
+      - name: Prevent stale sessions from locking an old meal slot
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('frontend/src/pages/BolusPage.jsx')
+          text = path.read_text(encoding='utf-8')
+
+          old_import = "import { buildMealSessionPlatePayload, createMealSessionEventId, summarizeMealSessionProgress } from '../lib/mealSessionFlow';\n"
+          new_import = "import { buildMealSessionPlatePayload, createMealSessionEventId, isMealSessionStale, summarizeMealSessionProgress } from '../lib/mealSessionFlow';\n"
+          if old_import not in text:
+              raise SystemExit('meal session flow import anchor not found')
+          text = text.replace(old_import, new_import, 1)
+
+          old_loader = '''    const loadMealSession = async () => {\n        try {\n            const active = await getActiveMealSession();\n            setMealSession(active);\n            if (active?.meal_slot) setSlot(active.meal_slot);\n            return active;\n        } catch (e) {\n            console.warn("Failed to load active meal session", e);\n            return null;\n        }\n    };\n'''
+          new_loader = '''    const loadMealSession = async () => {\n        try {\n            const active = await getActiveMealSession();\n            if (active && isMealSessionStale(active)) {\n                // Never let an abandoned meal from hours ago lock the current\n                // calculation to yesterday's/previous meal slot.\n                try {\n                    await closeMealSession(active.id);\n                } catch (closeErr) {\n                    console.warn("Failed to close stale meal session", closeErr);\n                }\n                setMealSession(null);\n                setPendingMealSessionPlate(null);\n                return null;\n            }\n            setMealSession(active);\n            if (active?.meal_slot) setSlot(active.meal_slot);\n            return active;\n        } catch (e) {\n            console.warn("Failed to load active meal session", e);\n            return null;\n        }\n    };\n'''
+          if old_loader not in text:
+              raise SystemExit('meal session loader anchor not found')
+          text = text.replace(old_loader, new_loader, 1)
+
+          old_start = '''            const active = await startMealSession({\n                mealSlot: slot,\n                label: 'Comida larga / buffet',\n                source: 'app',\n            });\n            setMealSession(active);\n            if (active?.meal_slot) setSlot(active.meal_slot);\n'''
+          new_start = '''            const startArgs = {\n                mealSlot: slot,\n                label: 'Comida larga / buffet',\n                source: 'app',\n            };\n            let active = await startMealSession(startArgs);\n            if (active && isMealSessionStale(active)) {\n                await closeMealSession(active.id);\n                active = await startMealSession(startArgs);\n            }\n            setMealSession(active);\n            if (active?.meal_slot) setSlot(active.meal_slot);\n'''
+          if old_start not in text:
+              raise SystemExit('meal session start anchor not found')
+          text = text.replace(old_start, new_start, 1)
+
+          path.write_text(text, encoding='utf-8')
+          PY
+      - name: Commit patch and remove helper workflow
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/apply-meal-session-stale-guard.yml
+          git add frontend/src/pages/BolusPage.jsx
+          git commit -m "Prevent stale long-meal sessions from locking old slots"
+          git push origin HEAD:feat/meal-session-ui
