@@ -108,18 +108,17 @@ def _build_bolus_message(
     else:
         lines.append("- Corrección: 0.0 U (Falta Glucosa)")
 
+    positive_correction = max(rec.correction_u, 0.0)
+    iob_applied = min(positive_correction, max(rec.iob_u, 0.0))
+    correction_remaining = max(positive_correction - iob_applied, 0.0)
     if rec.iob_u > 0:
-        lines.append(f"- IOB: −{rec.iob_u:.2f} U")
+        lines.append(
+            f"- IOB activo: {rec.iob_u:.2f} U "
+            f"(aplicado a corrección: {iob_applied:.2f} U; "
+            f"corrección restante: {correction_remaining:.2f} U)"
+        )
     else:
-        lines.append("- IOB: −0.0 U")
-
-    starting = rec.meal_bolus_u + rec.correction_u - rec.iob_u
-    if starting < 0:
-        starting = 0
-    diff = rec.total_u_final - starting
-    if abs(diff) > 0.01:
-        sign = "+" if diff > 0 else ""
-        lines.append(f"- Ajuste/Redondeo: {sign}{diff:.2f} U")
+        lines.append("- IOB activo: 0.00 U")
 
     if exercise_summary:
         lines.append(f"🏃 Ejercicio: {exercise_summary}")
@@ -1433,7 +1432,7 @@ async def _handle_add_treatment_tool(update: Update, context: ContextTypes.DEFAU
     # Create Request V2
     req_v2 = BolusRequestV2(
         carbs_g=carbs,
-        target_mgdl=user_settings.targets.mid, # Default
+        # Target is resolved centrally from targets.<meal_slot>.
         meal_slot=slot,
         fat_g=fat, 
         protein_g=protein,
@@ -1562,7 +1561,6 @@ async def _apply_exercise_recalculation(
             protein_g=snapshot.get("protein", 0.0),
             fiber_g=snapshot.get("fiber", 0.0),
             meal_slot=get_current_meal_slot(user_settings),
-            target_mgdl=user_settings.targets.mid,
         )
 
     req_v2.exercise.planned = True
