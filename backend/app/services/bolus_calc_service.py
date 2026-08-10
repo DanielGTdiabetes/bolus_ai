@@ -12,6 +12,10 @@ from app.models.bolus_v2 import BolusRequestV2, BolusResponseV2, GlucoseUsed
 from app.models.iob import SourceStatus
 from app.models.settings import UserSettings
 from app.services.autosens_service import AutosensService
+from app.services.autosens_hybrid import (
+    build_compression_config,
+    combine_hybrid_autosens,
+)
 from app.services.bolus_engine import calculate_bolus_v2
 from app.services import iob as iob_service
 from app.services.nightscout_client import NightscoutClient
@@ -319,8 +323,10 @@ async def calculate_bolus_stateless_service(
                 tdd_ratio = tdd_result
                 tdd_debug = None
 
+            compression_config = build_compression_config(user_settings)
             local_ratio = 1.0
-            local_reason = ""
+            local_reason_flags = []
+            local_error = None
             try:
                 res = await AutosensService.calculate_autosens(
                     username=user.username,
@@ -330,22 +336,24 @@ async def calculate_bolus_stateless_service(
                     compression_config=compression_config,
                 )
                 local_ratio = res.ratio
-                if local_ratio != 1.0:
-                    local_reason = f" + Local {res.reason}"
-            except Exception:
-                pass
+                local_reason_flags = list(res.reason_flags or [])
+            except Exception as exc:
+                local_error = f"{type(exc).__name__}: {exc}"
+                logger.exception(
+                    "Local Autosens failed; neutralizing hybrid dynamic dosing"
+                )
 
-            # Calculate hybrid ratio
-            raw_hybrid = tdd_ratio * local_ratio
-            autosens_ratio = max(
-                user_settings.autosens.min_ratio,
-                min(user_settings.autosens.max_ratio, raw_hybrid),
+            decision = combine_hybrid_autosens(
+                tdd_ratio=tdd_ratio,
+                local_ratio=local_ratio,
+                min_ratio=user_settings.autosens.min_ratio,
+                max_ratio=user_settings.autosens.max_ratio,
+                local_reason_flags=local_reason_flags,
+                local_error=local_error,
             )
-
-            # Build detailed reason string
-            autosens_reason = (
-                f"Híbrido: TDD {tdd_ratio:.2f}x * Local {local_ratio:.2f}x"
-            )
+            raw_hybrid = decision.raw_ratio
+            autosens_ratio = decision.ratio
+            autosens_reason = decision.reason
 
             # Add debug info if available
             if tdd_debug:
