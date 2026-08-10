@@ -12,6 +12,7 @@ def assert_server_side_dosing_fields_are_unset(payload: BolusRequestV2) -> None:
     assert payload.round_step_u is None
     assert payload.max_bolus_u is None
     assert payload.enable_autosens is None
+    assert payload.nightscout is None
 
 
 def test_legacy_snapshot_rebuilds_meal_facts_without_dosing_overrides():
