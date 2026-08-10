@@ -625,11 +625,16 @@ async def combo_followup(username: str = "admin", chat_id: Optional[int] = None)
     store = DataStore(Path(global_settings.data.data_dir))
     events = store.load_events()
     active_plans = load_active_plans(store)
-    pending_structured = [
-        plan for plan in active_plans
-        if plan.get("status", "pending") == "pending"
-        and float(plan.get("later_u_planned") or 0) > 0
-    ]
+    pending_structured = []
+    for plan in active_plans:
+        if plan.get("status", "pending") != "pending":
+            continue
+        try:
+            later_u = float(plan.get("later_u_planned") or 0)
+        except (TypeError, ValueError):
+            continue
+        if later_u > 0:
+            pending_structured.append(plan)
     if pending_structured:
         now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
         due_plan = select_due_active_plan(pending_structured, now_ms=now_ms)

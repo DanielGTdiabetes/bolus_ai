@@ -595,7 +595,7 @@ async def handle_event(username: str, chat_id: int, event_type: str, payload: Di
             # Scenario B: Critical/Caution
             text = (
                 f"⚠️ **CUIDADO (Bolo Extendido)**\n\n"
-                f"Toca la 2ª parte del bolo ({units} U), pero estás en **{bg} mg/dL** y bajando ({delta}).\n"
+                f"El plan original deja **{units} U** pendientes, pero estás en **{bg} mg/dL** y bajando ({delta}).\n"
                 f"¿Prefieres posponerlo o cancelar?"
             )
             buttons = [
@@ -606,8 +606,8 @@ async def handle_event(username: str, chat_id: int, event_type: str, payload: Di
             # Scenario A: Early Rise
             text = (
                 f"📈 **Nota (Bolo Extendido)**\n\n"
-                f"Faltan unos minutos para la 2ª parte ({units} U), pero ya estás subiendo (**{bg}** {trend}).\n"
-                f"¿Quieres adelantar el registro ahora?"
+                f"El plan original deja **{units} U** pendientes y ya estás subiendo (**{bg}** {trend}).\n"
+                f"¿Quieres revisar el plan ahora?"
             )
             buttons = [
                 [InlineKeyboardButton("🔎 Revisar ahora", callback_data=f"combo_review|{plan_id}")],
@@ -618,8 +618,8 @@ async def handle_event(username: str, chat_id: int, event_type: str, payload: Di
             text = (
                 f"🔄 **Seguimiento Bolo Extendido**\n\n"
                 f"Plan pendiente original: **{units} U** (bolo inicial a las {time_str}).\n"
-                f"Es hora de la 2ª parte. Estás en **{bg or '?'}** {trend}.\n"
-                f"¿Registramos?"
+                f"Ha llegado la hora prevista para revisar la 2ª parte. Estás en **{bg or '?'}** {trend}.\n"
+                f"¿Revisamos el plan?"
             )
             buttons = [
                 [InlineKeyboardButton("🔎 Revisar 2ª parte", callback_data=f"combo_review|{plan_id}")],
