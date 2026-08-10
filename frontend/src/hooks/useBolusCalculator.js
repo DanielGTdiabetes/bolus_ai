@@ -20,6 +20,7 @@ import { resolveSickModeDosingPolicy } from '../lib/sickModePolicy';
 import { buildOnlineBolusPayload } from '../lib/onlineBolusPayload';
 import { buildClientBolusTrace } from '../lib/bolusTrace';
 import { buildPersistentDualPlan, getAuthoritativeBolusTotal } from '../lib/dualPlan';
+import { addMealSessionCarbs, linkTreatmentToMealSession } from '../lib/mealSessionApi';
 
 export function useBolusCalculator() {
     const [result, setResult] = useState(null);
@@ -224,7 +225,8 @@ export function useBolusCalculator() {
             orphanContext, mealMeta, // { fat, protein, fiber, items }
             date, nsConfig,
             alcoholEnabled, carbProfile,
-            plateItems, mealSlot
+            plateItems, mealSlot,
+            mealSessionId, mealSessionPlatePayload
         } = saveParams;
 
         setSaving(true);
@@ -335,6 +337,33 @@ export function useBolusCalculator() {
 
             const apiRes = await saveTreatment(treatment);
 
+            // Long-meal ledger is deliberately post-treatment and best-effort.
+            // A ledger failure must never invalidate an already persisted bolus.
+            let mealSessionState = null;
+            let mealSessionPlateRecorded = !mealSessionPlatePayload;
+            let mealSessionLinked = false;
+            if (mealSessionId) {
+                if (mealSessionPlatePayload) {
+                    try {
+                        mealSessionState = await addMealSessionCarbs(mealSessionId, mealSessionPlatePayload);
+                        mealSessionPlateRecorded = true;
+                    } catch (sessionErr) {
+                        console.warn("Failed to record meal-session plate:", sessionErr);
+                        showToast("⚠️ Bolo guardado, pero el plato no se pudo añadir a la sesión.", "warning", 5000);
+                    }
+                }
+
+                if (apiRes?.treatment_id) {
+                    try {
+                        mealSessionState = await linkTreatmentToMealSession(mealSessionId, apiRes.treatment_id);
+                        mealSessionLinked = true;
+                    } catch (sessionErr) {
+                        console.warn("Failed to link treatment to meal session:", sessionErr);
+                        showToast("⚠️ Bolo guardado, pero no se pudo vincular a la comida larga.", "warning", 5000);
+                    }
+                }
+            }
+
             // Activate/sync the plan only after treatment persistence succeeded.
             if (persistentDualPlan && apiRes?.success !== false) {
                 state.lastBolusPlan = persistentDualPlan;
@@ -374,10 +403,22 @@ export function useBolusCalculator() {
             } else {
                 showToast(msg, "success");
             }
+            if (mealSessionId) {
+                setResult(null);
+                return {
+                    ...apiRes,
+                    meal_session: mealSessionState,
+                    meal_session_plate_recorded: mealSessionPlateRecorded,
+                    meal_session_linked: mealSessionLinked,
+                };
+            }
+
             setTimeout(() => navigate('#/'), 1000);
+            return apiRes;
 
         } catch (e) {
             alert("Error guardando: " + e.message);
+            return null;
         } finally {
             setSaving(false);
         }

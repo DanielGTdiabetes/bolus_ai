@@ -14,6 +14,8 @@ import { showToast } from '../components/ui/Toast';
 // Shared Logic / Store
 import { getCalcParams, state } from '../modules/core/store';
 import { getCurrentGlucose, getIOBData, getFavorites, getLocalNsConfig, fetchRecentNutritionImports } from '../lib/api';
+import { getActiveMealSession, startMealSession, closeMealSession } from '../lib/mealSessionApi';
+import { buildMealSessionPlatePayload, createMealSessionEventId, isMealSessionStale, summarizeMealSessionProgress } from '../lib/mealSessionFlow';
 
 export default function BolusPage() {
     // --- 1. State Management ---
@@ -69,6 +71,12 @@ export default function BolusPage() {
     const [recentImports, setRecentImports] = useState([]);
     const [usedImportIds, setUsedImportIds] = useState([]);
 
+    // Long-meal / buffet session. This is bookkeeping only; dosing remains in
+    // the same central bolus engine used by every normal calculation.
+    const [mealSession, setMealSession] = useState(null);
+    const [mealSessionBusy, setMealSessionBusy] = useState(false);
+    const [pendingMealSessionPlate, setPendingMealSessionPlate] = useState(null);
+
     // --- 2. Custom Hooks ---
     const {
         orphanCarbs, isUsingOrphan, setIsUsingOrphan, checkOrphans
@@ -98,6 +106,30 @@ export default function BolusPage() {
             await checkOrphans();
         } catch (e) {
             console.warn(e);
+        }
+    };
+
+    const loadMealSession = async () => {
+        try {
+            const active = await getActiveMealSession();
+            if (active && isMealSessionStale(active)) {
+                // Never let an abandoned meal from hours ago lock the current
+                // calculation to yesterday's/previous meal slot.
+                try {
+                    await closeMealSession(active.id);
+                } catch (closeErr) {
+                    console.warn("Failed to close stale meal session", closeErr);
+                }
+                setMealSession(null);
+                setPendingMealSessionPlate(null);
+                return null;
+            }
+            setMealSession(active);
+            if (active?.meal_slot) setSlot(active.meal_slot);
+            return active;
+        } catch (e) {
+            console.warn("Failed to load active meal session", e);
+            return null;
         }
     };
 
@@ -139,7 +171,8 @@ export default function BolusPage() {
         state.tempItems = null;
 
         loadData();
-    }, []); // Check deps? checkOrphans are stable via useCallback? Yes.
+        loadMealSession();
+    }, []); // Initial page hydration only.
 
     // Strategy Suggestion
     useEffect(() => {
@@ -320,7 +353,7 @@ export default function BolusPage() {
     };
 
     const handleCalculateClick = (override = {}) => {
-        calculate({
+        return calculate({
             glucose, carbs, slot, correctionOnly, dualEnabled,
             alcoholEnabled, exercise: { planned: exerciseEnabled, minutes: exerciseMinutes, intensity: exerciseIntensity },
             overrideParams: override,
@@ -330,8 +363,69 @@ export default function BolusPage() {
         });
     };
 
-    const handleSaveClick = (dose, siteId) => {
-        save({
+    const handleStartMealSession = async () => {
+        if (mealSessionBusy) return;
+        setMealSessionBusy(true);
+        try {
+            const startArgs = {
+                mealSlot: slot,
+                label: 'Comida larga / buffet',
+                source: 'app',
+            };
+            let active = await startMealSession(startArgs);
+            if (active && isMealSessionStale(active)) {
+                await closeMealSession(active.id);
+                active = await startMealSession(startArgs);
+            }
+            setMealSession(active);
+            if (active?.meal_slot) setSlot(active.meal_slot);
+            setPendingMealSessionPlate(null);
+            showToast("Comida larga iniciada. Añade cada plato por separado.", "success", 4000);
+        } catch (e) {
+            showToast("No se pudo iniciar la comida larga: " + (e?.message || e), "warning", 5000);
+        } finally {
+            setMealSessionBusy(false);
+        }
+    };
+
+    const handleCloseMealSession = async () => {
+        if (!mealSession?.id || mealSessionBusy) return;
+        setMealSessionBusy(true);
+        try {
+            await closeMealSession(mealSession.id);
+            setMealSession(null);
+            setPendingMealSessionPlate(null);
+            showToast("Comida larga finalizada.", "success");
+        } catch (e) {
+            showToast("No se pudo finalizar la comida larga: " + (e?.message || e), "warning", 5000);
+        } finally {
+            setMealSessionBusy(false);
+        }
+    };
+
+    const handleAddPlateAndCalculate = async () => {
+        const carbsVal = parseFloat(carbs) || 0;
+        if (!mealSession?.id) return handleCalculateClick();
+        if (carbsVal <= 0) {
+            showToast("Introduce los HC de este plato antes de añadirlo.", "warning");
+            return;
+        }
+
+        const platePayload = buildMealSessionPlatePayload({
+            clientEventId: createMealSessionEventId(),
+            carbs: carbsVal,
+            mealMeta: mealMetaRef.current,
+            foodName,
+            source: 'app',
+        });
+        // Freeze the plate facts used for this recommendation. Nothing is
+        // persisted to the ledger until the user actually saves the bolus.
+        setPendingMealSessionPlate(platePayload);
+        return handleCalculateClick();
+    };
+
+    const handleSaveClick = async (dose, siteId) => {
+        const saveResult = await save({
             confirmedDose: dose, siteId,
             carbs, glucose, foodName,
             orphanContext: { isUsing: isUsingOrphan, data: orphanCarbs },
@@ -339,8 +433,33 @@ export default function BolusPage() {
             date, nsConfig, alcoholEnabled,
             carbProfile,
             plateItems,
-            mealSlot: slot
+            mealSlot: slot,
+            mealSessionId: mealSession?.id || null,
+            mealSessionPlatePayload: pendingMealSessionPlate
         });
+
+        if (mealSession?.id && saveResult?.treatment_id) {
+            setPendingMealSessionPlate(null);
+            if (saveResult.meal_session) {
+                setMealSession(saveResult.meal_session);
+            } else {
+                await loadMealSession();
+            }
+
+            // Prepare the same screen for the next plate. Session-level context
+            // (slot, alcohol, exercise) is retained; plate-specific data resets.
+            setCarbs('');
+            setCarbProfile(null);
+            setCorrectionOnly(false);
+            setDualEnabled(false);
+            resetMealContext();
+            setManualEntryEnabled(true);
+            const now = new Date();
+            setDate(new Date(now.getTime() - (now.getTimezoneOffset() * 60000)).toISOString().slice(0, 16));
+            await loadData();
+            showToast("Bolo añadido a la comida. Puedes introducir el siguiente plato.", "success", 4000);
+        }
+        return saveResult;
     };
 
     // Helper for Orphan Dual Logic
@@ -354,6 +473,7 @@ export default function BolusPage() {
         return { needed: isFat || isCarb, isFat };
     };
     const orphanDual = getOrphanDualStatus(orphanCarbs);
+    const mealSessionProgress = summarizeMealSessionProgress(mealSession);
 
 
     // --- 5. Render ---
@@ -387,7 +507,46 @@ export default function BolusPage() {
                             </Button>
                         </div>
 
-
+                        {mealSession ? (
+                            <div className="fade-in" style={{
+                                background: '#eff6ff', border: '1px solid #60a5fa',
+                                borderRadius: '12px', padding: '0.9rem',
+                                display: 'flex', flexDirection: 'column', gap: '8px'
+                            }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', alignItems: 'center' }}>
+                                    <div>
+                                        <div style={{ fontWeight: 800, color: '#1e3a8a' }}>🍽️ Comida larga activa</div>
+                                        <div style={{ fontSize: '0.78rem', color: '#475569', marginTop: '2px' }}>
+                                            Franja: {mealSession.meal_slot || slot}. Cada plato usa el calculador normal.
+                                        </div>
+                                    </div>
+                                    <Button variant="outline" className="text-xs" onClick={handleCloseMealSession} disabled={mealSessionBusy}>
+                                        Finalizar
+                                    </Button>
+                                </div>
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '6px', fontSize: '0.75rem' }}>
+                                    <div style={{ background: '#fff', borderRadius: '8px', padding: '6px', textAlign: 'center' }}>
+                                        <div style={{ color: '#64748b' }}>HC platos</div>
+                                        <strong>{mealSessionProgress.carbsRecordedG} g</strong>
+                                    </div>
+                                    <div style={{ background: '#fff', borderRadius: '8px', padding: '6px', textAlign: 'center' }}>
+                                        <div style={{ color: '#64748b' }}>HC en bolos</div>
+                                        <strong>{mealSessionProgress.carbsSubmittedForBolusG} g</strong>
+                                    </div>
+                                    <div style={{ background: '#fff', borderRadius: '8px', padding: '6px', textAlign: 'center' }}>
+                                        <div style={{ color: '#64748b' }}>Insulina reg.</div>
+                                        <strong>{mealSessionProgress.acceptedInsulinU} U</strong>
+                                    </div>
+                                </div>
+                                <div style={{ fontSize: '0.75rem', color: '#1e40af' }}>
+                                    Los HC nuevos no se descuentan por el IOB previo. El IOB sigue protegiendo la corrección y Autosens se aplica desde el backend cuando esté activo.
+                                </div>
+                            </div>
+                        ) : (
+                            <Button variant="outline" onClick={handleStartMealSession} disabled={mealSessionBusy} style={{ width: '100%' }}>
+                                {mealSessionBusy ? 'Iniciando...' : '🍽️ Iniciar comida larga / buffet'}
+                            </Button>
+                        )}
 
                         {/* Orphan Alert */}
                         {orphanCarbs && !isUsingOrphan && (
@@ -525,7 +684,7 @@ export default function BolusPage() {
 
                         {/* Slot/Toggles */}
                         <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'center', margin: '1rem 0' }}>
-                            <select value={slot} onChange={e => { setSlot(e.target.value); resetMealContext(); }} style={{ padding: '0.5rem', borderRadius: '8px', border: '1px solid #cbd5e1', background: '#fff' }}>
+                            <select value={slot} disabled={!!mealSession} onChange={e => { setSlot(e.target.value); resetMealContext(); }} style={{ padding: '0.5rem', borderRadius: '8px', border: '1px solid #cbd5e1', background: mealSession ? '#f1f5f9' : '#fff' }}>
                                 <option value="breakfast">Desayuno</option>
                                 <option value="lunch">Comida</option>
                                 <option value="dinner">Cena</option>
@@ -759,9 +918,15 @@ export default function BolusPage() {
                             </div>
                         </div>
 
-                        <Button onClick={() => handleCalculateClick()} disabled={calculating} className="btn-primary" style={{ width: '100%', padding: '1rem', fontSize: '1.1rem' }}>
-                            {calculating ? 'Calculando...' : 'Calcular Bolo'}
-                        </Button>
+                        {mealSession && !correctionOnly ? (
+                            <Button onClick={handleAddPlateAndCalculate} disabled={calculating || mealSessionBusy} className="btn-primary" style={{ width: '100%', padding: '1rem', fontSize: '1.1rem' }}>
+                                {calculating ? 'Calculando...' : 'Añadir este plato y calcular'}
+                            </Button>
+                        ) : (
+                            <Button onClick={() => handleCalculateClick()} disabled={calculating} className="btn-primary" style={{ width: '100%', padding: '1rem', fontSize: '1.1rem' }}>
+                                {calculating ? 'Calculando...' : (correctionOnly ? 'Calcular corrección' : 'Calcular Bolo')}
+                            </Button>
+                        )}
                     </div>
                 )}
 
@@ -816,7 +981,7 @@ export default function BolusPage() {
                         slot={slot}
                         settings={getCalcParams()}
                         usedParams={calcUsedParams}
-                        onBack={() => { setResult(null); }}
+                        onBack={() => { setResult(null); setPendingMealSessionPlate(null); }}
                         onSave={handleSaveClick}
                         saving={saving}
                         currentCarbs={carbs}
