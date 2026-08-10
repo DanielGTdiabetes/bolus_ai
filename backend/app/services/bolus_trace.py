@@ -32,6 +32,7 @@ def build_bolus_trace(
         "meal_component_u": rec.meal_bolus_u,
         "correction_component_u": rec.correction_u,
         "iob_u": rec.iob_u,
+        "iob_applied_to_correction_u": getattr(rec, "iob_applied_to_correction_u", 0.0),
         "total_u_raw": rec.total_u_raw,
         "total_u_final": rec.total_u_final,
         "upfront_u": rec.upfront_u,
