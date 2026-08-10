@@ -1,0 +1,49 @@
+name: Apply bot slot snapshot parity
+
+on:
+  push:
+    branches:
+      - fix/bot-snapshot-slot-parity
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/bot-snapshot-slot-parity
+          fetch-depth: 0
+      - name: Route slot changes through authoritative snapshot helper
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('backend/app/bot/service.py')
+          text = path.read_text(encoding='utf-8')
+
+          import_anchor = 'from app.bot.snapshot_store import SnapshotStore\n'
+          if import_anchor not in text:
+              raise SystemExit('snapshot store import anchor not found')
+          text = text.replace(
+              import_anchor,
+              import_anchor + 'from app.bot.bolus_snapshot import build_slot_recalc_payload\n',
+              1,
+          )
+
+          old = '''                user_settings, resolved_user_id = await get_bot_user_settings_with_user_id()\n                base_payload = snapshot.get("payload")\n                if base_payload:\n                    req_v2 = base_payload.model_copy(deep=True)\n                    req_v2.meal_slot = slot\n                else:\n                    req_v2 = BolusRequestV2(\n                        carbs_g=snapshot["carbs"],\n                        fat_g=snapshot.get("fat", 0.0),\n                        protein_g=snapshot.get("protein", 0.0),\n                        meal_slot=slot,\n                        target_mgdl=user_settings.targets.mid,\n                    )\n\n                req_v2.confirm_iob_unknown = True\n'''
+          new = '''                user_settings, resolved_user_id = await get_bot_user_settings_with_user_id()\n                req_v2 = build_slot_recalc_payload(snapshot, slot)\n\n                req_v2.confirm_iob_unknown = True\n'''
+          if old not in text:
+              raise SystemExit('slot recalc legacy block not found')
+          path.write_text(text.replace(old, new, 1), encoding='utf-8')
+          PY
+      - name: Commit patch and remove helper workflow
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/apply-bot-slot-parity.yml
+          git add backend/app/bot/service.py
+          git commit -m "Keep bot slot recalculation server-authoritative"
+          git push origin HEAD:fix/bot-snapshot-slot-parity
