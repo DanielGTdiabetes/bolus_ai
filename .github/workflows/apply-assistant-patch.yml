@@ -1,0 +1,33 @@
+name: Apply Assistant Patch
+
+on:
+  push:
+    branches:
+      - fix/bolus-calculator-p0-safety
+    paths:
+      - ".github/patches/p0-followup.patch"
+      - ".github/workflows/apply-assistant-patch.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/bolus-calculator-p0-safety
+          fetch-depth: 0
+      - name: Validate patch
+        run: git apply --check .github/patches/p0-followup.patch
+      - name: Apply patch
+        run: git apply .github/patches/p0-followup.patch
+      - name: Commit patched code
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add backend/app/services/iob.py backend/app/services/treatment_logger.py
+          git commit -m "Fix isolated IOB reads and treatment session compatibility"
+          git push origin HEAD:fix/bolus-calculator-p0-safety
