@@ -15,7 +15,6 @@ import {
     state,
     saveDualPlan
 } from '../modules/core/store';
-import { startRestaurantSession } from '../lib/restaurantApi';
 import { navigate } from '../modules/core/navigation';
 import { showToast } from '../components/ui/Toast';
 
@@ -105,7 +104,7 @@ export function useBolusCalculator() {
      */
     const calculate = async (inputs) => {
         const {
-            glucose, carbs, slot, correctionOnly, dessertMode, dualEnabled,
+            glucose, carbs, slot, correctionOnly, dualEnabled,
             alcoholEnabled, exercise, overrideParams, carbProfile,
             orphanContext, mealMeta // orphanContext = { isUsing, orphanData }, mealMeta = { fat, protein... from Ref }
         } = inputs;
@@ -180,6 +179,9 @@ export function useBolusCalculator() {
                 cr_g_per_u: finalIcr,
                 isf_mgdl_per_u: finalIsf,
                 dia_hours: mealParams.dia_hours || 4.0,
+                insulin_model: mealParams.insulin_model || 'walsh',
+                insulin_peak_minutes: mealParams.insulin_peak_minutes
+                    ?? (mealParams.insulin_model === 'fiasp' ? 55 : 75),
                 round_step_u: mealParams.round_step_u || 0.5,
                 max_bolus_u: mealParams.max_bolus_u || 15,
                 warsaw_safety_factor: mealParams.warsaw?.safety_factor,
@@ -188,7 +190,6 @@ export function useBolusCalculator() {
                 use_fiber_deduction: mealParams.calculator?.subtract_fiber,
                 fiber_factor: mealParams.calculator?.fiber_factor,
                 fiber_threshold: mealParams.calculator?.fiber_threshold_g,
-                ignore_iob: dessertMode,
                 alcohol: alcoholEnabled,
                 exercise: exercise || { planned: false, minutes: 0, intensity: 'moderate' },
                 // SC-Compat: Use override if explicit > Use Settings > Default False (Strict User Control)
@@ -288,6 +289,8 @@ export function useBolusCalculator() {
             const glucoseValue = parseFloat(glucose);
 
             const treatment = {
+                treatment_id: globalThis.crypto?.randomUUID?.()
+                    ?? `bolus-${Date.now()}-${Math.random().toString(16).slice(2)}`,
                 eventType: "Meal Bolus",
                 created_at: customDate.toISOString(),
                 carbs: (parseFloat(carbs) || 0),
@@ -377,43 +380,6 @@ export function useBolusCalculator() {
                 } catch (err) {
                     console.warn("Failed to update stock:", err);
                 }
-            }
-
-            // Restaurant Session
-            if (state.tempRestaurantSession) {
-                const newSessionPayload = {
-                    expectedCarbs: state.tempRestaurantSession.expectedCarbs,
-                    expectedFat: state.tempRestaurantSession.expectedFat,
-                    expectedProtein: state.tempRestaurantSession.expectedProtein,
-                    items: state.tempRestaurantSession.expectedItems || [],
-                    notes: "Iniciada desde BolusPage"
-                };
-                let backendSessionId = null;
-                try {
-                    const resStart = await startRestaurantSession(newSessionPayload);
-                    if (resStart && resStart.sessionId) {
-                        backendSessionId = resStart.sessionId;
-                    }
-                } catch (err) {
-                    console.warn("Fallo iniciando sesión backend, usando local:", err);
-                }
-                const session = {
-                    sessionId: backendSessionId || (crypto.randomUUID ? crypto.randomUUID() : String(Date.now())),
-                    createdAt: new Date().toISOString(),
-                    plates: [],
-                    menuWarnings: [],
-                    ...state.tempRestaurantSession,
-                    actualCarbsTotal: 0,
-                    actualFatTotal: 0,
-                    actualProteinTotal: 0
-                };
-                delete session.rawMenuResult;
-                localStorage.setItem('restaurant_session_v1', JSON.stringify(session));
-                state.tempRestaurantSession = null;
-
-                showToast("✅ Bolo guardado. Iniciando sesión de restaurante...", "success");
-                setTimeout(() => navigate('#/restaurant'), 1000);
-                return;
             }
 
             let msg = "Bolo registrado con éxito (Local).";

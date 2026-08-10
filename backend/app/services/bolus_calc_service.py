@@ -121,8 +121,8 @@ async def calculate_bolus_stateless_service(
 
         iob_settings = IOBConfig(
             dia_hours=payload.dia_hours or 4.0,
-            curve="walsh",
-            peak_minutes=75,
+            curve=payload.insulin_model or "walsh",
+            peak_minutes=payload.insulin_peak_minutes or 75,
         )
 
         ns_settings = NightscoutConfig(
@@ -288,49 +288,6 @@ async def calculate_bolus_stateless_service(
             logger.error("Stateless Nightscout glucose fallback failed: %s", exc)
             glucose_status.status = "unavailable"
 
-    db_events = []
-    if session:
-        try:
-            from app.models.treatment import Treatment as DBTreatment
-            from sqlalchemy import select
-
-            stmt = (
-                select(DBTreatment)
-                .where(DBTreatment.user_id == user.username)
-                .order_by(DBTreatment.created_at.desc())
-                .limit(50)
-            )
-            result = await session.execute(stmt)
-            rows = result.scalars().all()
-            for row in rows:
-                if row.insulin and row.insulin > 0:
-                    created_iso = row.created_at.isoformat()
-                    if not created_iso.endswith("Z") and "+" not in created_iso:
-                        created_iso += "Z"
-                    db_events.append({"ts": created_iso, "units": float(row.insulin)})
-        except Exception as db_err:
-            logger.error(f"Failed to fetch DB events for IOB: {db_err}")
-
-    if db_events:
-        try:
-            latest = db_events[0]
-            lat_ts = datetime.fromisoformat(latest["ts"])
-            if lat_ts.tzinfo is None:
-                lat_ts = lat_ts.replace(tzinfo=timezone.utc)
-
-            now_ts = datetime.now(timezone.utc)
-            diff_min = int((now_ts - lat_ts).total_seconds() / 60)
-
-            if diff_min >= 0:
-                payload.last_bolus_minutes = diff_min
-                logger.info(
-                    "Safety: Detected last bolus %s min ago (%s U)",
-                    diff_min,
-                    latest["units"],
-                )
-        except Exception as e:
-            logger.warning(f"Failed to calc last bolus time: {e}")
-
     if ns_client is None and ns_config.enabled and ns_config.url:
         ns_client = NightscoutClient(
             base_url=ns_config.url,
@@ -413,7 +370,6 @@ async def calculate_bolus_stateless_service(
             user_settings,
             ns_client,
             store,
-            extra_boluses=db_events,
             user_id=user.username,
             persist_cache=persist_iob_cache,
         )
@@ -432,7 +388,7 @@ async def calculate_bolus_stateless_service(
                 status_code=424,
                 detail={
                     "error_code": "IOB_UNAVAILABLE_CONFIRM_REQUIRED",
-                    "message": "IOB/COB no disponible (treatments). Confirma para calcular sin IOB.",
+                    "message": "IOB no disponible. Confirma el estado y aporta un IOB manual para continuar.",
                     "requires_confirmation": True,
                     "required_flag": "confirm_iob_unknown",
                     "iob": iob_info.model_dump(),
@@ -453,7 +409,7 @@ async def calculate_bolus_stateless_service(
                 status_code=424,
                 detail={
                     "error_code": "IOB_STALE_CONFIRM_REQUIRED",
-                    "message": "IOB/COB desactualizado. Confirma para calcular asumiendo IOB=0.",
+                    "message": "IOB desactualizado. Confirma el estado y aporta un IOB manual; no se asumirá 0.",
                     "requires_confirmation": True,
                     "required_flag": "confirm_iob_stale",
                     "iob": iob_info.model_dump(),
@@ -508,10 +464,22 @@ async def calculate_bolus_stateless_service(
                 )
             iob_for_calc = iob_u
 
+        if breakdown:
+            try:
+                latest = max(breakdown, key=lambda item: datetime.fromisoformat(item["ts"]))
+                latest_ts = datetime.fromisoformat(latest["ts"])
+                if latest_ts.tzinfo is None:
+                    latest_ts = latest_ts.replace(tzinfo=timezone.utc)
+                diff_min = int((now - latest_ts).total_seconds() / 60)
+                if diff_min >= 0:
+                    payload.last_bolus_minutes = diff_min
+            except Exception as exc:
+                logger.warning("Failed to derive last bolus time from IOB data: %s", exc)
+
         glucose_info = GlucoseUsed(
-            # Preserve the observed value for transparency while the engine uses
-            # only `resolved_bg`, which is None when the reading is unsafe.
-            mgdl=reported_bg,
+            # Only a value that passed freshness, conflict and source validation
+            # is allowed into the dosing engine.
+            mgdl=resolved_bg,
             source=bg_source,
             trend=bg_trend,
             age_minutes=bg_age_minutes,

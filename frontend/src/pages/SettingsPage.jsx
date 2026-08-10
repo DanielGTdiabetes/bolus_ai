@@ -319,7 +319,7 @@ function NightscoutPanel() {
 
         // Confirmation logic if secret is empty but previously set
         if (!secret && hasSecret) {
-            if (!window.confirm("No has escrito el Token. ¿Guardar SIN cambiar el secreto? \n(Si has cambiado la URL, debes reescribir el secreto).")) {
+            if (!window.confirm("No has escrito el Token. ¿Guardar SIN cambiar el secreto?\n(Si has cambiado la URL, debes reescribir el secreto).")) {
                 return;
             }
             // If they proceed, we assume they want to keep the secret. 
@@ -1234,7 +1234,7 @@ function DataPanel() {
         const file = e.target.files[0];
         if (!file) return;
 
-        if (!window.confirm("⚠️ IMPORTANTE: Al importar, se sobreescribirán los datos existentes si coinciden los IDs. \n\n¿Seguro que quieres restaurar esta copia de seguridad?")) {
+        if (!window.confirm("⚠️ IMPORTANTE: Al importar, se sobreescribirán los datos existentes si coinciden los IDs.\n\n¿Seguro que quieres restaurar esta copia de seguridad?")) {
             e.target.value = null;
             return;
         }

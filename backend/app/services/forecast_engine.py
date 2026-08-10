@@ -745,12 +745,6 @@ class ForecastEngine:
             confidence = "medium"
             reasons.append(f"Fibra ({c.fiber_g}g)")
 
-        # Rule E: Dessert Mode (Fast sugar)
-        if getattr(c, 'is_dessert', False):
-            profile = "fast"
-            confidence = "high"
-            reasons.insert(0, "Modo Microbolos (Azúcares rápidos)")
-
         # Rule D: Liquid sugars (Placeholder - typically would come from a 'tags' field or food name)
         # For now, if carbs > 0 and everything else is 0, we treat it as faster than normal if it's small, 
         # but standard "med" is safer for "No Info".

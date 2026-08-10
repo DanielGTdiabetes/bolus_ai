@@ -1,74 +1,47 @@
-// sw.js - Service Worker for caching app shell
-const CACHE_NAME = 'bolus-ai-v3';
-const ASSETS = [
-    './',
-    './index.html',
-    './src/style.css',
-    './src/main.js',
-    './manifest.json'
-];
+// Legacy service-worker kill switch.
+//
+// Bolus AI no longer uses a service worker for frontend asset caching because
+// cache-first handling of Vite's hashed lazy chunks can mix two deployments.
+// Keeping this file lets browsers that still have an older worker registered
+// receive one final update that clears Bolus AI caches and unregisters itself.
 
-self.addEventListener('install', (e) => {
-    // Skip waiting forces the new SW to activate immediately
+const LEGACY_CACHE_PREFIX = 'bolus-ai-';
+
+self.addEventListener('install', (event) => {
     self.skipWaiting();
-    e.waitUntil(
-        caches.open(CACHE_NAME).then((cache) => {
-            return cache.addAll(ASSETS);
-        })
-    );
+    event.waitUntil(Promise.resolve());
 });
 
-// Take control of all clients immediately
-self.addEventListener('activate', (e) => {
-    e.waitUntil(
-        Promise.all([
-            // Clear old caches
-            caches.keys().then(names =>
-                Promise.all(names.filter(n => n !== CACHE_NAME).map(n => caches.delete(n)))
-            ),
-            // Take control of all clients
-            self.clients.claim()
-        ])
-    );
-});
+self.addEventListener('activate', (event) => {
+    event.waitUntil((async () => {
+        try {
+            const cacheNames = await caches.keys();
+            await Promise.all(
+                cacheNames
+                    .filter((name) => name.startsWith(LEGACY_CACHE_PREFIX))
+                    .map((name) => caches.delete(name)),
+            );
+        } catch (error) {
+            console.warn('Could not clear legacy Bolus AI caches.', error);
+        }
 
-self.addEventListener('fetch', (e) => {
-    // 1. API: Network Only (Never cache, always needs live data or fails)
-    if (e.request.url.includes('/api/')) {
-        // Must explicitly respond with network fetch, otherwise request hangs
-        e.respondWith(fetch(e.request));
-        return;
-    }
+        try {
+            await self.registration.unregister();
+        } catch (error) {
+            console.warn('Could not unregister legacy Bolus AI service worker.', error);
+        }
 
-    // 2. Assets (JS, CSS, Images, HTML): Stale-While-Revalidate / Cache First with update
-    // This ensures that if the user visits the page, we save the chunks for offline usage automatically
-    // regardless of their hashed filenames.
-    e.respondWith(
-        caches.match(e.request).then((cachedResponse) => {
-            // Strategy: Return cached if found, BUT also fetch update in background (if we wanted strict SWR)
-            // Simpler for stability: Cache First, falling back to network, and caching that network response.
-
-            if (cachedResponse) {
-                return cachedResponse;
+        try {
+            const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+            for (const client of clients) {
+                client.postMessage({ type: 'BOLUS_AI_LEGACY_SW_REMOVED' });
             }
-
-            return fetch(e.request).then((networkResponse) => {
-                // Check if valid response
-                if (!networkResponse || networkResponse.status !== 200 || networkResponse.type !== 'basic') {
-                    return networkResponse;
-                }
-
-                // Cache it for future offline access
-                const responseToCache = networkResponse.clone();
-                caches.open(CACHE_NAME).then((cache) => {
-                    cache.put(e.request, responseToCache);
-                });
-
-                return networkResponse;
-            }).catch(() => {
-                // If offline and not in cache, we could return a fallback.html, but usually SPA index.html is enough
-                // if we visited it before.
-            });
-        })
-    );
+        } catch (error) {
+            console.warn('Could not notify clients about service worker cleanup.', error);
+        }
+    })());
 });
+
+// Never intercept requests. Network responses always win while this worker is
+// waiting to be replaced/removed.
+self.addEventListener('fetch', () => {});

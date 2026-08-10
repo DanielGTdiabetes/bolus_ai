@@ -68,8 +68,8 @@ def compute_iob(now: datetime, boluses: Sequence[dict[str, float]], profile: Ins
     return max(total, 0.0)
 
 
-def _boluses_from_events(events: list[dict]) -> list[dict[str, float]]:
-    boluses: list[dict[str, float]] = []
+def _boluses_from_events(events: list[dict]) -> list[dict]:
+    boluses: list[dict] = []
     for event in events:
         if event.get("type") != "bolus":
             continue
@@ -83,23 +83,201 @@ def _boluses_from_events(events: list[dict]) -> list[dict[str, float]]:
         units = float(event.get("units", 0))
         ts = event.get("ts")
         if units > 0 and ts:
-            boluses.append({"ts": ts, "units": units})
+            event_id = event.get("id") or event.get("_id") or event.get("event_id")
+            boluses.append({
+                "ts": ts,
+                "units": units,
+                "id": str(event_id) if event_id else None,
+                "source": "local_events",
+                "duration": float(event.get("duration", 0) or 0),
+                "entered_by": event.get("enteredBy") or event.get("entered_by"),
+            })
     return boluses
 
 
-def _boluses_from_treatments(treatments) -> list[dict[str, float]]:
-    boluses: list[dict[str, float]] = []
+def _boluses_from_treatments(treatments) -> list[dict]:
+    boluses: list[dict] = []
     for treatment in treatments:
         units = getattr(treatment, "insulin", None)
         ts = getattr(treatment, "created_at", None)
         if units is None or ts is None:
             continue
+        treatment_id = (
+            getattr(treatment, "id", None)
+            or getattr(treatment, "_id", None)
+            or getattr(treatment, "event_id", None)
+        )
         boluses.append({
-            "ts": ts.isoformat(), 
+            "ts": ts.isoformat() if hasattr(ts, "isoformat") else str(ts),
             "units": float(units),
-            "duration": float(getattr(treatment, "duration", 0) or 0)
+            "duration": float(getattr(treatment, "duration", 0) or 0),
+            "id": str(treatment_id) if treatment_id else None,
+            "source": "nightscout",
+            "entered_by": getattr(treatment, "enteredBy", None)
+            or getattr(treatment, "entered_by", None),
         })
     return boluses
+
+
+def _identity_values(bolus: dict) -> set[str]:
+    values = set()
+    for field in ("id", "event_id", "source_id", "nightscout_id"):
+        value = bolus.get(field)
+        if value:
+            values.add(str(value))
+    aliases = bolus.get("identity_aliases") or []
+    values.update(str(value) for value in aliases if value)
+    return values
+
+
+def _legacy_fingerprint(bolus: dict) -> tuple[str, float] | None:
+    """Exact fallback for legacy records that have no persistent identity.
+
+    We deliberately do not use time windows. Two equal doses 20, 60 or 120
+    minutes apart are distinct. Only an exact normalized timestamp and dose can
+    identify the same legacy record mirrored across stores.
+    """
+    try:
+        ts = _parse_timestamp(str(bolus["ts"])).isoformat(timespec="seconds")
+        return ts, round(float(bolus["units"]), 4)
+    except Exception:
+        return None
+
+
+def _merge_unique_boluses(*sources: Sequence[dict]) -> list[dict]:
+    unique: list[dict] = []
+    identities: set[str] = set()
+    all_fingerprints: set[tuple[str, float]] = set()
+    legacy_fingerprints: set[tuple[str, float]] = set()
+
+    for source in sources:
+        for candidate in source or []:
+            candidate_ids = _identity_values(candidate)
+            if candidate_ids and identities.intersection(candidate_ids):
+                continue
+
+            fingerprint = _legacy_fingerprint(candidate)
+            # Exact fingerprints are used when either side is legacy. Records
+            # with different stable identities remain distinct by design.
+            is_legacy = not candidate_ids
+            # If either side has no stable identity, an exact timestamp+dose is
+            # the only conservative compatibility fallback. Two records that
+            # both have distinct stable identities are always kept.
+            duplicate_with_legacy = bool(
+                fingerprint
+                and (
+                    (is_legacy and fingerprint in all_fingerprints)
+                    or (not is_legacy and fingerprint in legacy_fingerprints)
+                )
+            )
+            if duplicate_with_legacy:
+                continue
+
+            unique.append(candidate)
+            identities.update(candidate_ids)
+            if fingerprint:
+                all_fingerprints.add(fingerprint)
+                if is_legacy:
+                    legacy_fingerprints.add(fingerprint)
+
+    return unique
+
+
+async def _load_iob_sources(
+    *,
+    now: datetime,
+    settings: UserSettings,
+    nightscout_client,
+    data_store: DataStore,
+    user_id: Optional[str],
+) -> tuple[list[dict], list[dict], list[dict], Optional[str], Optional[str], Optional[str]]:
+    """Load authoritative and fallback IOB sources without conflating failure and zero."""
+    db_boluses: list[dict] = []
+    local_boluses: list[dict] = []
+    ns_boluses: list[dict] = []
+    db_error: Optional[str] = None
+    local_error: Optional[str] = None
+    ns_error: Optional[str] = None
+
+    try:
+        engine = get_engine()
+        if engine is None:
+            raise RuntimeError("motor de base de datos no disponible")
+        async with AsyncSession(engine) as session:
+            cutoff = (now - timedelta(hours=settings.iob.dia_hours + 1)).replace(tzinfo=None)
+            params = {"cutoff": cutoff}
+            user_filter = ""
+            if user_id:
+                user_filter = "AND user_id = :user_id"
+                params["user_id"] = user_id
+            query = text(f"""
+                SELECT id, nightscout_id, created_at, insulin, duration,
+                       event_type, notes, entered_by
+                FROM treatments
+                WHERE created_at > :cutoff
+                  AND insulin > 0
+                  {user_filter}
+            """)
+            result = await session.execute(query, params)
+            for row in result.fetchall():
+                event_type = (getattr(row, "event_type", "") or "").lower()
+                notes = (getattr(row, "notes", "") or "").lower()
+                if "basal" in event_type or "basal" in notes or "lenta" in notes:
+                    continue
+                created_at = row.created_at
+                if isinstance(created_at, str):
+                    created_at = _parse_timestamp(created_at)
+                ts = (
+                    created_at.replace(tzinfo=timezone.utc).isoformat()
+                    if created_at.tzinfo is None
+                    else created_at.astimezone(timezone.utc).isoformat()
+                )
+                local_id = str(row.id) if row.id else None
+                ns_id = str(row.nightscout_id) if row.nightscout_id else None
+                db_boluses.append({
+                    "ts": ts,
+                    "units": float(row.insulin),
+                    "duration": float(getattr(row, "duration", 0) or 0),
+                    "id": local_id,
+                    "nightscout_id": ns_id,
+                    "identity_aliases": [value for value in (local_id, ns_id) if value],
+                    "source": "local_db",
+                    "entered_by": getattr(row, "entered_by", None),
+                })
+    except Exception as exc:
+        db_error = f"tratamientos locales no disponibles: {exc}"
+        logger.error("Failed to fetch DB treatments for IOB: %s", exc)
+
+    try:
+        local_events = data_store.load_events()
+        if user_id:
+            local_events = [event for event in local_events if event.get("user_id") == user_id]
+        local_boluses = _boluses_from_events(local_events)
+    except Exception as exc:
+        local_error = f"eventos locales no disponibles: {exc}"
+        logger.error("Failed to load local events for IOB: %s", exc)
+
+    if nightscout_client is not None:
+        try:
+            treatments = await nightscout_client.get_recent_treatments(
+                hours=math.ceil(settings.iob.dia_hours + 1),
+                limit=500,
+            )
+            # External records without a persistent identity are not safe to
+            # merge because they cannot be distinguished from local mirrors.
+            parsed_ns_boluses = _boluses_from_treatments(treatments)
+            ns_boluses = [
+                bolus for bolus in parsed_ns_boluses if _identity_values(bolus)
+            ]
+            if len(ns_boluses) != len(parsed_ns_boluses):
+                ns_error = (
+                    "Nightscout devolvió tratamientos de insulina sin identidad estable"
+                )
+        except Exception as exc:
+            ns_error = f"Nightscout no disponible: {exc}"
+            logger.error("Failed to fetch Nightscout treatments for IOB: %s", exc)
+
+    return db_boluses, local_boluses, ns_boluses, db_error, local_error, ns_error
 
 
 from app.models.iob import IOBInfo, IOBStatus, SourceStatus, COBInfo, COBStatus
@@ -109,10 +287,10 @@ async def compute_iob_from_sources(
     settings: UserSettings,
     nightscout_client,
     data_store: DataStore,
-    extra_boluses: list[dict[str, float]] | None = None,
+    extra_boluses: list[dict] | None = None,
     user_id: Optional[str] = None,
     persist_cache: bool = True,
-) -> tuple[Optional[float], list[dict[str, float]], IOBInfo, Optional[str]]:
+) -> tuple[Optional[float], list[dict], IOBInfo, Optional[str]]:
     """
     Computes IOB with detailed status reporting.
     Returns: (internal_iob, breakdown, iob_info, warning_msg)
@@ -123,8 +301,8 @@ async def compute_iob_from_sources(
         peak_minutes=settings.iob.peak_minutes,
     )
 
-    boluses: list[dict[str, float]] = []
-    breakdown: list[dict[str, float]] = []
+    boluses: list[dict] = []
+    breakdown: list[dict] = []
     
     iob_status: IOBStatus = "unavailable"
     iob_reason: Optional[str] = None
@@ -145,204 +323,66 @@ async def compute_iob_from_sources(
         cache_iob = None
         cache_ts = None
     
-    ns_error = None
-
-    # 1. Skip Fetch from Nightscout (Write-Only Mode for Treatments)
-    # User requested to NEVER read treatments from NS, only write.
-    # We rely exclusively on Local DB.
-    iob_source = "local_only"
-    treatments_status.status = "ok" # Local is the source of truth
-    treatments_status.fetched_at = now
+    (
+        db_boluses,
+        local_boluses,
+        ns_boluses,
+        db_error,
+        local_error,
+        ns_error,
+    ) = await _load_iob_sources(
+        now=now,
+        settings=settings,
+        nightscout_client=nightscout_client,
+        data_store=data_store,
+        user_id=user_id,
+    )
     
-    # We set ns_boluses to empty
-    ns_boluses = []
-            
-    # 1.5 Fetch Local DB (Active Records)
-    # Using SQL directly to avoid circular imports or complex deps
-    db_boluses = []
-    try:
-        engine = get_engine()
-        if engine:
-            async with AsyncSession(engine) as session:
-                # Look back dia_hours + buffer
-                # Fix TZ mismatch: DB stores naive UTC usually.
-                cutoff_aware = now - timedelta(hours=settings.iob.dia_hours + 1)
-                cutoff_naive = cutoff_aware.replace(tzinfo=None) # Strip TZ for comparison
-                
-                # Query treatments table
-                params = {"cutoff": cutoff_naive}
-                if user_id:
-                    query = text("""
-                        SELECT created_at, insulin, event_type, notes
-                        FROM treatments 
-                        WHERE created_at > :cutoff 
-                        AND insulin > 0
-                        AND user_id = :user_id
-                    """)
-                    params["user_id"] = user_id
-                else:
-                    query = text("""
-                        SELECT created_at, insulin, event_type, notes
-                        FROM treatments 
-                        WHERE created_at > :cutoff 
-                        AND insulin > 0
-                    """)
-                
-                result = await session.execute(query, params)
-                rows = result.fetchall()
-                
-                for r in rows:
-                    if r.created_at and r.insulin:
-                        # Filter out Basal
-                        evt_type = (getattr(r, "event_type", "") or "").lower()
-                        notes_val = (getattr(r, "notes", "") or "").lower()
-                        
-                        # Exclude obvious basal entries
-                        if "basal" in evt_type or "basal" in notes_val or "lenta" in notes_val:
-                            continue
-
-                        ts_iso = r.created_at.replace(tzinfo=timezone.utc).isoformat() if r.created_at.tzinfo is None else r.created_at.isoformat()
-                        db_boluses.append({
-                            "ts": ts_iso,
-                            "units": float(r.insulin)
-                        })
-    except Exception as e:
-        logger.error(f"Failed to fetch DB treatments for IOB: {e}")
-
-    # Merge into extra_boluses if present
-    if db_boluses:
-        if extra_boluses is None: extra_boluses = []
-        extra_boluses.extend(db_boluses)
-        if iob_source == "unknown": iob_source = "local_db"
-            
-    # 2. Fetch from Local Store (Always, to catch recent pending uploads)
-    local_boluses = []
-    try:
-        local_events = data_store.load_events()
-        if local_events:
-            if user_id:
-                local_events = [e for e in local_events if e.get("user_id") == user_id]
-            local_boluses = _boluses_from_events(local_events)
-    except Exception as e:
-        logger.error(f"Failed to load local events: {e}")
-    
-    # 3. Merge Local + Extra (DB) + Nightscout
-    unique_boluses = []
-    
-    # Start with Local as base (most trusted for recent)
-    unique_boluses.extend(local_boluses)
+    boluses = _merge_unique_boluses(
+        db_boluses,
+        local_boluses,
+        extra_boluses or [],
+        ns_boluses,
+    )
     
     def _safe_parse(ts_val):
         try:
             return _parse_timestamp(str(ts_val))
         except Exception:
-            logger.warning(f"Failed to parse timestamp: {ts_val}", exc_info=True)
+            logger.warning("Failed to parse IOB timestamp: %s", ts_val, exc_info=True)
             return None
-
-    def _is_duplicate(candidate: dict, existing_list: list[dict]) -> bool:
-        c_ts = _safe_parse(candidate["ts"])
-        if not c_ts: return True # Skip invalid candidate
-        
-        c_units = float(candidate["units"])
-        
-        for ex in existing_list:
-            ex_ts = _safe_parse(ex["ts"])
-            if not ex_ts: continue 
-            
-            ex_units = float(ex["units"])
-            
-            # Check units (exact or very close)
-            if abs(c_units - ex_units) > 0.01:
-                continue
-                
-            # Check time (within 15 minutes tolerance for clock skew/format diffs)
-            diff_seconds = abs((c_ts - ex_ts).total_seconds())
-            
-            # 1. Standard close proximity (15 min)
-            if diff_seconds < 900: 
-                return True
-                
-            # 2. Timezone Glitch Guard
-            # Often local time is parsed as UTC, creating 1h (CET) or 2h (CEST) offsets.
-            # If units are identical and time difference is exactly ~1h or ~2h, treat as dupe.
-            # Tolerance 5 min around the hour mark.
-            
-            # Check 1 hour (3600s)
-            if abs(diff_seconds - 3600) < 300:
-                return True
-                
-            # Check 2 hours (7200s)
-            if abs(diff_seconds - 7200) < 300:
-                return True
-                
-        return False
-        
-    # Merge DB into Unique
-    if extra_boluses:
-        for b in extra_boluses:
-            if not _is_duplicate(b, unique_boluses):
-                unique_boluses.append(b)
-
-    # Merge NS into Unique
-    for b in ns_boluses:
-        if not _is_duplicate(b, unique_boluses):
-            unique_boluses.append(b)
-            
-    boluses = unique_boluses
     
-    # 3. Analyze Status & Safety
-    # Detect if we are relying on stale local data while NS is down
-    has_recent_local = False
-    if boluses:
-        try:
-             # Check if we have any bolus coverage in the last DIA window (e.g. 4h)
-             # If all boluses are older than 4h, and NS is down, we have a "Data Gap" risk.
-             cutoff_gap = now - timedelta(hours=settings.iob.dia_hours)
-             for b in boluses:
-                 bts = _safe_parse(b["ts"])
-                 if bts and bts > cutoff_gap:
-                     has_recent_local = True
-                     break
-        except Exception:
-             pass
+    active_sources = ["local_db"]
+    if local_boluses:
+        active_sources.append("local_events")
+    if ns_boluses:
+        active_sources.append("nightscout")
+    iob_source = "+".join(active_sources)
+    treatments_status.source = iob_source
+    treatments_status.fetched_at = now
 
-    if ns_error:
-        if not boluses:
-            # Case A: No data at all + NS Error -> Unavailable unless cache exists
-            if cache_iob is not None:
-                iob_status = "stale"
-                warning_msg = f"IOB desactualizado: {iob_reason} (usando último valor cacheado)."
-                treatments_status.status = "stale"
-            else:
-                iob_status = "unavailable"
-                warning_msg = f"IOB no disponible: {iob_reason} (sin datos locales)."
-        elif not has_recent_local:
-            # Case B: Old data only + NS Error ->
-            # Relaxed Logic: If we successfully queried the local DB (implied by execution reaching here without DB error),
-            # and found nothing recent, it likely means IOB is 0.
-            # We should only error if we specifically suspect a data gap (e.g. fresh install with no history).
-            # But generally, silence is 0.
-            
-            # Use Local Fallback
-            iob_status = "partial" # Mark as partial to indicate NS is missing, but value is valid (0)
-            warning_msg = f"Nightscout caído ({iob_reason}). Asumiendo 0 IOB por falta de datos recientes."
-            treatments_status.status = "error"
-            
-        else:
-            # Case C: Recent local data exists + NS Error -> Partial
-            iob_status = "partial"
-            warning_msg = f"Nightscout caído ({iob_reason}). Usando datos locales recientes."
-            treatments_status.status = "error"
-            
-    elif not boluses:
-        # Success fetching (Local), but nothing found. Value is 0.
-        iob_status = "ok"
-        treatments_status.status = "ok"
+    # A source failure is never converted into a known zero.
+    hard_failures = [reason for reason in (db_error, ns_error) if reason]
+    if hard_failures:
+        iob_status = "stale" if cache_iob is not None else "unavailable"
+        iob_reason = "; ".join(hard_failures)
+        warning_msg = (
+            f"IOB no verificable: {iob_reason}. "
+            "Requiere IOB manual o confirmación."
+        )
+        treatments_status.status = "stale" if cache_iob is not None else "error"
+    elif local_error:
+        iob_status = "partial"
+        iob_reason = local_error
+        warning_msg = f"IOB calculado desde tratamientos persistidos; {local_error}."
+        treatments_status.status = "error"
     else:
-        # Success and data found
+        # Zero is valid only after every required source returned successfully.
         iob_status = "ok"
+        iob_reason = None
+        warning_msg = None
         treatments_status.status = "ok"
-    
+
     # 3. Compute
     total = 0.0
     for bolus in boluses:
@@ -406,7 +446,9 @@ async def compute_iob_from_sources(
                 "ts": ts.isoformat(), 
                 "units": units, 
                 "iob": contribution,
-                "duration": duration
+                "duration": duration,
+                "id": bolus.get("id"),
+                "source": bolus.get("source", "unknown"),
             })
 
     breakdown.sort(key=lambda item: item["ts"], reverse=True)

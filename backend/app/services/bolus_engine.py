@@ -273,18 +273,28 @@ def _calculate_core(inp: CalculationInput) -> CalculationResult:
         explain.append("B) Corrección: 0 U (Falta glucosa o antigua)")
         
     # --- 4. IOB ---
-    # Only reduces Upfront part (Simple)
-    total_base_upfront = meal_u + corr_u
-    
-    if inp.ignore_iob:
-        upfront_net = total_base_upfront
-        explain.append(f"C) IOB: {inp.iob_u:.2f} U IGNORADO (Estrategia Postre)")
+    # Pharmacological IOB protects only against an additional positive glucose
+    # correction. It must never be interpreted as coverage for carbohydrates
+    # that are being entered now. A negative correction remains a prudent
+    # low-glucose adjustment to the meal component.
+    positive_correction = max(corr_u, 0.0)
+    low_bg_adjustment = min(corr_u, 0.0)
+    correction_after_iob = max(positive_correction - inp.iob_u, 0.0)
+    iob_applied_to_correction = positive_correction - correction_after_iob
+    upfront_net = max(0.0, meal_u + low_bg_adjustment + correction_after_iob)
+
+    if positive_correction > 0:
+        explain.append(
+            f"C) IOB: {inp.iob_u:.2f} U activos; "
+            f"aplicados {iob_applied_to_correction:.2f} U solo a corrección. "
+            f"Corrección restante: {correction_after_iob:.2f} U"
+        )
+    elif inp.iob_u > 0:
+        explain.append(
+            f"C) IOB: {inp.iob_u:.2f} U activos. No se descuentan de los hidratos nuevos."
+        )
     else:
-        upfront_net = max(0.0, total_base_upfront - inp.iob_u)
-        if inp.iob_u > 0:
-            explain.append(f"C) IOB: {inp.iob_u:.2f} U activos. Neto Upfront: {upfront_net:.2f} U")
-        else:
-            explain.append("C) IOB: 0 U")
+        explain.append("C) IOB: 0 U")
         
     later_base = warsaw_later_u + fiber_extension_u
     if later_base > 0:
@@ -435,7 +445,6 @@ def calculate_bolus_v2(
         warsaw_trigger=request.warsaw_trigger_threshold_kcal or settings.warsaw.trigger_threshold_kcal,
         techne_enabled=settings.techne.enabled,
         techne_max_step=settings.techne.max_step_change,
-        ignore_iob=request.ignore_iob,
         alcohol_mode=request.alcohol,
         strategy=request.strategy,
         max_iob_u=getattr(settings, 'max_iob_u', None),

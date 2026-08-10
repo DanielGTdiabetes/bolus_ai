@@ -11,7 +11,6 @@ import { formatTrend, formatNotes } from '../modules/core/utils';
 import { navigate } from '../modules/core/navigation';
 import { useStore } from '../hooks/useStore';
 import { getDualPlan, getDualPlanTiming, syncSettings } from '../modules/core/store';
-import { RESTAURANT_MODE_ENABLED } from '../lib/featureFlags';
 
 import { MainGlucoseChart } from '../components/charts/MainGlucoseChart';
 import { CompanionPanel } from '../components/companion/CompanionPanel';
@@ -407,61 +406,6 @@ function ActivityList({ onRefresh }) {
     );
 }
 
-// ... (previous code)
-
-function RestaurantActivePanel() {
-    const [session, setSession] = useState(null);
-
-    const checkSession = () => {
-        try {
-            const raw = localStorage.getItem('restaurant_session_v1');
-            if (!raw) {
-                setSession(null);
-                return;
-            }
-            const parsed = JSON.parse(raw);
-            // Consider active if initiated (expectedCarbs) and NOT finalized
-            const isActive = parsed.expectedCarbs && !parsed.finalizedAt;
-            // Also check TTL to avoid showing ancient sessions
-            const age = Date.now() - new Date(parsed.createdAt).getTime();
-            const TTL = 6 * 60 * 60 * 1000;
-
-            if (isActive && age < TTL) {
-                setSession(parsed);
-            } else {
-                setSession(null);
-            }
-        } catch {
-            setSession(null);
-        }
-    };
-
-    useInterval(checkSession, 5000); // Check every 5s
-    useEffect(checkSession, []);
-
-    if (!session) return null;
-
-    const actualCarbs = session.plates?.reduce((s, p) => s + (p.carbs || 0), 0) || 0;
-
-    return (
-        <section className="card active-session-card" style={{ marginBottom: '1rem', background: '#fdf4ff', borderColor: '#f0abfc', border: '1px solid #e879f9', borderRadius: '12px', padding: '1rem' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div>
-                    <h3 style={{ margin: 0, color: '#a21caf', fontSize: '1rem' }}>🍽️ Restaurante Activo</h3>
-                    <div style={{ fontSize: '0.8rem', color: '#86198f', marginTop: '4px' }}>
-                        Planificado: <strong>{session.expectedCarbs}g</strong> • Llevas: <strong>{actualCarbs}g</strong>
-                    </div>
-                </div>
-                <Button onClick={() => navigate('#/restaurant')} size="sm" style={{ background: '#c026d3', color: '#fff', border: 'none' }}>
-                    Continuar
-                </Button>
-            </div>
-        </section>
-    );
-}
-
-
-
 // U2 Dual Panel Component
 function DualBolusPanel({ onHide, onCancel }) {
     const [plan, setPlan] = useState(null);
@@ -710,7 +654,6 @@ export default function HomePage() {
                 <GlucoseHero onRefresh={refreshSignal} />
 
                 <CompanionPanel />
-                {RESTAURANT_MODE_ENABLED && <RestaurantActivePanel />}
                 {activePlan && !dualHidden && (
                     <DualBolusPanel
                         onHide={() => setDualHidden(true)}

@@ -8,8 +8,6 @@ registerView('#/supplies', () => {
   import('./bridge.jsx').then(({ mountReactPage }) => mountReactPage('supplies'));
 });
 
-import { RESTAURANT_MODE_ENABLED } from './lib/featureFlags';
-
 registerDefaultView(() => {
   import('./bridge.jsx').then(({ mountReactPage }) => mountReactPage('home'));
 });
@@ -77,12 +75,6 @@ registerView('#/bodymap', () => {
 registerView('#/favorites', () => {
   import('./bridge.jsx').then(({ mountReactPage }) => mountReactPage('favorites'));
 });
-
-if (RESTAURANT_MODE_ENABLED) {
-  registerView('#/restaurant', () => {
-    import('./bridge.jsx').then(({ mountReactPage }) => mountReactPage('restaurant'));
-  });
-}
 
 registerView('#/manual', () => {
   import('./bridge.jsx').then(({ mountReactPage }) => mountReactPage('manual'));

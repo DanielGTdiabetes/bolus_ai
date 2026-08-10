@@ -2,10 +2,12 @@ import { spawn } from 'node:child_process';
 
 const port = process.env.SMOKE_PORT || '4173';
 const host = process.env.SMOKE_HOST || '0.0.0.0';
+const isWindows = process.platform === 'win32';
+const npmCommand = isWindows ? 'npm.cmd' : 'npm';
 
 const runCommand = (command, args, options = {}) =>
   new Promise((resolve, reject) => {
-    const proc = spawn(command, args, options);
+    const proc = spawn(command, args, { ...options, shell: isWindows });
     proc.on('error', reject);
     proc.on('exit', (code) => {
       if (code === 0) resolve();
@@ -14,15 +16,16 @@ const runCommand = (command, args, options = {}) =>
   });
 
 try {
-  await runCommand('npm', ['run', 'build'], { stdio: 'inherit' });
+  await runCommand(npmCommand, ['run', 'build'], { stdio: 'inherit' });
 } catch (error) {
   console.error('Smoke build failed:', error.message);
   process.exit(1);
 }
 
-const preview = spawn('npm', ['run', 'preview', '--', '--host', host, '--port', port], {
+const preview = spawn(npmCommand, ['run', 'preview', '--', '--host', host, '--port', port], {
   stdio: ['ignore', 'pipe', 'pipe'],
-  env: { ...process.env, BROWSER: 'none' }
+  env: { ...process.env, BROWSER: 'none' },
+  shell: isWindows,
 });
 
 let ready = false;

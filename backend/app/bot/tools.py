@@ -32,7 +32,6 @@ from app.services.treatment_logger import log_treatment
 from app.services.suggestion_engine import generate_suggestions_service, get_suggestions_service, resolve_suggestion_service
 from app.api.user_data import FavoriteCreate, FavoriteRead
 from app.bot.user_settings_resolver import resolve_bot_user_settings
-from app.services.restaurant_db import RestaurantDBService
 from app.models.user_data import FavoriteFood, SupplyItem
 from app.api.user_data import SupplyRead, SupplyUpdate
 from app.services import basal_repo
@@ -163,15 +162,6 @@ class InjectionSiteResult(BaseModel):
     secondary_name: Optional[str] = None
     
     quality: str = "ok"
-
-
-class RestaurantSessionResult(BaseModel):
-    ok: bool
-    session_id: Optional[str] = None
-    status: str
-    summary: Optional[str] = None
-    error: Optional[str] = None
-
 
 
 class OptimizationResult(BaseModel):
@@ -1406,47 +1396,6 @@ AI_TOOL_DECLARATIONS = [
     },
 
     {
-        "name": "start_restaurant_session",
-        "description": "Inicia sesión modo restaurante. Define carbohidratos esperados totales.",
-        "parameters": {
-            "type": "OBJECT",
-            "properties": {
-                "expected_carbs": {"type": "NUMBER"},
-                "expected_fat": {"type": "NUMBER"},
-                "expected_protein": {"type": "NUMBER"},
-                "notes": {"type": "STRING"}
-            },
-            "required": ["expected_carbs"]
-        }
-    },
-    {
-        "name": "add_plate_to_session",
-        "description": "Añade un plato real a la sesión de restaurante activa.",
-        "parameters": {
-            "type": "OBJECT",
-            "properties": {
-                "session_id": {"type": "STRING"},
-                "carbs": {"type": "NUMBER"},
-                "fat": {"type": "NUMBER"},
-                "protein": {"type": "NUMBER"},
-                "name": {"type": "STRING"}
-            },
-            "required": ["session_id", "carbs"]
-        }
-    },
-    {
-        "name": "end_restaurant_session",
-        "description": "Finaliza sesión restaurante y calcula desviación.",
-        "parameters": {
-            "type": "OBJECT",
-            "properties": {
-                "session_id": {"type": "STRING"},
-                "outcome_score": {"type": "INTEGER", "description": "1-5"}
-            },
-            "required": ["session_id"]
-        }
-    },
-    {
         "name": "check_supplies_stock",
         "description": "Consultar inventario de suministros (agujas, sensores, reservorios).",
         "parameters": {
@@ -1479,20 +1428,6 @@ AI_TOOL_DECLARATIONS = [
         },
     }
 ]
-
-# Restaurant mode is retired from user-facing and conversational surfaces. The
-# implementation remains for one release so historic sessions can be migrated,
-# but the language model can no longer invoke these operations.
-_RETIRED_TOOL_NAMES = {
-    "start_restaurant_session",
-    "add_plate_to_session",
-    "end_restaurant_session",
-}
-AI_TOOL_DECLARATIONS = [
-    declaration for declaration in AI_TOOL_DECLARATIONS
-    if declaration.get("name") not in _RETIRED_TOOL_NAMES
-]
-
 
 async def check_supplies_stock(tool_input: dict[str, Any]) -> SupplyCheckResult | ToolError:
     try:
@@ -1561,63 +1496,6 @@ async def update_supply_quantity(tool_input: dict[str, Any]) -> SupplyCheckResul
     except Exception as e:
         logger.exception("Error updating supply")
         return ToolError(type="runtime_error", message=str(e))
-
-
-async def start_restaurant_session(expected_carbs: float, expected_fat: float = 0.0, expected_protein: float = 0.0, notes: str = "") -> RestaurantSessionResult:
-    try:
-        user_settings = await _load_user_settings() # Gets admin/bot user
-        user_id = "admin"
-        async with SessionLocal() as session:
-             user_id = await _resolve_user_id(session)
-
-        sess = await RestaurantDBService.create_session(
-            user_id=user_id,
-            expected_carbs=expected_carbs,
-            expected_fat=expected_fat,
-            expected_protein=expected_protein,
-            items=[],
-            notes=notes
-        )
-        if sess:
-            return RestaurantSessionResult(ok=True, session_id=str(sess.id), status="started", summary=f"Sesión iniciada. Esperado: {expected_carbs}g HC.")
-        else:
-             return RestaurantSessionResult(ok=False, status="error", error="DB no disponible")
-    except Exception as e:
-        logger.error(f"Error starting restaurant session: {e}")
-        return RestaurantSessionResult(ok=False, status="error", error=str(e))
-
-
-async def add_plate_to_session(session_id: str, carbs: float, fat: float = 0.0, protein: float = 0.0, name: str = "Plato") -> RestaurantSessionResult:
-    try:
-        plate = {
-            "carbs": carbs,
-            "fat": fat,
-            "protein": protein,
-            "name": name,
-            "timestamp": datetime.now(timezone.utc).isoformat()
-        }
-        res = await RestaurantDBService.add_plate(session_id, plate)
-        if res:
-            return RestaurantSessionResult(ok=True, session_id=str(res.id), status="updated", summary=f"Plato añadido. Total actual: {res.actual_carbs}g HC.")
-        else:
-            return RestaurantSessionResult(ok=False, status="error", error="Sesión no encontrada")
-    except Exception as e:
-        logger.error(f"Error adding plate: {e}")
-        return RestaurantSessionResult(ok=False, status="error", error=str(e))
-
-
-async def end_restaurant_session(session_id: str, outcome_score: int = None) -> RestaurantSessionResult:
-    try:
-        res = await RestaurantDBService.finalize_session(session_id, outcome_score)
-        if res:
-            diff = res.delta_carbs
-            msg = f"Sesión finalizada. Desviación: {diff:+.1f}g HC."
-            return RestaurantSessionResult(ok=True, session_id=str(res.id), status="closed", summary=msg)
-        else:
-            return RestaurantSessionResult(ok=False, status="error", error="Sesión no encontrada")
-    except Exception as e:
-        logger.error(f"Error closing session: {e}")
-        return RestaurantSessionResult(ok=False, status="error", error=str(e))
 
 
 async def register_basal(args: Dict[str, Any]) -> RegisterBasalResult | ToolError:
@@ -1705,26 +1583,6 @@ async def execute_tool(name: str, args: Dict[str, Any]) -> Any:
         if name == "set_injection_site":
             return await set_injection_site(args)
 
-        if name == "start_restaurant_session":
-            return await start_restaurant_session(
-                expected_carbs=float(args.get("expected_carbs")),
-                expected_fat=float(args.get("expected_fat", 0)),
-                expected_protein=float(args.get("expected_protein", 0)),
-                notes=args.get("notes", "")
-            )
-        if name == "add_plate_to_session":
-            return await add_plate_to_session(
-                session_id=args.get("session_id"),
-                carbs=float(args.get("carbs")),
-                fat=float(args.get("fat", 0)),
-                protein=float(args.get("protein", 0)),
-                name=args.get("name", "Plato")
-            )
-        if name == "end_restaurant_session":
-            return await end_restaurant_session(
-                session_id=args.get("session_id"),
-                outcome_score=int(args.get("outcome_score")) if args.get("outcome_score") else None
-            )
         if name == "check_supplies_stock":
              return await check_supplies_stock(args)
         if name == "update_supply_quantity":

@@ -126,7 +126,11 @@ async def test_api_recommend_uses_nightscout_when_no_bg():
             with patch("app.services.iob.compute_iob_from_sources", return_value=(0.0, [], iob_info, None)):
                 with respx.mock(base_url="https://ns.test", assert_all_called=False) as respx_mock:
                     respx_mock.get("/api/v1/entries/sgv").mock(
-                        return_value=Response(200, json=[{"sgv": 150, "direction": "Flat", "date": 1234567890}])
+                        return_value=Response(200, json=[{
+                            "sgv": 150,
+                            "direction": "Flat",
+                            "date": int(datetime.now(timezone.utc).timestamp() * 1000),
+                        }])
                     )
 
                     payload = {

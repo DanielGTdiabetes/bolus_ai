@@ -32,6 +32,7 @@ class TreatmentLogResult:
 async def log_treatment(
     user_id: str,
     *,
+    treatment_id: Optional[str] = None,
     insulin: float = 0.0,
     carbs: float = 0.0,
     carb_profile: Optional[str] = None,
@@ -54,7 +55,7 @@ async def log_treatment(
     Persists locally, DB (if available), and Nightscout when configured.
     """
 
-    treatment_id = str(uuid.uuid4())
+    treatment_id = treatment_id or str(uuid.uuid4())
     created_dt = created_at or datetime.now(timezone.utc)
     created_iso = created_dt.isoformat()
     event_type = event_type or ("Correction Bolus" if carbs == 0 else "Meal Bolus")
@@ -70,8 +71,7 @@ async def log_treatment(
     try:
         ds = store or DataStore(Path(get_settings().data.data_dir))
         events = ds.load_events()
-        events.append(
-            {
+        event_payload = {
                 "_id": treatment_id,
                 "id": treatment_id,
                 "user_id": user_id,
@@ -91,7 +91,11 @@ async def log_treatment(
                 "ts": created_iso,
                 "units": insulin,
             }
-        )
+        if not any(
+            str(event.get("id") or event.get("_id")) == treatment_id
+            for event in events
+        ):
+            events.append(event_payload)
         if len(events) > 1000:
             events = events[-1000:]
         ds.save_events(events)
@@ -109,26 +113,28 @@ async def log_treatment(
 
     if active_session:
         try:
-            created_naive = created_dt.astimezone(timezone.utc).replace(tzinfo=None)
-            db_treatment = Treatment(
-                id=treatment_id,
-                user_id=user_id,
-                event_type=event_type,
-                created_at=created_naive,
-                insulin=insulin,
-                duration=duration,
-                carbs=carbs,
-                fat=fat,
-                protein=protein,
-                fiber=fiber,
-                glucose=glucose,
-                carb_profile=carb_profile,
-                notes=notes,
-                entered_by=entered_by,
-                is_uploaded=False,
-            )
-            active_session.add(db_treatment)
-            await active_session.commit()
+            db_treatment = await active_session.get(Treatment, treatment_id)
+            if db_treatment is None:
+                created_naive = created_dt.astimezone(timezone.utc).replace(tzinfo=None)
+                db_treatment = Treatment(
+                    id=treatment_id,
+                    user_id=user_id,
+                    event_type=event_type,
+                    created_at=created_naive,
+                    insulin=insulin,
+                    duration=duration,
+                    carbs=carbs,
+                    fat=fat,
+                    protein=protein,
+                    fiber=fiber,
+                    glucose=glucose,
+                    carb_profile=carb_profile,
+                    notes=notes,
+                    entered_by=entered_by,
+                    is_uploaded=False,
+                )
+                active_session.add(db_treatment)
+                await active_session.commit()
             saved_db = True
         except Exception as db_err:
             logger.error("Failed to save treatment to DB: %s", db_err)
@@ -148,7 +154,7 @@ async def log_treatment(
                 logger.error("Failed to fetch NS config: %s", exc)
 
     # Nightscout upload
-    if ns_url:
+    if ns_url and not (db_treatment and db_treatment.is_uploaded):
         try:
             client = NightscoutClient(ns_url, ns_token, timeout_seconds=5)
             ns_payload = {

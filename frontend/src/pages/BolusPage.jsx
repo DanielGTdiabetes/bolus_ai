@@ -36,7 +36,6 @@ export default function BolusPage() {
 
     // Toggles
     const [correctionOnly, setCorrectionOnly] = useState(false);
-    const [dessertMode, setDessertMode] = useState(false);
     const [dualEnabled, setDualEnabled] = useState(false);
     const [autoDualApplied, setAutoDualApplied] = useState(false);
     const [autoDualReason, setAutoDualReason] = useState(null);
@@ -116,12 +115,6 @@ export default function BolusPage() {
             setLearningHint(state.tempLearningHint);
             state.tempLearningHint = null;
         }
-        if (state.tempReason === 'restaurant_menu') {
-            setDualEnabled(true);
-            setAutoDualReason("Modo Restaurante (Bolo Dual sugerido)");
-            setAutoDualApplied(true);
-        }
-
         if (state.tempBolusKind) {
             setVisionBolusKind(state.tempBolusKind);
             state.tempBolusKind = null;
@@ -328,7 +321,7 @@ export default function BolusPage() {
 
     const handleCalculateClick = (override = {}) => {
         calculate({
-            glucose, carbs, slot, correctionOnly, dessertMode, dualEnabled,
+            glucose, carbs, slot, correctionOnly, dualEnabled,
             alcoholEnabled, exercise: { planned: exerciseEnabled, minutes: exerciseMinutes, intensity: exerciseIntensity },
             overrideParams: override,
             carbProfile,
@@ -540,10 +533,6 @@ export default function BolusPage() {
                             <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.9rem' }}>
                                 <input type="checkbox" checked={correctionOnly} onChange={e => { setCorrectionOnly(e.target.checked); if (e.target.checked) { setCarbs("0"); setDualEnabled(false); setAutoDualReason(null); } }} />
                                 Solo Corrección
-                            </label>
-                            <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.9rem' }}>
-                                <input type="checkbox" checked={dessertMode} onChange={e => { setDessertMode(e.target.checked); if (e.target.checked) setDualEnabled(false); }} />
-                                Modo Microbolos
                             </label>
                         </div>
 

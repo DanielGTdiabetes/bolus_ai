@@ -1,7 +1,6 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { ToastContainer } from './components/ui/Toast';
-import { RESTAURANT_MODE_ENABLED } from './lib/featureFlags';
 import { ErrorBoundary } from './components/ui/ErrorBoundary';
 
 const PAGE_LOADERS = {
@@ -28,10 +27,6 @@ const PAGE_LOADERS = {
     status: () => import('./pages/StatusPage'),
     manual: () => import('./pages/ManualCalculatorPage'),
 };
-
-if (RESTAURANT_MODE_ENABLED) {
-    PAGE_LOADERS.restaurant = () => import('./pages/RestaurantPage');
-}
 
 let reactRoot = null;
 let reactContainer = null;

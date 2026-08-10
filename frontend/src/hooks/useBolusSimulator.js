@@ -9,13 +9,13 @@ export function useBolusSimulator() {
 
     /**
      * Run Forecast Simulation
-     * @param {Object} context - { doseNow, doseLater, carbsVal, params, slot, carbProfile, dessertMode, result, nsConfig }
+     * @param {Object} context - Calculation and meal context.
      */
     const runSimulation = useCallback(async (context) => {
         const {
             doseNow, doseLater, carbsVal,
             params, slot, carbProfile,
-            dessertMode, result, nsConfig,
+            result, nsConfig,
             settingsAbsorption, mealMeta
         } = context;
 
@@ -65,7 +65,6 @@ export function useBolusSimulator() {
                 time_offset_min: 0,
                 grams: currentCarbs,
                 carb_profile: carbProfile,
-                is_dessert: dessertMode,
                 // Include Fat/Protein for Auto-Absorption Logic
                 fat_g: mealMeta?.fat || 0,
                 protein_g: mealMeta?.protein || 0,

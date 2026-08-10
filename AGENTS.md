@@ -31,39 +31,11 @@ Este flujo aplica tanto a iOS como a Android, aunque el proyecto está en una mi
 - Mantener el cálculo de bolo en Bolus AI/NAS como fuente de decisión, no en Hermes Agent ni en el MCP de FitnessPal.
 - Tratar cookies y credenciales de MyFitnessPal como secretos externos: no documentarlas ni persistirlas en el repositorio.
 
-## Modo Restaurante (Carta)
+## Funcionalidades retiradas
 
-Funcionalidad para comidas en restaurante con múltiples platos y absorción lenta:
-
-**Flujo completo:**
-1. **Foto de la carta/menú** → Gemini estima HC totales del menú completo (grasas, proteínas, HC)
-2. **Cálculo de bolo dual/extendido** → Útil para comidas largas con alta grasa
-3. **Usuario inyecta bolo inicial** → Basado en estimación de la carta
-4. **Cada plato servido** → Foto individual → Gemini estima HC reales de ESE plato
-5. **Acumulación secuencial** → Suma platos servidos vs estimado inicial
-6. **Al finalizar** → Comparación esperado vs real → sugiere ajuste (micro-bolo o carbohidratos)
-
-**Archivos clave:**
-- `backend/app/api/restaurant.py` — Endpoints: `analyze_menu`, `analyze_menu_text`, `analyze_plate`, `compare_plate`
-- `backend/app/services/restaurant.py` — Lógica de visión (Gemini), guardrails, sugerencias
-- `backend/app/models/restaurant_session.py` — persistencia en BD (`restaurant_sessions_v2`)
-- `frontend/src/pages/RestaurantPage.jsx` — Página principal
-- `frontend/src/components/restaurant/RestaurantSession.jsx` — Componente de sesión
-- `frontend/src/lib/restaurantApi.js` — Cliente API
-
-**Seguridad:**
-- Usa ISF del usuario (no hardcoded) para calcular ajustes
-- Check de IOB antes de sugerir insulina adicional (alerta si IOB > 0.5U)
-- Confianza mínima (default 0.55) para sugerir acciones
-- Delta mínimo de 8g HC para recomendar acción
-
-**Endpoints:**
-```
-POST /api/restaurant/analyze_menu      # Foto de carta → HC totales
-POST /api/restaurant/analyze_menu_text # Texto de menú → HC totales
-POST /api/restaurant/analyze_plate     # Foto de plato → HC individuales
-POST /api/restaurant/compare_plate     # Esperado vs Real → Ajuste sugerido
-```
+- El modo Restaurante/Carta y sus rutas fueron retirados; no deben reintroducirse como base de comidas prolongadas.
+- El modo Microbolos y `ignore_iob` fueron retirados; ninguna interfaz puede omitir la protección de IOB.
+- Los hidratos añadidos en una comida posterior usan el motor general, que aplica el IOB únicamente a correcciones positivas.
 
 ## Tech Stack
 

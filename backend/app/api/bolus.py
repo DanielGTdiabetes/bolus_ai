@@ -104,6 +104,7 @@ async def api_recalc_second(
     payload: RecalcSecondRequest,
     user: CurrentUser = Depends(get_current_user),
     session: AsyncSession = Depends(get_db_session),
+    store: DataStore = Depends(_data_store),
 ):
     # Inject NS Config from DB if missing in payload
     if not payload.nightscout or not payload.nightscout.url:
@@ -131,7 +132,7 @@ async def api_recalc_second(
         except Exception as e:
             logger.warning(f"Failed to inject NS config for recalc: {e}")
 
-    return await recalc_second(payload)
+    return await recalc_second(payload, store=store, user=user, session=session)
 
 @router.post("/calc", response_model=BolusResponseV2, summary="Calculate bolus (Stateless V2)")
 async def calculate_bolus_stateless(
@@ -149,6 +150,7 @@ async def calculate_bolus_stateless(
 
 
 class BolusAcceptRequest(BaseModel):
+    treatment_id: Optional[str] = Field(default=None, min_length=8, max_length=128)
     insulin: float = Field(ge=0)
     duration: float = Field(default=0.0, description="Duration in minutes for extended bolus")
     carbs: float = Field(default=0, ge=0)
@@ -252,6 +254,7 @@ async def save_treatment(
     created_dt = datetime.fromisoformat(payload.created_at.replace("Z", "+00:00"))
     result = await log_treatment(
         user_id=user.username,
+        treatment_id=payload.treatment_id,
         insulin=payload.insulin,
         carbs=payload.carbs,
         carb_profile=payload.carb_profile,
@@ -431,9 +434,6 @@ async def get_current_iob(
     if eff_url:
         ns_client = NightscoutClient(eff_url, eff_token, timeout_seconds=5)
         
-        # Fetch DB treatments for IOB
-        # Fetch DB treatments for IOB
-    db_events = []
     db_carbs = []
     if session:
          try:
@@ -453,9 +453,6 @@ async def get_current_iob(
                 if not created_iso.endswith("Z") and "+" not in created_iso:
                     created_iso += "Z"
 
-                if row.insulin and row.insulin > 0:
-                    db_events.append({"ts": created_iso, "units": float(row.insulin)})
-                
                 if row.carbs and row.carbs > 0:
                     db_carbs.append({"ts": created_iso, "carbs": float(row.carbs)}) # For COB
 
@@ -465,7 +462,7 @@ async def get_current_iob(
     try:
         now = datetime.now(timezone.utc)
         total_iob, breakdown, iob_info, iob_warning = await compute_iob_from_sources(
-            now, settings, ns_client, store, extra_boluses=db_events, user_id=user.username
+            now, settings, ns_client, store, user_id=user.username
         )
         total_cob, cob_info, cob_source_status = await compute_cob_from_sources(
             now,

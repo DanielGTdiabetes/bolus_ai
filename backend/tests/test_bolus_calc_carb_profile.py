@@ -190,3 +190,51 @@ async def test_bolus_calc_round_step_zero_from_db(monkeypatch, tmp_path):
 
     assert response.ok is True
     assert called["round_step_u"] == 0.0
+
+
+@pytest.mark.asyncio
+async def test_flat_api_request_propagates_fiasp_to_iob_curve(monkeypatch, tmp_path):
+    captured = {}
+    now = datetime.now(timezone.utc)
+
+    async def fake_iob(_now, settings, *_args, **_kwargs):
+        captured["curve"] = settings.iob.curve
+        captured["peak"] = settings.iob.peak_minutes
+        info = IOBInfo(
+            iob_u=0,
+            status="ok",
+            source="local_db",
+            fetched_at=now,
+            last_known_iob=0,
+            last_updated_at=now,
+            treatments_source_status=SourceStatus(source="local_db", status="ok", fetched_at=now),
+        )
+        return 0, [], info, None
+
+    async def fake_cob(*_args, **_kwargs):
+        info = COBInfo(cob_g=0, status="ok", model="linear", source="local_db", fetched_at=now)
+        return 0, info, SourceStatus(source="local_db", status="ok", fetched_at=now)
+
+    monkeypatch.setattr("app.services.bolus_calc_service.compute_iob_from_sources", fake_iob)
+    monkeypatch.setattr("app.services.bolus_calc_service.compute_cob_from_sources", fake_cob)
+
+    response = await calculate_bolus_stateless_service(
+        BolusRequestV2(
+            carbs_g=20,
+            bg_mgdl=110,
+            target_mgdl=110,
+            cr_g_per_u=10,
+            isf_mgdl_per_u=30,
+            dia_hours=4,
+            insulin_model="fiasp",
+            insulin_peak_minutes=55,
+            enable_autosens=False,
+        ),
+        store=DataStore(tmp_path),
+        user=CurrentUser(username="admin", role="admin"),
+        session=None,
+    )
+
+    assert response.total_u_final == 2
+    assert captured == {"curve": "fiasp", "peak": 55}
+    assert response.used_params.insulin_model == "fiasp"

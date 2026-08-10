@@ -1,6 +1,6 @@
 from typing import Literal, Optional
 
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict, model_validator
 
 
 class ExerciseParams(BaseModel):
@@ -57,6 +57,8 @@ class BolusRequestV2(BaseModel):
     cr_g_per_u: Optional[float] = Field(default=None, gt=0)
     isf_mgdl_per_u: Optional[float] = Field(default=None, gt=0)
     dia_hours: Optional[float] = Field(default=None, ge=2, le=8)
+    insulin_model: Optional[Literal["walsh", "bilinear", "fiasp", "novorapid", "linear"]] = None
+    insulin_peak_minutes: Optional[int] = Field(default=None, ge=10, le=300)
     round_step_u: Optional[float] = Field(default=None, gt=0)
     max_bolus_u: Optional[float] = Field(default=None, gt=0)
     max_correction_u: Optional[float] = Field(default=None, gt=0)
@@ -79,13 +81,19 @@ class BolusRequestV2(BaseModel):
     manual_iob_u: Optional[float] = Field(default=None, ge=0, le=30, description="IOB manual cuando el sistema no puede calcularlo")
     
     # Strategy Flags
-    ignore_iob: bool = Field(default=False, description="Modo Comida Grasa: Ignorar IOB para calcular corrección (Micro-bolos reactivos)")
     last_bolus_minutes: Optional[int] = Field(default=None, description="Minutes since last insulin bolus (for safety checks)")
     alcohol: bool = Field(default=False, description="Modo Alcohol: Se asume tendencia a baja a largo plazo, suprime correcciones agresivas.")
     enable_autosens: bool = Field(default=True, description="Enable Autosens (Dynamic ISF/ICR)")
     
     # Strategy Override
     strategy: Literal["auto", "normal"] = "auto" # Force "normal" to disable auto-splitting (Warsaw/Fiber)
+
+    @model_validator(mode="before")
+    @classmethod
+    def reject_removed_iob_bypass(cls, value):
+        if isinstance(value, dict) and "ignore_iob" in value:
+            raise ValueError("ignore_iob has been removed; IOB protection cannot be bypassed")
+        return value
 
     model_config = ConfigDict(populate_by_name=True, extra="ignore")
 

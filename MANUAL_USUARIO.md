@@ -13,7 +13,7 @@ Este manual detalla **cada función**, pantalla por pantalla, para que aproveche
 2.  **Calculadora de Bolos (Funciones Avanzadas)**
 3.  **Escáner de Alimentos (IA y Báscula)**
 4.  **Gestión de Insulina Basal & Sueño**
-5.  **Modo Restaurante & Comidas Largas**
+5.  **Comidas Largas y Bolos Divididos**
 6.  **Análisis Inteligente (Patrones y Sugerencias)**
 7.  **Gestión de Insumos (Material)**
 8.  **Base de Datos y Favoritos**
@@ -93,7 +93,6 @@ La app es capaz de leer los carbohidratos que registres en aplicaciones externas
 ### D. Absorción Inteligente (🤖 Modo Auto)
 Ya no necesitas elegir manualmente si la comida es "Rápida" o "Lenta". El sistema lo decide por ti analizando:
 *   **Macros:** Si detecta >15g de grasa/proteína o >5g de fibra, activa el modo **Lento** (Curva de 4-5 horas).
-*   **Microbolos / Postre:** Si activas el modo "Postre", el sistema fuerza el modo **Rápido** (Impacto en 2h).
 *   **Falta de información:** Si no hay datos, usa el modo **Medio** (3h) con confianza baja.
 *   **Ajuste Manual:** Si crees que el sistema se equivoca, pulsa el botón **"Ajustar"** en la calculadora para forzar un perfil específico solo para ese bolo.
 
@@ -125,10 +124,8 @@ Existen dos formas de gestionar las grasas:
     *   **Techne (Redondeo Inteligente):** Se **desactiva**. El sistema será más conservador y no redondeará hacia arriba aunque tu glucosa esté subiendo, para evitar excesos.
     *   **Dosis Total:** **NO reduce la cantidad** total de insulina automáticamente (a diferencia del deporte). Si quieres ponerte menos, debes bajar los hidratos manualmente.
 
-#### 🧙 4. Estrategia de IOB ("Mago" vs "Loop")
-La app gestiona la insulina activa de dos formas (configurable):
-1.  **Modo Loop (Estándar):** Resta TODA la IOB del cálculo total. Es lo más seguro.
-2.  **Modo Mago (Postres):** Si comes un postre, no resta la insulina de la comida anterior (porque esa insulina está ocupada con la comida anterior). Solo resta si te vas a corregir una glucosa alta.
+#### 🧙 4. Estrategia de IOB
+La app usa una única regla de seguridad: la insulina activa reduce solamente una corrección positiva de glucosa. No reduce automáticamente la cobertura de hidratos nuevos. Si la glucosa está por debajo del objetivo, el ajuste negativo sí puede reducir prudentemente el bolo de comida.
 Esta aplicación no es una simple calculadora; es un sistema que aprende, predice y te protege utilizando algoritmos estadísticos y reglas clínicas avanzadas.
 
 ---
@@ -167,13 +164,8 @@ Un muñeco interactivo.
 
 ---
 
-## 5. 🍽️ MODO RESTAURANTE
-Para comidas largas, bodas o eventos donde no sabes qué vendrá después.
-
-1.  **Iniciar:** En Menú -> Restaurante. Estimas un total aproximado (ej. "Comeré unas 60g").
-2.  **Bolo Inicial:** La app te da una dosis pequeña de seguridad.
-3.  **Añadir Platos:** A medida que llegan los platos, sácales foto o añádelos. La app suma y te dice si necesitas refuerzo ("micro-bolo").
-4.  **Cierre:** Al final, la app hace balance (Total Comido - Total Insulina) y te sugiere una corrección final si hace falta.
+## 5. 🍽️ COMIDAS LARGAS
+El antiguo modo Restaurante fue retirado. Para un plato adicional, introduce únicamente sus hidratos nuevos en la calculadora normal. El motor mantendrá su cobertura aunque exista IOB y seguirá evitando apilar correcciones. Para comidas grasas conocidas desde el inicio, utiliza el bolo dividido.
 
 ---
 
@@ -364,15 +356,8 @@ Vas al Burger King o comes pizza.
         *   ¿Estás bajando? --> La app te dirá que NO te pongas la segunda parte.
         *   ¿Estás subiendo? --> Te dirá que te pongas las 4 U restantes para frenar el subidón tardío de la grasa.
 
-### 🍽️ 3. Restaurante "A la Carta" (Cena de Empresa/Navidad)
-Una cena larga. Pica-pica, luego un segundo, luego postre, copa... Dura 3 horas.
-*   **Problema:** No sabes todo lo que vas a comer desde el principio. Si te pinchas todo al inicio, te dará una hipoglucemia antes del segundo plato.
-*   **Modo Restaurante:**
-    1.  En la app, ve a **Menú -> Modo Restaurante**.
-    2.  **Inicio:** Dile: *"Creo que comeré unas 80g en total"*. La app te sugerirá un **Bolo Inicial** pequeño (ej. 3 U) para cubrir los entrantes y el pan.
-    3.  **Durante la cena:** Sigue comiendo tranquilo.
-    4.  **Plato Principal:** Llega el asado o el pescado. Añades el plato en la sesión activa. La app te dice si necesitas un refuerzo o si vas bien con lo del principio.
-    5.  **Final:** Al terminar, cierras la sesión. La app mira tu glucosa final y te dice si necesitas una corrección final para irte a dormir perfecto.
+### 🍽️ 3. Cena prolongada
+Calcula cada plato cuando vaya a consumirse e introduce solamente sus hidratos nuevos. La IOB anterior no se interpreta como cobertura automática de ese plato. Si además hay glucosa alta, esa misma IOB sí reduce o elimina la corrección adicional.
 
 ### 🍰 4. El "Postre Sorpresa"
 Has comido bien, te has puesto tu insulina... y de repente, a los 45 minutos, sacan una tarta que no esperabas.
@@ -382,31 +367,10 @@ Has comido bien, te has puesto tu insulina... y de repente, a los 45 minutos, sa
     2.  Mete los carbs de la tarta (ej. 30g).
     3.  **Importante:** La app verá que tienes **Insulina Activa (IOB)** de la comida anterior.
     4.  **Cálculo Inteligente:** En lugar de mandarte la dosis completa, la app restará lo que te sobra de la comida anterior para evitar que se te acumule (Stacking).
-    5.  Te dirá: *"Para la tarta necesitas 3 U, pero como te sobra 1 U activa de la comida, ponte solo **2 U**"*. ¡Salvado de la hipoglucemia!
+    5.  La cobertura de los 30 g nuevos se mantiene; la IOB solo se aplicará si también existe una corrección positiva.
 
-### 📈 5. La Subida Tardía (El "Micro-Bolo" de Rescate)
-Cenaste pizza o comida grasa hace 3 horas. Te pusiste tu bolo normal. Todo iba bien, pero de repente... ¡tu glucosa se dispara a 180 y subiendo ↗️!
-
-*   **Error:** Usar la calculadora normal. Te dirá "0.0 U sugeridas" porque aún tienes algo de insulina activa (IOB) de la cena.
-*   **Solución (Modo Microbolos):**
-    Este es tu "Plan C" para cuando la grasa gana la batalla a la insulina inicial.
-
-    1.  Abre la calculadora. Pon Glucosa: 180.
-    2.  Marca ☑️ **Solo Corrección**.
-    3.  Marca ☑️ **Modo Microbolos**.
-    4.  **Cálculo:** La app sugerirá una pequeña dosis de rescate (ej. 0.5 o 1.0 U) ignorando parcialmente la insulina activa, porque entiende que no es suficiente para la grasa que está entrando.
-    
-    **💡 Ejemplo Práctico: Cena de Nochevieja**
-    1.  **21:00 (Inicio):** Usas Bolo Dual. Te pones 6 U ahora y programas 4 U para luego.
-    2.  **23:30 (2ª Parte):** Te pones las 4 U restantes.
-    3.  **01:30 (El Problema):** Pasado el tiempo, la glucosa sigue alta en 180 ➡️. Las 4 U no pudieron con todo el turrón. 
-        *   Si usas la calculadora normal: *"Tienes IOB. Espera"*. (Te deja vendido).
-        *   **Con Modo Microbolos:** *"Bolo hace 2 horas. Te calculo **1.0 U** extra de rescate"*.
-    
-    **⚠️ Reglas de Seguridad Automáticas:**
-    *   **Bloqueo de Tiempo:** Si te has pinchado hace menos de **75 min**, el sistema **NO** te dejará ponerte micro-bolos. (Te dirá: *"⛔ Espera, bolo reciente"*).
-    *   **Alcohol:** Si marcas modo Alcohol, se desactiva el redondeo al alza y el sistema es más conservador.
-    *   **Redondeo Seguro:** La dosis siempre se redondeará al paso de tu bolígrafo (ej. 0.5 o 1.0) para que sea real y accionable.
+### 📈 5. Subida tardía
+Usa **Solo corrección**. La calculadora aplicará toda la IOB activa a la corrección positiva y recomendará insulina adicional únicamente si la corrección calculada supera esa IOB. Ya no existe un modo que permita ignorarla.
 
 ---
 *Bolus AI está diseñado para ser tu copiloto. Siempre consulta con tu médico antes de hacer cambios drásticos en tu terapia.*

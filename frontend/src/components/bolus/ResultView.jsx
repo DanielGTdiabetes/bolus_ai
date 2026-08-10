@@ -88,7 +88,6 @@ export function ResultView({
                     params: resolvedParams,
                     slot,
                     carbProfile,
-                    dessertMode: false, // Could be passed in props if needed
                     result,
                     nsConfig,
                     settingsAbsorption: settings?.absorption,
