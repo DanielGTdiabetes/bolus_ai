@@ -48,6 +48,21 @@ async def test_bot_meal_leaves_default_target_to_central_engine(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_bot_meal_rejects_unknown_meal_slot(monkeypatch):
+    settings = UserSettings.default()
+
+    async def fake_resolver(*args, **kwargs):
+        return settings, "tester"
+
+    monkeypatch.setattr(tools, "resolve_bot_user_settings", fake_resolver)
+
+    result = await tools.calculate_bolus(20, meal_type="brunch")
+
+    assert isinstance(result, tools.ToolError)
+    assert result.type == "validation_error"
+
+
+@pytest.mark.asyncio
 async def test_bot_meal_preserves_explicit_target_override(monkeypatch):
     settings = UserSettings.default()
     captured = {}
