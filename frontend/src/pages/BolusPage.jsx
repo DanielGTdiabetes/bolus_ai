@@ -752,7 +752,7 @@ export default function BolusPage() {
                         <div style={{ background: '#eff6ff', padding: '1rem', borderRadius: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
                             <div>
                                 <div style={{ fontWeight: 600, color: '#1e40af' }}>Insulina Activa (IOB)</div>
-                                <div style={{ fontSize: '0.8rem', color: '#60a5fa' }}>Se restará del bolo</div>
+                                <div style={{ fontSize: '0.8rem', color: '#60a5fa' }}>Protege frente a correcciones apiladas; no descuenta HC nuevos</div>
                             </div>
                             <div style={{ fontSize: '1.5rem', fontWeight: 700, color: '#1e40af' }}>
                                 {iob !== null ? iob.toFixed(2) : '--'} <span style={{ fontSize: '1rem' }}>U</span>
