@@ -39,6 +39,7 @@ from app.services.basal_repo import get_latest_basal_dose, upsert_basal_dose
 from app.models.bolus_v2 import BolusRequestV2, BolusResponseV2
 from app.bot.capabilities.registry import build_registry, Permission
 from app.bot.snapshot_store import SnapshotStore
+from app.services.bolus_trace import build_bolus_trace
 
 _snapshot_store: Optional[SnapshotStore] = None
 
@@ -2493,7 +2494,6 @@ async def on_new_meal_received(carbs: float, fat: float, protein: float, fiber: 
         fiber_g=fiber,
         meal_slot=slot,
         bg_mgdl=bg_val,
-        target_mgdl=user_settings.targets.mid,
         confirm_iob_unknown=True,
         confirm_iob_stale=True,
     )
@@ -2773,7 +2773,20 @@ async def _handle_snapshot_callback(query, data: str) -> None:
         elif "duration_min" in snapshot:
              duration = snapshot["duration_min"] or 0
         
-        # Execute Action
+        # Execute Action. Persist the exact recommendation snapshot when available.
+        calculation_trace = None
+        if isinstance(rec, BolusResponseV2):
+             trace_snapshot, trace_ratios, trace_context = build_bolus_trace(
+                 rec,
+                 accepted_u=units,
+                 source=snapshot.get("source") or "telegram",
+             )
+             calculation_trace = {
+                 "snapshot": trace_snapshot,
+                 "applied_ratios": trace_ratios,
+                 "context": trace_context,
+             }
+
         add_args = {
              "insulin": units, 
              "carbs": carbs, 
@@ -2782,7 +2795,8 @@ async def _handle_snapshot_callback(query, data: str) -> None:
              "fiber": fiber, 
              "notes": notes, 
              "replace_id": origin_id, 
-             "duration": duration
+             "duration": duration,
+             "calculation_trace": calculation_trace,
         }
         result = await tools.add_treatment(add_args)
         

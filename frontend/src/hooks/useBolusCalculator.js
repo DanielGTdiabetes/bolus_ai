@@ -18,6 +18,7 @@ import { navigate } from '../modules/core/navigation';
 import { showToast } from '../components/ui/Toast';
 import { resolveSickModeDosingPolicy } from '../lib/sickModePolicy';
 import { buildOnlineBolusPayload } from '../lib/onlineBolusPayload';
+import { buildClientBolusTrace } from '../lib/bolusTrace';
 
 export function useBolusCalculator() {
     const [result, setResult] = useState(null);
@@ -280,6 +281,7 @@ export function useBolusCalculator() {
                 nightscout: {
                     url: nsConfig?.url || null,
                 },
+                calculation_trace: buildClientBolusTrace(result, finalInsulin, 'app'),
                 injection_site: siteId || null
             };
 
