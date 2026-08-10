@@ -57,7 +57,12 @@ assert.equal(
   'backend naive timestamps are UTC and a recent session should resume',
 );
 assert.equal(
-  isMealSessionStale({ started_at: '2026-08-10T03:00:00' }, now),
+  isMealSessionStale({ started_at: '2026-08-10T04:00:00' }, now),
+  false,
+  'the exact 8h boundary remains resumable',
+);
+assert.equal(
+  isMealSessionStale({ started_at: '2026-08-10T03:59:59' }, now),
   true,
   'sessions older than 8h must not lock a later meal to the old slot',
 );
