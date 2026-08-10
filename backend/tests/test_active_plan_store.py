@@ -20,41 +20,43 @@ class FakeStore:
 
 
 def test_select_due_plan_uses_planned_later_dose_and_respects_snooze():
+    base_ms = 1_700_000_000_000
     plans = [
         {
             "id": "p1",
-            "created_at_ts": 1_000_000,
+            "created_at_ts": base_ms,
             "later_u_planned": 2.0,
             "later_after_min": 60,
             "status": "pending",
         },
         {
             "id": "p2",
-            "created_at_ts": 2_000_000,
+            "created_at_ts": base_ms + 1_000,
             "later_u_planned": 3.0,
             "later_after_min": 30,
-            "snooze_until_ts": 10_000_000,
+            "snooze_until_ts": base_ms + 10_000_000,
             "status": "pending",
         },
     ]
 
-    due = select_due_active_plan(plans, now_ms=5_000_000)
+    due = select_due_active_plan(plans, now_ms=base_ms + 61 * 60_000)
     assert due["id"] == "p1"
     assert due["later_u_planned"] == 2.0
 
 
 def test_completed_zero_or_invalid_timestamp_plan_is_not_due():
+    base_ms = 1_700_000_000_000
     plans = [
         {
             "id": "done",
-            "created_at_ts": 1_000_000,
+            "created_at_ts": base_ms,
             "later_u_planned": 2,
             "later_after_min": 1,
             "status": "completed",
         },
         {
             "id": "zero-dose",
-            "created_at_ts": 1_000_000,
+            "created_at_ts": base_ms,
             "later_u_planned": 0,
             "later_after_min": 1,
             "status": "pending",
@@ -67,7 +69,7 @@ def test_completed_zero_or_invalid_timestamp_plan_is_not_due():
             "status": "pending",
         },
     ]
-    assert select_due_active_plan(plans, now_ms=9_000_000) is None
+    assert select_due_active_plan(plans, now_ms=base_ms + 9_000_000) is None
 
 
 def test_find_and_update_plan_by_plan_or_treatment_id():
