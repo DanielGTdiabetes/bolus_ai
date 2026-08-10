@@ -1,6 +1,10 @@
 from types import SimpleNamespace
 
+import pytest
+
+from app.bot import service as bot_service
 from app.bot.service import _build_bolus_message
+from app.models.settings import UserSettings
 
 
 def _rec(*, meal=2.0, correction=0.0, iob=0.0, total=2.0, target=110.0):
@@ -60,3 +64,25 @@ def test_bot_message_zero_iob_is_described_as_active_state_not_subtraction():
 
     assert "IOB activo: 0.00 U" in text
     assert "IOB: −0.0 U" not in text
+
+
+@pytest.mark.asyncio
+async def test_hydrated_bolus_snapshot_leaves_target_to_central_slot_resolution(monkeypatch):
+    settings = UserSettings.default()
+    settings.targets.mid = 110
+    settings.targets.lunch = 105
+
+    async def fake_settings(*args, **kwargs):
+        return settings, "tester"
+
+    monkeypatch.setattr(bot_service, "get_bot_user_settings_with_user_id", fake_settings)
+    monkeypatch.setattr(bot_service, "get_current_meal_slot", lambda _settings: "lunch")
+
+    snapshot = await bot_service._hydrate_bolus_snapshot({
+        "id": "req1",
+        "type": "bolus",
+        "carbs": 20,
+    })
+
+    assert snapshot["payload"].meal_slot == "lunch"
+    assert snapshot["payload"].target_mgdl is None
