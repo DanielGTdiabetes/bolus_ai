@@ -10,7 +10,6 @@ import {
     saveActivePlan
 } from '../lib/api';
 import {
-    getCalcParams,
     getSplitSettings,
     state,
     saveDualPlan
@@ -18,6 +17,7 @@ import {
 import { navigate } from '../modules/core/navigation';
 import { showToast } from '../components/ui/Toast';
 import { resolveSickModeDosingPolicy } from '../lib/sickModePolicy';
+import { buildOnlineBolusPayload } from '../lib/onlineBolusPayload';
 
 export function useBolusCalculator() {
     const [result, setResult] = useState(null);
@@ -123,9 +123,6 @@ export function useBolusCalculator() {
                 throw new Error("Los valores no pueden ser negativos.");
             }
 
-            const mealParams = getCalcParams();
-            if (!mealParams) throw new Error("No hay configuración de ratios.");
-
             // Determine Fat/Protein logic
             let fatVal = 0;
             let proteinVal = 0;
@@ -153,54 +150,23 @@ export function useBolusCalculator() {
                 if (state.tempProtein) proteinVal = state.tempProtein;
             }
 
-            const slotParams = mealParams[slot];
-            if (!slotParams?.icr || !slotParams?.isf || !slotParams?.target) {
-                throw new Error(`Faltan datos para el horario '${slot}'.`);
-            }
-
-            // Sick mode is context-only until an explicit policy exists in the
-            // authoritative backend engine. The frontend must never alter ICR/ISF.
+            // Online calculations use backend settings as the single source of truth.
+            // Sick mode remains context-only and does not alter browser-side ratios.
             const isSick = localStorage.getItem('sick_mode_enabled') === 'true';
-            const sickModePolicy = resolveSickModeDosingPolicy({
-                icr: slotParams.icr,
-                isf: slotParams.isf,
-                isSick,
-            });
-            const finalIcr = sickModePolicy.icr;
-            const finalIsf = sickModePolicy.isf;
+            const sickModePolicy = resolveSickModeDosingPolicy({ isSick });
 
-            const payload = {
-                carbs_g: correctionOnly ? 0 : carbsVal,
-                fat_g: correctionOnly ? 0 : fatVal,
-                protein_g: correctionOnly ? 0 : proteinVal,
-                fiber_g: (correctionOnly) ? 0 : (fiberVal || 0),
-                bg_mgdl: isNaN(bgVal) ? null : bgVal,
-                meal_slot: slot,
-                target_mgdl: slotParams.target,
-                carb_profile: carbProfile ?? null,
-                cr_g_per_u: finalIcr,
-                isf_mgdl_per_u: finalIsf,
-                dia_hours: mealParams.dia_hours || 4.0,
-                insulin_model: mealParams.insulin_model || 'walsh',
-                insulin_peak_minutes: mealParams.insulin_peak_minutes
-                    ?? (mealParams.insulin_model === 'fiasp' ? 55 : 75),
-                round_step_u: mealParams.round_step_u || 0.5,
-                max_bolus_u: mealParams.max_bolus_u || 15,
-                warsaw_safety_factor: mealParams.warsaw?.safety_factor,
-                warsaw_safety_factor_dual: mealParams.warsaw?.safety_factor_dual,
-                warsaw_trigger_threshold_kcal: mealParams.warsaw?.trigger_threshold_kcal,
-                use_fiber_deduction: mealParams.calculator?.subtract_fiber,
-                fiber_factor: mealParams.calculator?.fiber_factor,
-                fiber_threshold: mealParams.calculator?.fiber_threshold_g,
+            const payload = buildOnlineBolusPayload({
+                carbsG: correctionOnly ? 0 : carbsVal,
+                fatG: correctionOnly ? 0 : fatVal,
+                proteinG: correctionOnly ? 0 : proteinVal,
+                fiberG: correctionOnly ? 0 : (fiberVal || 0),
+                bgMgdl: isNaN(bgVal) ? null : bgVal,
+                mealSlot: slot,
+                carbProfile,
                 alcohol: alcoholEnabled,
                 exercise: exercise || { planned: false, minutes: 0, intensity: 'moderate' },
-                // SC-Compat: Use override if explicit > Use Settings > Default False (Strict User Control)
-                enable_autosens: overrideParams?.useAutosens !== undefined
-                    ? overrideParams.useAutosens
-                    : (mealParams.autosens?.enabled || false),
-                autosens_ratio: (overrideParams?.useAutosens ? (state.autosens?.ratio || 1.0) : 1.0),
-                autosens_reason: state.autosens?.reason || null
-            };
+                autosensOverride: overrideParams?.useAutosens,
+            });
 
             let splitSettings = getSplitSettings() || {};
             splitSettings.enabled = !!(dualEnabled);

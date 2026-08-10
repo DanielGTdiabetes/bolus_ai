@@ -196,6 +196,11 @@ async def calculate_bolus_stateless_service(
         if not user_settings:
             user_settings = store.load_settings()
 
+    # A per-request Autosens flag is an explicit override only. If omitted,
+    # preserve the user's authoritative saved backend configuration.
+    if payload.enable_autosens is not None:
+        user_settings.autosens.enabled = payload.enable_autosens
+
     # 2. Resolve Nightscout Client
     ns_client: Optional[NightscoutClient] = None
     ns_config = user_settings.nightscout

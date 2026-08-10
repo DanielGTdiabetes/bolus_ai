@@ -96,7 +96,7 @@ class BolusRequestV2(BaseModel):
     # Strategy Flags
     last_bolus_minutes: Optional[int] = Field(default=None, ge=0, description="Minutes since last insulin bolus (for safety checks)")
     alcohol: bool = Field(default=False, description="Modo Alcohol: Se asume tendencia a baja a largo plazo, suprime correcciones agresivas.")
-    enable_autosens: bool = Field(default=True, description="Enable Autosens (Dynamic ISF/ICR)")
+    enable_autosens: Optional[bool] = Field(default=None, description="Optional per-request Autosens override; None uses saved user setting")
 
     # Strategy Override
     strategy: Literal["auto", "normal"] = "auto"
