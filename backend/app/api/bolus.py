@@ -57,6 +57,8 @@ class ActivePlan(BaseModel):
     source: Optional[str] = None
     meal_slot: Optional[Literal["breakfast", "lunch", "dinner", "snack"]] = None
     total_recommended_u: Optional[float] = None
+    snooze_until_ts: Optional[int] = None
+    last_prompted_at_ts: Optional[int] = None
     status: Literal["pending", "completed", "cancelled"] = "pending"
     notes: Optional[str] = None
 

@@ -3382,27 +3382,67 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         
     # --- 3. Combo Followup ---
     if data.startswith("combo_"):
-        # combo_yes|tid, combo_later|tid, combo_no|tid
+        # Structured plans use plan_id. Historical messages may still carry a
+        # treatment id; the store helper accepts either identifier.
         parts = data.split("|")
         action = parts[0]
-        tid = parts[1] if len(parts) > 1 else "unknown"
-        
-        if action == "combo_yes":
-             # Trigger logic to add remaining part? 
-             # For now, just prompt user or log. User asked to "Registrar 2a parte".
-             # We assume manual entry or simplified addition.
-             await edit_message_text_safe(query, "✅ Anotado. (Funcionalidad completa en vNext)")
-             health.record_action(f"callback:combo_yes:{tid}", True)
-             
+        identifier = parts[1] if len(parts) > 1 else "unknown"
+        settings = get_settings()
+        plan_store = DataStore(Path(settings.data.data_dir))
+        from app.services.active_plan_store import find_active_plan, update_active_plan
+
+        if action == "combo_review":
+             plan = find_active_plan(plan_store, identifier)
+             if not plan:
+                 await edit_message_text_safe(query, "⚠️ No encuentro el plan activo. Revisa el cálculo desde la app.")
+                 health.record_action(f"callback:combo_review:{identifier}", False, "plan_missing")
+                 return
+
+             status_res = await tools.execute_tool("get_status_context", {})
+             bg = getattr(status_res, "bg_mgdl", None)
+             trend = getattr(status_res, "direction", None)
+             iob = getattr(status_res, "iob_u", None)
+             planned = float(plan.get("later_u_planned") or 0)
+             slot = plan.get("meal_slot") or "?"
+             review_text = (
+                 f"🔎 **Revisión del plan dual**\n\n"
+                 f"Pendiente original: **{planned:g} U**\n"
+                 f"Franja: **{slot}**\n"
+                 f"Glucosa actual: **{bg if bg is not None else '?'}** {trend or ''}\n"
+                 f"IOB actual: **{iob if iob is not None else '?'} U**\n\n"
+                 "Esto es el plan original, no una nueva recomendación. "
+                 "No he registrado ni administrado insulina. Recalcula antes de decidir la dosis final."
+             )
+             buttons = [
+                 [InlineKeyboardButton("⏰ +30 min", callback_data=f"combo_later|{identifier}")],
+                 [InlineKeyboardButton("❌ Cancelar plan", callback_data=f"combo_no|{identifier}")],
+             ]
+             await edit_message_text_safe(query, review_text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+             health.record_action(f"callback:combo_review:{identifier}", True)
+
         elif action == "combo_later":
-             # Snooze
-             await edit_message_text_safe(query, "⏳ Pospuesto 30 min.")
-             health.record_action(f"callback:combo_later:{tid}", True)
-             
+             snooze_until = int((time.time() + 30 * 60) * 1000)
+             updated = update_active_plan(plan_store, identifier, snooze_until_ts=snooze_until)
+             if updated:
+                 await edit_message_text_safe(query, "⏳ Plan pospuesto 30 min. No se ha registrado insulina.")
+                 health.record_action(f"callback:combo_later:{identifier}", True)
+             else:
+                 await edit_message_text_safe(query, "⏳ Aviso cerrado. El plan estructurado ya no está disponible.")
+                 health.record_action(f"callback:combo_later:{identifier}", False, "plan_missing")
+
         elif action == "combo_no":
-             await edit_message_text_safe(query, "❌ Descartado.")
-             health.record_action(f"callback:combo_no:{tid}", True)
-             health.record_action(f"callback:combo_no:{tid}", True)
+             updated = update_active_plan(plan_store, identifier, status="cancelled")
+             await edit_message_text_safe(query, "❌ Plan cancelado. No se ha registrado insulina.")
+             health.record_action(f"callback:combo_no:{identifier}", bool(updated), None if updated else "plan_missing")
+
+        elif action == "combo_yes":
+             # Backward compatibility for already-sent old keyboards. Never claim
+             # that a dose was recorded when no treatment write occurred.
+             await edit_message_text_safe(
+                 query,
+                 "⚠️ Este botón antiguo no registra insulina. Abre/recalcula el plan antes de decidir la 2ª parte.",
+             )
+             health.record_action(f"callback:combo_yes_legacy:{identifier}", True)
         return
 
     # --- 3.5 Rename / Fav Flow ---
