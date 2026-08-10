@@ -1,4 +1,5 @@
 import { createApiFetch } from "./apiClientCore";
+import { resolveBackendBolusDelivery } from "./bolusDeliveryRouting";
 
 function normalizeBaseUrl(value?: string | null) {
   return value ? String(value).replace(/\/$/, "") : null;
@@ -495,7 +496,10 @@ export async function createBolusPlan(payload) {
 export async function calculateBolusWithOptionalSplit(calcPayload, splitSettings) {
   const calcData = await calculateBolus(calcPayload);
   const totalU = calcData.total_u_final ?? calcData.total_u ?? 0;
+  const backendDelivery = resolveBackendBolusDelivery(calcData);
 
+  // An explicitly enabled user split overrides the backend delivery schedule,
+  // but it never changes the authoritative total dose.
   if (splitSettings && splitSettings.enabled && totalU > 0) {
     try {
       const planPayload = {
@@ -521,26 +525,19 @@ export async function calculateBolusWithOptionalSplit(calcPayload, splitSettings
       };
 
     } catch (err) {
-      console.warn("Split plan failed, falling back to normal bolus", err);
+      console.warn("Split plan failed; preserving backend delivery schedule", err);
       return {
-        kind: "normal",
-        calc: calcData,
-        upfront_u: totalU,
-        later_u: 0,
-        duration_min: 0,
+        ...backendDelivery,
         error: "Split plan failed: " + err.message
       };
     }
   }
 
-  return {
-    kind: "normal",
-    calc: calcData,
-    upfront_u: totalU,
-    later_u: 0,
-    duration_min: 0
-  };
+  // Critical: if Warsaw/fiber logic already returned a dual or extended dose,
+  // preserve that timing. Never collapse it into totalU delivered immediately.
+  return backendDelivery;
 }
+
 
 export async function recalcSecondBolus(payload) {
   const response = await apiFetch("/api/bolus/recalc-second", {
