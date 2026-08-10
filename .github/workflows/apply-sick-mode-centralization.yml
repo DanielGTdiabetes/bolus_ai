@@ -1,0 +1,60 @@
+name: Apply sick mode centralization
+
+on:
+  push:
+    branches:
+      - fix/sick-mode-centralization
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/sick-mode-centralization
+          fetch-depth: 0
+      - name: Patch bolus calculator hook
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('frontend/src/hooks/useBolusCalculator.js')
+          text = path.read_text(encoding='utf-8')
+
+          import_anchor = "import { showToast } from '../components/ui/Toast';\n"
+          import_replacement = import_anchor + "import { resolveSickModeDosingPolicy } from '../lib/sickModePolicy';\n"
+          if import_anchor not in text:
+              raise SystemExit('showToast import anchor not found')
+          text = text.replace(import_anchor, import_replacement, 1)
+
+          old_outcome = '''    const applyCalcOutcome = (res, meta = {}) => {\n        const { isSick = false, bgVal = null } = meta;\n        if (isSick) {\n            res.warnings = res.warnings || [];\n            res.warnings.push("⚠️ Modo Enfermedad: Dosis aumentada un 20%.");\n            // AUDIT FIX: Use generic threshold or check unit\n            // Assuming mg/dL for now, but should ideally check units. \n            // 250 mg/dL is roughly 13.9 mmol/L. Only warn if value is extremely high.\n            if (bgVal > 250) {\n                res.warnings.push("🧪 ALERTA: Glucosa alta. Revisa CETONAS.");\n            }\n        }\n'''
+          new_outcome = '''    const applyCalcOutcome = (res, meta = {}) => {\n        const { isSick = false, bgVal = null, sickModeWarning = null } = meta;\n        if (isSick) {\n            res.warnings = res.warnings || [];\n            res.warnings.push(\n                sickModeWarning ||\n                "⚠️ Modo Enfermedad activo: ajuste automático de dosis desactivado; se usan los ratios configurados."\n            );\n            if (bgVal > 250) {\n                res.warnings.push("🧪 ALERTA: Glucosa alta. Revisa CETONAS.");\n            }\n        }\n'''
+          if old_outcome not in text:
+              raise SystemExit('legacy applyCalcOutcome sick block not found')
+          text = text.replace(old_outcome, new_outcome, 1)
+
+          old_sick = '''            // Sick Mode Logic\n            const isSick = localStorage.getItem('sick_mode_enabled') === 'true';\n            let finalIcr = slotParams.icr;\n            let finalIsf = slotParams.isf;\n\n            if (isSick) {\n                finalIcr = finalIcr * 0.83;\n                finalIsf = finalIsf * 0.83;\n            }\n'''
+          new_sick = '''            // Sick mode is context-only until an explicit policy exists in the\n            // authoritative backend engine. The frontend must never alter ICR/ISF.\n            const isSick = localStorage.getItem('sick_mode_enabled') === 'true';\n            const sickModePolicy = resolveSickModeDosingPolicy({\n                icr: slotParams.icr,\n                isf: slotParams.isf,\n                isSick,\n            });\n            const finalIcr = sickModePolicy.icr;\n            const finalIsf = sickModePolicy.isf;\n'''
+          if old_sick not in text:
+              raise SystemExit('legacy sick mode dosing block not found')
+          text = text.replace(old_sick, new_sick, 1)
+
+          old_pending = '''            setPendingCalcContext({ payload, useSplit, splitSettings: useSplit ? splitSettings : null, meta: { isSick, bgVal } });\n\n            const res = await calculateBolusWithOptionalSplit(payload, useSplit ? splitSettings : null);\n            applyCalcOutcome(res, { isSick, bgVal });\n'''
+          new_pending = '''            const calcMeta = {\n                isSick,\n                bgVal,\n                sickModeWarning: sickModePolicy.warning,\n            };\n            setPendingCalcContext({ payload, useSplit, splitSettings: useSplit ? splitSettings : null, meta: calcMeta });\n\n            const res = await calculateBolusWithOptionalSplit(payload, useSplit ? splitSettings : null);\n            applyCalcOutcome(res, calcMeta);\n'''
+          if old_pending not in text:
+              raise SystemExit('pending calculation meta anchor not found')
+          text = text.replace(old_pending, new_pending, 1)
+
+          path.write_text(text, encoding='utf-8')
+          PY
+      - name: Commit patch and remove helper workflow
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/apply-sick-mode-centralization.yml
+          git add frontend/src/hooks/useBolusCalculator.js
+          git commit -m "Stop frontend sick mode from altering bolus ratios"
+          git push origin HEAD:fix/sick-mode-centralization
