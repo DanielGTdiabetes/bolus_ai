@@ -17,6 +17,7 @@ import {
 } from '../modules/core/store';
 import { navigate } from '../modules/core/navigation';
 import { showToast } from '../components/ui/Toast';
+import { resolveSickModeDosingPolicy } from '../lib/sickModePolicy';
 
 export function useBolusCalculator() {
     const [result, setResult] = useState(null);
@@ -27,13 +28,13 @@ export function useBolusCalculator() {
     const [pendingCalcContext, setPendingCalcContext] = useState(null);
 
     const applyCalcOutcome = (res, meta = {}) => {
-        const { isSick = false, bgVal = null } = meta;
+        const { isSick = false, bgVal = null, sickModeWarning = null } = meta;
         if (isSick) {
             res.warnings = res.warnings || [];
-            res.warnings.push("⚠️ Modo Enfermedad: Dosis aumentada un 20%.");
-            // AUDIT FIX: Use generic threshold or check unit
-            // Assuming mg/dL for now, but should ideally check units. 
-            // 250 mg/dL is roughly 13.9 mmol/L. Only warn if value is extremely high.
+            res.warnings.push(
+                sickModeWarning ||
+                "⚠️ Modo Enfermedad activo: ajuste automático de dosis desactivado; se usan los ratios configurados."
+            );
             if (bgVal > 250) {
                 res.warnings.push("🧪 ALERTA: Glucosa alta. Revisa CETONAS.");
             }
@@ -157,15 +158,16 @@ export function useBolusCalculator() {
                 throw new Error(`Faltan datos para el horario '${slot}'.`);
             }
 
-            // Sick Mode Logic
+            // Sick mode is context-only until an explicit policy exists in the
+            // authoritative backend engine. The frontend must never alter ICR/ISF.
             const isSick = localStorage.getItem('sick_mode_enabled') === 'true';
-            let finalIcr = slotParams.icr;
-            let finalIsf = slotParams.isf;
-
-            if (isSick) {
-                finalIcr = finalIcr * 0.83;
-                finalIsf = finalIsf * 0.83;
-            }
+            const sickModePolicy = resolveSickModeDosingPolicy({
+                icr: slotParams.icr,
+                isf: slotParams.isf,
+                isSick,
+            });
+            const finalIcr = sickModePolicy.icr;
+            const finalIsf = sickModePolicy.isf;
 
             const payload = {
                 carbs_g: correctionOnly ? 0 : carbsVal,
@@ -210,10 +212,15 @@ export function useBolusCalculator() {
             }
 
             const useSplit = (dualEnabled && !correctionOnly && carbsVal > 0);
-            setPendingCalcContext({ payload, useSplit, splitSettings: useSplit ? splitSettings : null, meta: { isSick, bgVal } });
+            const calcMeta = {
+                isSick,
+                bgVal,
+                sickModeWarning: sickModePolicy.warning,
+            };
+            setPendingCalcContext({ payload, useSplit, splitSettings: useSplit ? splitSettings : null, meta: calcMeta });
 
             const res = await calculateBolusWithOptionalSplit(payload, useSplit ? splitSettings : null);
-            applyCalcOutcome(res, { isSick, bgVal });
+            applyCalcOutcome(res, calcMeta);
 
         } catch (e) {
             const code = e?.error_code || e?.payload?.error_code;
