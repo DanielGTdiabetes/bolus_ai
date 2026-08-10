@@ -9,10 +9,36 @@ const FORBIDDEN_DOSING_FIELDS = [
   'enable_autosens',
 ];
 
+export const MEAL_SESSION_MAX_AGE_HOURS = 8;
+
 function nonNegative(value) {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return 0;
   return Math.max(0, parsed);
+}
+
+function parseBackendUtcTimestamp(value) {
+  if (!value || typeof value !== 'string') return null;
+  // The current backend stores UTC as a naive SQL timestamp. Treat an ISO
+  // value without timezone information as UTC instead of browser-local time.
+  const hasZone = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(value);
+  const parsed = Date.parse(hasZone ? value : `${value}Z`);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+export function isMealSessionStale(
+  session,
+  nowMs = Date.now(),
+  maxAgeHours = MEAL_SESSION_MAX_AGE_HOURS,
+) {
+  if (!session?.started_at) return true;
+  const startedMs = parseBackendUtcTimestamp(session.started_at);
+  if (startedMs == null) return true;
+  const ageMs = Number(nowMs) - startedMs;
+  if (!Number.isFinite(ageMs)) return true;
+  // A significantly future timestamp is also unsafe to auto-resume.
+  if (ageMs < -10 * 60_000) return true;
+  return ageMs > Math.max(1, Number(maxAgeHours) || MEAL_SESSION_MAX_AGE_HOURS) * 60 * 60_000;
 }
 
 export function createMealSessionEventId() {
