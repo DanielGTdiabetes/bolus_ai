@@ -45,3 +45,18 @@ def test_bot_message_reports_only_iob_actually_allocated_to_positive_correction(
     assert "IOB activo: 1.00 U" in text
     assert "aplicado a corrección: 1.00 U" in text
     assert "corrección restante: 1.00 U" in text
+
+
+def test_bot_message_zero_iob_is_described_as_active_state_not_subtraction():
+    text, _, _ = _build_bolus_message(
+        _rec(meal=2.0, correction=0.0, iob=0.0, total=2.0),
+        carbs=20,
+        fat=0,
+        protein=0,
+        bg_val=110,
+        request_id="abc125",
+        notes="",
+    )
+
+    assert "IOB activo: 0.00 U" in text
+    assert "IOB: −0.0 U" not in text
