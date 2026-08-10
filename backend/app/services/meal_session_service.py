@@ -129,6 +129,21 @@ async def get_meal_session(
     return await _load_session(db, user_id=user_id, session_id=session_id)
 
 
+async def _find_existing_event(
+    db: AsyncSession,
+    *,
+    user_id: str,
+    session_id: str,
+    dedupe_key: str,
+) -> Optional[MealSessionEvent]:
+    stmt = select(MealSessionEvent).where(
+        MealSessionEvent.session_id == session_id,
+        MealSessionEvent.dedupe_key == dedupe_key,
+        MealSessionEvent.user_id == user_id,
+    )
+    return (await db.execute(stmt)).scalars().first()
+
+
 async def record_meal_session_event(
     db: AsyncSession,
     *,
@@ -155,6 +170,19 @@ async def record_meal_session_event(
     if meal.status != ACTIVE_STATUS:
         raise ValueError("meal_session_not_active")
 
+    # Normal idempotent retries must not force a transaction rollback: a full
+    # rollback expires unrelated ORM objects in the caller's AsyncSession and
+    # can trigger MissingGreenlet on later attribute access. Check first, then
+    # keep the DB unique constraint as the race-condition backstop.
+    existing = await _find_existing_event(
+        db,
+        user_id=user_id,
+        session_id=session_id,
+        dedupe_key=dedupe_key,
+    )
+    if existing is not None:
+        return existing
+
     event = MealSessionEvent(
         id=str(uuid4()),
         session_id=session_id,
@@ -175,22 +203,28 @@ async def record_meal_session_event(
         iob_applied_to_correction_u=iob_applied_to_correction_u,
         payload=payload,
     )
-    db.add(event)
-    meal.updated_at = event.created_at
+
     try:
+        # Use a savepoint for the uniqueness race so a competing retry cannot
+        # poison/expire the caller's outer transaction.
+        async with db.begin_nested():
+            db.add(event)
+            await db.flush()
+            meal.updated_at = event.created_at
         await db.commit()
         await db.refresh(event)
         return event
     except IntegrityError:
-        await db.rollback()
-        # Idempotency: retries with the same dedupe key return the existing event.
-        stmt = select(MealSessionEvent).where(
-            MealSessionEvent.session_id == session_id,
-            MealSessionEvent.dedupe_key == dedupe_key,
-            MealSessionEvent.user_id == user_id,
+        # The nested transaction has already rolled back only the savepoint.
+        # A concurrent writer may have inserted the same dedupe key first.
+        existing = await _find_existing_event(
+            db,
+            user_id=user_id,
+            session_id=session_id,
+            dedupe_key=dedupe_key,
         )
-        existing = (await db.execute(stmt)).scalars().first()
         if existing is None:
+            await db.rollback()
             raise
         return existing
 
