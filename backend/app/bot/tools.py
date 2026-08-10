@@ -243,6 +243,27 @@ async def _load_user_settings(username: Optional[str] = None) -> UserSettings:
     return resolved_settings
 
 
+def _resolve_meal_slot(user_settings: UserSettings, meal_type: Optional[str] = None) -> str:
+    """Resolve the current meal slot once for all bot dosing paths."""
+    if meal_type:
+        if meal_type not in {"breakfast", "lunch", "dinner", "snack"}:
+            raise ValueError(f"Horario de comida no válido: {meal_type}")
+        return meal_type
+
+    from app.utils.timezone import to_local
+
+    now_local = to_local(datetime.now(timezone.utc))
+    h = now_local.hour
+    sch = user_settings.schedule
+    if sch.breakfast_start_hour <= h < sch.lunch_start_hour:
+        return "breakfast"
+    if sch.lunch_start_hour <= h < sch.dinner_start_hour:
+        return "lunch"
+    if h >= sch.dinner_start_hour or h < sch.breakfast_start_hour:
+        return "dinner"
+    return "snack"
+
+
 async def get_status_context(username: str = "admin", user_settings: Optional[UserSettings] = None) -> BolusContext | ToolError:
     try:
         user_settings = user_settings or await _load_user_settings(username)
@@ -399,23 +420,10 @@ async def calculate_bolus(
     except Exception as exc:
         return ToolError(type="config_error", message=f"Config no disponible: {exc}")
 
-    if meal_type:
-        meal_slot = meal_type
-    else:
-        from app.utils.timezone import to_local
-
-        now_local = to_local(datetime.now(timezone.utc))
-        h = now_local.hour
-        sch = user_settings.schedule
-
-        if sch.breakfast_start_hour <= h < sch.lunch_start_hour:
-            meal_slot = "breakfast"
-        elif sch.lunch_start_hour <= h < sch.dinner_start_hour:
-            meal_slot = "lunch"
-        elif h >= sch.dinner_start_hour or h < sch.breakfast_start_hour:
-            meal_slot = "dinner"
-        else:
-            meal_slot = "snack"
+    try:
+        meal_slot = _resolve_meal_slot(user_settings, meal_type)
+    except ValueError as exc:
+        return ToolError(type="validation_error", message=str(exc))
 
     try:
         from app.models.temp_mode import TempModeDB
@@ -440,7 +448,9 @@ async def calculate_bolus(
         protein_g=protein,
         fiber_g=fiber,
         meal_slot=meal_slot,
-        target_mgdl=target or user_settings.targets.mid,
+        # None deliberately delegates target resolution to the authoritative
+        # engine, which honors targets.<meal_slot> before targets.mid.
+        target_mgdl=target,
         carb_profile=carb_profile,
         alcohol=alcohol,
         confirm_iob_unknown=True,
@@ -511,51 +521,41 @@ async def calculate_bolus(
 
 
 async def calculate_correction(target_bg: Optional[float] = None) -> CorrectionResult | ToolError:
+    """Calculate a correction through the same authoritative bolus service."""
     try:
-        user_settings = await _load_user_settings()
+        user_settings, user_id = await resolve_bot_user_settings()
+        meal_slot = _resolve_meal_slot(user_settings)
     except Exception as exc:
         return ToolError(type="config_error", message=f"Config no disponible: {exc}")
 
-    status = await get_status_context(user_settings=user_settings)
-    if isinstance(status, ToolError):
-        return status
-    if status.bg_mgdl is None:
-        return ToolError(type="missing_bg", message="No hay glucosa reciente (Nightscout caído o sin datos).")
-    
-    # Check age
-    try:
-        ts = datetime.fromisoformat(status.timestamp)
-        if ts.tzinfo is None: ts = ts.replace(tzinfo=timezone.utc)
-        age = (datetime.now(timezone.utc) - ts).total_seconds() / 60
-        if age > 20: 
-             return ToolError(type="stale_data", message=f"Datos antiguos ({int(age)}m). Riesgo de sobredosis.")
-    except: pass
+    req = BolusRequestV2(
+        carbs_g=0,
+        meal_slot=meal_slot,
+        # Explicit user override is preserved; otherwise the engine resolves the
+        # target for the active meal slot.
+        target_mgdl=target_bg,
+        confirm_iob_unknown=True,
+        confirm_iob_stale=True,
+    )
 
-    target = target_bg or user_settings.targets.mid
-    bg = status.bg_mgdl
-    iob = status.iob_u or 0.0
-    
-    # Infer slot for ISF
-    from app.utils.timezone import to_local
-    now_local = to_local(datetime.now(timezone.utc))
-    h = now_local.hour
-    sch = user_settings.schedule
-    if sch.breakfast_start_hour <= h < sch.lunch_start_hour:
-        slot = "breakfast"
-    elif sch.lunch_start_hour <= h < sch.dinner_start_hour:
-        slot = "lunch"
-    elif h >= sch.dinner_start_hour or h < sch.breakfast_start_hour:
-        slot = "dinner"
-    else:
-        slot = "snack"
-        
-    cf = getattr(user_settings.cf, slot, 50.0)
-    correction_units = max((bg - target) / cf - iob, 0.0)
-    explanation = [
-        f"BG {bg} vs objetivo {target} con CF {cf} ({slot})",
-        f"IOB restado: {iob:.2f} U",
-    ]
-    return CorrectionResult(units=round(correction_units, 2), explanation=explanation, confidence="medium", quality="live" if status.quality == "live" else "degraded")
+    try:
+        rec = await calculate_bolus_for_bot(req, username=user_id)
+    except Exception as exc:
+        return ToolError(type="calc_error", message=f"Error calculando corrección: {exc}")
+
+    if not rec.glucose or rec.glucose.mgdl is None:
+        return ToolError(type="missing_data", message="No hay datos de glucosa recientes.")
+
+    explanation = list(rec.explain or [])
+    if rec.warnings:
+        explanation.extend([f"⚠️ {warning}" for warning in rec.warnings])
+
+    return CorrectionResult(
+        units=rec.total_u,
+        explanation=explanation,
+        confidence="high",
+        quality="data-driven",
+    )
 
 
 async def simulate_whatif(carbs: float, horizon_minutes: int = 180) -> WhatIfResult | ToolError:
