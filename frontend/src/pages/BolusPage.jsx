@@ -338,7 +338,8 @@ export default function BolusPage() {
             mealMeta: mealMetaRef.current,
             date, nsConfig, alcoholEnabled,
             carbProfile,
-            plateItems
+            plateItems,
+            mealSlot: slot
         });
     };
 
