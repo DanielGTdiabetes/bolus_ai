@@ -29,6 +29,38 @@ def test_autosens_request_override_is_explicit_only():
     assert BolusRequestV2(carbs_g=0, enable_autosens=True).enable_autosens is True
 
 
+def test_autosens_changes_effective_ratios_and_exposes_them_for_traceability():
+    settings = UserSettings()
+    settings.cr.lunch = 10
+    settings.cf.lunch = 30
+    settings.targets.lunch = 110
+    settings.round_step_u = 0.1
+    settings.max_bolus_u = 20
+
+    request = BolusRequestV2(
+        carbs_g=20,
+        bg_mgdl=110,
+        meal_slot="lunch",
+    )
+    glucose = GlucoseUsed(mgdl=110, source="manual")
+
+    result = calculate_bolus_v2(
+        request,
+        settings,
+        iob_u=0,
+        glucose_info=glucose,
+        autosens_ratio=1.2,
+        autosens_reason="regression",
+    )
+
+    assert result.total_u == 2.4
+    assert result.used_params.autosens_ratio == 1.2
+    assert result.used_params.autosens_reason == "regression"
+    assert result.used_params.effective_cr_g_per_u == pytest.approx(8.333, abs=0.001)
+    assert result.used_params.effective_isf_mgdl_per_u == 25.0
+    assert any("Autosens" in line for line in result.explain)
+
+
 def test_meal_without_iob():
     result = calculate(iob=0)
     assert result.meal_bolus_u == 2.0
