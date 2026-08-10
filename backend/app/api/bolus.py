@@ -51,6 +51,12 @@ class ActivePlan(BaseModel):
     later_u_planned: float
     later_after_min: int
     extended_duration_min: Optional[int] = None
+    treatment_id: Optional[str] = None
+    plan_id: Optional[str] = None
+    mode: Optional[Literal["manual", "dual"]] = None
+    source: Optional[str] = None
+    meal_slot: Optional[Literal["breakfast", "lunch", "dinner", "snack"]] = None
+    total_recommended_u: Optional[float] = None
     status: Literal["pending", "completed", "cancelled"] = "pending"
     notes: Optional[str] = None
 

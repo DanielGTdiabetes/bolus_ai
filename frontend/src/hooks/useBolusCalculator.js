@@ -19,6 +19,7 @@ import { showToast } from '../components/ui/Toast';
 import { resolveSickModeDosingPolicy } from '../lib/sickModePolicy';
 import { buildOnlineBolusPayload } from '../lib/onlineBolusPayload';
 import { buildClientBolusTrace } from '../lib/bolusTrace';
+import { buildPersistentDualPlan, getAuthoritativeBolusTotal } from '../lib/dualPlan';
 
 export function useBolusCalculator() {
     const [result, setResult] = useState(null);
@@ -261,10 +262,21 @@ export function useBolusCalculator() {
             usedProt = usedProt || 0;
             usedFiber = usedFiber || 0;
             const glucoseValue = parseFloat(glucose);
+            const treatmentId = globalThis.crypto?.randomUUID?.()
+                ?? `bolus-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+            const isDualResult = result.kind === 'dual' || result.kind === 'extended';
+            const totalRecommendedU = getAuthoritativeBolusTotal(result);
+            const persistentDualPlan = isDualResult ? buildPersistentDualPlan({
+                result,
+                treatmentId,
+                acceptedUpfrontU: finalInsulin,
+                createdAtTs: Date.now(),
+                mealSlot: result?.calc?.used_params?.meal_slot || null,
+                source: result?.plan ? 'app-manual-split' : 'app-engine-split',
+            }) : null;
 
             const treatment = {
-                treatment_id: globalThis.crypto?.randomUUID?.()
-                    ?? `bolus-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+                treatment_id: treatmentId,
                 eventType: "Meal Bolus",
                 created_at: customDate.toISOString(),
                 carbs: (parseFloat(carbs) || 0),
@@ -277,7 +289,7 @@ export function useBolusCalculator() {
                 linked_ingestion: linkedIngestion,
                 ingestion_id: ingestionId || null,
                 enteredBy: state.user?.username || "BolusAI",
-                notes: `BolusAI: ${(result.kind === 'dual' || result.kind === 'extended') ? 'Dual' : 'Normal'}. Gr: ${carbs}${isOrphan ? ' (Sincronizado)' : ''}. BG: ${glucose}. ${foodName ? 'Comida: ' + foodName + '.' : ''} ${alcoholEnabled ? 'Alcohol Detected.' : ''} ${plateItems?.length > 0 ? 'Items: ' + plateItems.map(i => i.name).join(', ') : ''}${fiberNote}`,
+                notes: `BolusAI: ${isDualResult ? 'Dual' : 'Normal'}. Gr: ${carbs}${isOrphan ? ' (Sincronizado)' : ''}. BG: ${glucose}. ${foodName ? 'Comida: ' + foodName + '.' : ''} ${alcoholEnabled ? 'Alcohol Detected.' : ''} ${plateItems?.length > 0 ? 'Items: ' + plateItems.map(i => i.name).join(', ') : ''}${fiberNote}`,
                 nightscout: {
                     url: nsConfig?.url || null,
                 },
@@ -291,13 +303,15 @@ export function useBolusCalculator() {
                 : (plateItems?.length > 0 ? plateItems.map(i => i.name) : (foodName ? [foodName] : []));
 
             if (metaItems.length > 0 || parseFloat(carbs) > 0) {
-                const strategy = (result.kind === 'dual' || result.kind === 'extended') ? {
+                const strategy = persistentDualPlan ? {
                     kind: 'dual',
-                    total: result.total_u_final,
-                    upfront: result.upfront_u,
-                    later: result.later_u,
-                    delay: result.duration_min
-                } : { kind: 'normal', total: result.total_u_final };
+                    total: totalRecommendedU,
+                    upfront: persistentDualPlan.upfront_u,
+                    later: persistentDualPlan.later_u_planned,
+                    delay: persistentDualPlan.later_after_min,
+                    plan_id: persistentDualPlan.plan_id,
+                    treatment_id: treatmentId,
+                } : { kind: 'normal', total: totalRecommendedU };
 
                 treatment.meal_meta = {
                     items: metaItems,
@@ -308,33 +322,10 @@ export function useBolusCalculator() {
                 };
             }
 
-            // Dual Plan State Update
-            if (result.kind === 'dual' || result.kind === 'extended') {
-                treatment.notes += ` (Split: ${finalInsulin} now + ${result.later_u} delayed ${result.duration_min}m)`;
-                state.lastBolusPlan = {
-                    ...result.plan,
-                    upfront_u: finalInsulin,
-                    created_at_ts: Date.now()
-                };
-                saveDualPlan(state.lastBolusPlan);
-
-                // --- SYNC TO BOT ENDPOINT ---
-                try {
-                    // We need to map to ActivePlan Schema
-                    // result.plan usually has: { now_u, later_u_planned, later_after_min, extended_duration_min, total_recommended_u }
-                    await saveActivePlan({
-                        id: result.plan.plan_id || String(Date.now()),
-                        created_at_ts: Date.now(),
-                        upfront_u: finalInsulin,
-                        later_u_planned: result.later_u, // from result top level which is already calculated/overwritten
-                        later_after_min: result.duration_min, // usually same as duration
-                        extended_duration_min: result.duration_min,
-                        notes: `Origen: App (${foodName || 'Manual'})`,
-                        status: "pending"
-                    });
-                } catch (errPlan) {
-                    console.warn("Failed to sync plan to bot:", errPlan);
-                }
+            // Add the plan description to the treatment, but do not mark the
+            // plan active until the treatment itself has been persisted.
+            if (persistentDualPlan) {
+                treatment.notes += ` (Split: ${persistentDualPlan.upfront_u} now + ${persistentDualPlan.later_u_planned} delayed ${persistentDualPlan.later_after_min}m)`;
             }
 
             if (siteId && finalInsulin > 0) {
@@ -343,6 +334,20 @@ export function useBolusCalculator() {
             }
 
             const apiRes = await saveTreatment(treatment);
+
+            // Activate/sync the plan only after treatment persistence succeeded.
+            if (persistentDualPlan && apiRes?.success !== false) {
+                state.lastBolusPlan = persistentDualPlan;
+                saveDualPlan(persistentDualPlan);
+                try {
+                    await saveActivePlan({
+                        ...persistentDualPlan,
+                        notes: `Origen: App (${foodName || 'Manual'})`,
+                    });
+                } catch (errPlan) {
+                    console.warn("Failed to sync plan to bot:", errPlan);
+                }
+            }
 
             // Needle Stock
             if (finalInsulin > 0) {
