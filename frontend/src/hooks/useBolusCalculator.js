@@ -224,7 +224,7 @@ export function useBolusCalculator() {
             orphanContext, mealMeta, // { fat, protein, fiber, items }
             date, nsConfig,
             alcoholEnabled, carbProfile,
-            plateItems
+            plateItems, mealSlot
         } = saveParams;
 
         setSaving(true);
@@ -271,7 +271,7 @@ export function useBolusCalculator() {
                 treatmentId,
                 acceptedUpfrontU: finalInsulin,
                 createdAtTs: Date.now(),
-                mealSlot: result?.calc?.used_params?.meal_slot || null,
+                mealSlot: mealSlot || null,
                 source: result?.plan ? 'app-manual-split' : 'app-engine-split',
             }) : null;
 
