@@ -43,7 +43,7 @@ def test_select_due_plan_uses_planned_later_dose_and_respects_snooze():
     assert due["later_u_planned"] == 2.0
 
 
-def test_completed_or_zero_later_plan_is_not_due():
+def test_completed_zero_or_invalid_timestamp_plan_is_not_due():
     plans = [
         {
             "id": "done",
@@ -53,9 +53,16 @@ def test_completed_or_zero_later_plan_is_not_due():
             "status": "completed",
         },
         {
-            "id": "zero",
+            "id": "zero-dose",
             "created_at_ts": 1_000_000,
             "later_u_planned": 0,
+            "later_after_min": 1,
+            "status": "pending",
+        },
+        {
+            "id": "zero-time",
+            "created_at_ts": 0,
+            "later_u_planned": 2,
             "later_after_min": 1,
             "status": "pending",
         },
