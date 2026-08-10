@@ -5,14 +5,17 @@ from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_db_session
 from app.core.security import CurrentUser, get_current_user
+from app.models.treatment import Treatment
 from app.services.meal_session_service import (
     finish_meal_session,
     get_active_meal_session,
     get_meal_session,
+    record_bolus_in_session,
     record_carbs_added,
     start_meal_session,
     summarize_meal_session,
@@ -35,6 +38,10 @@ class AddMealCarbsRequest(BaseModel):
     fiber_g: float = Field(default=0, ge=0, le=500)
     label: Optional[str] = Field(default=None, max_length=200)
     source: Optional[str] = Field(default=None, max_length=64)
+
+
+class LinkTreatmentRequest(BaseModel):
+    treatment_id: str = Field(min_length=8, max_length=128)
 
 
 @router.post("/start", summary="Start or resume the current meal session")
@@ -93,6 +100,40 @@ async def add_carbs(
             protein_g=payload.protein_g,
             fiber_g=payload.fiber_g,
             payload={"label": payload.label, "source": payload.source},
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail="Meal session not found") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail="Meal session is not active") from exc
+
+    row = await get_meal_session(db, user_id=user.username, session_id=session_id)
+    return summarize_meal_session(row)
+
+
+@router.post("/{session_id}/link-treatment", summary="Link an already persisted bolus to a meal session")
+async def link_treatment(
+    session_id: str,
+    payload: LinkTreatmentRequest,
+    user: CurrentUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+):
+    stmt = select(Treatment).where(
+        Treatment.id == payload.treatment_id,
+        Treatment.user_id == user.username,
+    )
+    treatment = (await db.execute(stmt)).scalars().first()
+    if treatment is None:
+        raise HTTPException(status_code=404, detail="Treatment not found")
+
+    try:
+        await record_bolus_in_session(
+            db,
+            user_id=user.username,
+            session_id=session_id,
+            treatment_id=treatment.id,
+            carbs_g=float(treatment.carbs or 0),
+            accepted_insulin_u=float(treatment.insulin or 0),
+            calculation_trace=treatment.calculation_trace,
         )
     except LookupError as exc:
         raise HTTPException(status_code=404, detail="Meal session not found") from exc
