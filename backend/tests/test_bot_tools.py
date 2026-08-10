@@ -75,21 +75,34 @@ async def test_tool_catalog_contains_core_tools():
 
 
 @pytest.mark.asyncio
-async def test_calculate_correction_uses_status(monkeypatch):
+async def test_calculate_correction_uses_central_result(monkeypatch):
     dummy_settings = UserSettings.default()
 
-    async def fake_load():
-        return dummy_settings
+    async def fake_resolver(*args, **kwargs):
+        return dummy_settings, "tester"
 
-    async def fake_status(user_settings=None):
-        return tools.StatusContext(bg_mgdl=200, delta=1.0, iob_u=1.0, cob_g=0, quality="live", source="test")
+    async def fake_calculator(payload, *, username):
+        assert username == "tester"
+        assert payload.carbs_g == 0
+        return type(
+            "Rec",
+            (),
+            {
+                "total_u": 0.8,
+                "explain": ["motor central"],
+                "warnings": [],
+                "glucose": type("G", (), {"mgdl": 150.0})(),
+            },
+        )()
 
-    monkeypatch.setattr(tools, "_load_user_settings", fake_load)
-    monkeypatch.setattr(tools, "get_status_context", fake_status)
+    monkeypatch.setattr(tools, "resolve_bot_user_settings", fake_resolver)
+    monkeypatch.setattr(tools, "_resolve_meal_slot", lambda *_args, **_kwargs: "lunch")
+    monkeypatch.setattr(tools, "calculate_bolus_for_bot", fake_calculator)
 
     res = await tools.calculate_correction()
-    assert res.units >= 0
-    assert res.explanation
+    assert res.units == 0.8
+    assert "motor central" in res.explanation
+
 
 
 class _DummyStore:
