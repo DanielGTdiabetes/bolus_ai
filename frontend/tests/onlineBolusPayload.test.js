@@ -14,6 +14,7 @@ const payload = buildOnlineBolusPayload({
   carbProfile: 'med',
   alcohol: false,
   exercise: { planned: true, minutes: 45, intensity: 'moderate' },
+  dualBolusEnabled: false,
 });
 
 assert.equal(payload.carbs_g, 20);
@@ -22,6 +23,7 @@ assert.equal(payload.meal_slot, 'lunch');
 assert.equal(payload.exercise.minutes, 45);
 assert.equal(containsClientDosingConfig(payload), false);
 assert.equal(Object.hasOwn(payload, 'enable_autosens'), false);
+assert.equal(payload.dual_bolus_enabled, false);
 
 for (const forbidden of [
   'cr_g_per_u', 'isf_mgdl_per_u', 'target_mgdl', 'dia_hours',

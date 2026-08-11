@@ -50,6 +50,7 @@ class CalculationInput:
     warsaw_factor_simple: float = 0.1
     warsaw_factor_dual: float = 0.2
     warsaw_trigger: int = 300
+    dual_bolus_enabled: bool = False
     
     # Techne & Safety
     techne_enabled: bool = False

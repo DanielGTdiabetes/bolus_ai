@@ -3,7 +3,12 @@ import types
 import pytest
 
 from app.bot import service
-from app.models.bolus_v2 import BolusRequestV2
+from app.models.bolus_v2 import (
+    BolusRequestV2,
+    BolusResponseV2,
+    GlucoseUsed,
+    UsedParams,
+)
 from app.models.settings import UserSettings
 
 
@@ -41,6 +46,36 @@ class DummyUpdate:
         self.effective_chat = DummyChat()
 
 
+def _dual_response() -> BolusResponseV2:
+    return BolusResponseV2(
+        total_u=5.0,
+        total_u_final=5.0,
+        total_u_raw=3.5,
+        kind="dual",
+        upfront_u=3.5,
+        later_u=1.5,
+        duration_min=240,
+        iob_u=0.03,
+        iob_applied_to_correction_u=0.0,
+        meal_bolus_u=2.9,
+        correction_u=-0.2,
+        glucose=GlucoseUsed(mgdl=91, source="manual"),
+        used_params=UsedParams(
+            cr_g_per_u=9,
+            isf_mgdl_per_u=80,
+            target_mgdl=105,
+            dia_hours=4,
+            max_bolus_final=10,
+            effective_cr_g_per_u=10.1,
+            effective_isf_mgdl_per_u=89,
+            autosens_ratio=0.89,
+            dual_bolus_enabled=True,
+        ),
+        explain=["Warsaw Auto-Dual"],
+        warnings=[],
+    )
+
+
 @pytest.fixture(autouse=True)
 def _isolated_snapshots(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
     store = service.SnapshotStore(tmp_path)
@@ -71,6 +106,58 @@ async def test_accept_manual_without_snapshot_includes_units(monkeypatch: pytest
     assert captured["add_args"] is not None
     assert captured["add_args"]["insulin"] == units
     assert all("Snapshot irreconocible" not in text for text in captured["edited"])
+
+
+@pytest.mark.asyncio
+async def test_accept_engine_dual_records_only_upfront_and_persists_plan(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    req_id = "warsaw-1"
+    query = DummyCallbackQuery(f"accept|{req_id}")
+    service._get_snapshot_store().set(req_id, {
+        "rec": _dual_response(),
+        "payload": BolusRequestV2(carbs_g=29, meal_slot="lunch"),
+        "carbs": 29,
+        "fat": 65,
+        "protein": 30,
+        "fiber": 0,
+        "source": "mfp",
+    })
+    captured = {"add_args": None, "plan": None}
+
+    async def fake_add_treatment(args):
+        captured["add_args"] = args
+        return types.SimpleNamespace(
+            ok=True,
+            treatment_id="tx-warsaw",
+            injection_site=None,
+            ns_error=None,
+        )
+
+    async def fake_edit_message_text_safe(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(service.tools, "add_treatment", fake_add_treatment)
+    monkeypatch.setattr(service, "edit_message_text_safe", fake_edit_message_text_safe)
+    monkeypatch.setattr(
+        service,
+        "get_settings",
+        lambda: types.SimpleNamespace(data=types.SimpleNamespace(data_dir=str(tmp_path))),
+    )
+    monkeypatch.setattr(
+        service,
+        "_persist_bot_active_plan",
+        lambda _store, plan: captured.update(plan=plan),
+    )
+
+    await service._handle_snapshot_callback(query, query.data)
+
+    assert captured["add_args"]["insulin"] == 3.5
+    assert captured["add_args"]["duration"] == 0
+    assert captured["plan"]["treatment_id"] == "tx-warsaw"
+    assert captured["plan"]["upfront_u"] == 3.5
+    assert captured["plan"]["later_u_planned"] == 1.5
+    assert captured["plan"]["later_after_min"] == 240
 
 
 @pytest.mark.asyncio

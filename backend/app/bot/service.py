@@ -77,6 +77,61 @@ def _escape_md_v1(text: str) -> str:
     return text.replace("_", "\\_").replace("*", "\\*").replace("`", "\\`").replace("[", "\\[")
 
 
+def _resolve_bolus_delivery(rec: BolusResponseV2) -> tuple[float, float, float, int]:
+    total = max(0.0, float(getattr(rec, "total_u_final", 0) or 0))
+    later = max(0.0, float(getattr(rec, "later_u", 0) or 0))
+    is_dual = getattr(rec, "kind", "normal") in ("dual", "extended") and later > 0
+    if not is_dual:
+        return total, total, 0.0, 0
+
+    upfront = max(0.0, float(getattr(rec, "upfront_u", total - later) or 0))
+    return total, upfront, later, max(0, int(getattr(rec, "duration_min", 0) or 0))
+
+
+def _build_bot_active_plan(
+    rec: BolusResponseV2,
+    *,
+    treatment_id: Optional[str],
+    accepted_upfront_u: float,
+    snapshot: dict,
+    later_u_override: Optional[float] = None,
+    duration_min_override: Optional[int] = None,
+) -> Optional[dict]:
+    total, _, rec_later, rec_duration = _resolve_bolus_delivery(rec)
+    later = rec_later if later_u_override is None else max(0.0, later_u_override)
+    duration = rec_duration if duration_min_override is None else max(0, duration_min_override)
+    if not treatment_id or later <= 0:
+        return None
+
+    payload = snapshot.get("payload")
+    meal_slot = getattr(payload, "meal_slot", None)
+    created_at_ts = int(time.time() * 1000)
+    return {
+        "id": treatment_id,
+        "plan_id": treatment_id,
+        "treatment_id": treatment_id,
+        "created_at_ts": created_at_ts,
+        "upfront_u": max(0.0, float(accepted_upfront_u)),
+        "later_u_planned": later,
+        "later_after_min": duration,
+        "extended_duration_min": duration or None,
+        "mode": "dual",
+        "source": "telegram-engine-split",
+        "meal_slot": meal_slot,
+        "total_recommended_u": total,
+        "status": "pending",
+        "notes": f"Origen: Telegram ({snapshot.get('source') or 'bolus'})",
+    }
+
+
+def _persist_bot_active_plan(store: DataStore, plan: dict) -> None:
+    from app.services.active_plan_store import load_active_plans, save_active_plans
+
+    plans = [existing for existing in load_active_plans(store) if existing.get("id") != plan["id"]]
+    plans.append(plan)
+    save_active_plans(store, plans)
+
+
 
 def _build_bolus_message(
     rec: BolusResponseV2,
@@ -89,7 +144,15 @@ def _build_bolus_message(
     notes: str,
     exercise_summary: Optional[str] = None,
 ) -> tuple[str, bool, str]:
-    lines = [f"Sugerencia: **{rec.total_u_final} U**"]
+    total_u, upfront_u, later_u, duration_min = _resolve_bolus_delivery(rec)
+    lines = [f"Sugerencia total: **{total_u:g} U**"]
+
+    if later_u > 0:
+        lines.append(f"- Dosis inmediata: **{upfront_u:g} U**")
+        lines.append(
+            f"- Planificada para revisar más tarde: **{later_u:g} U** "
+            f"(tras {duration_min} min)"
+        )
 
     if carbs > 0:
         lines.append(f"- Carbos: {carbs}g → {rec.meal_bolus_u:.2f} U")
@@ -1163,12 +1226,15 @@ async def _process_text_input_internal(update: Update, context: ContextTypes.DEF
                 snap["payload"] = req_v2
                 
                 # Construct updated summary message
-                rec_u = new_rec.total_u_final
+                total_u, rec_u, later_u, duration_min = _resolve_bolus_delivery(new_rec)
                 lines = []
                 lines.append(f"🍽️ **Comida Actualizada**")
                 lines.append(f"Macros: C:{c_val} F:{f_val} P:{p_val}")
                 lines.append("")
-                lines.append(f"Resultado: **{rec_u} U**")
+                lines.append(f"Resultado total: **{total_u:g} U**")
+                if later_u > 0:
+                    lines.append(f"Ahora: **{rec_u:g} U**")
+                    lines.append(f"Planificada para revisar tras {duration_min} min: **{later_u:g} U**")
                 
                 if new_rec.explain:
                     lines.append("")
@@ -1462,6 +1528,10 @@ async def _handle_add_treatment_tool(update: Update, context: ContextTypes.DEFAU
     if insulin_req is not None:
         rec.total_u_final = insulin_req
         rec.total_u = insulin_req
+        rec.kind = "normal"
+        rec.upfront_u = insulin_req
+        rec.later_u = 0.0
+        rec.duration_min = 0
         rec.explain.append(f"Override: Usuario solicitó explícitamente {insulin_req} U")
 
     # 3. Message Generation (Strict Format)
@@ -1512,10 +1582,11 @@ async def _handle_add_treatment_tool(update: Update, context: ContextTypes.DEFAU
     msg_text += f"\n\n📍 Sugerencia: {next_site['name']} {next_site['emoji']}"
 
     
+    _, immediate_u, _, _ = _resolve_bolus_delivery(rec)
     keyboard = _build_bolus_recommendation_keyboard(
         update,
         request_id=request_id,
-        rec_u=rec.total_u_final,
+        rec_u=immediate_u,
         user_settings=user_settings,
         fiber_dual_rec=fiber_dual_rec,
     )
@@ -1603,7 +1674,7 @@ async def _apply_exercise_recalculation(
         exercise_summary=exercise_summary,
     )
 
-    rec_u = new_rec.total_u_final
+    _, rec_u, _, _ = _resolve_bolus_delivery(new_rec)
     keyboard = _build_bolus_recommendation_keyboard(
         update,
         request_id=request_id,
@@ -2530,7 +2601,7 @@ async def on_new_meal_received(carbs: float, fat: float, protein: float, fiber: 
 
     # 3. Message (Strict Format matching Core Engine)
     # -----------------------------------------------------
-    rec_u = rec.total_u_final
+    total_u, rec_u, later_u, duration_min = _resolve_bolus_delivery(rec)
 
     downward_trends = {"DoubleDown", "SingleDown", "FortyFiveDown", "down", "falling"}
     configured_wait = max(0, int(user_settings.insulin.pre_bolus_min or 0))
@@ -2557,7 +2628,10 @@ async def on_new_meal_received(carbs: float, fat: float, protein: float, fiber: 
     safe_source = escape_md(source) if source else "Unknown"
     lines.append(f"🍽️ **Nueva Comida Detectada** ({safe_source})")
     lines.append("")
-    lines.append(f"Resultado: **{rec_u} U**")
+    lines.append(f"Resultado total: **{total_u:g} U**")
+    if later_u > 0:
+        lines.append(f"Dosis inmediata: **{rec_u:g} U**")
+        lines.append(f"Planificada para revisar tras {duration_min} min: **{later_u:g} U**")
     lines.append("")
     lines.append(wait_message)
     lines.append("")
@@ -2652,6 +2726,8 @@ async def _handle_snapshot_callback(query, data: str) -> None:
     try:
         units_override = None
         dual_info = None
+        callback_later_u = None
+        callback_duration_min = None
 
         if data.startswith("accept_manual|"):
             # accept_manual|units|uuid
@@ -2667,7 +2743,9 @@ async def _handle_snapshot_callback(query, data: str) -> None:
             now_u = float(parts[2])
             later_u = float(parts[3])
             
-            units_override = now_u + later_u
+            units_override = now_u
+            callback_later_u = later_u
+            callback_duration_min = 120
             dual_info = f" (Dual: {now_u} + {later_u} ext)"
             is_accept = True
             
@@ -2741,11 +2819,16 @@ async def _handle_snapshot_callback(query, data: str) -> None:
         rec = snapshot.get("rec")
         if isinstance(rec, BolusResponseV2):
              carbs = snapshot["carbs"]
-             units = units_override if units_override is not None else rec.total_u_final
+             _, recommended_upfront, rec_later_u, rec_duration_min = _resolve_bolus_delivery(rec)
+             units = units_override if units_override is not None else recommended_upfront
+             planned_later_u = callback_later_u if callback_later_u is not None else rec_later_u
+             planned_duration_min = callback_duration_min if callback_duration_min is not None else rec_duration_min
         elif "units" in snapshot:
              # AI Router Snapshot
              units = units_override if units_override is not None else snapshot["units"]
              carbs = snapshot.get("carbs", 0)
+             planned_later_u = callback_later_u or 0.0
+             planned_duration_min = callback_duration_min or 0
         else:
              await edit_message_text_safe(query, "⚠️ Error: Snapshot irreconocible.")
              return
@@ -2769,9 +2852,9 @@ async def _handle_snapshot_callback(query, data: str) -> None:
         
         # Duration Extraction
         duration = 0
-        if "rec" in snapshot and hasattr(snapshot["rec"], "duration_min"):
+        if planned_later_u <= 0 and "rec" in snapshot and hasattr(snapshot["rec"], "duration_min"):
              duration = snapshot["rec"].duration_min or 0
-        elif "duration_min" in snapshot:
+        elif planned_later_u <= 0 and "duration_min" in snapshot:
              duration = snapshot["duration_min"] or 0
         
         # Execute Action. Persist the exact recommendation snapshot when available.
@@ -2808,6 +2891,23 @@ async def _handle_snapshot_callback(query, data: str) -> None:
             health.record_action(f"callback:accept:{request_id}", False, error_msg)
             await edit_message_text_safe(query, text=f"{base_text}\n\n❌ Error: {_escape_md_v1(error_msg)}", parse_mode="Markdown")
             return
+
+        if isinstance(rec, BolusResponseV2) and planned_later_u > 0:
+             try:
+                  plan = _build_bot_active_plan(
+                      rec,
+                      treatment_id=getattr(result, "treatment_id", None),
+                      accepted_upfront_u=units,
+                      snapshot=snapshot,
+                      later_u_override=planned_later_u,
+                      duration_min_override=planned_duration_min,
+                  )
+                  if plan:
+                      settings = get_settings()
+                      plan_store = DataStore(Path(settings.data.data_dir))
+                      _persist_bot_active_plan(plan_store, plan)
+             except Exception as exc:
+                  logger.warning("Failed to persist Telegram dual plan: %s", exc)
 
         if origin_id:
              from app.services.companion_service import resolve_episode_by_fingerprint
@@ -3305,12 +3405,15 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 snapshot["payload"] = req_v2
                 
                 # Update Message
-                rec_u = new_rec.total_u_final
+                total_u, rec_u, later_u, duration_min = _resolve_bolus_delivery(new_rec)
                 lines = []
                 lines.append(f"🍽️ **Nueva Comida Detectada** (MFP)")
                 lines.append(f"Slot: **{slot.upper()}**")
                 lines.append("")
-                lines.append(f"Resultado: **{rec_u} U**")
+                lines.append(f"Resultado total: **{total_u:g} U**")
+                if later_u > 0:
+                    lines.append(f"Ahora: **{rec_u:g} U**")
+                    lines.append(f"Planificada para revisar tras {duration_min} min: **{later_u:g} U**")
                 lines.append("")
                 if new_rec.explain:
                     for ex in new_rec.explain:

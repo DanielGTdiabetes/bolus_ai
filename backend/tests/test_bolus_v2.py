@@ -61,6 +61,99 @@ def test_autosens_changes_effective_ratios_and_exposes_them_for_traceability():
     assert any("Autosens" in line for line in result.explain)
 
 
+def _calculate_real_warsaw_case(*, dual_enabled: bool):
+    settings = UserSettings()
+    settings.cr.lunch = 9.0
+    settings.cf.lunch = 80.0
+    settings.targets.lunch = 105
+    settings.round_step_u = 0.1
+    settings.max_bolus_u = 20
+    settings.dual_bolus.enabled_default = dual_enabled
+
+    request = BolusRequestV2(
+        carbs_g=29,
+        fat_g=65,
+        protein_g=30,
+        bg_mgdl=91,
+        meal_slot="lunch",
+    )
+    glucose = GlucoseUsed(mgdl=91, source="manual")
+    return calculate_bolus_v2(
+        request,
+        settings,
+        iob_u=0.03,
+        glucose_info=glucose,
+        autosens_ratio=0.89,
+        autosens_reason="real regression",
+    )
+
+
+def test_warsaw_delivery_off_keeps_total_but_returns_single_bolus():
+    single = _calculate_real_warsaw_case(dual_enabled=False)
+    dual = _calculate_real_warsaw_case(dual_enabled=True)
+
+    assert single.total_u_final == dual.total_u_final
+    assert single.total_u_final == pytest.approx(4.1)
+    assert single.kind == "normal"
+    assert single.upfront_u == single.total_u_final
+    assert single.later_u == 0
+    assert single.duration_min == 0
+    assert single.used_params.dual_bolus_enabled is False
+    assert not any("EXTENDIDA" in line for line in single.explain)
+    assert not any("programadas para extensión" in line for line in single.explain)
+
+    # Autosens and the IOB allocation rule remain unchanged in this fixture.
+    assert single.used_params.effective_cr_g_per_u == pytest.approx(10.112, abs=0.001)
+    assert single.used_params.effective_isf_mgdl_per_u == pytest.approx(89.888, abs=0.001)
+    assert single.iob_applied_to_correction_u == 0
+
+
+def test_warsaw_delivery_on_preserves_structured_later_component():
+    result = _calculate_real_warsaw_case(dual_enabled=True)
+
+    assert result.kind == "dual"
+    assert result.upfront_u == pytest.approx(2.7)
+    assert result.later_u == pytest.approx(1.4)
+    assert result.total_u_final == pytest.approx(result.upfront_u + result.later_u)
+    assert result.duration_min == 240
+    assert result.used_params.dual_bolus_enabled is True
+    assert any("EXTENDIDA" in line for line in result.explain)
+
+
+def test_request_delivery_override_wins_over_saved_default():
+    settings = UserSettings()
+    settings.cr.lunch = 10
+    settings.cf.lunch = 30
+    settings.targets.lunch = 110
+    settings.round_step_u = 0.1
+    settings.max_bolus_u = 20
+    settings.dual_bolus.enabled_default = True
+    glucose = GlucoseUsed(mgdl=110, source="manual")
+    request = BolusRequestV2(
+        carbs_g=20,
+        fat_g=40,
+        protein_g=20,
+        bg_mgdl=110,
+        meal_slot="lunch",
+        dual_bolus_enabled=False,
+    )
+
+    result = calculate_bolus_v2(request, settings, iob_u=0, glucose_info=glucose)
+
+    assert result.kind == "normal"
+    assert result.later_u == 0
+    assert result.used_params.dual_bolus_enabled is False
+
+
+def test_meal_without_warsaw_is_unchanged_by_delivery_preference():
+    single = calculate(fat_g=0, protein_g=0, dual_bolus_enabled=False)
+    dual = calculate(fat_g=0, protein_g=0, dual_bolus_enabled=True)
+
+    assert single.total_u_final == dual.total_u_final == 2.0
+    assert single.kind == dual.kind == "normal"
+    assert single.later_u == dual.later_u == 0
+
+
 def test_meal_without_iob():
     result = calculate(iob=0)
     assert result.meal_bolus_u == 2.0

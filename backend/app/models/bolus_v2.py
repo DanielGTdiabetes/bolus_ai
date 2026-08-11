@@ -97,6 +97,10 @@ class BolusRequestV2(BaseModel):
     last_bolus_minutes: Optional[int] = Field(default=None, ge=0, description="Minutes since last insulin bolus (for safety checks)")
     alcohol: bool = Field(default=False, description="Modo Alcohol: Se asume tendencia a baja a largo plazo, suprime correcciones agresivas.")
     enable_autosens: Optional[bool] = Field(default=None, description="Optional per-request Autosens override; None uses saved user setting")
+    dual_bolus_enabled: Optional[bool] = Field(
+        default=None,
+        description="Optional delivery override; None uses saved dual_bolus.enabled_default",
+    )
 
     # Strategy Override
     strategy: Literal["auto", "normal"] = "auto"
@@ -142,6 +146,7 @@ class UsedParams(BaseModel):
     techne_max_step_change: Optional[float] = None
     autosens_ratio: float = 1.0
     autosens_reason: Optional[str] = None
+    dual_bolus_enabled: Optional[bool] = None
     config_hash: Optional[str] = None
 
     model_config = ConfigDict(allow_inf_nan=False)
