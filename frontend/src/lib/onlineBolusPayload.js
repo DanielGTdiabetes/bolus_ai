@@ -40,6 +40,7 @@ export function buildOnlineBolusPayload({
   carbProfile = null,
   alcohol = false,
   exercise = { planned: false, minutes: 0, intensity: 'moderate' },
+  dualBolusEnabled,
   autosensOverride,
 }) {
   const payload = {
@@ -58,6 +59,12 @@ export function buildOnlineBolusPayload({
   // Otherwise omission means "use the backend user's saved setting".
   if (typeof autosensOverride === 'boolean') {
     payload.enable_autosens = autosensOverride;
+  }
+
+  // Delivery strategy is request context, not a client-side clinical ratio.
+  // Omission lets non-interactive clients use the saved backend preference.
+  if (typeof dualBolusEnabled === 'boolean') {
+    payload.dual_bolus_enabled = dualBolusEnabled;
   }
 
   return payload;

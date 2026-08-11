@@ -168,6 +168,7 @@ export function useBolusCalculator() {
                 carbProfile,
                 alcohol: alcoholEnabled,
                 exercise: exercise || { planned: false, minutes: 0, intensity: 'moderate' },
+                dualBolusEnabled: !!dualEnabled,
                 autosensOverride: overrideParams?.useAutosens,
             });
 

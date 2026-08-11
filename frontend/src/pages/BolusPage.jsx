@@ -12,7 +12,7 @@ import { ResultView } from '../components/bolus/ResultView';
 import { FoodSmartAutocomplete } from '../components/bolus/FoodSmartAutocomplete';
 import { showToast } from '../components/ui/Toast';
 // Shared Logic / Store
-import { getCalcParams, state } from '../modules/core/store';
+import { getCalcParams, getSplitSettings, state } from '../modules/core/store';
 import { getCurrentGlucose, getIOBData, getFavorites, getLocalNsConfig, fetchRecentNutritionImports } from '../lib/api';
 import { getActiveMealSession, startMealSession, closeMealSession } from '../lib/mealSessionApi';
 import { buildMealSessionPlatePayload, createMealSessionEventId, isMealSessionStale, summarizeMealSessionProgress } from '../lib/mealSessionFlow';
@@ -38,7 +38,7 @@ export default function BolusPage() {
 
     // Toggles
     const [correctionOnly, setCorrectionOnly] = useState(false);
-    const [dualEnabled, setDualEnabled] = useState(false);
+    const [dualEnabled, setDualEnabled] = useState(() => !!getSplitSettings()?.enabled_default);
     const [autoDualApplied, setAutoDualApplied] = useState(false);
     const [autoDualReason, setAutoDualReason] = useState(null);
     const [alcoholEnabled, setAlcoholEnabled] = useState(false);

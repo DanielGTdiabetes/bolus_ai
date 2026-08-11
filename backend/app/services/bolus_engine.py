@@ -203,11 +203,11 @@ def _calculate_core(inp: CalculationInput) -> CalculationResult:
 
     # Warsaw Method (Fat/Protein)
     # Logic:
-    # IF Kcal >= Trigger -> DUAL MODE (Factor Dual, Insulin goes to Later/Extended)
+    # IF Kcal >= Trigger -> use the existing dual FPU factor; delivery follows
+    # the user's separate dual-bolus preference.
     # IF Kcal < Trigger  -> SIMPLE MODE (Factor Simple, Insulin adds to Upfront)
     
     warsaw_later_u = 0.0
-    is_split_recommended = False
     
     if inp.warsaw_enabled and (inp.fat_g > 0 or inp.protein_g > 0):
         kcal_fat = inp.fat_g * 9
@@ -218,19 +218,22 @@ def _calculate_core(inp: CalculationInput) -> CalculationResult:
         if total_kcal > 50:
             fpu_count = total_kcal / 100.0
             
-            # Check for Dual Mode (Auto Split)
-            # Only if strategy allows it. If 'normal', fallback to Simple
+            # The Warsaw threshold selects the existing FPU factor. Delivery is
+            # a separate decision: the same calculated total can be given now
+            # or represented as upfront + later.
             if total_kcal >= inp.warsaw_trigger and inp.strategy != "normal":
-                # --- AUTO DUAL MODE ---
                 factor = inp.warsaw_factor_dual
                 effective_fpu_carbs = fpu_count * 10.0 * factor
                 warsaw_ins = effective_fpu_carbs / cr
-                
-                # In Dual Mode, Warsaw enters as "Extended" part
+
+                # Keep this component separate until rounding so toggling only
+                # the delivery strategy cannot change the recommended total.
                 warsaw_later_u = warsaw_ins
-                is_split_recommended = True
-                
-                explain.append(f"   + Warsaw Auto-Dual ({total_kcal:.0f}kcal >= {inp.warsaw_trigger}): {fpu_count:.1f} FPU x {factor:.1f} -> {warsaw_ins:.2f} U (EXTENDIDA)")
+
+                if inp.dual_bolus_enabled:
+                    explain.append(f"   + Warsaw Auto-Dual ({total_kcal:.0f}kcal >= {inp.warsaw_trigger}): {fpu_count:.1f} FPU x {factor:.1f} -> {warsaw_ins:.2f} U (EXTENDIDA)")
+                else:
+                    explain.append(f"   + Warsaw FPU ({total_kcal:.0f}kcal >= {inp.warsaw_trigger}): {fpu_count:.1f} FPU x {factor:.1f} -> {warsaw_ins:.2f} U (INMEDIATA; bolo dual desactivado)")
                 
             else:
                 # --- SIMPLE MODE ---
@@ -298,9 +301,9 @@ def _calculate_core(inp: CalculationInput) -> CalculationResult:
         
     later_base = warsaw_later_u + fiber_extension_u
     if later_base > 0:
-        if warsaw_later_u > 0:
+        if warsaw_later_u > 0 and inp.dual_bolus_enabled:
             explain.append(f"   (Warsaw Dual): {warsaw_later_u:.2f} U programadas para extensión.")
-        if fiber_extension_u > 0:
+        if fiber_extension_u > 0 and inp.dual_bolus_enabled:
             explain.append(f"   (Fibra Dual): {fiber_extension_u:.2f} U programadas para extensión.")
 
     # --- 4b. Bolus Stacking Warning ---
@@ -377,9 +380,17 @@ def _calculate_core(inp: CalculationInput) -> CalculationResult:
         final_total = 0.0
         explain.append("⛔ SEGURIDAD: HIPO DETECTADA. BOLO 0.")
         warnings.append("PELIGRO: Hipo. Bolo cancelado.")
+
+    # Collapse the already-rounded components only after all dosing math and
+    # safety limits. This makes delivery strategy metadata-only for the total.
+    if final_later > 0 and not inp.dual_bolus_enabled:
+        final_upfront = final_total
+        final_later = 0.0
         
     # Duration: Warsaw (fat/protein) = 240min, Fibra sola = 120min
-    if warsaw_later_u > 0:
+    if final_later <= 0:
+        duration_min = 0
+    elif warsaw_later_u > 0 and inp.dual_bolus_enabled:
         duration_min = 240
     elif fiber_extension_u > 0:
         duration_min = 120
@@ -446,6 +457,11 @@ def calculate_bolus_v2(
         warsaw_factor_simple=request.warsaw_safety_factor or settings.warsaw.safety_factor,
         warsaw_factor_dual=request.warsaw_safety_factor_dual or settings.warsaw.safety_factor_dual,
         warsaw_trigger=request.warsaw_trigger_threshold_kcal or settings.warsaw.trigger_threshold_kcal,
+        dual_bolus_enabled=(
+            request.dual_bolus_enabled
+            if request.dual_bolus_enabled is not None
+            else settings.dual_bolus.enabled_default
+        ),
         techne_enabled=settings.techne.enabled,
         techne_max_step=settings.techne.max_step_change,
         alcohol_mode=request.alcohol,
@@ -479,6 +495,7 @@ def calculate_bolus_v2(
         techne_max_step_change=settings.techne.max_step_change,
         autosens_ratio=autosens_ratio,
         autosens_reason=autosens_reason,
+        dual_bolus_enabled=inp.dual_bolus_enabled,
         config_hash=settings.config_hash
     )
 
