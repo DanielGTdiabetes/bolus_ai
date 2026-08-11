@@ -12,6 +12,8 @@ assert.match(page, /HC en bolos/);
 assert.match(page, /Autosens se aplica desde el backend cuando esté activo/);
 assert.match(page, /disabled=\{!!mealSession\}/);
 assert.match(page, /setPendingMealSessionPlate\(null\)/);
+assert.match(page, /setDualEnabled\(!!getSplitSettings\(\)\?\.enabled_default\)/);
+assert.doesNotMatch(page, /setDualEnabled\(false\);\s*resetMealContext\(\)/);
 
 assert.match(hook, /const apiRes = await saveTreatment\(treatment\);/);
 assert.match(hook, /await addMealSessionCarbs\(mealSessionId, mealSessionPlatePayload\)/);

@@ -451,7 +451,7 @@ export default function BolusPage() {
             setCarbs('');
             setCarbProfile(null);
             setCorrectionOnly(false);
-            setDualEnabled(false);
+            setDualEnabled(!!getSplitSettings()?.enabled_default);
             resetMealContext();
             setManualEntryEnabled(true);
             const now = new Date();

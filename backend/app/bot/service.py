@@ -264,8 +264,10 @@ def _build_bolus_recommendation_keyboard(
 
     if fiber_dual_rec:
         split_pct = 70
+        later_after_min = 120
         if user_settings.dual_bolus:
             split_pct = user_settings.dual_bolus.percent_now
+            later_after_min = user_settings.dual_bolus.later_after_minutes
             if split_pct < 10:
                 split_pct = 10
             if split_pct > 90:
@@ -279,7 +281,7 @@ def _build_bolus_recommendation_keyboard(
         keyboard.insert(1, [
             InlineKeyboardButton(
                 f"✅ Dual ({split_pct}/{100 - split_pct}) -> {now_u} + {later_u}e",
-                callback_data=f"accept_dual|{request_id}|{now_u}|{later_u}",
+                callback_data=f"accept_dual|{request_id}|{now_u}|{later_u}|{later_after_min}",
             )
         ])
 
@@ -2737,7 +2739,7 @@ async def _handle_snapshot_callback(query, data: str) -> None:
             is_accept = True
             
         elif data.startswith("accept_dual|"):
-            # accept_dual|request_id|now_u|later_u
+            # accept_dual|request_id|now_u|later_u|later_after_min
             parts = data.split("|")
             request_id = parts[1]
             now_u = float(parts[2])
@@ -2745,7 +2747,8 @@ async def _handle_snapshot_callback(query, data: str) -> None:
             
             units_override = now_u
             callback_later_u = later_u
-            callback_duration_min = 120
+            # Keep callbacks sent before the delay field was added working.
+            callback_duration_min = int(parts[4]) if len(parts) > 4 else 120
             dual_info = f" (Dual: {now_u} + {later_u} ext)"
             is_accept = True
             

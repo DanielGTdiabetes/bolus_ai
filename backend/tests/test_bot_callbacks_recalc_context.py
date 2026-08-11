@@ -76,6 +76,28 @@ def _dual_response() -> BolusResponseV2:
     )
 
 
+def test_manual_dual_keyboard_carries_configured_later_delay() -> None:
+    settings = UserSettings()
+    settings.dual_bolus.percent_now = 60
+    settings.dual_bolus.later_after_minutes = 75
+
+    keyboard = service._build_bolus_recommendation_keyboard(
+        None,
+        request_id="dual-123",
+        rec_u=5.0,
+        user_settings=settings,
+        fiber_dual_rec=True,
+    )
+
+    dual_button = next(
+        button
+        for row in keyboard
+        for button in row
+        if button.callback_data.startswith("accept_dual|")
+    )
+    assert dual_button.callback_data == "accept_dual|dual-123|3.0|2.0|75"
+
+
 @pytest.fixture(autouse=True)
 def _isolated_snapshots(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
     store = service.SnapshotStore(tmp_path)
@@ -158,6 +180,55 @@ async def test_accept_engine_dual_records_only_upfront_and_persists_plan(
     assert captured["plan"]["upfront_u"] == 3.5
     assert captured["plan"]["later_u_planned"] == 1.5
     assert captured["plan"]["later_after_min"] == 240
+
+
+@pytest.mark.asyncio
+async def test_accept_manual_dual_persists_configured_later_delay(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    req_id = "manual-dual"
+    query = DummyCallbackQuery(f"accept_dual|{req_id}|3.0|2.0|75")
+    service._get_snapshot_store().set(req_id, {
+        "rec": _dual_response(),
+        "payload": BolusRequestV2(carbs_g=29, meal_slot="lunch"),
+        "carbs": 29,
+        "fat": 0,
+        "protein": 0,
+        "fiber": 10,
+        "source": "telegram",
+    })
+    captured = {"add_args": None, "plan": None}
+
+    async def fake_add_treatment(args):
+        captured["add_args"] = args
+        return types.SimpleNamespace(
+            ok=True,
+            treatment_id="tx-manual-dual",
+            injection_site=None,
+            ns_error=None,
+        )
+
+    async def fake_edit_message_text_safe(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(service.tools, "add_treatment", fake_add_treatment)
+    monkeypatch.setattr(service, "edit_message_text_safe", fake_edit_message_text_safe)
+    monkeypatch.setattr(
+        service,
+        "get_settings",
+        lambda: types.SimpleNamespace(data=types.SimpleNamespace(data_dir=str(tmp_path))),
+    )
+    monkeypatch.setattr(
+        service,
+        "_persist_bot_active_plan",
+        lambda _store, plan: captured.update(plan=plan),
+    )
+
+    await service._handle_snapshot_callback(query, query.data)
+
+    assert captured["add_args"]["insulin"] == 3.0
+    assert captured["plan"]["later_u_planned"] == 2.0
+    assert captured["plan"]["later_after_min"] == 75
 
 
 @pytest.mark.asyncio
