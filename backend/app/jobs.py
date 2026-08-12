@@ -373,6 +373,31 @@ async def run_glucose_sync() -> None:
     await jobs_state.run_job("glucose_sync", _run_glucose_sync_task)
 
 
+async def _run_nutrition_notification_outbox_task() -> None:
+    from app.bot.service import deliver_nutrition_notification
+    from app.core.db import get_session_factory
+    from app.services.nutrition_notification_outbox import process_nutrition_notification_outbox
+
+    session_factory = get_session_factory()
+    if session_factory is None:
+        logger.warning("Nutrition notification outbox skipped: database unavailable")
+        return
+    stats = await process_nutrition_notification_outbox(
+        session_factory,
+        deliver_nutrition_notification,
+        limit=25,
+    )
+    if stats["processed"]:
+        logger.info("Nutrition notification outbox completed: %s", stats)
+
+
+async def run_nutrition_notification_outbox() -> None:
+    await jobs_state.run_job(
+        "nutrition_notification_outbox",
+        _run_nutrition_notification_outbox_task,
+    )
+
+
 def setup_periodic_tasks():
     init_scheduler()
     
@@ -427,6 +452,12 @@ def setup_periodic_tasks():
     if config.is_telegram_bot_enabled():
         from app.bot import proactive
         from app.bot import service as bot_service
+        schedule_task(
+            run_nutrition_notification_outbox,
+            CronTrigger(minute="*"),
+            "nutrition_notification_outbox",
+        )
+        jobs_state.refresh_next_run("nutrition_notification_outbox")
         async def _run_morning():
             # bot is not needed anymore, internally resolved or passed explicitly to loggers if needed
             # proactive functions signature: (username="admin", chat_id=None)
