@@ -86,6 +86,36 @@ class GlucoseSyncDiagnosticsRepository(context: Context) {
         )
     }
 
+    fun recordWorkState(
+        workId: String,
+        state: String,
+        runAttemptCount: Int,
+        nextEligibilityMillis: Long?,
+        action: String,
+    ) = update(
+        "work_state",
+        "work_id=$workId Â· state=$state Â· attempt=$runAttemptCount Â· " +
+            "next=${nextEligibilityMillis ?: "-"} Â· action=$action",
+    ) { it }
+
+    fun recordWorkerRetry(
+        workId: String,
+        runAttemptCount: Int,
+        reason: String,
+    ) = update(
+        "work_retry",
+        "work_id=$workId Â· attempt=$runAttemptCount Â· reason=$reason",
+    ) { it }
+
+    fun recordRecovery(
+        previousWorkId: String,
+        replacementWorkId: String,
+        reason: String,
+    ) = update(
+        "recovery",
+        "previous_work_id=$previousWorkId Â· replacement_work_id=$replacementWorkId Â· reason=$reason",
+    ) { it }
+
     fun recordServiceState(state: String, detail: String = "") = update(
         "service_$state",
         Sanitizer.sanitize(detail.ifBlank { state }, 160),

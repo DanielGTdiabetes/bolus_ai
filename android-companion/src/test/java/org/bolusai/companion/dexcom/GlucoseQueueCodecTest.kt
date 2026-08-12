@@ -31,4 +31,14 @@ class GlucoseQueueCodecTest {
         assertEquals(readings, GlucoseQueueCodec.decode(GlucoseQueueCodec.encode(readings)))
         assertTrue(GlucoseQueueCodec.decode("not-json").isEmpty())
     }
+
+    @Test
+    fun readingUidIsTheIdempotentQueueIdentity() {
+        val original = GlucoseReading(95, 1_750_000_000, "Flat", readingUid = "g7-uid-42")
+        val replay = GlucoseReading(96, 1_750_000_001, "SingleUp", readingUid = "g7-uid-42")
+
+        val merged = GlucoseQueueCodec.merge(listOf(original), listOf(replay), maxSize = 10)
+
+        assertEquals(listOf(original), merged)
+    }
 }
