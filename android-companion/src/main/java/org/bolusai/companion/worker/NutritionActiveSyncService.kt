@@ -29,6 +29,7 @@ import org.bolusai.companion.dexcom.shouldSkipProcessedEvent
 import org.bolusai.companion.network.DexcomBolusEventClient
 import org.bolusai.companion.network.HermesMfpSyncTriggerClient
 import org.bolusai.companion.network.HermesMfpSyncTriggerResult
+import org.bolusai.companion.network.HermesMfpSyncStatus
 import org.bolusai.companion.usage.ForegroundAppWatcher
 import org.bolusai.companion.usage.UsageAccess
 
@@ -289,11 +290,19 @@ class NutritionActiveSyncService : Service() {
                 baseUrl = settings.hermesMfpSyncTriggerUrl,
                 ingestKey = settings.ingestKey,
             )
-            updateNotification("$prefix Hermes: ${if (result.ok) "sync lanzado" else "error ${result.statusCode ?: "-"}"}")
+            updateNotification("$prefix Hermes: ${result.notificationSummary()}")
             recordDiagnostic(
                 event = "hermes_trigger_result",
-                status = if (result.ok) HealthConnectLogStatus.SENT else HealthConnectLogStatus.ERROR,
-                detail = "HTTP ${result.statusCode ?: "-"} ${result.body}",
+                status = when (result.status) {
+                    HermesMfpSyncStatus.SUCCESS,
+                    HermesMfpSyncStatus.SUCCESS_WITH_WARNING,
+                    HermesMfpSyncStatus.NO_CHANGES
+                    -> HealthConnectLogStatus.SENT
+                    HermesMfpSyncStatus.RETRY_SCHEDULED -> HealthConnectLogStatus.NEEDS_RETRY
+                    HermesMfpSyncStatus.FAILED -> HealthConnectLogStatus.ERROR
+                    HermesMfpSyncStatus.UNKNOWN -> if (result.ok) HealthConnectLogStatus.SENT else HealthConnectLogStatus.ERROR
+                },
+                detail = result.diagnosticSummary(),
                 endpointUsed = settings.hermesMfpSyncTriggerUrl,
             )
             result

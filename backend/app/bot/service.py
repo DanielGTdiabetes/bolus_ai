@@ -9,7 +9,7 @@ import time
 
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.error import BadRequest, Conflict
+from telegram.error import BadRequest, Conflict, Forbidden, InvalidToken, NetworkError, RetryAfter, TimedOut
 from telegram.ext import Application, CommandHandler, MessageHandler, ContextTypes, filters, CallbackQueryHandler
 from telegram import constants
 
@@ -424,6 +424,7 @@ async def bot_send(
     *,
     bot=None,
     log_context: str = "reply",
+    raise_on_error: bool = False,
     **kwargs: Any,
 ) -> Optional[Any]:
     """Centralized sender for Telegram replies with health tracking."""
@@ -434,6 +435,8 @@ async def bot_send(
         error_msg = "bot_unavailable"
         logger.error(f"reply failed: {error_msg}")
         health.set_reply_error(error_msg)
+        if raise_on_error:
+            raise RuntimeError(error_msg)
         return None
 
     try:
@@ -452,6 +455,8 @@ async def bot_send(
         error_msg = f"{type(exc).__name__}: {exc}"
         logger.error(f"reply failed: {error_msg}")
         health.set_reply_error(error_msg)
+        if raise_on_error:
+            raise
         return None
 
 
@@ -2359,13 +2364,45 @@ MEAL_NOTIFY_CACHE: Dict[str, float] = {}
 MEAL_NOTIFY_CACHE_TTL_SECONDS = 24 * 60 * 60
 
 
-async def on_new_meal_received(carbs: float, fat: float, protein: float, fiber: float, source: str, origin_id: Optional[str] = None) -> None:
+def _classify_nutrition_delivery_error(error):
+    from app.services.nutrition_notification_outbox import DeliveryResult
+
+    if isinstance(error, RetryAfter):
+        retry_after = getattr(error, "retry_after", None)
+        if hasattr(retry_after, "total_seconds"):
+            retry_after = int(retry_after.total_seconds())
+        return DeliveryResult(
+            status="retry_scheduled",
+            error=f"RetryAfter: {error}",
+            retry_after_seconds=int(retry_after) if retry_after is not None else None,
+        )
+    if isinstance(error, TimedOut):
+        return DeliveryResult(status="delivery_unknown", error=f"TimedOut: {error}")
+    if isinstance(error, (BadRequest, Forbidden, InvalidToken)):
+        return DeliveryResult(status="failed", error=f"{type(error).__name__}: {error}")
+    if isinstance(error, NetworkError):
+        return DeliveryResult(status="delivery_unknown", error=f"NetworkError: {error}")
+    return DeliveryResult(status="delivery_unknown", error=f"{type(error).__name__}: {error}")
+
+
+async def on_new_meal_received(
+    carbs: float,
+    fat: float,
+    protein: float,
+    fiber: float,
+    source: str,
+    origin_id: Optional[str] = None,
+    *,
+    outbox_delivery: bool = False,
+):
     """
     Called by integrations.py when a new meal is ingested.
     Triggers a proactive notification.
     """
     global _bot_app
-    if origin_id:
+    from app.services.nutrition_notification_outbox import DeliveryResult
+
+    if origin_id and not outbox_delivery:
         now_ts = time.time()
         expired = [
             key for key, ts in MEAL_NOTIFY_CACHE.items()
@@ -2376,17 +2413,17 @@ async def on_new_meal_received(carbs: float, fat: float, protein: float, fiber: 
 
         if origin_id in MEAL_NOTIFY_CACHE:
             logger.info("meal_event_duplicate_skipped event_id=%s source=%s", origin_id, source)
-            return
+            return DeliveryResult(status="sent")
         MEAL_NOTIFY_CACHE[origin_id] = now_ts
 
     if not _bot_app:
         logger.info("meal_event_received_no_bot event_id=%s source=%s", origin_id, source)
-        return
+        return DeliveryResult(status="retry_scheduled", error="bot_unavailable")
 
     chat_id = config.get_allowed_telegram_user_id()
     if not chat_id:
         logger.info("meal_event_received_no_chat_id event_id=%s source=%s", origin_id, source)
-        return
+        return DeliveryResult(status="failed", error="chat_id_unavailable")
 
     logger.info(
         "meal_event_received event_id=%s source=%s chat_id=%s",
@@ -2677,14 +2714,17 @@ async def on_new_meal_received(carbs: float, fat: float, protein: float, fiber: 
     reply_markup = InlineKeyboardMarkup(keyboard)
     
     try:
-        await bot_send(
+        sent_message = await bot_send(
             chat_id=chat_id,
             text=msg_text,
             bot=_bot_app.bot,
             reply_markup=reply_markup,
             parse_mode="Markdown",
             log_context="proactive_meal",
+            raise_on_error=outbox_delivery,
         )
+        if sent_message is None:
+            return DeliveryResult(status="retry_scheduled", error="telegram_send_failed")
         if origin_id:
             from app.services.companion_service import record_meal_episode
             async with SessionLocal() as session:
@@ -2703,8 +2743,34 @@ async def on_new_meal_received(carbs: float, fat: float, protein: float, fiber: 
                     },
                     session,
                 )
+        return DeliveryResult(
+            status="sent",
+            telegram_message_id=str(getattr(sent_message, "message_id", "")) or None,
+        )
     except Exception as e:
         logger.error(f"Failed to send proactive message: {e}")
+        return _classify_nutrition_delivery_error(e)
+
+
+async def deliver_nutrition_notification(payload: dict):
+    from app.services.nutrition_notification_outbox import DeliveryResult
+
+    try:
+        return await on_new_meal_received(
+            float(payload.get("carbs") or 0),
+            float(payload.get("fat") or 0),
+            float(payload.get("protein") or 0),
+            float(payload.get("fiber") or 0),
+            str(payload.get("source") or "Importado"),
+            origin_id=payload.get("origin_id"),
+            outbox_delivery=True,
+        )
+    except Exception as exc:
+        # Delivery errors are classified inside on_new_meal_received. An error
+        # escaping here happened before Telegram was called, so retrying cannot
+        # create a duplicate notification.
+        logger.exception("Nutrition notification preparation failed")
+        return DeliveryResult(status="retry_scheduled", error=f"pre_delivery:{exc}")
 
 async def btn_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Debug command to test inline buttons."""
