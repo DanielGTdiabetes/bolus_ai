@@ -40,6 +40,15 @@ MFP_METADATA_REQUEST_RE = re.compile(
 
 METADATA_STATUSES = {"success", "fallback_recovered", "failed", "unknown", "not_attempted"}
 INGEST_STATUSES = {"success", "no_changes", "retry_scheduled", "failed", "unknown", "not_attempted"}
+NOTIFICATION_STATUSES = {
+    "queued",
+    "sent",
+    "retry_scheduled",
+    "delivery_unknown",
+    "failed",
+    "not_required",
+    "unknown",
+}
 
 
 def load_env_file(path: Path) -> None:
@@ -85,7 +94,15 @@ def _structured_summary(output: str) -> dict:
             continue
         if isinstance(candidate, dict) and any(
             key in candidate
-            for key in ("posted", "posted_count", "queued", "queued_count", "metadata_status", "ingest_status")
+            for key in (
+                "posted",
+                "posted_count",
+                "queued",
+                "queued_count",
+                "metadata_status",
+                "ingest_status",
+                "notification_status",
+            )
         ):
             summary = candidate
     return summary
@@ -146,13 +163,21 @@ def classify_sync_output(output: str, returncode: int | None, *, timed_out: bool
         else:
             metadata_status = "failed"
 
+    notification_status = str(summary.get("notification_status", "")).strip().lower()
+    if notification_status not in NOTIFICATION_STATUSES:
+        notification_status = "unknown"
+
     if timed_out:
         status = "failed"
     elif ingest_status == "retry_scheduled":
         status = "retry_scheduled"
     elif returncode not in (0, None) or ingest_status == "failed":
         status = "failed"
-    elif metadata_status in {"fallback_recovered", "failed"} or ingest_status == "unknown":
+    elif (
+        metadata_status in {"fallback_recovered", "failed"}
+        or ingest_status == "unknown"
+        or notification_status in {"queued", "retry_scheduled", "delivery_unknown", "failed"}
+    ):
         status = "success_with_warning"
     elif ingest_status == "no_changes":
         status = "no_changes"
@@ -163,6 +188,7 @@ def classify_sync_output(output: str, returncode: int | None, *, timed_out: bool
         "status": status,
         "metadata_status": metadata_status,
         "ingest_status": ingest_status,
+        "notification_status": notification_status,
         "posted_count": posted_count,
         "queued_count": queued_count,
     }
@@ -209,6 +235,7 @@ def build_not_started_response(sync_id: str, status: str, message: str) -> dict:
         "status": status,
         "metadata_status": "not_attempted",
         "ingest_status": "retry_scheduled" if status == "retry_scheduled" else "not_attempted",
+        "notification_status": "not_required",
         "posted_count": None,
         "queued_count": None,
         "returncode": None,
@@ -295,6 +322,7 @@ class Handler(BaseHTTPRequestHandler):
                     stdout=subprocess.PIPE,
                     stderr=subprocess.STDOUT,
                     timeout=TIMEOUT_SECONDS,
+                    env={**os.environ, "BOLUS_AI_SYNC_ID": sync_id},
                 )
                 output = proc.stdout or ""
                 response, status_code = build_sync_response(
@@ -329,6 +357,7 @@ class Handler(BaseHTTPRequestHandler):
                         f"status={response['status']}",
                         f"metadata_status={response['metadata_status']}",
                         f"ingest_status={response['ingest_status']}",
+                        f"notification_status={response['notification_status']}",
                         f"posted={response['posted_count']}",
                         f"queued={response['queued_count']}",
                         f"duration_ms={response['duration_ms']}",

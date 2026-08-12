@@ -18,6 +18,7 @@ from app.core.db import Base  # noqa: E402
 from app.core.security import TokenManager  # noqa: E402
 from app.core.settings import get_settings  # noqa: E402
 from app.models.treatment import Treatment  # noqa: E402
+from app.models.nutrition_notification_outbox import NutritionNotificationOutbox  # noqa: E402
 
 
 def _ts_now() -> str:
@@ -31,8 +32,17 @@ class SyncAsyncSession:
     def add(self, obj):
         self._session.add(obj)
 
+    def get_bind(self):
+        return self._session.get_bind()
+
+    async def flush(self):
+        self._session.flush()
+
     async def commit(self):
         self._session.commit()
+
+    async def rollback(self):
+        self._session.rollback()
 
     async def execute(self, stmt):
         return self._session.execute(stmt)
@@ -48,7 +58,10 @@ async def db_session():
         connect_args={"check_same_thread": False},
         future=True,
     )
-    Base.metadata.create_all(engine, tables=[Treatment.__table__])
+    Base.metadata.create_all(
+        engine,
+        tables=[Treatment.__table__, NutritionNotificationOutbox.__table__],
+    )
     Session = sessionmaker(bind=engine, future=True)
     sync_session = Session()
     try:
