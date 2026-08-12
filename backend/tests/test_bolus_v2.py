@@ -66,7 +66,7 @@ def _calculate_real_warsaw_case(*, dual_enabled: bool):
     settings.cr.lunch = 9.0
     settings.cf.lunch = 80.0
     settings.targets.lunch = 105
-    settings.round_step_u = 0.1
+    settings.round_step_u = 0.5
     settings.max_bolus_u = 20
     settings.dual_bolus.enabled_default = dual_enabled
 
@@ -93,12 +93,15 @@ def test_warsaw_delivery_off_keeps_total_but_returns_single_bolus():
     dual = _calculate_real_warsaw_case(dual_enabled=True)
 
     assert single.total_u_final == dual.total_u_final
-    assert single.total_u_final == pytest.approx(4.1)
+    assert single.total_u_final == pytest.approx(4.0)
+    assert single.total_u_raw == pytest.approx(2.71, abs=0.001)
     assert single.kind == "normal"
     assert single.upfront_u == single.total_u_final
     assert single.later_u == 0
     assert single.duration_min == 0
     assert single.used_params.dual_bolus_enabled is False
+    assert single.used_params.round_step_u == 0.5
+    assert single.used_params.config_hash == "24a6330dcc1f6ff1467a25a6dc033dde04f1c4b4573b1c9956a51322d2693997"
     assert not any("EXTENDIDA" in line for line in single.explain)
     assert not any("programadas para extensión" in line for line in single.explain)
 
@@ -112,12 +115,49 @@ def test_warsaw_delivery_on_preserves_structured_later_component():
     result = _calculate_real_warsaw_case(dual_enabled=True)
 
     assert result.kind == "dual"
-    assert result.upfront_u == pytest.approx(2.7)
-    assert result.later_u == pytest.approx(1.4)
+    assert result.upfront_u == pytest.approx(2.5)
+    assert result.later_u == pytest.approx(1.5)
     assert result.total_u_final == pytest.approx(result.upfront_u + result.later_u)
     assert result.duration_min == 240
     assert result.used_params.dual_bolus_enabled is True
+    assert result.used_params.round_step_u == 0.5
+    assert result.used_params.config_hash == "40ade01676afe08c1c73fab9142bca239039b36449418b4d22cbbb4b861c1f81"
     assert any("EXTENDIDA" in line for line in result.explain)
+
+
+@pytest.mark.parametrize("server_default, expected_kind", [(False, "normal"), (True, "dual")])
+def test_legacy_client_without_dual_field_uses_authoritative_server_default(
+    server_default: bool,
+    expected_kind: str,
+):
+    settings = UserSettings()
+    settings.cr.lunch = 9.0
+    settings.cf.lunch = 80.0
+    settings.targets.lunch = 105
+    settings.round_step_u = 0.5
+    settings.max_bolus_u = 20
+    settings.dual_bolus.enabled_default = server_default
+    request = BolusRequestV2(
+        carbs_g=29,
+        fat_g=65,
+        protein_g=30,
+        bg_mgdl=91,
+        meal_slot="lunch",
+    )
+
+    assert request.dual_bolus_enabled is None
+    result = calculate_bolus_v2(
+        request,
+        settings,
+        iob_u=0.03,
+        glucose_info=GlucoseUsed(mgdl=91, source="manual"),
+        autosens_ratio=0.89,
+        autosens_reason="legacy-client-regression",
+    )
+
+    assert result.total_u_final == 4.0
+    assert result.kind == expected_kind
+    assert result.used_params.dual_bolus_enabled is server_default
 
 
 def test_request_delivery_override_wins_over_saved_default():

@@ -48,17 +48,17 @@ class DummyUpdate:
 
 def _dual_response() -> BolusResponseV2:
     return BolusResponseV2(
-        total_u=5.0,
-        total_u_final=5.0,
-        total_u_raw=3.5,
+        total_u=4.0,
+        total_u_final=4.0,
+        total_u_raw=2.71,
         kind="dual",
-        upfront_u=3.5,
+        upfront_u=2.5,
         later_u=1.5,
         duration_min=240,
         iob_u=0.03,
         iob_applied_to_correction_u=0.0,
-        meal_bolus_u=2.9,
-        correction_u=-0.2,
+        meal_bolus_u=2.87,
+        correction_u=-0.16,
         glucose=GlucoseUsed(mgdl=91, source="manual"),
         used_params=UsedParams(
             cr_g_per_u=9,
@@ -68,12 +68,26 @@ def _dual_response() -> BolusResponseV2:
             max_bolus_final=10,
             effective_cr_g_per_u=10.1,
             effective_isf_mgdl_per_u=89,
+            round_step_u=0.5,
             autosens_ratio=0.89,
             dual_bolus_enabled=True,
+            config_hash="40ade01676afe08c1c73fab9142bca239039b36449418b4d22cbbb4b861c1f81",
         ),
         explain=["Warsaw Auto-Dual"],
         warnings=[],
     )
+
+
+def _single_response() -> BolusResponseV2:
+    response = _dual_response().model_copy(deep=True)
+    response.kind = "normal"
+    response.upfront_u = 4.0
+    response.later_u = 0.0
+    response.duration_min = 0
+    response.used_params.dual_bolus_enabled = False
+    response.used_params.config_hash = "24a6330dcc1f6ff1467a25a6dc033dde04f1c4b4573b1c9956a51322d2693997"
+    response.explain = ["Warsaw FPU (INMEDIATA; bolo dual desactivado)"]
+    return response
 
 
 def test_manual_dual_keyboard_carries_configured_later_delay() -> None:
@@ -174,12 +188,62 @@ async def test_accept_engine_dual_records_only_upfront_and_persists_plan(
 
     await service._handle_snapshot_callback(query, query.data)
 
-    assert captured["add_args"]["insulin"] == 3.5
+    assert captured["add_args"]["insulin"] == 2.5
     assert captured["add_args"]["duration"] == 0
     assert captured["plan"]["treatment_id"] == "tx-warsaw"
-    assert captured["plan"]["upfront_u"] == 3.5
+    assert captured["plan"]["upfront_u"] == 2.5
     assert captured["plan"]["later_u_planned"] == 1.5
     assert captured["plan"]["later_after_min"] == 240
+
+
+@pytest.mark.asyncio
+async def test_accept_real_warsaw_single_records_all_now_and_creates_no_plan(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    req_id = "warsaw-single-4u"
+    query = DummyCallbackQuery(f"accept|{req_id}")
+    service._get_snapshot_store().set(req_id, {
+        "rec": _single_response(),
+        "payload": BolusRequestV2(carbs_g=29, meal_slot="lunch"),
+        "carbs": 29,
+        "fat": 65,
+        "protein": 30,
+        "fiber": 0,
+        "source": "mfp",
+    })
+    captured = {"add_args": None, "plans": []}
+
+    async def fake_add_treatment(args):
+        captured["add_args"] = args
+        return types.SimpleNamespace(
+            ok=True,
+            treatment_id="tx-warsaw-single",
+            injection_site=None,
+            ns_error=None,
+        )
+
+    async def fake_edit_message_text_safe(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(service.tools, "add_treatment", fake_add_treatment)
+    monkeypatch.setattr(service, "edit_message_text_safe", fake_edit_message_text_safe)
+    monkeypatch.setattr(
+        service,
+        "get_settings",
+        lambda: types.SimpleNamespace(data=types.SimpleNamespace(data_dir=str(tmp_path))),
+    )
+    monkeypatch.setattr(
+        service,
+        "_persist_bot_active_plan",
+        lambda _store, plan: captured["plans"].append(plan),
+    )
+
+    await service._handle_snapshot_callback(query, query.data)
+
+    assert captured["add_args"]["insulin"] == 4.0
+    assert captured["add_args"]["duration"] == 0
+    assert captured["plans"] == []
 
 
 @pytest.mark.asyncio
