@@ -34,6 +34,7 @@ def test_success_contract_reports_ingested_meal():
         "status": "success",
         "metadata_status": "success",
         "ingest_status": "success",
+        "notification_status": "unknown",
         "posted_count": 1,
         "queued_count": 0,
         "returncode": 0,
@@ -143,3 +144,15 @@ def test_not_started_response_keeps_the_same_contract_shape():
     assert response["metadata_status"] == "not_attempted"
     assert response["ingest_status"] == "retry_scheduled"
     assert response["output_tail"] == ""
+
+
+def test_successful_ingest_with_pending_notification_is_a_warning():
+    response, http_status = build(
+        '{"metadata_status":"success","ingest_status":"success",'
+        '"notification_status":"retry_scheduled","posted_count":1,"queued_count":0}\n'
+    )
+
+    assert http_status == 200
+    assert response["status"] == "success_with_warning"
+    assert response["ingest_status"] == "success"
+    assert response["notification_status"] == "retry_scheduled"

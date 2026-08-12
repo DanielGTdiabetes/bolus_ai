@@ -112,4 +112,26 @@ class HermesMfpSyncTriggerResultTest {
         assertEquals("reintento pendiente", result.notificationSummary())
         assertFalse(result.shouldFollowUp())
     }
+
+    @Test
+    fun reportsMealSynchronizedWhileTelegramNotificationIsPending() {
+        val result = HermesMfpSyncTriggerResult.fromHttpResponse(
+            statusCode = 200,
+            rawBody = """{
+                "sync_id":"sync-notification-pending",
+                "success":1,
+                "status":"success_with_warning",
+                "metadata_status":"success",
+                "ingest_status":"success",
+                "notification_status":"retry_scheduled",
+                "posted_count":1,
+                "queued_count":0
+            }""".trimIndent(),
+        )
+
+        assertEquals("retry_scheduled", result.notificationStatus)
+        assertEquals("comida sincronizada, aviso pendiente", result.notificationSummary())
+        assertTrue(result.diagnosticSummary().contains("notification_status=retry_scheduled"))
+        assertFalse(result.shouldFollowUp())
+    }
 }

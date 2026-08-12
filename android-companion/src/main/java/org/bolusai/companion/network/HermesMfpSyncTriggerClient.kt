@@ -29,6 +29,7 @@ data class HermesMfpSyncTriggerResult(
     val status: HermesMfpSyncStatus = HermesMfpSyncStatus.UNKNOWN,
     val metadataStatus: String? = null,
     val ingestStatus: String? = null,
+    val notificationStatus: String? = null,
     val postedCount: Int? = null,
     val queuedCount: Int? = null,
     val outputTail: String = "",
@@ -44,9 +45,17 @@ data class HermesMfpSyncTriggerResult(
     }
 
     fun notificationSummary(): String = when (status) {
-        HermesMfpSyncStatus.SUCCESS -> "comida sincronizada"
+        HermesMfpSyncStatus.SUCCESS -> if (notificationPending()) {
+            "comida sincronizada, aviso pendiente"
+        } else {
+            "comida sincronizada"
+        }
         HermesMfpSyncStatus.SUCCESS_WITH_WARNING -> when (ingestStatus) {
-            "success" -> "comida sincronizada con aviso"
+            "success" -> if (notificationPending()) {
+                "comida sincronizada, aviso pendiente"
+            } else {
+                "comida sincronizada con aviso"
+            }
             "no_changes" -> "sin cambios; metadatos con aviso"
             else -> "sincronización completada con aviso"
         }
@@ -63,6 +72,7 @@ data class HermesMfpSyncTriggerResult(
             syncId?.takeIf { it.isNotBlank() }?.let { add("sync_id=$it") }
             metadataStatus?.takeIf { it.isNotBlank() }?.let { add("metadata_status=$it") }
             ingestStatus?.takeIf { it.isNotBlank() }?.let { add("ingest_status=$it") }
+            notificationStatus?.takeIf { it.isNotBlank() }?.let { add("notification_status=$it") }
             postedCount?.let { add("posted=$it") }
             queuedCount?.let { add("queued=$it") }
             message?.takeIf { it.isNotBlank() }?.let { add("message=$it") }
@@ -86,6 +96,9 @@ data class HermesMfpSyncTriggerResult(
     }
 
     private fun resolvedPostedCount(): Int? = postedCount ?: legacyCount(POSTED_COUNT_REGEX)
+
+    private fun notificationPending(): Boolean =
+        notificationStatus in setOf("queued", "retry_scheduled", "delivery_unknown")
 
     private fun resolvedQueuedCount(): Int? = queuedCount ?: legacyCount(QUEUED_COUNT_REGEX)
 
@@ -133,6 +146,7 @@ data class HermesMfpSyncTriggerResult(
                 status = status,
                 metadataStatus = json?.optString("metadata_status")?.takeIf { it.isNotBlank() },
                 ingestStatus = json?.optString("ingest_status")?.takeIf { it.isNotBlank() },
+                notificationStatus = json?.optString("notification_status")?.takeIf { it.isNotBlank() },
                 postedCount = postedCount,
                 queuedCount = queuedCount,
                 outputTail = Sanitizer.sanitize(outputTail, maxLength = 1_000),

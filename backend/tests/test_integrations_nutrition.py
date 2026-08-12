@@ -15,6 +15,7 @@ from app.core.security import TokenManager
 from app.core.settings import get_settings
 from app.models.settings import UserSettingsDB
 from app.models.treatment import Treatment
+from app.models.nutrition_notification_outbox import NutritionNotificationOutbox
 
 
 @pytest.fixture()
@@ -51,13 +52,17 @@ def client(tmp_path, monkeypatch):
     from app.core.datastore import UserStore
 
     init_db()
-    loop = asyncio.get_event_loop()
-    loop.run_until_complete(create_tables())
-    loop.run_until_complete(init_auth_db())
+    loop = asyncio.new_event_loop()
+    try:
+        loop.run_until_complete(create_tables())
+        loop.run_until_complete(init_auth_db())
+    finally:
+        loop.close()
 
     sync_engine = create_engine(f"sqlite:///{db_path}")
     Treatment.__table__.create(bind=sync_engine, checkfirst=True)
     UserSettingsDB.__table__.create(bind=sync_engine, checkfirst=True)
+    NutritionNotificationOutbox.__table__.create(bind=sync_engine, checkfirst=True)
     SessionLocal = sessionmaker(bind=sync_engine)
 
     class SyncSessionWrapper:
@@ -67,6 +72,12 @@ def client(tmp_path, monkeypatch):
         def add(self, obj):
             self._sync.add(obj)
 
+        def get_bind(self):
+            return self._sync.get_bind()
+
+        async def flush(self):
+            await asyncio.to_thread(self._sync.flush)
+
         async def commit(self):
             await asyncio.to_thread(self._sync.commit)
 
@@ -75,6 +86,9 @@ def client(tmp_path, monkeypatch):
 
         async def get(self, model, pk):
             return await asyncio.to_thread(self._sync.get, model, pk)
+
+        async def rollback(self):
+            await asyncio.to_thread(self._sync.rollback)
 
         async def close(self):
             await asyncio.to_thread(self._sync.close)
@@ -107,6 +121,12 @@ def _fetch_all_treatments(client: TestClient):
     with session_factory() as session:
         result = session.execute(select(Treatment))
         return result.scalars().all()
+
+
+def _fetch_all_notification_outbox(client: TestClient):
+    session_factory = getattr(client, "_session_factory")
+    with session_factory() as session:
+        return session.execute(select(NutritionNotificationOutbox)).scalars().all()
 
 
 def _recent_timestamp() -> str:
@@ -362,34 +382,64 @@ def test_strict_lookup_is_scoped_to_authenticated_user(client: TestClient):
     assert treatments_by_user["target-user"].notes == import_signature
 
 
-def test_triggers_notification_for_valid_meal(client: TestClient, monkeypatch: pytest.MonkeyPatch):
+def test_commits_meal_and_enqueues_notification_outbox(client: TestClient):
     headers = _auth_headers(client)
     ts = _recent_timestamp()
-    called = {}
-
-    async def fake_on_new_meal_received(carbs, fat, protein, fiber, source, origin_id=None):
-        called["args"] = {
-            "carbs": carbs,
-            "fat": fat,
-            "protein": protein,
-            "fiber": fiber,
-            "source": source,
-            "origin_id": origin_id,
-        }
-
-    monkeypatch.setattr("app.bot.service.on_new_meal_received", fake_on_new_meal_received)
 
     resp = client.post(
         "/api/integrations/nutrition",
-        headers=headers,
+        headers={**headers, "X-Sync-Id": "sync-end-to-end"},
         json={"fat": 12, "protein": 4, "date": ts},
     )
     assert resp.status_code == 200
+    assert resp.json()["sync_id"] == "sync-end-to-end"
+    assert resp.json()["ingest_status"] == "success"
+    assert resp.json()["notification_status"] == "queued"
 
     treatments = _fetch_all_treatments(client)
+    outbox = _fetch_all_notification_outbox(client)
     assert len(treatments) == 1
-    assert called["args"]["origin_id"] == treatments[0].id
-    assert called["args"]["fat"] == pytest.approx(12.0)
+    assert len(outbox) == 1
+    assert outbox[0].event_id == treatments[0].id
+    assert outbox[0].sync_id == "sync-end-to-end"
+    assert outbox[0].payload["fat"] == pytest.approx(12.0)
+
+    duplicate = client.post(
+        "/api/integrations/nutrition",
+        headers={**headers, "X-Sync-Id": "sync-duplicate"},
+        json={"fat": 12, "protein": 4, "date": ts},
+    )
+    assert duplicate.status_code == 200
+    assert duplicate.json()["ingest_status"] == "no_changes"
+    assert len(_fetch_all_notification_outbox(client)) == 1
+
+
+def test_rolls_back_meal_when_outbox_cannot_be_persisted(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    from app.api import integrations
+
+    async def fail_enqueue(*args, **kwargs):
+        raise RuntimeError("outbox unavailable")
+
+    monkeypatch.setattr(integrations, "enqueue_meal_notification", fail_enqueue)
+    response = client.post(
+        "/api/integrations/nutrition",
+        headers={**_auth_headers(client), "X-Sync-Id": "sync-rollback"},
+        json={"carbs": 21, "date": _recent_timestamp()},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "success": 0,
+        "sync_id": "sync-rollback",
+        "ingest_status": "failed",
+        "notification_status": "not_required",
+        "error": "outbox unavailable",
+    }
+    assert _fetch_all_treatments(client) == []
+    assert _fetch_all_notification_outbox(client) == []
 
 
 def test_allows_secret_without_jwt(client: TestClient):

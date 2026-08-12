@@ -6,7 +6,7 @@ import os
 import uuid
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal, ROUND_HALF_UP
-from typing import Any, Dict, List, Literal, Optional, Union
+from typing import Annotated, Any, Dict, List, Literal, Optional, Union
 
 from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
@@ -37,6 +37,10 @@ from app.services.nutrition_shadow_matcher import (
     classify_nutrition_candidate,
     extract_import_fingerprint,
     parse_nutrition_shadow_mode,
+)
+from app.services.nutrition_notification_outbox import (
+    enqueue_meal_notification,
+    notification_status_for_events,
 )
 
 router = APIRouter()
@@ -987,6 +991,7 @@ async def ingest_nutrition(
     payload: Dict[str, Any] = Body(...),
     authorization: Optional[str] = Header(None, alias="Authorization"),
     ingest_key_header: Optional[str] = Header(None, alias="X-Ingest-Key"),
+    sync_id_header: Annotated[Optional[str], Header(alias="X-Sync-Id")] = None,
     session: AsyncSession = Depends(get_db_session),
     token_manager: TokenManager = Depends(get_token_manager),
     settings: Settings = Depends(get_settings),
@@ -1014,7 +1019,9 @@ async def ingest_nutrition(
     ds = DataStore(Path(settings.data.data_dir))
     
     # 0. DEBUG LOGGING
-    ingest_id = str(uuid.uuid4())[:8]
+    supplied_sync_id = payload.get("sync_id") if isinstance(payload, dict) else None
+    sync_id = str(sync_id_header or supplied_sync_id or uuid.uuid4())
+    ingest_id = sync_id
     log_entry = {
         "id": ingest_id,
         "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -1422,7 +1429,7 @@ async def ingest_nutrition(
                             existing_strict.notes = current_note + " [Updated]"
 
                          session.add(existing_strict)
-                         await session.commit()
+                         await session.flush()
                          updated_count += 1
                          updated_ids.append(existing_strict.id)  # Track for notification
                          logger.info(
@@ -1537,7 +1544,7 @@ async def ingest_nutrition(
                                  if should_update_fiber(float(c_fib), incoming_fiber):
                                      c.fiber = float(incoming_fiber)
                                      session.add(c)
-                                     await session.commit()
+                                     await session.flush()
                                      updated_count += 1
                                      updated_ids.append(c.id) # Track for notification (Fiber update)
                                      logger.info(
@@ -1574,7 +1581,7 @@ async def ingest_nutrition(
                              
                              c.notes = (c.notes or "") + " [Enriched]"
                              session.add(c)
-                             await session.commit()
+                             await session.flush()
                              updated_count += 1
                              updated_ids.append(c.id) # Track for notification (Macro enrichment)
                              logger.info(
@@ -1591,7 +1598,7 @@ async def ingest_nutrition(
                         if fiber_provided and incoming_fiber is not None and abs((c.fiber or 0) - incoming_fiber) > 0.1:
                              c.fiber = float(incoming_fiber)
                              session.add(c)
-                             await session.commit()
+                             await session.flush()
                              updated_count += 1
                              updated_ids.append(c.id) # Track
                              logger.info(
@@ -1638,12 +1645,12 @@ async def ingest_nutrition(
                     date_key,
                 )
                 
-            await session.commit()
-            
-            # Notification Phase: Trigger for BOTH created (New) and updated (Enriched/Corrected) meals
-            all_ids = list(set(created_ids + updated_ids))
+            # Transactional outbox: the treatment and its notification intent are
+            # committed together. Telegram delivery happens only after this request.
+            all_ids = list(dict.fromkeys(created_ids + updated_ids))
 
             if all_ids:
+                await session.flush()
                 logger.info(
                     "nutrition_ingest_summary ingest_id=%s created_count=%s updated_count=%s skipped_count=%s notify_candidates=%s",
                     ingest_id,
@@ -1653,55 +1660,48 @@ async def ingest_nutrition(
                     len(all_ids),
                 )
                 
-                try:
-                    from app.bot.service import on_new_meal_received
-                    from app.models.treatment import Treatment
-                    
-                    # 1. Fetch Objects
-                    treatments_to_notify = []
-                    for tid in all_ids:
-                        t_obj = await session.get(Treatment, tid)
-                        if t_obj:
-                            treatments_to_notify.append(t_obj)
-                        else:
-                            logger.warning(f"nutrition_notify_skip event_id={tid} reason=missing_after_commit")
-
-                    # 2. Sort Chronologically (Oldest Meal First)
-                    treatments_to_notify.sort(key=lambda x: x.created_at)
-
-                    # 3. Notify Loop
-                    for t_obj in treatments_to_notify:
-                        chat_id = config.get_allowed_telegram_user_id()
-                        if not chat_id:
-                            logger.info(f"nutrition_notify_skip event_id={t_obj.id} reason=no_chat_id")
-                            continue
-                        
-                        # Validate Macros (skip empty notifications)
-                        if not is_valid_ingestion(t_obj.carbs, t_obj.fat, t_obj.protein, t_obj.fiber):
-                            logger.info(f"nutrition_notify_skip event_id={t_obj.id} reason=invalid_macros")
-                            continue
-                        
-                        # Determine Source label
-                        is_update = t_obj.id in updated_ids
-                        notify_source = "Actualizado" if is_update else "Importado"
-
-                        logger.info(f"nutrition_notify_enqueue event_id={t_obj.id} user_id={username} chat_id={chat_id} source={notify_source}")
-                        try:
-                            await on_new_meal_received(
-                                t_obj.carbs, 
-                                t_obj.fat or 0.0, 
-                                t_obj.protein or 0.0, 
-                                t_obj.fiber or 0.0, 
-                                f"{notify_source} ({username})", 
-                                origin_id=t_obj.id
-                            )
-                        except Exception as inner_e:
-                            logger.error(f"Failed to send individual notification for {t_obj.id}: {inner_e}")
-
-                except Exception as e:
-                    logger.error(f"Failed to trigger bot notification batch: {e}")
-
-                res = {"success": 1, "ingested_count": len(created_ids), "updated_count": len(updated_ids), "ids": all_ids}
+                treatments_to_notify = []
+                for tid in all_ids:
+                    t_obj = await session.get(Treatment, tid)
+                    if t_obj and is_valid_ingestion(t_obj.carbs, t_obj.fat, t_obj.protein, t_obj.fiber):
+                        treatments_to_notify.append(t_obj)
+                treatments_to_notify.sort(key=lambda item: item.created_at)
+                for t_obj in treatments_to_notify:
+                    is_update = t_obj.id in updated_ids
+                    notify_source = "Actualizado" if is_update else "Importado"
+                    await enqueue_meal_notification(
+                        session,
+                        event_id=t_obj.id,
+                        notification_kind="meal_updated" if is_update else "meal_created",
+                        user_id=username,
+                        sync_id=sync_id,
+                        payload={
+                            "carbs": t_obj.carbs,
+                            "fat": t_obj.fat or 0.0,
+                            "protein": t_obj.protein or 0.0,
+                            "fiber": t_obj.fiber or 0.0,
+                            "source": f"{notify_source} ({username})",
+                            "origin_id": t_obj.id,
+                        },
+                    )
+                    logger.info(
+                        "nutrition_notify_outbox event_id=%s sync_id=%s kind=%s",
+                        t_obj.id,
+                        sync_id,
+                        "meal_updated" if is_update else "meal_created",
+                    )
+                await session.commit()
+                notification_status = await notification_status_for_events(session, all_ids)
+                res = {
+                    "success": 1,
+                    "sync_id": sync_id,
+                    "ingest_status": "success",
+                    "notification_status": notification_status,
+                    "message": "Meal synchronized; notification pending" if notification_status in {"queued", "retry_scheduled"} else "Meal synchronized",
+                    "ingested_count": len(created_ids),
+                    "updated_count": len(updated_ids),
+                    "ids": all_ids,
+                }
                 log_entry["status"] = "success"
                 log_entry["result"] = res
                 append_log(log_entry)
@@ -1715,7 +1715,16 @@ async def ingest_nutrition(
                     skipped_count,
                     len(dict.fromkeys(created_ids)),
                 )
-                res = {"success": 1, "message": "No new meals found (all duplicates or empty)", "ingested_count": 0, "ids": []}
+                await session.commit()
+                res = {
+                    "success": 1,
+                    "sync_id": sync_id,
+                    "ingest_status": "no_changes",
+                    "notification_status": "not_required",
+                    "message": "No new meals found (all duplicates or empty)",
+                    "ingested_count": 0,
+                    "ids": [],
+                }
                 log_entry["status"] = "ignored"
                 log_entry["result"] = res
                 append_log(log_entry)
@@ -1727,9 +1736,16 @@ async def ingest_nutrition(
         # Bubble up authentication errors or explicit HTTP responses
         raise
     except Exception as e:
+        await session.rollback()
         logger.error(f"Nutrition Ingest Error: {e}")
         # Return 200 to not break the sender, but log error
-        res = {"success": 0, "error": str(e)}
+        res = {
+            "success": 0,
+            "sync_id": sync_id,
+            "ingest_status": "failed",
+            "notification_status": "not_required",
+            "error": str(e),
+        }
         log_entry["status"] = "error"
         log_entry["result"] = res
         append_log(log_entry)

@@ -4,6 +4,7 @@ from types import SimpleNamespace
 from datetime import datetime, timezone
 
 import pytest
+from telegram.error import BadRequest, RetryAfter, TimedOut
 
 from app.bot import service, tools
 from app.models.settings import UserSettings
@@ -114,3 +115,38 @@ async def test_proactive_dual_meal_offers_only_immediate_dose(monkeypatch: pytes
     ]
     assert "✅ Poner 2.7 U" in button_texts
     assert "✅ Poner 4.1 U" not in button_texts
+
+
+def test_telegram_timeout_is_ambiguous_and_never_blindly_retried() -> None:
+    result = service._classify_nutrition_delivery_error(TimedOut("timeout after send"))
+
+    assert result.status == "delivery_unknown"
+    assert result.retry_after_seconds is None
+
+
+def test_telegram_retry_after_is_safe_to_schedule() -> None:
+    result = service._classify_nutrition_delivery_error(RetryAfter(37))
+
+    assert result.status == "retry_scheduled"
+    assert result.retry_after_seconds == 37
+
+
+def test_telegram_bad_request_is_terminal() -> None:
+    result = service._classify_nutrition_delivery_error(BadRequest("invalid payload"))
+
+    assert result.status == "failed"
+
+
+@pytest.mark.asyncio
+async def test_notification_preparation_error_is_safe_to_retry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fail_before_delivery(*args, **kwargs):
+        raise RuntimeError("calculator unavailable")
+
+    monkeypatch.setattr(service, "on_new_meal_received", fail_before_delivery)
+
+    result = await service.deliver_nutrition_notification({"carbs": 10})
+
+    assert result.status == "retry_scheduled"
+    assert result.error == "pre_delivery:calculator unavailable"

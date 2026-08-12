@@ -168,6 +168,7 @@ devuelve `500`, pero el fallback permite ingerir la comida:
   "status": "success_with_warning",
   "metadata_status": "fallback_recovered",
   "ingest_status": "success",
+  "notification_status": "retry_scheduled",
   "posted_count": 1,
   "queued_count": 0,
   "returncode": 0,
@@ -204,8 +205,17 @@ Compatibilidad:
 - Companion primero parsea el cuerpo JSON completo y solo despues genera un diagnostico sanitizado y limitado;
 - respuestas antiguas sin los campos nuevos siguen interpretandose mediante `success` y los contadores `posted=N` / `queued=N` de `output_tail`.
 
-Este contrato no incluye `notification_status`: la separacion entre ingesta y
-notificacion pertenece al cambio independiente de outbox/Telegram.
+El contrato incluye `notification_status`: la separacion entre ingesta y
+notificacion se implementa mediante el outbox persistente del backend. Los
+valores son `queued`, `sent`, `retry_scheduled`, `delivery_unknown`, `failed`,
+`not_required` y `unknown`. Cuando `ingest_status=success` y la notificacion
+esta en `queued`, `retry_scheduled` o `delivery_unknown`, Companion muestra
+"comida sincronizada, aviso pendiente" sin repetir la ingesta.
+
+El trigger exporta el mismo identificador al proceso hijo como
+`BOLUS_AI_SYNC_ID`. El sincronizador debe reenviarlo como `sync_id` en el
+payload o como `X-Sync-Id` al endpoint de nutricion para conservar la
+correlacion extremo a extremo.
 
 El servicio esta pensado para Tailscale, no para Internet abierto.
 
