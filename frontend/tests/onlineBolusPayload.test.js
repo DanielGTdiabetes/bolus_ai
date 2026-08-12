@@ -50,4 +50,17 @@ const autosensOn = buildOnlineBolusPayload({
 });
 assert.equal(autosensOn.enable_autosens, true);
 
+const legacyClient = buildOnlineBolusPayload({
+  carbsG: 29,
+  fatG: 65,
+  proteinG: 30,
+  bgMgdl: 91,
+  mealSlot: 'lunch',
+});
+assert.equal(
+  Object.hasOwn(legacyClient, 'dual_bolus_enabled'),
+  false,
+  'an old client that omits delivery strategy must defer to the backend default',
+);
+
 console.log('onlineBolusPayload tests passed');

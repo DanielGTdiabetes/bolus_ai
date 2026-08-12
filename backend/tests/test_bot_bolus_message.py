@@ -75,7 +75,7 @@ def test_bot_message_zero_iob_is_described_as_active_state_not_subtraction():
 
 def test_bot_message_separates_total_immediate_and_planned_later_dose():
     text, _, _ = _build_bolus_message(
-        _rec(total=5.0, kind="dual", upfront=3.5, later=1.5, duration=240),
+        _rec(total=4.0, kind="dual", upfront=2.5, later=1.5, duration=240),
         carbs=29,
         fat=65,
         protein=30,
@@ -84,9 +84,26 @@ def test_bot_message_separates_total_immediate_and_planned_later_dose():
         notes="",
     )
 
-    assert "Sugerencia total: **5 U**" in text
-    assert "Dosis inmediata: **3.5 U**" in text
+    assert "Sugerencia total: **4 U**" in text
+    assert "Dosis inmediata: **2.5 U**" in text
     assert "Planificada para revisar más tarde: **1.5 U**" in text
+
+
+def test_real_warsaw_single_message_has_no_fictitious_extension():
+    text, _, _ = _build_bolus_message(
+        _rec(total=4.0, kind="normal", upfront=4.0, later=0.0, duration=0),
+        carbs=29,
+        fat=65,
+        protein=30,
+        bg_val=91,
+        request_id="warsaw-single-4u",
+        notes="",
+    )
+
+    assert "Sugerencia total: **4 U**" in text
+    assert "Dosis inmediata" not in text
+    assert "Planificada" not in text
+    assert "EXTENDIDA" not in text
 
 
 @pytest.mark.asyncio
