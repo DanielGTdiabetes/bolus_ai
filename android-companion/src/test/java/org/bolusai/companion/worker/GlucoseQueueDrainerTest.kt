@@ -1,6 +1,9 @@
 package org.bolusai.companion.worker
 
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.delay
 import org.bolusai.companion.dexcom.GlucoseReading
 import org.bolusai.companion.network.ActiveEndpoint
 import org.bolusai.companion.network.GlucoseIngestClient
@@ -85,6 +88,26 @@ class GlucoseQueueDrainerTest {
 
         assertEquals(GlucoseDrainOutcome.FAILURE, result.outcome)
         assertEquals(listOf(first), queue)
+    }
+
+    @Test
+    fun replacementAndRunningWorkerCannotConsumeConcurrently() = runBlocking {
+        var activeConsumers = 0
+        var maxActiveConsumers = 0
+
+        (1..2).map {
+            async {
+                GlucoseSyncExecutionGate.withExclusive {
+                    activeConsumers += 1
+                    maxActiveConsumers = maxOf(maxActiveConsumers, activeConsumers)
+                    delay(25)
+                    activeConsumers -= 1
+                }
+            }
+        }.awaitAll()
+
+        assertEquals(1, maxActiveConsumers)
+        assertEquals(0, activeConsumers)
     }
 
     private fun drainer(

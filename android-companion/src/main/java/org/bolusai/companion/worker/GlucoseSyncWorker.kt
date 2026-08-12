@@ -3,6 +3,8 @@ package org.bolusai.companion.worker
 import android.content.Context
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import org.bolusai.companion.data.AppSettingsRepository
 import org.bolusai.companion.dexcom.GlucoseQueueRepository
 import org.bolusai.companion.dexcom.GlucoseReading
@@ -26,42 +28,50 @@ class GlucoseSyncWorker(
             return Result.failure()
         }
 
-        val recoveryReason = inputData.getString(GlucoseSyncScheduler.RECOVERY_REASON_KEY)
-        if (!recoveryReason.isNullOrBlank()) {
-            diagnostics.recordRecovery(
-                previousWorkId = "backoff",
-                replacementWorkId = id.toString(),
-                reason = recoveryReason,
-            )
-        }
-        val drain = GlucoseQueueDrainer(
-            pending = queue::pending,
-            send = { reading ->
-                GlucoseIngestClient().send(
-                    primaryUrl = settings.primaryUrl,
-                    backupUrl = settings.backupUrl,
-                    ingestKey = glucoseIngestKey,
-                    reading = reading,
+        return GlucoseSyncExecutionGate.withExclusive {
+            val recoveryReason = inputData.getString(GlucoseSyncScheduler.RECOVERY_REASON_KEY)
+            if (!recoveryReason.isNullOrBlank()) {
+                diagnostics.recordRecovery(
+                    previousWorkId = "backoff",
+                    replacementWorkId = id.toString(),
+                    reason = recoveryReason,
                 )
-            },
-            acknowledge = queue::markSent,
-            onAttempt = diagnostics::recordUploadAttempt,
-            onFailure = diagnostics::recordUploadFailure,
-            onSuccess = diagnostics::recordUploadSuccess,
-        ).drain(requirePrimaryAcknowledgement = settings.primaryUrl.isNotBlank())
-        if (drain.outcome == GlucoseDrainOutcome.RETRY) {
-            diagnostics.recordWorkerRetry(
-                workId = id.toString(),
-                runAttemptCount = runAttemptCount + 1,
-                reason = drain.reason.orEmpty(),
-            )
-        }
-        return when (drain.outcome) {
-            GlucoseDrainOutcome.SUCCESS -> Result.success()
-            GlucoseDrainOutcome.RETRY -> Result.retry()
-            GlucoseDrainOutcome.FAILURE -> Result.failure()
+            }
+            val drain = GlucoseQueueDrainer(
+                pending = queue::pending,
+                send = { reading ->
+                    GlucoseIngestClient().send(
+                        primaryUrl = settings.primaryUrl,
+                        backupUrl = settings.backupUrl,
+                        ingestKey = glucoseIngestKey,
+                        reading = reading,
+                    )
+                },
+                acknowledge = queue::markSent,
+                onAttempt = diagnostics::recordUploadAttempt,
+                onFailure = diagnostics::recordUploadFailure,
+                onSuccess = diagnostics::recordUploadSuccess,
+            ).drain(requirePrimaryAcknowledgement = settings.primaryUrl.isNotBlank())
+            if (drain.outcome == GlucoseDrainOutcome.RETRY) {
+                diagnostics.recordWorkerRetry(
+                    workId = id.toString(),
+                    runAttemptCount = runAttemptCount + 1,
+                    reason = drain.reason.orEmpty(),
+                )
+            }
+            when (drain.outcome) {
+                GlucoseDrainOutcome.SUCCESS -> Result.success()
+                GlucoseDrainOutcome.RETRY -> Result.retry()
+                GlucoseDrainOutcome.FAILURE -> Result.failure()
+            }
         }
     }
+}
+
+internal object GlucoseSyncExecutionGate {
+    private val mutex = Mutex()
+
+    suspend fun <T> withExclusive(block: suspend () -> T): T = mutex.withLock { block() }
 }
 
 internal enum class GlucoseDrainOutcome {
