@@ -154,7 +154,58 @@ El endpoint `POST /mfp/sync-now`:
 - rechaza llamadas sin clave con `401`;
 - usa un lock local en `/home/dani/.hermes/state/mfp_sync_trigger.lock` para evitar ejecuciones solapadas;
 - ejecuta `/opt/hermes-mcp/myfitnesspal/scripts/sync_to_bolus.py`;
-- devuelve JSON con `success`, `returncode`, `duration_ms` y la cola final de salida sanitizada.
+- asigna un `sync_id` UUID a cada llamada para correlacionar Hermes y Companion;
+- analiza la salida completa antes de limitar el texto diagnostico;
+- devuelve un resultado JSON estructurado, manteniendo `success` y `output_tail` para clientes anteriores.
+
+Ejemplo de respuesta cuando el endpoint opcional de metadatos de MyFitnessPal
+devuelve `500`, pero el fallback permite ingerir la comida:
+
+```json
+{
+  "sync_id": "b835f031-2f85-4bb5-8bba-42586cf3c523",
+  "success": 1,
+  "status": "success_with_warning",
+  "metadata_status": "fallback_recovered",
+  "ingest_status": "success",
+  "posted_count": 1,
+  "queued_count": 0,
+  "returncode": 0,
+  "duration_ms": 3646,
+  "output_tail": "... sync complete posted=1 queued=0"
+}
+```
+
+`status` tiene cinco valores de resultado:
+
+| Estado | Significado |
+|---|---|
+| `success` | Al menos una comida fue ingerida sin advertencias detectadas. |
+| `success_with_warning` | La ingesta termino, pero una operacion auxiliar fallo o el resultado no pudo observarse por completo. |
+| `no_changes` | La ejecucion termino correctamente y no encontro una comida nueva. Companion puede hacer su unico seguimiento diferido. |
+| `retry_scheduled` | Quedan elementos en cola para un intento posterior. No se vuelve a ingerir inmediatamente desde Companion. |
+| `failed` | La ejecucion no termino o no pudo confirmar una ingesta recuperable. |
+
+`metadata_status` describe solo la consulta auxiliar de perfil/preferencias:
+`success`, `fallback_recovered`, `failed`, `unknown` o `not_attempted`.
+Un HTTP `500` en `/v2/users/...` no convierte por si solo la sincronizacion en
+fallida si la salida completa confirma despues `posted > 0` o un resultado
+recuperable.
+
+`ingest_status` describe la entrega de comidas a Bolus AI:
+`success`, `no_changes`, `retry_scheduled`, `failed`, `unknown` o
+`not_attempted`. Es el campo autoritativo para decidir si hubo comida, si hace
+falta el seguimiento de descubrimiento o si la cola conserva trabajo.
+
+Compatibilidad:
+
+- `success` sigue siendo numerico (`1`/`0`) y conserva la semantica del codigo de salida del proceso;
+- `output_tail` sigue presente y contiene como maximo los ultimos 4.000 caracteres;
+- Companion primero parsea el cuerpo JSON completo y solo despues genera un diagnostico sanitizado y limitado;
+- respuestas antiguas sin los campos nuevos siguen interpretandose mediante `success` y los contadores `posted=N` / `queued=N` de `output_tail`.
+
+Este contrato no incluye `notification_status`: la separacion entre ingesta y
+notificacion pertenece al cambio independiente de outbox/Telegram.
 
 El servicio esta pensado para Tailscale, no para Internet abierto.
 
