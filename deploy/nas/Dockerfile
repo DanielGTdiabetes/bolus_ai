@@ -57,7 +57,6 @@ COPY config/ /app/config/
 # Expose port
 EXPOSE 8000
 
-# Start command
-# We use the start.sh if it exists, or call uvicorn directly.
-# Let's use a simplified start command for the container
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Apply pending Alembic migrations before starting the API. This keeps
+# Portainer Git stack updates self-contained and safe to repeat.
+CMD ["/bin/sh", "/app/backend/start.sh"]

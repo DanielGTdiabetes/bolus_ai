@@ -1,9 +1,11 @@
 #!/bin/sh
 set -e
 
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+
 # Run migrations (idempotent)
 echo "Running database migrations..."
-python -m alembic upgrade head
+python -m alembic -c "${SCRIPT_DIR}/alembic.ini" upgrade head
 
 # Start the application
 echo "Starting application..."
