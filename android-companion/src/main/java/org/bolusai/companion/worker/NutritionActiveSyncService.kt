@@ -371,7 +371,6 @@ class NutritionActiveSyncService : Service() {
                                     insulinUnits = units,
                                     insulinType = insulinType,
                                     glucoseMgdl = event.glucoseMgdl,
-                                    useLatestGlucoseWhenMissing = isSlow,
                                     timestamp = event.timestamp,
                                 )
                                 if (insulinSent) {

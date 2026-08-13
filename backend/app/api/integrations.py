@@ -361,9 +361,28 @@ def _round_glucose_mgdl(value: Optional[float]) -> Optional[int]:
     return rounded if 1 <= rounded <= 400 else None
 
 
+def _treatment_glucose_mgdl(row: Treatment) -> Optional[int]:
+    stored_glucose = _round_glucose_mgdl(getattr(row, "glucose", None))
+    if stored_glucose is not None:
+        return stored_glucose
+
+    trace = getattr(row, "calculation_trace", None)
+    if not isinstance(trace, dict):
+        return None
+
+    context = trace.get("context")
+    snapshot = trace.get("snapshot")
+    trace_glucose = context.get("bg") if isinstance(context, dict) else None
+    if trace_glucose is None and isinstance(snapshot, dict):
+        glucose = snapshot.get("glucose")
+        if isinstance(glucose, dict):
+            trace_glucose = glucose.get("mgdl")
+    return _round_glucose_mgdl(trace_glucose)
+
+
 def _dexcom_events_from_treatment(row: Treatment) -> List[MobileBolusEventResponse]:
     timestamp = _utc_timestamp_ms(row.created_at)
-    glucose_mgdl = _round_glucose_mgdl(getattr(row, "glucose", None))
+    glucose_mgdl = _treatment_glucose_mgdl(row)
     events: List[MobileBolusEventResponse] = []
     if float(row.insulin or 0.0) > 0 and row.event_type in DEXCOM_BOLUS_EVENT_TYPES:
         events.append(

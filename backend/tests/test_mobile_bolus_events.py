@@ -70,6 +70,25 @@ def test_treatment_export_omits_invalid_glucose_for_dexcom_events():
     assert [event.glucose_mgdl for event in events] == [None, None]
 
 
+def test_treatment_export_recovers_exact_calculation_glucose_from_trace():
+    row = SimpleNamespace(
+        id="meal-trace",
+        event_type="Meal Bolus",
+        insulin=2.0,
+        carbs=5.0,
+        glucose=None,
+        calculation_trace={
+            "snapshot": {"glucose": {"mgdl": 122, "source": "dexcom_android"}},
+            "context": {"bg": 122, "glucose_source": "dexcom_android"},
+        },
+        created_at=datetime(2026, 8, 13, 6, 17, 26),
+    )
+
+    events = integrations._dexcom_events_from_treatment(row)
+
+    assert [event.glucose_mgdl for event in events] == [122, 122]
+
+
 def test_carbs_only_treatment_is_exported_and_half_rounds_up():
     row = SimpleNamespace(
         id="carbs-1",

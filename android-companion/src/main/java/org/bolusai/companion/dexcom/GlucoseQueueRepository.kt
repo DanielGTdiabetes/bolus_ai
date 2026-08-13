@@ -3,6 +3,7 @@ package org.bolusai.companion.dexcom
 import android.content.Context
 import org.json.JSONArray
 import org.json.JSONObject
+import kotlin.math.abs
 
 class GlucoseQueueRepository(context: Context) {
     private val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -24,6 +25,14 @@ class GlucoseQueueRepository(context: Context) {
             val latest = loadLatest() ?: return@synchronized null
             val ageMillis = nowMillis - latest.timestampSeconds * 1000
             latest.takeIf { ageMillis in 0..maxAgeMillis }
+        }
+    }
+
+    fun latestNear(referenceTimestampMillis: Long, maxDeltaMillis: Long): GlucoseReading? {
+        return synchronized(PROCESS_LOCK) {
+            val latest = loadLatest() ?: return@synchronized null
+            val deltaMillis = abs(referenceTimestampMillis - latest.timestampSeconds * 1000)
+            latest.takeIf { deltaMillis <= maxDeltaMillis }
         }
     }
 

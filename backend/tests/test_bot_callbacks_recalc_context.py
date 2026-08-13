@@ -152,7 +152,7 @@ async def test_accept_engine_dual_records_only_upfront_and_persists_plan(
     query = DummyCallbackQuery(f"accept|{req_id}")
     service._get_snapshot_store().set(req_id, {
         "rec": _dual_response(),
-        "payload": BolusRequestV2(carbs_g=29, meal_slot="lunch"),
+        "payload": BolusRequestV2(carbs_g=29, bg_mgdl=123, meal_slot="lunch"),
         "carbs": 29,
         "fat": 65,
         "protein": 30,
@@ -190,6 +190,9 @@ async def test_accept_engine_dual_records_only_upfront_and_persists_plan(
 
     assert captured["add_args"]["insulin"] == 2.5
     assert captured["add_args"]["duration"] == 0
+    # The persisted value must be the glucose actually used by the engine
+    # (91 mg/dL), even when the original request contains a different value.
+    assert captured["add_args"]["glucose"] == 91.0
     assert captured["plan"]["treatment_id"] == "tx-warsaw"
     assert captured["plan"]["upfront_u"] == 2.5
     assert captured["plan"]["later_u_planned"] == 1.5

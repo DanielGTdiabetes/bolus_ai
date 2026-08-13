@@ -26,6 +26,12 @@ object DexcomEventWriter {
         }
     }
 
+    private fun resolveGlucose(context: Context, glucoseMgdl: Int?, timestamp: Long): Int? =
+        glucoseMgdl?.takeIf { it in 1..400 }
+            ?: GlucoseQueueRepository(context)
+                .latestNear(timestamp, MAX_GLUCOSE_AGE_MS)
+                ?.glucoseMgdl
+
     private fun Intent.putLatestGlucose(context: Context) {
         putGlucose(GlucoseQueueRepository(context).latest(MAX_GLUCOSE_AGE_MS)?.glucoseMgdl)
     }
@@ -42,11 +48,16 @@ object DexcomEventWriter {
         insulinUnits: Double,
         insulinType: String = "FAST_ACTING",
         glucoseMgdl: Int? = null,
-        useLatestGlucoseWhenMissing: Boolean = false,
         timestamp: Long = System.currentTimeMillis(),
     ): Boolean {
         if (!insulinUnits.isFinite() || insulinUnits <= 0.0) {
             Log.e(TAG, "invalid insulin units=$insulinUnits")
+            return false
+        }
+
+        val resolvedGlucose = resolveGlucose(context, glucoseMgdl, timestamp)
+        if (resolvedGlucose == null) {
+            Log.e(TAG, "insulin event not sent: no glucose within 15 minutes of timestamp=$timestamp")
             return false
         }
 
@@ -55,11 +66,7 @@ object DexcomEventWriter {
                 putExtra("insulinType", insulinType)
                 putExtra("insulinUnits", insulinUnits)
                 putExtra("timestamp", timestamp)
-                if (glucoseMgdl != null) {
-                    putGlucose(glucoseMgdl)
-                } else if (useLatestGlucoseWhenMissing) {
-                    putLatestGlucose(context)
-                }
+                putGlucose(resolvedGlucose)
             }
             context.sendBroadcast(intent)
             Log.i(TAG, "insulin event sent to Dexcom")
@@ -83,6 +90,12 @@ object DexcomEventWriter {
             return false
         }
 
+        val resolvedGlucose = resolveGlucose(context, glucoseMgdl, timestamp)
+        if (resolvedGlucose == null) {
+            Log.e(TAG, "carbohydrate event not sent: no glucose within 15 minutes of timestamp=$timestamp")
+            return false
+        }
+
         return try {
             val syncRepository = DexcomEventSyncRepository(context)
             if (syncRepository.hasRecentCarbsBroadcast(carbsGrams, timestamp)) {
@@ -93,7 +106,7 @@ object DexcomEventWriter {
             val intent = dexcomIntent(ACTION_ADD_MEAL_EVENT).apply {
                 putExtra("carbs", carbsGrams)
                 putExtra("timestamp", timestamp)
-                putGlucose(glucoseMgdl)
+                putGlucose(resolvedGlucose)
             }
             context.sendBroadcast(intent)
             syncRepository.markCarbsBroadcast(carbsGrams, timestamp)

@@ -88,6 +88,29 @@ def _resolve_bolus_delivery(rec: BolusResponseV2) -> tuple[float, float, float, 
     return total, upfront, later, max(0, int(getattr(rec, "duration_min", 0) or 0))
 
 
+def _snapshot_glucose_mgdl(snapshot: dict) -> Optional[float]:
+    candidates = []
+    rec = snapshot.get("rec")
+    rec_glucose = getattr(rec, "glucose", None)
+    candidates.append(getattr(rec_glucose, "mgdl", None))
+
+    payload = snapshot.get("payload")
+    if isinstance(payload, dict):
+        candidates.extend([payload.get("bg_mgdl"), payload.get("glucose")])
+    elif payload is not None:
+        candidates.append(getattr(payload, "bg_mgdl", None))
+    candidates.extend([snapshot.get("bg"), snapshot.get("glucose")])
+
+    for value in candidates:
+        try:
+            glucose = float(value)
+        except (TypeError, ValueError):
+            continue
+        if 1 <= glucose <= 400:
+            return glucose
+    return None
+
+
 def _build_bot_active_plan(
     rec: BolusResponseV2,
     *,
@@ -2950,6 +2973,7 @@ async def _handle_snapshot_callback(query, data: str) -> None:
              "replace_id": origin_id, 
              "duration": duration,
              "calculation_trace": calculation_trace,
+             "glucose": _snapshot_glucose_mgdl(snapshot),
         }
         result = await tools.add_treatment(add_args)
         
