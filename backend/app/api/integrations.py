@@ -117,6 +117,23 @@ def is_valid_ingestion(carbs: float, fat: float, protein: float, fiber: float) -
     return total_grams > 0.0
 
 
+def _treatment_matches_external_meal(
+    treatment: Treatment,
+    *,
+    external_meal_id: str,
+    meal_key: str,
+) -> bool:
+    """Require durable identity evidence before restoring confirmed coverage."""
+    trace = treatment.calculation_trace
+    if isinstance(trace, dict):
+        for section_name in ("meal_coverage", "meal_import"):
+            section = trace.get(section_name)
+            if isinstance(section, dict) and section.get("meal_id") == external_meal_id:
+                return True
+
+    return f"#meal:{meal_key}" in (treatment.notes or "")
+
+
 def _numeric_meal_type(value: Any) -> Optional[int]:
     try:
         return int(str(value))
@@ -1444,10 +1461,10 @@ async def ingest_nutrition(
                 )
                 coverage_state = coverage_upsert.state
 
-                # Transition safety for a meal bolused immediately before this
-                # schema existed.  Backfill only from one unambiguous, actually
-                # registered Telegram treatment in the same short meal window;
-                # recommendations and insulin=0 imports are never evidence.
+                # Transition safety for a state row that is missing while its
+                # confirmed treatment survived. Coverage is restored only when
+                # the treatment carries this exact external meal identity.
+                # Timing and compatible macros alone can refer to another meal.
                 if coverage_upsert.created:
                     legacy_window_start = (
                         item_ts - timedelta(minutes=15)
@@ -1466,17 +1483,17 @@ async def ingest_nutrition(
                     legacy_rows = list(
                         (await session.execute(legacy_stmt)).scalars().all()
                     )
-                    compatible_legacy_rows = [
+                    matching_legacy_rows = [
                         row
                         for row in legacy_rows
-                        if float(row.carbs or 0) > 0
-                        and float(row.carbs or 0) <= t_carbs + 0.1
-                        and float(row.fat or 0) <= t_fat + 0.1
-                        and float(row.protein or 0) <= t_protein + 0.1
-                        and float(row.fiber or 0) <= t_fiber + 0.1
+                        if _treatment_matches_external_meal(
+                            row,
+                            external_meal_id=external_meal_id,
+                            meal_key=coverage_state.meal_key,
+                        )
                     ]
-                    if len(compatible_legacy_rows) == 1:
-                        legacy = compatible_legacy_rows[0]
+                    if len(matching_legacy_rows) == 1:
+                        legacy = matching_legacy_rows[0]
                         coverage_state.covered_nutrition = {
                             "carbs": float(legacy.carbs or 0),
                             "fat": float(legacy.fat or 0),
