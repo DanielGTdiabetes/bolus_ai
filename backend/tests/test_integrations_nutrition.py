@@ -16,6 +16,7 @@ from app.core.settings import get_settings
 from app.models.settings import UserSettingsDB
 from app.models.treatment import Treatment
 from app.models.nutrition_notification_outbox import NutritionNotificationOutbox
+from app.models.meal_coverage import MealCoverageState
 
 
 @pytest.fixture()
@@ -63,6 +64,7 @@ def client(tmp_path, monkeypatch):
     Treatment.__table__.create(bind=sync_engine, checkfirst=True)
     UserSettingsDB.__table__.create(bind=sync_engine, checkfirst=True)
     NutritionNotificationOutbox.__table__.create(bind=sync_engine, checkfirst=True)
+    MealCoverageState.__table__.create(bind=sync_engine, checkfirst=True)
     SessionLocal = sessionmaker(bind=sync_engine)
 
     class SyncSessionWrapper:
@@ -129,6 +131,12 @@ def _fetch_all_notification_outbox(client: TestClient):
         return session.execute(select(NutritionNotificationOutbox)).scalars().all()
 
 
+def _fetch_all_meal_coverage_states(client: TestClient):
+    session_factory = getattr(client, "_session_factory")
+    with session_factory() as session:
+        return session.execute(select(MealCoverageState)).scalars().all()
+
+
 def _recent_timestamp() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
@@ -140,6 +148,51 @@ def _create_treatment(client: TestClient, **kwargs) -> Treatment:
         session.add(treatment)
         session.commit()
     return treatment
+
+
+def test_first_post_migration_sync_backfills_one_confirmed_imported_bolus(client):
+    meal_time = datetime.now(timezone.utc).replace(microsecond=0) - timedelta(minutes=26)
+    _create_treatment(
+        client,
+        id="legacy-confirmed-meal",
+        user_id="admin",
+        event_type="Meal Bolus",
+        created_at=meal_time.replace(tzinfo=None) + timedelta(minutes=5),
+        insulin=8.0,
+        carbs=63.0,
+        fat=10.0,
+        protein=20.0,
+        fiber=4.0,
+        notes="Bolus Bot V2 (Importado (admin))",
+        entered_by="TelegramBot",
+        is_uploaded=False,
+    )
+
+    response = client.post(
+        "/api/integrations/nutrition",
+        headers=_auth_headers(client),
+        json={
+            "source": "MyFitnessPal",
+            "meal_fingerprint": "legacy-lunch",
+            "date": meal_time.isoformat(),
+            "carbohydrates_total_g": 87,
+            "fat_total_g": 15,
+            "protein_total_g": 25,
+            "fiber_total_g": 5,
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["success"] == 1
+    states = _fetch_all_meal_coverage_states(client)
+    assert len(states) == 1
+    assert states[0].covered_nutrition == {
+        "carbs": 63.0,
+        "fat": 10.0,
+        "protein": 20.0,
+        "fiber": 4.0,
+    }
+    assert states[0].current_nutrition["carbs"] == 87.0
 
 
 def _delete_treatment(client: TestClient, treatment_id: str) -> None:

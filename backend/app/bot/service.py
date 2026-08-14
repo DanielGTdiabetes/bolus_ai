@@ -2417,6 +2417,9 @@ async def on_new_meal_received(
     origin_id: Optional[str] = None,
     *,
     outbox_delivery: bool = False,
+    meal_id: Optional[str] = None,
+    meal_revision: Optional[str] = None,
+    meal_user_id: Optional[str] = None,
 ):
     """
     Called by integrations.py when a new meal is ingested.
@@ -2470,6 +2473,47 @@ async def on_new_meal_received(
     store = DataStore(Path(settings.data.data_dir))
     user_settings, resolved_user_id = await resolve_bot_user_settings()
     companion_user_id = resolved_user_id or config.get_bot_default_username()
+
+    # Resolve mutable source totals against durable confirmed coverage.  The
+    # calculation below receives only the still-uncovered nutrition; IOB stays
+    # available exclusively to the correction component in the core engine.
+    coverage_context = None
+    calculation_carbs = carbs
+    calculation_fat = fat
+    calculation_protein = protein
+    calculation_fiber = fiber
+    if meal_id:
+        from app.services.meal_coverage_service import get_meal_state, state_context
+
+        coverage_user_id = meal_user_id or resolved_user_id or companion_user_id or "admin"
+        async with SessionLocal() as session:
+            coverage_state = await get_meal_state(
+                session,
+                user_id=coverage_user_id,
+                external_meal_id=meal_id,
+            )
+        if coverage_state:
+            coverage_context = state_context(coverage_state)
+            meal_revision = coverage_context["revision"]
+            current = coverage_context["current"]
+            delta = coverage_context["delta"]
+            carbs = float(current["carbs"])
+            fat = float(current["fat"])
+            protein = float(current["protein"])
+            fiber = float(current["fiber"])
+            calculation_carbs = float(delta["carbs"])
+            calculation_fat = float(delta["fat"])
+            calculation_protein = float(delta["protein"])
+            calculation_fiber = float(delta["fiber"])
+            logger.info(
+                "meal_incremental_calculation meal_key=%s revision=%s total=%s covered=%s delta=%s reductions=%s",
+                coverage_context["meal_key"],
+                coverage_context["revision"],
+                coverage_context["current"],
+                coverage_context["covered"],
+                coverage_context["delta"],
+                coverage_context["reductions"],
+            )
 
     if origin_id:
         from app.services.companion_service import get_episode_by_fingerprint
@@ -2622,10 +2666,10 @@ async def on_new_meal_received(
          logger.warning(f"Glucose reading is stale! Age: {bg_age:.1f} mins")
     
     req_v2 = BolusRequestV2(
-        carbs_g=carbs,
-        fat_g=fat,
-        protein_g=protein,
-        fiber_g=fiber,
+        carbs_g=calculation_carbs,
+        fat_g=calculation_fat,
+        protein_g=calculation_protein,
+        fiber_g=calculation_fiber,
         meal_slot=slot,
         bg_mgdl=bg_val,
         confirm_iob_unknown=True,
@@ -2650,13 +2694,20 @@ async def on_new_meal_received(
     # Store Snapshot
     _get_snapshot_store().set(request_id, {
         "rec": rec,
-        "carbs": carbs,
-        "fat": fat,
-        "protein": protein,
-        "fiber": fiber,
+        # Treatments record only newly covered nutrition.  The full mutable
+        # source totals remain in coverage_context for audit and display.
+        "carbs": calculation_carbs,
+        "fat": calculation_fat,
+        "protein": calculation_protein,
+        "fiber": calculation_fiber,
+        "meal_total": {"carbs": carbs, "fat": fat, "protein": protein, "fiber": fiber},
         "source": source,
         "origin_id": origin_id,
-        "user_id": resolved_user_id,
+        "user_id": meal_user_id or resolved_user_id,
+        "meal_id": meal_id,
+        "meal_revision": meal_revision,
+        "meal_coverage": coverage_context,
+        "calculation_id": request_id,
         "ts": datetime.now(),
         "payload": req_v2,
     })
@@ -2688,9 +2739,50 @@ async def on_new_meal_received(
         return text.replace("_", "\\_").replace("*", "\\*").replace("`", "\\`").replace("[", "\\[")
 
     safe_source = escape_md(source) if source else "Unknown"
-    lines.append(f"🍽️ **Nueva Comida Detectada** ({safe_source})")
+    is_incremental_update = bool(
+        coverage_context
+        and any(float(value or 0) > 0 for value in coverage_context["covered"].values())
+    )
+    title = "Comida actualizada" if is_incremental_update else "Nueva Comida Detectada"
+    lines.append(f"🍽️ **{title}** ({safe_source})")
     lines.append("")
-    lines.append(f"Resultado total: **{total_u:g} U**")
+    if coverage_context:
+        covered = coverage_context["covered"]
+        delta = coverage_context["delta"]
+        reductions = coverage_context["reductions"]
+        lines.append(f"Total comida: **{carbs:g} g HC**")
+        lines.append(f"Ya cubiertos: **{covered['carbs']:g} g HC**")
+        lines.append(f"Nuevos: **+{delta['carbs']:g} g HC**")
+        if coverage_context.get("last_confirmed_bolus") is not None:
+            confirmed_ago = ""
+            try:
+                confirmed_at = datetime.fromisoformat(coverage_context["confirmed_at"])
+                if confirmed_at.tzinfo is None:
+                    confirmed_at = confirmed_at.replace(tzinfo=timezone.utc)
+                minutes_ago = max(
+                    0,
+                    int((datetime.now(timezone.utc) - confirmed_at).total_seconds() / 60),
+                )
+                confirmed_ago = f" hace {minutes_ago} min"
+            except (TypeError, ValueError):
+                pass
+            lines.append("")
+            lines.append(
+                f"Bolo previo confirmado: **{coverage_context['last_confirmed_bolus']:g} U**{confirmed_ago}"
+            )
+        lines.append(f"IOB actual: **{iob_u:.2f} U**")
+        if any(float(value or 0) > 0 for value in reductions.values()):
+            lines.append(
+                "⚠️ La comida se ha reducido respecto a lo ya cubierto; "
+                "no se genera insulina negativa."
+            )
+        lines.append("")
+        if float(delta["carbs"]) <= 0:
+            lines.append("No se han detectado hidratos nuevos que necesiten cobertura.")
+        lines.append("**Cálculo adicional:**")
+        lines.append(f"Resultado adicional: **{total_u:g} U**")
+    else:
+        lines.append(f"Resultado total: **{total_u:g} U**")
     if later_u > 0:
         lines.append(f"Dosis inmediata: **{rec_u:g} U**")
         lines.append(f"Planificada para revisar tras {duration_min} min: **{later_u:g} U**")
@@ -2705,7 +2797,8 @@ async def on_new_meal_received(
             lines.append(f"• {safe_ex}")
             
     lines.append("")
-    lines.append(f"Total Calculado: {rec.total_u_raw:.2f} (Base) → {rec.total_u_final} U (Final)")
+    result_label = "Total adicional calculado" if coverage_context else "Total calculado"
+    lines.append(f"{result_label}: {rec.total_u_raw:.2f} (Base) → {rec.total_u_final} U (Final)")
     lines.append("")
     lines.append(f"¿Registrar {rec_u} U?")
     
@@ -2787,6 +2880,9 @@ async def deliver_nutrition_notification(payload: dict):
             str(payload.get("source") or "Importado"),
             origin_id=payload.get("origin_id"),
             outbox_delivery=True,
+            meal_id=payload.get("meal_id"),
+            meal_revision=payload.get("meal_revision"),
+            meal_user_id=payload.get("user_id"),
         )
     except Exception as exc:
         # Delivery errors are classified inside on_new_meal_received. An error
@@ -2931,6 +3027,37 @@ async def _handle_snapshot_callback(query, data: str) -> None:
              await edit_message_text_safe(query, "⛔ Error: Dosis negativa.")
              return
 
+        meal_coverage = snapshot.get("meal_coverage")
+        meal_id = snapshot.get("meal_id")
+        calculation_id = snapshot.get("calculation_id") or request_id
+        coverage_user_id = (
+            snapshot.get("user_id") or config.get_bot_default_username() or "admin"
+        )
+        coverage_reserved = False
+        if meal_coverage and meal_id and isinstance(rec, BolusResponseV2):
+            from app.services.meal_coverage_service import reserve_confirmation
+
+            async with SessionLocal() as session:
+                reservation = await reserve_confirmation(
+                    session,
+                    user_id=coverage_user_id,
+                    external_meal_id=meal_id,
+                    expected_revision=meal_coverage["revision"],
+                    expected_covered=meal_coverage["covered"],
+                    calculation_id=calculation_id,
+                )
+            if not reservation.ok:
+                health.record_action(
+                    f"callback:accept:{request_id}", False, reservation.reason
+                )
+                await edit_message_text_safe(
+                    query,
+                    "⚠️ La comida o su cobertura ha cambiado desde este cálculo. "
+                    "No se ha registrado insulina; usa la recomendación más reciente.",
+                )
+                return
+            coverage_reserved = True
+
         notes = snapshot.get("notes", "Bolus Bot V2")
         if snapshot.get("source"):
              notes += f" ({snapshot['source']})"
@@ -2963,7 +3090,56 @@ async def _handle_snapshot_callback(query, data: str) -> None:
                  "context": trace_context,
              }
 
+        coverage_confirmation = None
+        deterministic_treatment_id = None
+        if coverage_reserved:
+             from app.services.meal_coverage_service import (
+                 covered_after_confirmation,
+                 treatment_id_for_calculation,
+             )
+
+             positive_correction_after_iob = max(
+                 0.0,
+                 float(rec.correction_u or 0)
+                 - float(rec.iob_applied_to_correction_u or 0),
+             )
+             covered_after, coverage_fraction, food_allocated, correction_allocated = (
+                 covered_after_confirmation(
+                     covered_before=meal_coverage["covered"],
+                     delta=meal_coverage["delta"],
+                     accepted_u=units,
+                     recommended_upfront_u=recommended_upfront,
+                     positive_correction_after_iob_u=positive_correction_after_iob,
+                     round_step_u=float(rec.used_params.round_step_u or 0.1),
+                 )
+             )
+             deterministic_treatment_id = treatment_id_for_calculation(calculation_id)
+             coverage_confirmation = {
+                 "schema_version": 1,
+                 "meal_id": meal_id,
+                 "meal_key": meal_coverage["meal_key"],
+                 "meal_revision": meal_coverage["revision"],
+                 "revision_number": meal_coverage["revision_number"],
+                 "calculation_id": calculation_id,
+                 "nutrition_total": meal_coverage["current"],
+                 "covered_before": meal_coverage["covered"],
+                 "covered_delta": meal_coverage["delta"],
+                 "covered_after": covered_after,
+                 "coverage_fraction": coverage_fraction,
+                 "confirmed_bolus_u": units,
+                 "food_bolus_allocated_u": food_allocated,
+                 "correction_bolus_allocated_u": correction_allocated,
+                 "iob_u": rec.iob_u,
+                 "iob_applied_to_correction_u": rec.iob_applied_to_correction_u,
+                 "autosens_ratio": rec.used_params.autosens_ratio,
+                 "confirmed_at": datetime.now(timezone.utc).isoformat(),
+             }
+             calculation_trace = calculation_trace or {}
+             calculation_trace["meal_coverage"] = coverage_confirmation
+             notes += f" #meal:{meal_coverage['meal_key']}"
+
         add_args = {
+             "treatment_id": deterministic_treatment_id,
              "insulin": units, 
              "carbs": carbs, 
              "fat": fat, 
@@ -2981,9 +3157,48 @@ async def _handle_snapshot_callback(query, data: str) -> None:
 
         if isinstance(result, tools.ToolError) or not getattr(result, "ok", False):
             error_msg = result.message if isinstance(result, tools.ToolError) else (result.ns_error or "Error")
+            if coverage_reserved:
+                from app.services.meal_coverage_service import release_confirmation
+
+                async with SessionLocal() as session:
+                    await release_confirmation(
+                        session,
+                        user_id=coverage_user_id,
+                        external_meal_id=meal_id,
+                        calculation_id=calculation_id,
+                    )
             health.record_action(f"callback:accept:{request_id}", False, error_msg)
             await edit_message_text_safe(query, text=f"{base_text}\n\n❌ Error: {_escape_md_v1(error_msg)}", parse_mode="Markdown")
             return
+
+        if coverage_reserved and coverage_confirmation:
+             from app.services.meal_coverage_service import finalize_confirmation
+
+             async with SessionLocal() as session:
+                 finalized = await finalize_confirmation(
+                     session,
+                     user_id=coverage_user_id,
+                     external_meal_id=meal_id,
+                     calculation_id=calculation_id,
+                     treatment_id=getattr(result, "treatment_id", None)
+                     or deterministic_treatment_id,
+                     covered_after=coverage_confirmation["covered_after"],
+                     confirmed_bolus=units,
+                 )
+             if not finalized.ok:
+                 logger.critical(
+                     "meal_coverage_finalize_failed meal_key=%s calculation_id=%s treatment_id=%s reason=%s",
+                     meal_coverage["meal_key"],
+                     calculation_id,
+                     getattr(result, "treatment_id", None),
+                     finalized.reason,
+                 )
+                 await edit_message_text_safe(
+                     query,
+                     "⚠️ El bolo se ha registrado, pero no se pudo actualizar su cobertura "
+                     "de forma segura. No repitas la dosis y revisa el historial.",
+                 )
+                 return
 
         if isinstance(rec, BolusResponseV2) and planned_later_u > 0:
              try:

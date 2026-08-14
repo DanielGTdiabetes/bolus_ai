@@ -118,6 +118,7 @@ class TempMode(BaseModel):
 
 
 class AddTreatmentRequest(BaseModel):
+    treatment_id: Optional[str] = None
     carbs: Optional[float] = None
     insulin: Optional[float] = None
     glucose: Optional[float] = Field(default=None, ge=1, le=400)
@@ -928,6 +929,7 @@ async def add_treatment(tool_input: dict[str, Any]) -> AddTreatmentResult | Tool
             user_id = await _resolve_user_id(session=session)
             result = await log_treatment(
                 user_id=user_id,
+                treatment_id=payload.treatment_id,
                 insulin=insulin,
                 carbs=carbs,
                 fat=float(payload.fat or 0),

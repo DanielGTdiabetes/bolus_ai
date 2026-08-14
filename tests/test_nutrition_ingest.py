@@ -19,6 +19,7 @@ from app.core.security import TokenManager  # noqa: E402
 from app.core.settings import get_settings  # noqa: E402
 from app.models.treatment import Treatment  # noqa: E402
 from app.models.nutrition_notification_outbox import NutritionNotificationOutbox  # noqa: E402
+from app.models.meal_coverage import MealCoverageState  # noqa: E402
 
 
 def _ts_now() -> str:
@@ -60,7 +61,11 @@ async def db_session():
     )
     Base.metadata.create_all(
         engine,
-        tables=[Treatment.__table__, NutritionNotificationOutbox.__table__],
+        tables=[
+            Treatment.__table__,
+            NutritionNotificationOutbox.__table__,
+            MealCoverageState.__table__,
+        ],
     )
     Session = sessionmaker(bind=engine, future=True)
     sync_session = Session()
