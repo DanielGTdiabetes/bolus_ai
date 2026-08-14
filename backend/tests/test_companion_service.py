@@ -16,6 +16,7 @@ from app.services.companion_service import (
     evaluate_companion_state,
     record_meal_episode,
     resolve_episode_by_fingerprint,
+    resolve_superseded_meal_episodes,
 )
 from app.models.schemas import NightscoutSGV
 
@@ -166,3 +167,32 @@ async def test_meal_episode_tracks_confirmation_lifecycle():
             user_id, f"meal_detected:{origin_id}", db
         ) is True
         assert await list_active_episodes(user_id, db) == []
+
+
+@pytest.mark.asyncio
+async def test_new_meal_revision_supersedes_all_prior_active_revisions():
+    user_id = f"companion-{uuid4()}"
+    origin_id = str(uuid4())
+    async with get_db_session_context() as db:
+        await record_meal_episode(user_id, origin_id, "Original", {}, db)
+        await record_meal_episode(user_id, f"{origin_id}:revision-1", "Revision 1", {}, db)
+
+        resolved = await resolve_superseded_meal_episodes(
+            user_id,
+            origin_id,
+            f"{origin_id}:revision-2",
+            db,
+        )
+        await record_meal_episode(
+            user_id,
+            f"{origin_id}:revision-2",
+            "Revision 2",
+            {},
+            db,
+        )
+
+        assert resolved == 2
+        active = await list_active_episodes(user_id, db)
+        assert [row.fingerprint for row in active] == [
+            f"meal_detected:{origin_id}:revision-2"
+        ]

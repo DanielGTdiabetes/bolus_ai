@@ -5,7 +5,7 @@ from datetime import datetime, time, timedelta, timezone
 from typing import Any, Iterable, Optional
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.companion import CompanionEpisode, CompanionPreference
@@ -166,6 +166,39 @@ async def resolve_episode_by_fingerprint(
     row.snoozed_until = None
     await db.commit()
     return True
+
+
+async def resolve_superseded_meal_episodes(
+    user_id: str,
+    origin_id: str,
+    current_episode_origin_id: str,
+    db: AsyncSession,
+) -> int:
+    """Resolve older revisions while leaving the delivered revision active."""
+    base_fingerprint = f"meal_detected:{origin_id}"
+    current_fingerprint = f"meal_detected:{current_episode_origin_id}"
+    rows = (await db.execute(
+        select(CompanionEpisode).where(
+            CompanionEpisode.user_id == user_id,
+            CompanionEpisode.kind == "meal_detected",
+            CompanionEpisode.status.in_(ACTIVE_STATUSES),
+            CompanionEpisode.fingerprint != current_fingerprint,
+            or_(
+                CompanionEpisode.fingerprint == base_fingerprint,
+                CompanionEpisode.fingerprint.startswith(
+                    f"{base_fingerprint}:", autoescape=True
+                ),
+            ),
+        )
+    )).scalars().all()
+    now = _utcnow()
+    for row in rows:
+        row.status = "resolved"
+        row.resolved_at = now
+        row.updated_at = now
+        row.snoozed_until = None
+    await db.flush()
+    return len(rows)
 
 
 async def _upsert_episode(

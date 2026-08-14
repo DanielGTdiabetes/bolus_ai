@@ -69,6 +69,7 @@ async def test_updated_meal_message_and_calculator_use_only_incremental_macros(
     sent = {}
     calculated = {}
     recorded_episode = {}
+    delivery_order = []
 
     class SessionContext:
         async def __aenter__(self):
@@ -95,6 +96,7 @@ async def test_updated_meal_message_and_calculator_use_only_incremental_macros(
 
     async def fake_bot_send(*, chat_id: int, text: str, bot=None, **kwargs):
         sent["text"] = text
+        delivery_order.append("telegram_delivered")
         return SimpleNamespace(message_id=321)
 
     async def fake_resolve_bot_user_settings(preferred_username=None):
@@ -129,7 +131,14 @@ async def test_updated_meal_message_and_calculator_use_only_incremental_macros(
 
     async def fake_record_meal_episode(user_id, origin_id, message, context, session):
         recorded_episode["origin_id"] = origin_id
+        delivery_order.append("current_recorded")
         return SimpleNamespace(status="monitoring")
+
+    async def fake_resolve_superseded(
+        user_id, origin_id, current_episode_origin_id, session
+    ):
+        delivery_order.append("prior_resolved")
+        return 1
 
     monkeypatch.setattr(service.config, "get_allowed_telegram_user_id", lambda: 123)
     monkeypatch.setattr(service, "_bot_app", SimpleNamespace(bot=object()))
@@ -143,6 +152,11 @@ async def test_updated_meal_message_and_calculator_use_only_incremental_macros(
         companion_service, "get_episode_by_fingerprint", fake_get_episode_by_fingerprint
     )
     monkeypatch.setattr(companion_service, "record_meal_episode", fake_record_meal_episode)
+    monkeypatch.setattr(
+        companion_service,
+        "resolve_superseded_meal_episodes",
+        fake_resolve_superseded,
+    )
 
     await service.on_new_meal_received(
         87,
@@ -170,6 +184,11 @@ async def test_updated_meal_message_and_calculator_use_only_incremental_macros(
     assert "Bolo previo confirmado: **8 U** hace" in sent["text"]
     assert "Resultado adicional: **3.2 U**" in sent["text"]
     assert recorded_episode["origin_id"] == "draft-1:revision-2"
+    assert delivery_order == [
+        "telegram_delivered",
+        "prior_resolved",
+        "current_recorded",
+    ]
 
 
 @pytest.mark.asyncio

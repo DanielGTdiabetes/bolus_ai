@@ -2858,8 +2858,20 @@ async def on_new_meal_received(
         if sent_message is None:
             return DeliveryResult(status="retry_scheduled", error="telegram_send_failed")
         if episode_origin_id:
-            from app.services.companion_service import record_meal_episode
+            from app.services.companion_service import (
+                record_meal_episode,
+                resolve_superseded_meal_episodes,
+            )
             async with SessionLocal() as session:
+                # Telegram has accepted the replacement message. Only now is
+                # it safe to hide every older revision of this same meal.
+                if origin_id and meal_revision:
+                    await resolve_superseded_meal_episodes(
+                        companion_user_id,
+                        origin_id,
+                        episode_origin_id,
+                        session,
+                    )
                 await record_meal_episode(
                     companion_user_id,
                     episode_origin_id,
