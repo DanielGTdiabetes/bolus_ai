@@ -8,7 +8,7 @@ from telegram.error import BadRequest, RetryAfter, TimedOut
 
 from app.bot import service, tools
 from app.models.settings import UserSettings
-from app.services import meal_coverage_service
+from app.services import companion_service, meal_coverage_service
 
 
 @pytest.mark.asyncio
@@ -68,6 +68,7 @@ async def test_updated_meal_message_and_calculator_use_only_incremental_macros(
 ) -> None:
     sent = {}
     calculated = {}
+    recorded_episode = {}
 
     class SessionContext:
         async def __aenter__(self):
@@ -121,6 +122,15 @@ async def test_updated_meal_message_and_calculator_use_only_incremental_macros(
         calculated["request"] = request
         return DummyRec()
 
+    async def fake_get_episode_by_fingerprint(user_id, fingerprint, session):
+        if fingerprint == "meal_detected:draft-1":
+            return SimpleNamespace(status="monitoring")
+        return None
+
+    async def fake_record_meal_episode(user_id, origin_id, message, context, session):
+        recorded_episode["origin_id"] = origin_id
+        return SimpleNamespace(status="monitoring")
+
     monkeypatch.setattr(service.config, "get_allowed_telegram_user_id", lambda: 123)
     monkeypatch.setattr(service, "_bot_app", SimpleNamespace(bot=object()))
     monkeypatch.setattr(service, "SessionLocal", lambda: SessionContext())
@@ -129,6 +139,10 @@ async def test_updated_meal_message_and_calculator_use_only_incremental_macros(
     monkeypatch.setattr(service.tools, "get_status_context", fake_get_status_context)
     monkeypatch.setattr(service, "calculate_bolus_for_bot", fake_calculate_bolus_for_bot)
     monkeypatch.setattr(meal_coverage_service, "get_meal_state", fake_get_meal_state)
+    monkeypatch.setattr(
+        companion_service, "get_episode_by_fingerprint", fake_get_episode_by_fingerprint
+    )
+    monkeypatch.setattr(companion_service, "record_meal_episode", fake_record_meal_episode)
 
     await service.on_new_meal_received(
         87,
@@ -136,6 +150,7 @@ async def test_updated_meal_message_and_calculator_use_only_incremental_macros(
         25,
         5,
         "Actualizado (admin)",
+        origin_id="draft-1",
         meal_id="myfitnesspal|lunch-1",
         meal_revision="revision-2",
         meal_user_id="admin",
@@ -154,6 +169,7 @@ async def test_updated_meal_message_and_calculator_use_only_incremental_macros(
     assert "Nuevos: **+24 g HC**" in sent["text"]
     assert "Bolo previo confirmado: **8 U** hace" in sent["text"]
     assert "Resultado adicional: **3.2 U**" in sent["text"]
+    assert recorded_episode["origin_id"] == "draft-1:revision-2"
 
 
 @pytest.mark.asyncio

@@ -150,7 +150,7 @@ def _create_treatment(client: TestClient, **kwargs) -> Treatment:
     return treatment
 
 
-def test_first_post_migration_sync_backfills_one_confirmed_imported_bolus(client):
+def test_first_post_migration_sync_backfills_identity_matched_confirmed_bolus(client):
     meal_time = datetime.now(timezone.utc).replace(microsecond=0) - timedelta(minutes=26)
     _create_treatment(
         client,
@@ -166,6 +166,9 @@ def test_first_post_migration_sync_backfills_one_confirmed_imported_bolus(client
         notes="Bolus Bot V2 (Importado (admin))",
         entered_by="TelegramBot",
         is_uploaded=False,
+        calculation_trace={
+            "meal_import": {"meal_id": "myfitnesspal|legacy-lunch"}
+        },
     )
 
     response = client.post(
@@ -193,6 +196,49 @@ def test_first_post_migration_sync_backfills_one_confirmed_imported_bolus(client
         "fiber": 4.0,
     }
     assert states[0].current_nutrition["carbs"] == 87.0
+
+
+def test_first_post_migration_sync_does_not_cover_unrelated_smaller_meal(client):
+    meal_time = datetime.now(timezone.utc).replace(microsecond=0) - timedelta(minutes=26)
+    _create_treatment(
+        client,
+        id="unrelated-confirmed-meal",
+        user_id="admin",
+        event_type="Meal Bolus",
+        created_at=meal_time.replace(tzinfo=None) + timedelta(minutes=5),
+        insulin=8.0,
+        carbs=63.0,
+        fat=10.0,
+        protein=20.0,
+        fiber=4.0,
+        notes="Bolus Bot V2 (Importado (admin))",
+        entered_by="TelegramBot",
+        is_uploaded=False,
+    )
+
+    response = client.post(
+        "/api/integrations/nutrition",
+        headers=_auth_headers(client),
+        json={
+            "source": "MyFitnessPal",
+            "meal_fingerprint": "genuinely-new-lunch",
+            "date": meal_time.isoformat(),
+            "carbohydrates_total_g": 87,
+            "fat_total_g": 15,
+            "protein_total_g": 25,
+            "fiber_total_g": 5,
+        },
+    )
+
+    assert response.status_code == 200
+    states = _fetch_all_meal_coverage_states(client)
+    assert len(states) == 1
+    assert states[0].covered_nutrition == {
+        "carbs": 0.0,
+        "fat": 0.0,
+        "protein": 0.0,
+        "fiber": 0.0,
+    }
 
 
 def _delete_treatment(client: TestClient, treatment_id: str) -> None:

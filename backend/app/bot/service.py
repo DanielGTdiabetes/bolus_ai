@@ -111,6 +111,16 @@ def _snapshot_glucose_mgdl(snapshot: dict) -> Optional[float]:
     return None
 
 
+def _meal_episode_origin_id(
+    origin_id: Optional[str], meal_revision: Optional[str]
+) -> Optional[str]:
+    if not origin_id:
+        return None
+    if not meal_revision:
+        return origin_id
+    return f"{origin_id}:{meal_revision}"
+
+
 def _build_bot_active_plan(
     rec: BolusResponseV2,
     *,
@@ -2515,14 +2525,19 @@ async def on_new_meal_received(
                 coverage_context["reductions"],
             )
 
-    if origin_id:
+    episode_origin_id = _meal_episode_origin_id(origin_id, meal_revision)
+    if episode_origin_id:
         from app.services.companion_service import get_episode_by_fingerprint
         async with SessionLocal() as session:
             existing_episode = await get_episode_by_fingerprint(
-                companion_user_id, f"meal_detected:{origin_id}", session
+                companion_user_id, f"meal_detected:{episode_origin_id}", session
             )
         if existing_episode and existing_episode.status not in ("resolved", "expired"):
-            logger.info("meal_event_persistent_duplicate_skipped event_id=%s", origin_id)
+            logger.info(
+                "meal_event_persistent_duplicate_skipped event_id=%s revision=%s",
+                origin_id,
+                meal_revision,
+            )
             return
     
     bg_val = None
@@ -2703,6 +2718,7 @@ async def on_new_meal_received(
         "meal_total": {"carbs": carbs, "fat": fat, "protein": protein, "fiber": fiber},
         "source": source,
         "origin_id": origin_id,
+        "episode_origin_id": episode_origin_id,
         "user_id": meal_user_id or resolved_user_id,
         "meal_id": meal_id,
         "meal_revision": meal_revision,
@@ -2841,12 +2857,12 @@ async def on_new_meal_received(
         )
         if sent_message is None:
             return DeliveryResult(status="retry_scheduled", error="telegram_send_failed")
-        if origin_id:
+        if episode_origin_id:
             from app.services.companion_service import record_meal_episode
             async with SessionLocal() as session:
                 await record_meal_episode(
                     companion_user_id,
-                    origin_id,
+                    episode_origin_id,
                     wait_message,
                     {
                         "carbs_g": carbs,
@@ -2999,7 +3015,7 @@ async def _handle_snapshot_callback(query, data: str) -> None:
                   async with SessionLocal() as session:
                        await resolve_episode_by_fingerprint(
                            snapshot.get("user_id") or config.get_bot_default_username(),
-                           f"meal_detected:{origin_id}",
+                           f"meal_detected:{snapshot.get('episode_origin_id') or origin_id}",
                            session,
                        )
              return
@@ -3222,7 +3238,7 @@ async def _handle_snapshot_callback(query, data: str) -> None:
              async with SessionLocal() as session:
                   await resolve_episode_by_fingerprint(
                       snapshot.get("user_id") or config.get_bot_default_username(),
-                      f"meal_detected:{origin_id}",
+                      f"meal_detected:{snapshot.get('episode_origin_id') or origin_id}",
                       session,
                   )
 
