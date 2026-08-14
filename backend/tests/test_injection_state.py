@@ -39,10 +39,15 @@ def client(tmp_path, monkeypatch):
     # Ensure DB is initialized before hitting auth
     from app.core.db import init_db, create_tables
     init_db()
-    asyncio.get_event_loop().run_until_complete(create_tables())
-
+    # Python 3.14 no longer creates a main-thread loop implicitly.
     from app.services.auth_repo import init_auth_db
-    asyncio.get_event_loop().run_until_complete(init_auth_db())
+
+    loop = asyncio.new_event_loop()
+    try:
+        loop.run_until_complete(create_tables())
+        loop.run_until_complete(init_auth_db())
+    finally:
+        loop.close()
 
     client = TestClient(main.app)
 

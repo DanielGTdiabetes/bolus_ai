@@ -8,6 +8,7 @@ from telegram.error import BadRequest, RetryAfter, TimedOut
 
 from app.bot import service, tools
 from app.models.settings import UserSettings
+from app.services import meal_coverage_service
 
 
 @pytest.mark.asyncio
@@ -59,6 +60,100 @@ async def test_proactive_meal_notification_fallback_username(monkeypatch: pytest
     assert "Nueva Comida Detectada" in sent["text"]
     assert "15 min" in sent["text"]
     assert "proactive_meal_username_fallback" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_updated_meal_message_and_calculator_use_only_incremental_macros(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sent = {}
+    calculated = {}
+
+    class SessionContext:
+        async def __aenter__(self):
+            return object()
+
+        async def __aexit__(self, *args):
+            return False
+
+    state = SimpleNamespace(
+        id="state-1",
+        meal_key="meal-key",
+        external_meal_id="myfitnesspal|lunch-1",
+        current_revision="revision-2",
+        revision_number=2,
+        current_nutrition={"carbs": 87, "fat": 15, "protein": 25, "fiber": 5},
+        covered_nutrition={"carbs": 63, "fat": 10, "protein": 20, "fiber": 4},
+        last_confirmed_bolus=8.0,
+        confirmed_at=datetime.now(timezone.utc),
+        last_calculation_id="calc-1",
+    )
+
+    async def fake_get_meal_state(*args, **kwargs):
+        return state
+
+    async def fake_bot_send(*, chat_id: int, text: str, bot=None, **kwargs):
+        sent["text"] = text
+        return SimpleNamespace(message_id=321)
+
+    async def fake_resolve_bot_user_settings(preferred_username=None):
+        return UserSettings(), "admin"
+
+    async def fake_get_status_context(*args, **kwargs):
+        return tools.BolusContext(
+            bg_mgdl=160.0,
+            iob_u=7.93,
+            direction=None,
+            source="mock",
+            timestamp=datetime.now(timezone.utc).isoformat(),
+        )
+
+    class DummyRec:
+        total_u_final = 3.2
+        total_u_raw = 3.2
+        kind = "normal"
+        upfront_u = 3.2
+        later_u = 0.0
+        duration_min = 0
+        explain = ["A) Comida: 24g / 7.5 = 3.20 U"]
+
+    async def fake_calculate_bolus_for_bot(request, **kwargs):
+        calculated["request"] = request
+        return DummyRec()
+
+    monkeypatch.setattr(service.config, "get_allowed_telegram_user_id", lambda: 123)
+    monkeypatch.setattr(service, "_bot_app", SimpleNamespace(bot=object()))
+    monkeypatch.setattr(service, "SessionLocal", lambda: SessionContext())
+    monkeypatch.setattr(service, "bot_send", fake_bot_send)
+    monkeypatch.setattr(service, "resolve_bot_user_settings", fake_resolve_bot_user_settings)
+    monkeypatch.setattr(service.tools, "get_status_context", fake_get_status_context)
+    monkeypatch.setattr(service, "calculate_bolus_for_bot", fake_calculate_bolus_for_bot)
+    monkeypatch.setattr(meal_coverage_service, "get_meal_state", fake_get_meal_state)
+
+    await service.on_new_meal_received(
+        87,
+        15,
+        25,
+        5,
+        "Actualizado (admin)",
+        meal_id="myfitnesspal|lunch-1",
+        meal_revision="revision-2",
+        meal_user_id="admin",
+    )
+
+    request = calculated["request"]
+    assert (request.carbs_g, request.fat_g, request.protein_g, request.fiber_g) == (
+        24,
+        5,
+        5,
+        1,
+    )
+    assert "Comida actualizada" in sent["text"]
+    assert "Total comida: **87 g HC**" in sent["text"]
+    assert "Ya cubiertos: **63 g HC**" in sent["text"]
+    assert "Nuevos: **+24 g HC**" in sent["text"]
+    assert "Bolo previo confirmado: **8 U** hace" in sent["text"]
+    assert "Resultado adicional: **3.2 U**" in sent["text"]
 
 
 @pytest.mark.asyncio

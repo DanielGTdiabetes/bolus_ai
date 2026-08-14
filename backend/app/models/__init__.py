@@ -15,6 +15,7 @@ from .companion import CompanionEpisode, CompanionPreference
 from .glucose_reading import GlucoseReadingDB
 from .meal_session import MealSession, MealSessionEvent
 from .nutrition_notification_outbox import NutritionNotificationOutbox
+from .meal_coverage import MealCoverageState
 
 from .autosens import AutosensRun
 from .isf_run import IsfRun

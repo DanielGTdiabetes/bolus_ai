@@ -42,6 +42,11 @@ from app.services.nutrition_notification_outbox import (
     enqueue_meal_notification,
     notification_status_for_events,
 )
+from app.services.meal_coverage_service import (
+    calculate_incremental_nutrition,
+    nutrition_revision,
+    upsert_current_meal,
+)
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -1280,7 +1285,15 @@ async def ingest_nutrition(
                          "p": p,
                          "fib": fib if fib is not None else 0.0,
                          "ts": ts_key,
-                         "fiber_provided": fiber_provided
+                         "fiber_provided": fiber_provided,
+                         "source": real_payload.get("source") or source,
+                         "fingerprint": (
+                             real_payload.get("meal_id")
+                             or real_payload.get("meal_fingerprint")
+                             or real_payload.get("fingerprint")
+                             or real_payload.get("origin_id")
+                         ),
+                         "source_revision": real_payload.get("meal_revision") or real_payload.get("revision"),
                      }
                      logger.info(f"Parsed Direct Payload: C={c} F={f} P={p} Fib={fib}")
 
@@ -1410,6 +1423,91 @@ async def ingest_nutrition(
                 # This handles cases where we "snap to now" and thus lose the temporal correlation 
                 # with the original event in the DB's created_at field.
                 import_key = meal.get("fingerprint") or date_key
+                meal_source = str(meal.get("source") or source or "unknown")
+                external_meal_id = f"{meal_source.strip().lower()}|{import_key}"
+                nutrition_total = {
+                    "carbs": t_carbs,
+                    "fat": t_fat,
+                    "protein": t_protein,
+                    "fiber": t_fiber,
+                }
+                meal_revision = nutrition_revision(
+                    nutrition_total, meal.get("source_revision")
+                )
+                coverage_upsert = await upsert_current_meal(
+                    session,
+                    user_id=username,
+                    external_meal_id=external_meal_id,
+                    source=meal_source,
+                    revision=meal_revision,
+                    nutrition=nutrition_total,
+                )
+                coverage_state = coverage_upsert.state
+
+                # Transition safety for a meal bolused immediately before this
+                # schema existed.  Backfill only from one unambiguous, actually
+                # registered Telegram treatment in the same short meal window;
+                # recommendations and insulin=0 imports are never evidence.
+                if coverage_upsert.created:
+                    legacy_window_start = (
+                        item_ts - timedelta(minutes=15)
+                    ).replace(tzinfo=None)
+                    legacy_window_end = (
+                        item_ts + timedelta(minutes=90)
+                    ).replace(tzinfo=None)
+                    legacy_stmt = select(Treatment).where(
+                        Treatment.user_id == username,
+                        Treatment.insulin > 0,
+                        Treatment.entered_by == "TelegramBot",
+                        Treatment.notes.contains("Importado"),
+                        Treatment.created_at >= legacy_window_start,
+                        Treatment.created_at <= legacy_window_end,
+                    )
+                    legacy_rows = list(
+                        (await session.execute(legacy_stmt)).scalars().all()
+                    )
+                    compatible_legacy_rows = [
+                        row
+                        for row in legacy_rows
+                        if float(row.carbs or 0) > 0
+                        and float(row.carbs or 0) <= t_carbs + 0.1
+                        and float(row.fat or 0) <= t_fat + 0.1
+                        and float(row.protein or 0) <= t_protein + 0.1
+                        and float(row.fiber or 0) <= t_fiber + 0.1
+                    ]
+                    if len(compatible_legacy_rows) == 1:
+                        legacy = compatible_legacy_rows[0]
+                        coverage_state.covered_nutrition = {
+                            "carbs": float(legacy.carbs or 0),
+                            "fat": float(legacy.fat or 0),
+                            "protein": float(legacy.protein or 0),
+                            "fiber": float(legacy.fiber or 0),
+                        }
+                        coverage_state.last_confirmed_bolus = float(
+                            legacy.insulin or 0
+                        )
+                        coverage_state.confirmed_at = legacy.created_at
+                        coverage_state.last_calculation_id = f"legacy:{legacy.id}"
+                        coverage_state.last_treatment_id = legacy.id
+                        session.add(coverage_state)
+                        await session.flush()
+                        logger.warning(
+                            "meal_coverage_legacy_backfill meal_key=%s treatment_id=%s covered=%s",
+                            coverage_state.meal_key,
+                            legacy.id,
+                            coverage_state.covered_nutrition,
+                        )
+                import_trace = {
+                    "meal_import": {
+                        "schema_version": 1,
+                        "meal_id": external_meal_id,
+                        "meal_key": coverage_state.meal_key,
+                        "revision": meal_revision,
+                        "revision_number": coverage_state.revision_number,
+                        "nutrition_total": nutrition_total,
+                        "sync_id": sync_id,
+                    }
+                }
                 import_sig = f"Imported from Health: {import_key} #imported"
                 stmt_strict = select(Treatment).where(
                     Treatment.user_id == username,
@@ -1448,6 +1546,7 @@ async def ingest_nutrition(
                             existing_strict.notes = current_note + " [Updated]"
 
                          session.add(existing_strict)
+                         existing_strict.calculation_trace = import_trace
                          await session.flush()
                          updated_count += 1
                          updated_ids.append(existing_strict.id)  # Track for notification
@@ -1467,6 +1566,27 @@ async def ingest_nutrition(
                              date_key,
                          )
                      continue
+
+                # The imported draft is intentionally deleted after a
+                # confirmation. A later identical sync must not recreate it
+                # and emit another recommendation for an already processed
+                # revision.
+                remaining_nutrition = calculate_incremental_nutrition(
+                    coverage_state.current_nutrition,
+                    coverage_state.covered_nutrition,
+                )
+                if (
+                    not coverage_upsert.revision_changed
+                    and not remaining_nutrition.has_new_nutrition
+                ):
+                    skipped_count += 1
+                    logger.info(
+                        "nutrition_ingest_action ingest_id=%s action=skip_same_revision meal_key=%s revision=%s",
+                        ingest_id,
+                        coverage_state.meal_key,
+                        meal_revision,
+                    )
+                    continue
 
                 # Dedup check
                 # Rule: Short window (3h) for the NEWEST meal (count=0) to allow repeat meals.
@@ -1562,6 +1682,10 @@ async def ingest_nutrition(
                              if fiber_provided and incoming_fiber is not None:
                                  if should_update_fiber(float(c_fib), incoming_fiber):
                                      c.fiber = float(incoming_fiber)
+                                     c.calculation_trace = {
+                                         **(c.calculation_trace or {}),
+                                         **import_trace,
+                                     }
                                      session.add(c)
                                      await session.flush()
                                      updated_count += 1
@@ -1599,6 +1723,10 @@ async def ingest_nutrition(
                                  c.fiber = float(incoming_fiber)
                              
                              c.notes = (c.notes or "") + " [Enriched]"
+                             c.calculation_trace = {
+                                 **(c.calculation_trace or {}),
+                                 **import_trace,
+                             }
                              session.add(c)
                              await session.flush()
                              updated_count += 1
@@ -1616,6 +1744,10 @@ async def ingest_nutrition(
                         # 3. Fiber Only Enrichment
                         if fiber_provided and incoming_fiber is not None and abs((c.fiber or 0) - incoming_fiber) > 0.1:
                              c.fiber = float(incoming_fiber)
+                             c.calculation_trace = {
+                                 **(c.calculation_trace or {}),
+                                 **import_trace,
+                             }
                              session.add(c)
                              await session.flush()
                              updated_count += 1
@@ -1652,6 +1784,7 @@ async def ingest_nutrition(
                     fiber=t_fiber,
                     notes=f"Imported from Health: {import_key} #imported",
                     entered_by="webhook-integration",
+                    calculation_trace=import_trace,
                     is_uploaded=False
                 )
                 session.add(new_t)
@@ -1688,6 +1821,11 @@ async def ingest_nutrition(
                 for t_obj in treatments_to_notify:
                     is_update = t_obj.id in updated_ids
                     notify_source = "Actualizado" if is_update else "Importado"
+                    meal_import = (
+                        (t_obj.calculation_trace or {}).get("meal_import", {})
+                        if isinstance(t_obj.calculation_trace, dict)
+                        else {}
+                    )
                     await enqueue_meal_notification(
                         session,
                         event_id=t_obj.id,
@@ -1701,6 +1839,9 @@ async def ingest_nutrition(
                             "fiber": t_obj.fiber or 0.0,
                             "source": f"{notify_source} ({username})",
                             "origin_id": t_obj.id,
+                            "user_id": username,
+                            "meal_id": meal_import.get("meal_id"),
+                            "meal_revision": meal_import.get("revision"),
                         },
                     )
                     logger.info(

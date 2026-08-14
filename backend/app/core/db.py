@@ -543,6 +543,10 @@ async def create_tables():
                 )
                 # Apply column migrations
                 await migrate_schema(conn)
+                # ``connect()`` rolls back an open transaction on exit. Keep
+                # newly discovered metadata tables even when a best-effort
+                # legacy SQLite ALTER is unsupported and handled internally.
+                await conn.commit()
                 logger.info(f"✅ Database tables created (attempt {attempt})")
                 return
         except Exception as e:
