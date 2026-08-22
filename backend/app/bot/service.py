@@ -1064,6 +1064,51 @@ async def _process_text_input_internal(update: Update, context: ContextTypes.DEF
         await reply_text(update, context, "pong")
         return
 
+    imported_edit = context.user_data.get("imported_meal_edit")
+    if imported_edit:
+        from app.services.imported_meal_service import add_food, edit_food
+        from app.models.imported_meal import ImportedMeal
+
+        step = imported_edit.get("step")
+        meal_id = imported_edit.get("meal_id")
+        try:
+            if step == "add_name":
+                if not text.strip():
+                    raise ValueError("Escribe un nombre")
+                imported_edit["name"] = text.strip()
+                imported_edit["step"] = "add_carbs"
+                context.user_data["imported_meal_edit"] = imported_edit
+                await reply_text(update, context, f"HC para {text.strip()} (en gramos):")
+                return
+            if step in {"carbs", "add_carbs"}:
+                value = float(text.replace(",", "."))
+                if value < 0 or value > 500:
+                    raise ValueError("Los HC deben estar entre 0 y 500 g")
+                async with SessionLocal() as session:
+                    if step == "carbs":
+                        meal = await edit_food(session, meal_id=meal_id, index=int(imported_edit["index"]), carbs=value)
+                    else:
+                        meal = await add_food(session, meal_id=meal_id, name=imported_edit["name"], carbs=value)
+                    await _sync_imported_meal_draft(session, meal)
+                    await session.commit()
+                    await _edit_imported_meal_card(context.bot, update.effective_chat.id, meal)
+                context.user_data.pop("imported_meal_edit", None)
+                await reply_text(update, context, f"✅ Comida actualizada. Total actual: {meal.calculated_carbs:g} g HC")
+                return
+            if step == "quantity":
+                async with SessionLocal() as session:
+                    meal = await edit_food(session, meal_id=meal_id, index=int(imported_edit["index"]), quantity=text)
+                    await _sync_imported_meal_draft(session, meal)
+                    await session.commit()
+                    await _edit_imported_meal_card(context.bot, update.effective_chat.id, meal)
+                context.user_data.pop("imported_meal_edit", None)
+                await reply_text(update, context, "✅ Cantidad actualizada.")
+                return
+            context.user_data.pop("imported_meal_edit", None)
+        except (TypeError, ValueError) as exc:
+            await reply_text(update, context, f"⚠️ {exc}. Inténtalo de nuevo o pulsa Volver.")
+            return
+
     exercise_flow = context.user_data.get("exercise_flow")
     if exercise_flow and exercise_flow.get("step") == "awaiting_duration":
         if _exercise_flow_expired(exercise_flow):
@@ -2430,6 +2475,9 @@ async def on_new_meal_received(
     meal_id: Optional[str] = None,
     meal_revision: Optional[str] = None,
     meal_user_id: Optional[str] = None,
+    imported_meal_id: Optional[str] = None,
+    edit_message_id: Optional[int] = None,
+    skip_duplicate_checks: bool = False,
 ):
     """
     Called by integrations.py when a new meal is ingested.
@@ -2438,7 +2486,7 @@ async def on_new_meal_received(
     global _bot_app
     from app.services.nutrition_notification_outbox import DeliveryResult
 
-    if origin_id and not outbox_delivery:
+    if origin_id and not outbox_delivery and not skip_duplicate_checks:
         now_ts = time.time()
         expired = [
             key for key, ts in MEAL_NOTIFY_CACHE.items()
@@ -2526,7 +2574,7 @@ async def on_new_meal_received(
             )
 
     episode_origin_id = _meal_episode_origin_id(origin_id, meal_revision)
-    if episode_origin_id:
+    if episode_origin_id and not skip_duplicate_checks:
         from app.services.companion_service import get_episode_by_fingerprint
         async with SessionLocal() as session:
             existing_episode = await get_episode_by_fingerprint(
@@ -2723,6 +2771,7 @@ async def on_new_meal_received(
         "meal_id": meal_id,
         "meal_revision": meal_revision,
         "meal_coverage": coverage_context,
+        "imported_meal_id": imported_meal_id,
         "calculation_id": request_id,
         "ts": datetime.now(),
         "payload": req_v2,
@@ -2846,14 +2895,30 @@ async def on_new_meal_received(
     reply_markup = InlineKeyboardMarkup(keyboard)
     
     try:
-        sent_message = await bot_send(
-            chat_id=chat_id,
-            text=msg_text,
-            bot=_bot_app.bot,
-            reply_markup=reply_markup,
-            parse_mode="Markdown",
-            log_context="proactive_meal",
-            raise_on_error=outbox_delivery,
+        telegram_started = time.perf_counter()
+        if edit_message_id is not None:
+            sent_message = await _bot_app.bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=edit_message_id,
+                text=msg_text,
+                reply_markup=reply_markup,
+                parse_mode="Markdown",
+            )
+        else:
+            sent_message = await bot_send(
+                chat_id=chat_id,
+                text=msg_text,
+                bot=_bot_app.bot,
+                reply_markup=reply_markup,
+                parse_mode="Markdown",
+                log_context="proactive_meal",
+                raise_on_error=outbox_delivery,
+            )
+        logger.info(
+            "[TELEGRAM] event_id=%s api_duration_ms=%s message_id=%s",
+            origin_id,
+            int((time.perf_counter() - telegram_started) * 1000),
+            getattr(sent_message, "message_id", edit_message_id),
         )
         if sent_message is None:
             return DeliveryResult(status="retry_scheduled", error="telegram_send_failed")
@@ -2896,10 +2961,144 @@ async def on_new_meal_received(
         return _classify_nutrition_delivery_error(e)
 
 
+def _imported_meal_review_card(meal) -> tuple[str, InlineKeyboardMarkup]:
+    labels = {
+        "breakfast": "DESAYUNO", "lunch": "COMIDA", "dinner": "CENA",
+        "snack": "SNACK", "snacks": "SNACK", "comida": "COMIDA",
+        "almuerzo": "COMIDA", "cena": "CENA", "desayuno": "DESAYUNO",
+    }
+    title = labels.get(meal.meal_type.lower(), meal.meal_type.upper())
+    local_seen = meal.last_seen_at
+    if local_seen and local_seen.tzinfo is None:
+        local_seen = local_seen.replace(tzinfo=timezone.utc)
+    stamp = local_seen.astimezone().strftime("%H:%M") if local_seen else ""
+    lines = [f"🍽 {title} · {stamp}", ""]
+    for index, food in enumerate(meal.foods, start=1):
+        amount = " ".join(part for part in (str(food.get("quantity") or ""), str(food.get("unit") or "")) if part).strip()
+        lines.append(f"{index}. {food.get('name') or 'Alimento'}")
+        lines.append(f"   {(amount + ' · ') if amount else ''}{float(food.get('carbs_g') or 0):g} g HC")
+        lines.append("")
+    lines.extend(["───────────────", f"TOTAL: {meal.calculated_carbs:g} g HC", "", "Fuente: MyFitnessPal"])
+
+    if meal.status == "DISCARDED":
+        lines.extend(["", "🗑 Esta versión fue descartada."])
+        return "\n".join(lines), InlineKeyboardMarkup([])
+
+    if meal.validation_error == "carb_total_mismatch":
+        difference = abs(float(meal.source_carbs) - float(meal.calculated_carbs))
+        lines.extend([
+            "", "⚠️ Datos inconsistentes", "",
+            f"MyFitnessPal indica: {meal.source_carbs:g} g HC",
+            f"Suma de alimentos: {meal.calculated_carbs:g} g HC",
+            f"Diferencia: {difference:g} g HC", "",
+            "No se calculará ningún bolo hasta revisar la comida.",
+        ])
+    elif meal.validation_error:
+        lines.extend(["", "⚠️ No se ha podido validar la comida.", "No se calculará ningún bolo."])
+    elif meal.status == "UPDATED_TREATED":
+        previous = float(meal.previous_calculated_carbs if meal.previous_calculated_carbs is not None else meal.calculated_carbs)
+        change = float(meal.calculated_carbs) - previous
+        bolus_at = meal.last_bolus_at
+        if bolus_at and bolus_at.tzinfo is None:
+            bolus_at = bolus_at.replace(tzinfo=timezone.utc)
+        minutes_ago = int(max(0, (datetime.now(timezone.utc) - bolus_at).total_seconds() / 60)) if bolus_at else None
+        lines.extend([
+            "", "⚠️ COMIDA MODIFICADA",
+            f"Anterior: {previous:g} g HC",
+            f"Ahora: {meal.calculated_carbs:g} g HC",
+            f"Cambio: {change:+g} g HC",
+            "",
+            f"Bolo previo: {meal.last_bolus_units:g} U" if meal.last_bolus_units is not None else "Bolo previo: registrado",
+            f"Hace: {minutes_ago} min" if minutes_ago is not None else "Hace: tiempo no disponible",
+            "",
+            "Ya existe un bolo asociado. Al confirmar solo se evaluará la diferencia pendiente con IOB y glucosa actuales.",
+        ])
+
+    if meal.pending_source_version:
+        pending = meal.pending_source_version
+        lines.extend([
+            "", "⚠️ MyFitnessPal cambió después de tu revisión manual.",
+            f"Nueva lectura MFP: {float(pending.get('calculated_carbs') or 0):g} g HC",
+            f"Tu versión revisada: {meal.calculated_carbs:g} g HC",
+        ])
+        buttons = [
+            [InlineKeyboardButton("Usar MFP", callback_data=f"im_use_mfp|{meal.id}"), InlineKeyboardButton("Mantener revisada", callback_data=f"im_keep|{meal.id}")],
+            [InlineKeyboardButton("Ver cambios", callback_data=f"im_diff|{meal.id}")],
+        ]
+        return "\n".join(lines), InlineKeyboardMarkup(buttons)
+
+    if meal.validation_error:
+        buttons = [
+            [InlineKeyboardButton("🔄 Reintentar MFP", callback_data=f"im_refresh|{meal.id}")],
+            [InlineKeyboardButton("✏️ Corregir manualmente", callback_data=f"im_edit|{meal.id}")],
+            [InlineKeyboardButton("❌ Cancelar", callback_data=f"im_discard|{meal.id}")],
+        ]
+    else:
+        buttons = [
+            [InlineKeyboardButton("✅ Confirmar", callback_data=f"im_confirm|{meal.id}"), InlineKeyboardButton("✏️ Editar", callback_data=f"im_edit|{meal.id}")],
+            [InlineKeyboardButton("🔄 Actualizar MFP", callback_data=f"im_refresh|{meal.id}"), InlineKeyboardButton("🗑 Descartar", callback_data=f"im_discard|{meal.id}")],
+        ]
+    return "\n".join(lines), InlineKeyboardMarkup(buttons)
+
+
+async def _deliver_imported_meal_review(payload: dict):
+    from app.models.imported_meal import ImportedMeal
+    from app.services.nutrition_notification_outbox import DeliveryResult
+
+    meal_id = str(payload.get("imported_meal_id") or "")
+    async with SessionLocal() as session:
+        meal = await session.get(ImportedMeal, meal_id)
+        if meal is None:
+            return DeliveryResult(status="failed", error="imported_meal_missing")
+        text_value, markup = _imported_meal_review_card(meal)
+        chat_id = config.get_allowed_telegram_user_id()
+        if not chat_id or not _bot_app:
+            return DeliveryResult(status="retry_scheduled", error="telegram_unavailable")
+        started = time.perf_counter()
+        try:
+            if meal.telegram_message_id:
+                sent = await _bot_app.bot.edit_message_text(
+                    chat_id=chat_id,
+                    message_id=int(meal.telegram_message_id),
+                    text=text_value,
+                    reply_markup=markup,
+                )
+                message_id = str(getattr(sent, "message_id", meal.telegram_message_id))
+            else:
+                sent = await bot_send(
+                    chat_id=chat_id,
+                    text=text_value,
+                    bot=_bot_app.bot,
+                    reply_markup=markup,
+                    log_context="imported_meal_review",
+                    raise_on_error=True,
+                )
+                message_id = str(getattr(sent, "message_id", ""))
+            meal.telegram_message_id = message_id or meal.telegram_message_id
+            session.add(meal)
+            await session.commit()
+            logger.info(
+                "[TELEGRAM] review event_id=%s queue_delay_ms=%s api_duration_ms=%s message_id=%s",
+                meal.id,
+                int(max(0, (datetime.now(timezone.utc) - (meal.last_seen_at.replace(tzinfo=timezone.utc) if meal.last_seen_at.tzinfo is None else meal.last_seen_at)).total_seconds() * 1000)),
+                int((time.perf_counter() - started) * 1000),
+                message_id,
+            )
+            return DeliveryResult(status="sent", telegram_message_id=message_id or None)
+        except BadRequest as exc:
+            if "message is not modified" in str(exc).lower():
+                return DeliveryResult(status="sent", telegram_message_id=meal.telegram_message_id)
+            return _classify_nutrition_delivery_error(exc)
+        except Exception as exc:
+            return _classify_nutrition_delivery_error(exc)
+
+
 async def deliver_nutrition_notification(payload: dict):
     from app.services.nutrition_notification_outbox import DeliveryResult
 
     try:
+        if payload.get("review_required"):
+            return await _deliver_imported_meal_review(payload)
         return await on_new_meal_received(
             float(payload.get("carbs") or 0),
             float(payload.get("fat") or 0),
@@ -2911,6 +3110,7 @@ async def deliver_nutrition_notification(payload: dict):
             meal_id=payload.get("meal_id"),
             meal_revision=payload.get("meal_revision"),
             meal_user_id=payload.get("user_id"),
+            imported_meal_id=payload.get("imported_meal_id"),
         )
     except Exception as exc:
         # Delivery errors are classified inside on_new_meal_received. An error
@@ -2918,6 +3118,79 @@ async def deliver_nutrition_notification(payload: dict):
         # create a duplicate notification.
         logger.exception("Nutrition notification preparation failed")
         return DeliveryResult(status="retry_scheduled", error=f"pre_delivery:{exc}")
+
+
+async def _sync_imported_meal_draft(session, meal) -> None:
+    """Keep the review draft and incremental-coverage revision aligned."""
+    from app.models.treatment import Treatment
+    from app.services.meal_coverage_service import nutrition_revision, upsert_current_meal
+
+    nutrition = {"carbs": meal.calculated_carbs, "fat": meal.fat, "protein": meal.protein, "fiber": meal.fiber}
+    revision = nutrition_revision(nutrition, meal.fingerprint)
+    await upsert_current_meal(
+        session,
+        user_id=meal.user_id,
+        external_meal_id=meal.source_reference,
+        source=meal.source,
+        revision=revision,
+        nutrition=nutrition,
+    )
+    draft = await session.get(Treatment, meal.draft_treatment_id) if meal.draft_treatment_id else None
+    if meal.validation_error is None:
+        if draft is None or float(draft.insulin or 0) > 0:
+            draft = Treatment(
+                id=str(uuid.uuid4()), user_id=meal.user_id, event_type="Meal Bolus",
+                created_at=datetime.now(timezone.utc).replace(tzinfo=None), insulin=0.0,
+                carbs=meal.calculated_carbs, fat=meal.fat, protein=meal.protein, fiber=meal.fiber,
+                notes=f"Imported meal review: {meal.source_reference} #imported",
+                entered_by="webhook-integration", is_uploaded=False,
+            )
+            session.add(draft)
+            meal.draft_treatment_id = draft.id
+        draft.carbs = meal.calculated_carbs
+        draft.fat = meal.fat
+        draft.protein = meal.protein
+        draft.fiber = meal.fiber
+        draft.calculation_trace = {
+            "meal_import": {
+                "schema_version": 2, "meal_id": meal.source_reference,
+                "imported_meal_id": meal.id, "revision": revision,
+                "revision_number": meal.version, "nutrition_total": nutrition,
+                "foods": meal.foods,
+            }
+        }
+        session.add(draft)
+    session.add(meal)
+    await session.flush()
+
+
+async def _edit_imported_meal_card(bot, chat_id: int, meal) -> None:
+    if not meal.telegram_message_id:
+        return
+    text_value, markup = _imported_meal_review_card(meal)
+    try:
+        await bot.edit_message_text(
+            chat_id=chat_id, message_id=int(meal.telegram_message_id),
+            text=text_value, reply_markup=markup,
+        )
+    except BadRequest as exc:
+        if "message is not modified" not in str(exc).lower():
+            raise
+
+
+async def _trigger_hermes_refresh() -> tuple[bool, str]:
+    import httpx
+
+    url = (os.getenv("HERMES_MFP_SYNC_TRIGGER_URL") or "").rstrip("/")
+    key = os.getenv("HERMES_MFP_TRIGGER_KEY") or os.getenv("NUTRITION_INGEST_KEY") or os.getenv("NUTRITION_INGEST_SECRET")
+    if not url or not key:
+        return False, "Hermes no está configurado en esta instancia"
+    try:
+        async with httpx.AsyncClient(timeout=150.0) as client:
+            response = await client.post(f"{url}/mfp/sync-now", headers={"X-Ingest-Key": key})
+        return response.is_success, f"HTTP {response.status_code}"
+    except Exception as exc:
+        return False, type(exc).__name__
 
 async def btn_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Debug command to test inline buttons."""
@@ -3228,6 +3501,22 @@ async def _handle_snapshot_callback(query, data: str) -> None:
                  )
                  return
 
+        imported_meal_id = snapshot.get("imported_meal_id")
+        if imported_meal_id:
+             from app.models.imported_meal import ImportedMeal
+             async with SessionLocal() as session:
+                  imported_meal = await session.get(ImportedMeal, imported_meal_id)
+                  if imported_meal:
+                       imported_meal.treatment_status = "TREATED"
+                       imported_meal.linked_bolus_id = getattr(result, "treatment_id", None) or deterministic_treatment_id
+                       imported_meal.last_bolus_units = units
+                       imported_meal.last_bolus_at = datetime.now(timezone.utc)
+                       imported_meal.draft_treatment_id = None
+                       imported_meal.status = "CONFIRMED"
+                       imported_meal.confirmed_at = datetime.now(timezone.utc)
+                       session.add(imported_meal)
+                       await session.commit()
+
         if isinstance(rec, BolusResponseV2) and planned_later_u > 0:
              try:
                   plan = _build_bot_active_plan(
@@ -3410,6 +3699,177 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     # Always Answer
     try: await query.answer()
     except: pass
+
+    # --- Imported MyFitnessPal meal review (calculation starts only on Confirm) ---
+    if data.startswith("im_"):
+        from app.models.imported_meal import ImportedMeal
+        from app.services.imported_meal_service import delete_food, discard_meal, resolve_source_conflict
+
+        parts = data.split("|")
+        action = parts[0]
+        meal_id = parts[1] if len(parts) > 1 else ""
+        try:
+            if action in {"im_use_mfp", "im_keep"}:
+                async with SessionLocal() as session:
+                    meal = await resolve_source_conflict(session, meal_id=meal_id, use_source=action == "im_use_mfp")
+                    await _sync_imported_meal_draft(session, meal)
+                    await session.commit()
+                    text_value, markup = _imported_meal_review_card(meal)
+                await edit_message_text_safe(query, text_value, reply_markup=markup)
+                return
+
+            if action == "im_diff":
+                async with SessionLocal() as session:
+                    meal = await session.get(ImportedMeal, meal_id)
+                    pending = dict(meal.pending_source_version or {})
+                current_by_name = {str(food.get("name")): float(food.get("carbs_g") or 0) for food in meal.foods}
+                pending_by_name = {str(food.get("name")): float(food.get("carbs_g") or 0) for food in pending.get("foods") or []}
+                names = sorted(set(current_by_name) | set(pending_by_name))
+                lines = ["Cambios MFP ↔ versión revisada", ""]
+                for name in names:
+                    old, new = current_by_name.get(name), pending_by_name.get(name)
+                    if old != new:
+                        lines.append(f"• {name}: {old if old is not None else '—'} → {new if new is not None else '—'} g HC")
+                buttons = [[InlineKeyboardButton("Usar MFP", callback_data=f"im_use_mfp|{meal_id}"), InlineKeyboardButton("Mantener revisada", callback_data=f"im_keep|{meal_id}")]]
+                await edit_message_text_safe(query, "\n".join(lines), reply_markup=InlineKeyboardMarkup(buttons))
+                return
+
+            if action == "im_confirm":
+                async with SessionLocal() as session:
+                    meal = await session.get(ImportedMeal, meal_id)
+                    if meal is None:
+                        raise ValueError("No encuentro la comida")
+                    if not meal.is_stable or meal.validation_error:
+                        await query.answer("Comida no validada: cálculo bloqueado", show_alert=True)
+                        return
+                    if meal.discarded_fingerprint == meal.fingerprint:
+                        await query.answer("Esta versión está descartada", show_alert=True)
+                        return
+                    await _sync_imported_meal_draft(session, meal)
+                    meal.status = "CONFIRMED"
+                    meal.confirmed_at = datetime.now(timezone.utc)
+                    session.add(meal)
+                    await session.commit()
+                    values = {
+                        "carbs": meal.calculated_carbs, "fat": meal.fat,
+                        "protein": meal.protein, "fiber": meal.fiber,
+                        "source": f"MyFitnessPal revisado ({meal.user_id})",
+                        "origin_id": meal.draft_treatment_id,
+                        "meal_id": meal.source_reference,
+                        "meal_user_id": meal.user_id,
+                        "imported_meal_id": meal.id,
+                    }
+                await edit_message_text_safe(query, "✅ Comida confirmada. Calculando con glucosa e IOB actuales…")
+                calculation_delivery = await on_new_meal_received(
+                    values["carbs"], values["fat"], values["protein"], values["fiber"],
+                    values["source"], origin_id=values["origin_id"], meal_id=values["meal_id"],
+                    meal_user_id=values["meal_user_id"], imported_meal_id=values["imported_meal_id"],
+                    edit_message_id=query.message.message_id, skip_duplicate_checks=True,
+                )
+                if getattr(calculation_delivery, "status", None) != "sent":
+                    await edit_message_text_safe(
+                        query,
+                        "⚠️ No se ha podido preparar una recomendación segura. No se ha registrado ningún bolo. Reinténtalo desde la comida.",
+                    )
+                return
+
+            if action == "im_edit":
+                async with SessionLocal() as session:
+                    meal = await session.get(ImportedMeal, meal_id)
+                    if meal is None:
+                        raise ValueError("No encuentro la comida")
+                    buttons = [
+                        [InlineKeyboardButton(f"{i + 1} · {food.get('name')} · {float(food.get('carbs_g') or 0):g} g", callback_data=f"im_food|{meal.id}|{i}")]
+                        for i, food in enumerate(meal.foods)
+                    ]
+                    buttons.extend([
+                        [InlineKeyboardButton("➕ Añadir", callback_data=f"im_add|{meal.id}")],
+                        [InlineKeyboardButton("↩️ Volver", callback_data=f"im_back|{meal.id}")],
+                    ])
+                await edit_message_text_safe(query, "✏️ Editar alimentos\n\nSelecciona uno:", reply_markup=InlineKeyboardMarkup(buttons))
+                return
+
+            if action == "im_food":
+                index = int(parts[2])
+                async with SessionLocal() as session:
+                    meal = await session.get(ImportedMeal, meal_id)
+                    food = meal.foods[index]
+                text_value = f"{food.get('name')}\n{food.get('quantity') or ''} {food.get('unit') or ''}\n{float(food.get('carbs_g') or 0):g} g HC"
+                buttons = [
+                    [InlineKeyboardButton("✏️ Cantidad", callback_data=f"im_qty|{meal_id}|{index}"), InlineKeyboardButton("✏️ HC", callback_data=f"im_carbs|{meal_id}|{index}")],
+                    [InlineKeyboardButton("🗑 Eliminar", callback_data=f"im_del|{meal_id}|{index}")],
+                    [InlineKeyboardButton("↩️ Volver", callback_data=f"im_edit|{meal_id}")],
+                ]
+                await edit_message_text_safe(query, text_value, reply_markup=InlineKeyboardMarkup(buttons))
+                return
+
+            if action in {"im_carbs", "im_qty"}:
+                index = int(parts[2])
+                async with SessionLocal() as session:
+                    meal = await session.get(ImportedMeal, meal_id)
+                    food = meal.foods[index]
+                context.user_data["imported_meal_edit"] = {
+                    "step": "carbs" if action == "im_carbs" else "quantity",
+                    "meal_id": meal_id, "index": index,
+                }
+                prompt = (
+                    f"Introduce los HC correctos para:\n\n{food.get('name')}\nActual: {float(food.get('carbs_g') or 0):g} g"
+                    if action == "im_carbs" else f"Introduce la cantidad correcta para:\n\n{food.get('name')}\nActual: {food.get('quantity') or '-'} {food.get('unit') or ''}"
+                )
+                await edit_message_text_safe(query, prompt, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("↩️ Volver", callback_data=f"im_edit|{meal_id}")]]))
+                return
+
+            if action == "im_add":
+                context.user_data["imported_meal_edit"] = {"step": "add_name", "meal_id": meal_id}
+                await edit_message_text_safe(query, "Nombre del alimento:", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("↩️ Volver", callback_data=f"im_edit|{meal_id}")]]))
+                return
+
+            if action == "im_del":
+                index = int(parts[2])
+                async with SessionLocal() as session:
+                    meal = await session.get(ImportedMeal, meal_id)
+                    food = meal.foods[index]
+                buttons = [[InlineKeyboardButton("✅ Eliminar", callback_data=f"im_del_yes|{meal_id}|{index}")], [InlineKeyboardButton("↩️ Cancelar", callback_data=f"im_food|{meal_id}|{index}")]]
+                await edit_message_text_safe(query, f"¿Eliminar “{food.get('name')} · {float(food.get('carbs_g') or 0):g} g HC”?", reply_markup=InlineKeyboardMarkup(buttons))
+                return
+
+            if action == "im_del_yes":
+                async with SessionLocal() as session:
+                    meal = await delete_food(session, meal_id=meal_id, index=int(parts[2]))
+                    await _sync_imported_meal_draft(session, meal)
+                    await session.commit()
+                    text_value, markup = _imported_meal_review_card(meal)
+                await edit_message_text_safe(query, text_value, reply_markup=markup)
+                return
+
+            if action == "im_back":
+                context.user_data.pop("imported_meal_edit", None)
+                async with SessionLocal() as session:
+                    meal = await session.get(ImportedMeal, meal_id)
+                    text_value, markup = _imported_meal_review_card(meal)
+                await edit_message_text_safe(query, text_value, reply_markup=markup)
+                return
+
+            if action == "im_discard":
+                async with SessionLocal() as session:
+                    meal = await discard_meal(session, meal_id=meal_id)
+                await edit_message_text_safe(query, "🗑 Comida descartada. Esta misma versión no volverá a aparecer.")
+                return
+
+            if action == "im_refresh":
+                await edit_message_text_safe(query, f"{query.message.text}\n\n🔄 Actualizando desde MyFitnessPal…")
+
+                async def refresh_and_report() -> None:
+                    ok, detail = await _trigger_hermes_refresh()
+                    if not ok:
+                        await bot_send(chat_id=query.message.chat_id, text=f"⚠️ No se pudo actualizar MFP: {detail}", bot=query.get_bot(), log_context="mfp_refresh")
+
+                asyncio.create_task(refresh_and_report())
+                return
+        except Exception as exc:
+            logger.exception("Imported meal callback failed")
+            await edit_message_text_safe(query, f"⚠️ No se pudo completar la revisión: {exc}")
+            return
 
     # --- Persistent Companion Episode ---
     if data.startswith("companion|"):

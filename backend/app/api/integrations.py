@@ -3,6 +3,7 @@ import hmac
 import logging
 import math
 import os
+import re
 import uuid
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal, ROUND_HALF_UP
@@ -47,11 +48,78 @@ from app.services.meal_coverage_service import (
     nutrition_revision,
     upsert_current_meal,
 )
+from app.services.imported_meal_service import reconcile_imported_meal
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 DEXCOM_BOLUS_EVENT_TYPES = ("Meal Bolus", "Correction Bolus", "Bolus")
 DEXCOM_CARBS_DEDUPE_WINDOW_MS = 45 * 60 * 1000
+
+
+def _structured_mfp_candidate(raw_payload: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Extract the versioned Hermes envelope without trusting its aggregate alone."""
+    provider = str(raw_payload.get("provider") or raw_payload.get("source") or "").lower()
+    if "myfitnesspal" not in provider and "hermes-mfp" not in provider:
+        return None
+    if not isinstance(raw_payload.get("foods"), list):
+        return None
+
+    inner = raw_payload.get("payload") if isinstance(raw_payload.get("payload"), dict) else raw_payload
+    metrics = []
+    if isinstance(inner, dict):
+        data = inner.get("data")
+        if isinstance(data, dict):
+            metrics = data.get("metrics") or []
+        elif isinstance(inner.get("metrics"), list):
+            metrics = inner["metrics"]
+    totals = {"carbs": 0.0, "fat": 0.0, "protein": 0.0, "fiber": 0.0}
+    aliases = {
+        "carbohydrates": "carbs", "dietary_carbohydrates": "carbs", "total_carbs": "carbs",
+        "total_fat": "fat", "dietary_fat": "fat", "fat": "fat",
+        "protein": "protein", "dietary_protein": "protein", "total_protein": "protein",
+        "fiber": "fiber", "dietary_fiber": "fiber", "total_fiber": "fiber",
+    }
+    for metric in metrics if isinstance(metrics, list) else []:
+        if not isinstance(metric, dict):
+            continue
+        nutrient = aliases.get(str(metric.get("name") or "").lower().replace(" ", "_"))
+        entries = metric.get("data")
+        if nutrient and isinstance(entries, list):
+            for entry in entries:
+                if isinstance(entry, dict):
+                    try:
+                        totals[nutrient] += float(entry.get("qty") or 0)
+                    except (TypeError, ValueError):
+                        pass
+
+    direct = normalize_nutrition_payload(raw_payload)
+    return {
+        "source": raw_payload.get("source") or "MyFitnessPal-Hermes",
+        "meal_id": raw_payload.get("meal_id") or raw_payload.get("source_reference") or raw_payload.get("meal_fingerprint"),
+        "meal_revision": raw_payload.get("meal_revision") or raw_payload.get("meal_fingerprint"),
+        "date": raw_payload.get("date"),
+        "meal": raw_payload.get("meal") or raw_payload.get("meal_type"),
+        "foods": raw_payload.get("foods"),
+        "source_carbs": raw_payload.get("source_carbs") if raw_payload.get("source_carbs") is not None else (direct.get("carbs") if direct.get("carbs") is not None else totals["carbs"]),
+        "fat": direct.get("fat") if direct.get("fat") is not None else totals["fat"],
+        "protein": direct.get("protein") if direct.get("protein") is not None else totals["protein"],
+        "fiber": direct.get("fiber") if direct.get("fiber") is not None else totals["fiber"],
+        "stability_confirmed": raw_payload.get("stability_confirmed", False),
+        "stable_read_count": raw_payload.get("stable_read_count", 0),
+        "timing": raw_payload.get("timing"),
+    }
+
+
+def _treatment_has_stable_meal_reference(treatment: Treatment, source_reference: str) -> bool:
+    trace = treatment.calculation_trace
+    if not isinstance(trace, dict):
+        return False
+    pattern = re.compile(rf"(?:^|\|){re.escape(source_reference)}(?::[0-9a-f]{{16,64}})?$", re.IGNORECASE)
+    for section_name in ("meal_coverage", "meal_import"):
+        section = trace.get(section_name)
+        if isinstance(section, dict) and pattern.search(str(section.get("meal_id") or "")):
+            return True
+    return False
 
 def _data_store(settings: Settings = Depends(get_settings)) -> DataStore:
     from pathlib import Path
@@ -1168,6 +1236,189 @@ async def ingest_nutrition(
             "wrapper" if is_wrapper_payload else "direct",
         )
 
+        # Hermes/MyFitnessPal uses a stricter contract: a stable meal identity,
+        # itemized foods, two matching reads and review before any calculation.
+        structured_mfp = _structured_mfp_candidate(raw_payload)
+        if structured_mfp is not None:
+            reconcile_started = datetime.now(timezone.utc)
+            try:
+                reconciliation = await reconcile_imported_meal(
+                    session,
+                    user_id=username,
+                    payload=structured_mfp,
+                    sync_id=sync_id,
+                )
+            except ValueError as exc:
+                await session.rollback()
+                logger.warning("[MFP_SYNC] sync_id=%s state=INVALID error=%s", sync_id, exc)
+                raise HTTPException(status_code=422, detail=str(exc))
+
+            imported_meal = reconciliation.meal
+            effective_state = reconciliation.state
+            nutrition_total = {
+                "carbs": imported_meal.calculated_carbs,
+                "fat": imported_meal.fat,
+                "protein": imported_meal.protein,
+                "fiber": imported_meal.fiber,
+            }
+            coverage_revision = nutrition_revision(nutrition_total, imported_meal.fingerprint)
+            coverage = await upsert_current_meal(
+                session,
+                user_id=username,
+                external_meal_id=imported_meal.source_reference,
+                source=imported_meal.source,
+                revision=coverage_revision,
+                nutrition=nutrition_total,
+            )
+
+            # Transition from the legacy content-based identity. Only an exact
+            # identity embedded in a treatment trace may restore coverage;
+            # timing/macros alone are intentionally insufficient.
+            if reconciliation.created and imported_meal.treatment_status != "TREATED":
+                identity_window_start = datetime.combine(imported_meal.meal_date, datetime.min.time()) - timedelta(days=1)
+                identity_window_end = identity_window_start + timedelta(days=3)
+                possible_treatments = list((await session.execute(
+                    select(Treatment).where(
+                        Treatment.user_id == username,
+                        Treatment.insulin > 0,
+                        Treatment.created_at >= identity_window_start,
+                        Treatment.created_at < identity_window_end,
+                    ).order_by(Treatment.created_at)
+                )).scalars().all())
+                identity_matches = [
+                    treatment for treatment in possible_treatments
+                    if _treatment_has_stable_meal_reference(treatment, imported_meal.source_reference)
+                ]
+                if identity_matches:
+                    last_treatment = identity_matches[-1]
+                    covered = {
+                        name: round(sum(float(getattr(item, name) or 0) for item in identity_matches), 1)
+                        for name in ("carbs", "fat", "protein", "fiber")
+                    }
+                    coverage.state.covered_nutrition = {
+                        name: min(float(nutrition_total[name]), value)
+                        for name, value in covered.items()
+                    }
+                    coverage.state.last_confirmed_bolus = float(last_treatment.insulin or 0)
+                    coverage.state.confirmed_at = last_treatment.created_at
+                    coverage.state.last_treatment_id = last_treatment.id
+                    imported_meal.treatment_status = "TREATED"
+                    imported_meal.linked_bolus_id = last_treatment.id
+                    imported_meal.last_bolus_units = float(last_treatment.insulin or 0)
+                    imported_meal.last_bolus_at = last_treatment.created_at
+                    imported_meal.previous_calculated_carbs = covered["carbs"]
+                    imported_meal.status = "UPDATED_TREATED"
+                    effective_state = "UPDATED_TREATED"
+                    session.add(coverage.state)
+                    session.add(imported_meal)
+                    logger.warning(
+                        "meal_identity_legacy_backfill meal_id=%s treatments=%s covered=%s",
+                        imported_meal.id, len(identity_matches), coverage.state.covered_nutrition,
+                    )
+
+            draft: Treatment | None = None
+            if imported_meal.is_stable and imported_meal.validation_error is None:
+                if imported_meal.draft_treatment_id:
+                    draft = await session.get(Treatment, imported_meal.draft_treatment_id)
+                if draft is None or float(draft.insulin or 0) > 0:
+                    draft = Treatment(
+                        id=str(uuid.uuid4()),
+                        user_id=username,
+                        event_type="Meal Bolus",
+                        created_at=datetime.now(timezone.utc).replace(tzinfo=None),
+                        insulin=0.0,
+                        carbs=imported_meal.calculated_carbs,
+                        fat=imported_meal.fat,
+                        protein=imported_meal.protein,
+                        fiber=imported_meal.fiber,
+                        notes=f"Imported meal review: {imported_meal.source_reference} #imported",
+                        entered_by="webhook-integration",
+                        is_uploaded=False,
+                    )
+                    session.add(draft)
+                    imported_meal.draft_treatment_id = draft.id
+                draft.carbs = imported_meal.calculated_carbs
+                draft.fat = imported_meal.fat
+                draft.protein = imported_meal.protein
+                draft.fiber = imported_meal.fiber
+                draft.calculation_trace = {
+                    "meal_import": {
+                        "schema_version": 2,
+                        "meal_id": imported_meal.source_reference,
+                        "imported_meal_id": imported_meal.id,
+                        "meal_key": coverage.state.meal_key,
+                        "revision": coverage_revision,
+                        "revision_number": imported_meal.version,
+                        "nutrition_total": nutrition_total,
+                        "foods": imported_meal.foods,
+                        "sync_id": sync_id,
+                    }
+                }
+                session.add(draft)
+
+            notification_ids: list[str] = []
+            if reconciliation.should_notify:
+                notification_kind = f"meal_review_v{imported_meal.version}"
+                await enqueue_meal_notification(
+                    session,
+                    event_id=imported_meal.id,
+                    notification_kind=notification_kind,
+                    user_id=username,
+                    sync_id=sync_id,
+                    payload={
+                        "review_required": True,
+                        "imported_meal_id": imported_meal.id,
+                        "origin_id": draft.id if draft else None,
+                        "meal_id": imported_meal.source_reference,
+                        "meal_revision": coverage_revision,
+                        "user_id": username,
+                    },
+                )
+                notification_ids.append(imported_meal.id)
+
+            await session.commit()
+            notification_status = await notification_status_for_events(session, notification_ids)
+            reconcile_ms = int((datetime.now(timezone.utc) - reconcile_started).total_seconds() * 1000)
+            logger.info(
+                "[MEAL] sync_id=%s meal_id=%s type=%s state=%s version=%s source_carbs=%.1f calculated_carbs=%.1f stable=%s reconciliation_ms=%s",
+                sync_id,
+                imported_meal.id,
+                imported_meal.meal_type,
+                effective_state,
+                imported_meal.version,
+                imported_meal.source_carbs,
+                imported_meal.calculated_carbs,
+                imported_meal.is_stable,
+                reconcile_ms,
+            )
+            if imported_meal.validation_error:
+                logger.warning(
+                    "[SAFETY] sync_id=%s meal_id=%s calculation_blocked=true reason=%s",
+                    sync_id, imported_meal.id, imported_meal.validation_error,
+                )
+            result = {
+                "success": 1,
+                "sync_id": sync_id,
+                "ingest_status": (
+                    "awaiting_stability" if imported_meal.validation_error == "awaiting_stability"
+                    else "success" if reconciliation.should_notify
+                    else "no_changes"
+                ),
+                "notification_status": notification_status,
+                "meal_id": imported_meal.id,
+                "meal_state": effective_state,
+                "meal_version": imported_meal.version,
+                "calculation_blocked": imported_meal.validation_error is not None,
+                "validation_error": imported_meal.validation_error,
+                "ingested_count": 1 if reconciliation.created else 0,
+                "updated_count": 0 if reconciliation.created or effective_state == "UNCHANGED" else 1,
+                "ids": [draft.id] if draft else [],
+            }
+            log_entry["status"] = "success"
+            log_entry["result"] = result
+            append_log(log_entry)
+            return result
+
         # 1. Normalización de Datos (Health Auto Export manda una lista "data": [...])
         # Buscamos carbs, fat, protein en el payload bruto
         
@@ -1356,8 +1607,6 @@ async def ingest_nutrition(
         skipped_count = 0
         
         if session:
-            from app.models.treatment import Treatment
-            
             # Use top 500 recent meals (extended history)
             count = 0 
             for date_key in sorted_keys:

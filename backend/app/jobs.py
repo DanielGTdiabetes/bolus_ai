@@ -1,6 +1,7 @@
 from datetime import date, datetime
 import logging
 from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.interval import IntervalTrigger
 from app.core.scheduler import init_scheduler, schedule_task
 from app.core.settings import get_settings
 from app.core import config
@@ -454,7 +455,7 @@ def setup_periodic_tasks():
         from app.bot import service as bot_service
         schedule_task(
             run_nutrition_notification_outbox,
-            CronTrigger(minute="*"),
+            IntervalTrigger(seconds=5),
             "nutrition_notification_outbox",
         )
         jobs_state.refresh_next_run("nutrition_notification_outbox")
