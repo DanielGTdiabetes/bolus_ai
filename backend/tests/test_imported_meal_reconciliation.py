@@ -153,3 +153,33 @@ async def test_discarded_revision_does_not_reappear(meal_session):
 
     assert repeated.state == "DISCARDED"
     assert repeated.should_notify is False
+
+
+@pytest.mark.asyncio
+async def test_each_distinct_source_conflict_after_manual_edit_gets_a_new_version(meal_session):
+    first = await reconcile_imported_meal(
+        meal_session, user_id="admin", payload=candidate("lunch", 27), sync_id="p1"
+    )
+    manually_edited = await edit_food(
+        meal_session, meal_id=first.meal.id, index=0, carbs=8
+    )
+    manual_version = manually_edited.version
+
+    first_conflict = await reconcile_imported_meal(
+        meal_session, user_id="admin", payload=candidate("lunch", 31), sync_id="p2"
+    )
+    first_conflict_version = first_conflict.meal.version
+    second_conflict = await reconcile_imported_meal(
+        meal_session, user_id="admin", payload=candidate("lunch", 35), sync_id="p3"
+    )
+    second_conflict_version = second_conflict.meal.version
+    repeated_conflict = await reconcile_imported_meal(
+        meal_session, user_id="admin", payload=candidate("lunch", 35), sync_id="p4"
+    )
+
+    assert first_conflict.should_notify is True
+    assert first_conflict_version == manual_version + 1
+    assert second_conflict.should_notify is True
+    assert second_conflict_version == manual_version + 2
+    assert repeated_conflict.should_notify is False
+    assert repeated_conflict.meal.version == manual_version + 2

@@ -1,7 +1,16 @@
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from types import SimpleNamespace
 
+import pytest
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.pool import StaticPool
+
+import app.models  # noqa: F401 - register all metadata
+from app.bot import service
 from app.bot.service import _imported_meal_review_card
+from app.core.db import Base
+from app.models.imported_meal import ImportedMeal
+from app.services.nutrition_notification_outbox import DeliveryResult
 
 
 def meal(**overrides):
@@ -65,3 +74,114 @@ def test_treated_update_shows_only_change_and_prior_bolus_context():
     assert "Cambio: +11 g HC" in text
     assert "Bolo previo: 3 U" in text
     assert "solo se evaluará la diferencia pendiente" in text
+
+
+class DummyQuery:
+    def __init__(self, meal_id: str):
+        self.data = f"im_confirm|{meal_id}"
+        self.from_user = SimpleNamespace(id=1)
+        self.message = SimpleNamespace(message_id=77, text="review")
+
+    async def answer(self, *_args, **_kwargs):
+        return None
+
+
+@pytest.fixture
+async def callback_meal_db(monkeypatch: pytest.MonkeyPatch):
+    engine = create_async_engine(
+        "sqlite+aiosqlite:///:memory:",
+        poolclass=StaticPool,
+        connect_args={"check_same_thread": False},
+    )
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with factory() as session:
+        imported = ImportedMeal(
+            user_id="admin",
+            source="MyFitnessPal-Hermes",
+            source_reference="hermes-mfp:2026-08-22:breakfast",
+            meal_date=date(2026, 8, 22),
+            meal_type="breakfast",
+            foods=[{"name": "Pan", "carbs_g": 27}],
+            source_carbs=27,
+            calculated_carbs=27,
+            fat=3,
+            protein=8,
+            fiber=2,
+            fingerprint="a" * 64,
+            stable_read_count=2,
+            is_stable=True,
+            status="NEW",
+        )
+        session.add(imported)
+        await session.commit()
+        meal_id = imported.id
+    monkeypatch.setattr(service, "SessionLocal", factory)
+    yield factory, meal_id
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_confirm_uses_imported_slot_and_only_persists_after_delivery(
+    callback_meal_db, monkeypatch: pytest.MonkeyPatch
+):
+    factory, meal_id = callback_meal_db
+    edits = []
+    captured = {}
+
+    async def fake_edit(_query, text, **kwargs):
+        edits.append((text, kwargs.get("reply_markup")))
+
+    async def fake_calculate(*_args, **kwargs):
+        captured.update(kwargs)
+        async with factory() as session:
+            pending = await session.get(ImportedMeal, meal_id)
+            assert pending.status == "NEW"
+            assert pending.confirmed_at is None
+        return DeliveryResult(status="sent")
+
+    monkeypatch.setattr(service, "edit_message_text_safe", fake_edit)
+    monkeypatch.setattr(service, "on_new_meal_received", fake_calculate)
+
+    await service.handle_callback(
+        SimpleNamespace(callback_query=DummyQuery(meal_id)),
+        SimpleNamespace(user_data={}, bot=object()),
+    )
+
+    async with factory() as session:
+        confirmed = await session.get(ImportedMeal, meal_id)
+        assert confirmed.status == "CONFIRMED"
+        assert confirmed.confirmed_at is not None
+    assert captured["meal_slot"] == "breakfast"
+    assert edits[0][0].startswith("✅ Comida confirmada")
+
+
+@pytest.mark.asyncio
+async def test_failed_calculation_keeps_meal_reviewable_with_retry_button(
+    callback_meal_db, monkeypatch: pytest.MonkeyPatch
+):
+    factory, meal_id = callback_meal_db
+    edits = []
+
+    async def fake_edit(_query, text, **kwargs):
+        edits.append((text, kwargs.get("reply_markup")))
+
+    async def fake_calculate(*_args, **_kwargs):
+        return DeliveryResult(status="failed", error="calculator unavailable")
+
+    monkeypatch.setattr(service, "edit_message_text_safe", fake_edit)
+    monkeypatch.setattr(service, "on_new_meal_received", fake_calculate)
+
+    await service.handle_callback(
+        SimpleNamespace(callback_query=DummyQuery(meal_id)),
+        SimpleNamespace(user_data={}, bot=object()),
+    )
+
+    async with factory() as session:
+        pending = await session.get(ImportedMeal, meal_id)
+        assert pending.status == "NEW"
+        assert pending.confirmed_at is None
+    retry_text, retry_markup = edits[-1]
+    assert "Puedes reintentarlo" in retry_text
+    assert "✅ Confirmar" in button_labels(retry_markup)

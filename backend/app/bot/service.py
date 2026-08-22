@@ -2476,6 +2476,7 @@ async def on_new_meal_received(
     meal_revision: Optional[str] = None,
     meal_user_id: Optional[str] = None,
     imported_meal_id: Optional[str] = None,
+    meal_slot: Optional[str] = None,
     edit_message_id: Optional[int] = None,
     skip_duplicate_checks: bool = False,
 ):
@@ -2720,7 +2721,17 @@ async def on_new_meal_received(
     # -----------------------------------------------------
     request_id = str(uuid.uuid4())[:8]
 
-    slot = get_current_meal_slot(user_settings)
+    imported_slot = str(meal_slot or "").strip().lower()
+    if imported_slot in {"breakfast", "lunch", "dinner", "snack"}:
+        slot = imported_slot
+    else:
+        if meal_slot:
+            logger.warning(
+                "meal_event_invalid_slot_fallback event_id=%s meal_slot=%s",
+                origin_id,
+                meal_slot,
+            )
+        slot = get_current_meal_slot(user_settings)
     
     # calculate staleness
     is_stale_reading = False
@@ -3111,6 +3122,7 @@ async def deliver_nutrition_notification(payload: dict):
             meal_revision=payload.get("meal_revision"),
             meal_user_id=payload.get("user_id"),
             imported_meal_id=payload.get("imported_meal_id"),
+            meal_slot=payload.get("meal_slot") or payload.get("meal_type"),
         )
     except Exception as exc:
         # Delivery errors are classified inside on_new_meal_received. An error
@@ -3746,9 +3758,6 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                         await query.answer("Esta versión está descartada", show_alert=True)
                         return
                     await _sync_imported_meal_draft(session, meal)
-                    meal.status = "CONFIRMED"
-                    meal.confirmed_at = datetime.now(timezone.utc)
-                    session.add(meal)
                     await session.commit()
                     values = {
                         "carbs": meal.calculated_carbs, "fat": meal.fat,
@@ -3758,19 +3767,47 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                         "meal_id": meal.source_reference,
                         "meal_user_id": meal.user_id,
                         "imported_meal_id": meal.id,
+                        "meal_slot": meal.meal_type,
+                        "fingerprint": meal.fingerprint,
                     }
                 await edit_message_text_safe(query, "✅ Comida confirmada. Calculando con glucosa e IOB actuales…")
-                calculation_delivery = await on_new_meal_received(
-                    values["carbs"], values["fat"], values["protein"], values["fiber"],
-                    values["source"], origin_id=values["origin_id"], meal_id=values["meal_id"],
-                    meal_user_id=values["meal_user_id"], imported_meal_id=values["imported_meal_id"],
-                    edit_message_id=query.message.message_id, skip_duplicate_checks=True,
-                )
-                if getattr(calculation_delivery, "status", None) != "sent":
-                    await edit_message_text_safe(
-                        query,
-                        "⚠️ No se ha podido preparar una recomendación segura. No se ha registrado ningún bolo. Reinténtalo desde la comida.",
+                try:
+                    calculation_delivery = await on_new_meal_received(
+                        values["carbs"], values["fat"], values["protein"], values["fiber"],
+                        values["source"], origin_id=values["origin_id"], meal_id=values["meal_id"],
+                        meal_user_id=values["meal_user_id"], imported_meal_id=values["imported_meal_id"],
+                        meal_slot=values["meal_slot"],
+                        edit_message_id=query.message.message_id, skip_duplicate_checks=True,
                     )
+                except Exception:
+                    logger.exception("Imported meal calculation failed meal_id=%s", meal_id)
+                    calculation_delivery = None
+                if getattr(calculation_delivery, "status", None) == "sent":
+                    async with SessionLocal() as session:
+                        confirmed_meal = await session.get(ImportedMeal, meal_id)
+                        if confirmed_meal and confirmed_meal.fingerprint == values["fingerprint"]:
+                            confirmed_meal.status = "CONFIRMED"
+                            confirmed_meal.confirmed_at = datetime.now(timezone.utc)
+                            session.add(confirmed_meal)
+                            await session.commit()
+                    return
+
+                async with SessionLocal() as session:
+                    retry_meal = await session.get(ImportedMeal, meal_id)
+                    if retry_meal is not None:
+                        retry_text, retry_markup = _imported_meal_review_card(retry_meal)
+                    else:
+                        retry_text, retry_markup = (
+                            "⚠️ No se ha podido recuperar la comida para reintentar.",
+                            None,
+                        )
+                await edit_message_text_safe(
+                    query,
+                    "⚠️ No se ha podido preparar una recomendación segura. "
+                    "No se ha registrado ningún bolo. Puedes reintentarlo.\n\n"
+                    + retry_text,
+                    reply_markup=retry_markup,
+                )
                 return
 
             if action == "im_edit":
