@@ -40,6 +40,7 @@ class NutritionActiveSyncService : Service() {
     private var lastMyFitnessPalExitSyncAt = 0L
     private var lastMissingUsageAccessLogAt = 0L
     private var lastUsageTransitionCheckAt = 0L
+    private var currentMfpPollStartedAt = 0L
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
@@ -169,6 +170,7 @@ class NutritionActiveSyncService : Service() {
             if ((myFitnessPalWasForeground && isMyFitnessPalClosed) || observedMyFitnessPalExit) {
                 val now = System.currentTimeMillis()
                 if (now - lastMyFitnessPalExitSyncAt > MYFITNESSPAL_EXIT_COOLDOWN_MS) {
+                    currentMfpPollStartedAt = now
                     updateNotification("Confirmando cierre de MyFitnessPal")
                     recordDiagnostic(
                         event = "myfitnesspal_exit_candidate",
@@ -283,7 +285,7 @@ class NutritionActiveSyncService : Service() {
             recordDiagnostic(
                 event = "hermes_trigger_start",
                 status = HealthConnectLogStatus.SENDING,
-                detail = prefix,
+                detail = "$prefix; t0_to_request_ms=${if (currentMfpPollStartedAt > 0) System.currentTimeMillis() - currentMfpPollStartedAt else -1}; poll_interval_ms=$USAGE_WATCH_INTERVAL_MS",
                 endpointUsed = settings.hermesMfpSyncTriggerUrl,
             )
             val result = HermesMfpSyncTriggerClient().trigger(
@@ -302,7 +304,7 @@ class NutritionActiveSyncService : Service() {
                     HermesMfpSyncStatus.FAILED -> HealthConnectLogStatus.ERROR
                     HermesMfpSyncStatus.UNKNOWN -> if (result.ok) HealthConnectLogStatus.SENT else HealthConnectLogStatus.ERROR
                 },
-                detail = result.diagnosticSummary(),
+                detail = "${result.diagnosticSummary()}; total_detection_latency_ms=${if (currentMfpPollStartedAt > 0) System.currentTimeMillis() - currentMfpPollStartedAt else -1}",
                 endpointUsed = settings.hermesMfpSyncTriggerUrl,
             )
             result
@@ -451,13 +453,13 @@ class NutritionActiveSyncService : Service() {
         private const val CHANNEL_ID = "nutrition_active_sync"
         private const val NOTIFICATION_ID = 2001
         private const val BACKUP_SYNC_INTERVAL_MS = 15 * 60_000L
-        private const val USAGE_WATCH_INTERVAL_MS = 5_000L
+        private const val USAGE_WATCH_INTERVAL_MS = 2_000L
         private const val USAGE_EVENT_LOOKBACK_MS = 30_000L
         private const val MYFITNESSPAL_EXIT_CONFIRMATION_CHECKS = 2
-        private const val MYFITNESSPAL_EXIT_CONFIRMATION_INTERVAL_MS = 3_000L
-        private const val MYFITNESSPAL_WRITE_DELAY_MS = 20_000L
-        private const val MYFITNESSPAL_FOLLOW_UP_DELAY_MS = 75_000L
-        private const val MYFITNESSPAL_EXIT_COOLDOWN_MS = 90_000L
+        private const val MYFITNESSPAL_EXIT_CONFIRMATION_INTERVAL_MS = 2_000L
+        private const val MYFITNESSPAL_WRITE_DELAY_MS = 2_000L
+        private const val MYFITNESSPAL_FOLLOW_UP_DELAY_MS = 15_000L
+        private const val MYFITNESSPAL_EXIT_COOLDOWN_MS = 30_000L
         private const val MISSING_USAGE_ACCESS_LOG_COOLDOWN_MS = 10 * 60_000L
         private const val DEXCOM_SYNC_INTERVAL_MS = 15_000L
         private const val DEXCOM_EVENT_LOOKBACK_MS = 48 * 60 * 60_000L

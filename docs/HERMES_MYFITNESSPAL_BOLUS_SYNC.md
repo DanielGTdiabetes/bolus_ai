@@ -144,7 +144,17 @@ X-Ingest-Key: <NUTRITION_INGEST_KEY>
 
 La clave debe coincidir con la configurada en el backend de Bolus AI (`NUTRITION_INGEST_KEY` o `NUTRITION_INGEST_SECRET`).
 
-El payload incluye macros y lista de alimentos, pero no credenciales.
+El payload incluye macros, lista de alimentos y dos identificadores distintos,
+pero no credenciales:
+
+- `meal_id=hermes-mfp:<fecha>:<meal>` mantiene la identidad aunque cambie el contenido;
+- `meal_revision=<sha256 del contenido>` cambia al editar alimentos o macros;
+- `source_carbs` conserva el total mostrado por MFP;
+- `foods[].carbs_g` permite que Bolus AI calcule y contraste su propio total;
+- `stability_confirmed=true` y `stable_read_count>=2` prueban que dos lecturas consecutivas coincidieron.
+
+Bolus AI bloquea el cálculo si faltan alimentos, si la diferencia entre
+`source_carbs` y su suma supera 1 g o si la estabilidad no está confirmada.
 
 ### Trigger Companion -> BMAX
 
@@ -227,20 +237,28 @@ el usuario cierra MyFitnessPal.
 Flujo:
 
 1. Companion detecta que MyFitnessPal deja de estar en primer plano.
-2. Espera 20 segundos para que MyFitnessPal guarde/sincronice.
+2. Confirma durante 4 segundos que MyFitnessPal permanece cerrado y espera 2 segundos para que guarde/sincronice.
 3. Llama a `POST /mfp/sync-now` en BMAX por Tailscale.
-4. Si Hermes no encuentra comida nueva, Companion repite una vez 75 segundos despues.
-5. Hermes lee el diario de hoy.
+4. Hermes lee el diario dos veces con 4 segundos de separación. Si cambia, hace una tercera lectura; solo acepta dos huellas consecutivas iguales.
+5. Si Hermes no encuentra comida nueva, Companion repite una vez 15 segundos despues.
 6. Ignora comidas vacias.
-7. Para cada comida calcula una huella estable:
+7. Para cada comida calcula identidad y revisión por separado:
 
 ```text
-hermes-mfp:<fecha>:<meal>:<sha256 de alimentos + cantidades + macros>
+meal_id       = hermes-mfp:<fecha>:<meal>
+meal_revision = <sha256 de alimentos + cantidades + macros>
 ```
 
-8. Si esa huella no esta marcada como enviada, la envia.
-9. Si Bolus AI no esta disponible o falta configuracion, la deja en cola.
-10. Si el usuario modifica una comida en MyFitnessPal, cambia la huella y se reenvia como nueva version.
+8. Si esa revisión no está marcada como enviada, la envía con los alimentos y ambas sumas de HC.
+9. Si Bolus AI no está disponible, no reutiliza un payload antiguo: la siguiente activación vuelve a leer MFP.
+10. Si el usuario modifica una comida, conserva `meal_id`, cambia `meal_revision` y Bolus AI actualiza la misma entidad interna.
+11. Telegram muestra primero la revisión de alimentos. Solo al confirmar consulta glucosa/IOB y calcula.
+
+El camino normal queda alrededor de 10-20 segundos según la respuesta de MFP y
+Telegram. El watcher local de primer plano revisa cada 2 segundos, pero no genera
+tráfico contra MFP; las lecturas web solo ocurren después del cierre confirmado.
+El outbox local de Telegram se procesa cada 5 segundos, fuera del camino de
+MyFitnessPal y sin esperar a otros trabajos de Nightscout, ML o mantenimiento.
 
 Por defecto sincroniza solo el dia actual para evitar importar historico y duplicar comidas que ya entraron por Salud Conectada.
 

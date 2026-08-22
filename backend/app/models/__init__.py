@@ -16,6 +16,7 @@ from .glucose_reading import GlucoseReadingDB
 from .meal_session import MealSession, MealSessionEvent
 from .nutrition_notification_outbox import NutritionNotificationOutbox
 from .meal_coverage import MealCoverageState
+from .imported_meal import ImportedMeal, ImportedMealSnapshot
 
 from .autosens import AutosensRun
 from .isf_run import IsfRun

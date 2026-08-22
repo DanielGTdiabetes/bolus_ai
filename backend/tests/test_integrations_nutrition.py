@@ -17,6 +17,7 @@ from app.models.settings import UserSettingsDB
 from app.models.treatment import Treatment
 from app.models.nutrition_notification_outbox import NutritionNotificationOutbox
 from app.models.meal_coverage import MealCoverageState
+from app.models.imported_meal import ImportedMeal, ImportedMealSnapshot
 
 
 @pytest.fixture()
@@ -65,6 +66,8 @@ def client(tmp_path, monkeypatch):
     UserSettingsDB.__table__.create(bind=sync_engine, checkfirst=True)
     NutritionNotificationOutbox.__table__.create(bind=sync_engine, checkfirst=True)
     MealCoverageState.__table__.create(bind=sync_engine, checkfirst=True)
+    ImportedMeal.__table__.create(bind=sync_engine, checkfirst=True)
+    ImportedMealSnapshot.__table__.create(bind=sync_engine, checkfirst=True)
     SessionLocal = sessionmaker(bind=sync_engine)
 
     class SyncSessionWrapper:
@@ -135,6 +138,122 @@ def _fetch_all_meal_coverage_states(client: TestClient):
     session_factory = getattr(client, "_session_factory")
     with session_factory() as session:
         return session.execute(select(MealCoverageState)).scalars().all()
+
+
+def _fetch_all_imported_meals(client: TestClient):
+    session_factory = getattr(client, "_session_factory")
+    with session_factory() as session:
+        return session.execute(select(ImportedMeal)).scalars().all()
+
+
+def _mfp_review_payload(meal: str, carbs: float, revision: str):
+    return {
+        "source": "MyFitnessPal-Hermes",
+        "provider": "hermes-myfitnesspal",
+        "meal_id": f"hermes-mfp:2026-08-22:{meal}",
+        "meal_revision": revision,
+        "date": "2026-08-22",
+        "meal": meal,
+        "source_carbs": carbs,
+        "fat": 3,
+        "protein": 8,
+        "fiber": 2,
+        "foods": [{"name": f"{meal} food", "quantity": "1", "unit": "unidad", "carbs_g": carbs}],
+        "stability_confirmed": True,
+        "stable_read_count": 2,
+    }
+
+
+def test_structured_mfp_critical_polling_sequence_is_idempotent(client):
+    first = client.post(
+        "/api/integrations/nutrition",
+        headers=_auth_headers(client),
+        json=_mfp_review_payload("lunch", 62, "lunch-62"),
+    )
+    second = client.post(
+        "/api/integrations/nutrition",
+        headers=_auth_headers(client),
+        json=_mfp_review_payload("lunch", 27, "lunch-27"),
+    )
+    third_lunch = client.post(
+        "/api/integrations/nutrition",
+        headers=_auth_headers(client),
+        json=_mfp_review_payload("lunch", 27, "lunch-27"),
+    )
+    third_dinner = client.post(
+        "/api/integrations/nutrition",
+        headers=_auth_headers(client),
+        json=_mfp_review_payload("dinner", 31, "dinner-31"),
+    )
+
+    assert first.json()["meal_state"] == "NEW"
+    assert second.json()["meal_state"] == "UPDATED_UNTREATED"
+    assert third_lunch.json()["meal_state"] == "UNCHANGED"
+    assert third_lunch.json()["notification_status"] == "not_required"
+    assert third_dinner.json()["meal_state"] == "NEW"
+    meals = _fetch_all_imported_meals(client)
+    assert len(meals) == 2
+    lunch = next(meal for meal in meals if meal.meal_type == "lunch")
+    assert lunch.version == 2
+    assert lunch.calculated_carbs == 27
+    outbox = _fetch_all_notification_outbox(client)
+    assert [(item.event_id, item.notification_kind) for item in outbox] == [
+        (lunch.id, "meal_review_v1"),
+        (lunch.id, "meal_review_v2"),
+        (next(meal.id for meal in meals if meal.meal_type == "dinner"), "meal_review_v1"),
+    ]
+
+
+def test_structured_mfp_mismatch_is_persisted_invalid_without_draft(client):
+    payload = _mfp_review_payload("lunch", 62, "mismatch")
+    payload["foods"][0]["carbs_g"] = 27
+
+    response = client.post(
+        "/api/integrations/nutrition", headers=_auth_headers(client), json=payload
+    )
+
+    body = response.json()
+    assert response.status_code == 200
+    assert body["meal_state"] == "INVALID"
+    assert body["calculation_blocked"] is True
+    assert body["validation_error"] == "carb_total_mismatch"
+    assert body["ids"] == []
+    assert _fetch_all_imported_meals(client)[0].calculated_carbs == 27
+
+
+def test_structured_mfp_restores_treated_state_only_from_exact_legacy_identity(client):
+    _create_treatment(
+        client,
+        id="legacy-lunch-bolus",
+        user_id="admin",
+        event_type="Meal Bolus",
+        created_at=datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(minutes=20),
+        insulin=3.0,
+        carbs=27.0,
+        fat=3.0,
+        protein=8.0,
+        fiber=2.0,
+        notes="Bolus Bot V2",
+        entered_by="TelegramBot",
+        is_uploaded=False,
+        calculation_trace={
+            "meal_import": {
+                "meal_id": "myfitnesspal-hermes:lunch|hermes-mfp:2026-08-22:lunch:0123456789abcdef01234567"
+            }
+        },
+    )
+    response = client.post(
+        "/api/integrations/nutrition",
+        headers=_auth_headers(client),
+        json=_mfp_review_payload("lunch", 38, "lunch-38"),
+    )
+
+    assert response.json()["meal_state"] == "UPDATED_TREATED"
+    meal = _fetch_all_imported_meals(client)[0]
+    assert meal.linked_bolus_id == "legacy-lunch-bolus"
+    assert meal.previous_calculated_carbs == 27
+    coverage = _fetch_all_meal_coverage_states(client)[0]
+    assert coverage.covered_nutrition["carbs"] == 27
 
 
 def _recent_timestamp() -> str:
