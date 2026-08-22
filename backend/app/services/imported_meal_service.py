@@ -183,6 +183,14 @@ async def reconcile_imported_meal(
         previous_carbs = float(meal.calculated_carbs or 0)
         meal.last_seen_at = now
         if meal.manual_override and fingerprint != meal.fingerprint:
+            previous_pending = dict(meal.pending_source_version or {})
+            pending_changed = previous_pending.get("fingerprint") != fingerprint
+            previous_pending_stable = bool(previous_pending.get("is_stable"))
+            pending_read_count = (
+                2 if source_stable else
+                (int(previous_pending.get("stable_read_count") or 0) + 1 if not pending_changed else 1)
+            )
+            pending_is_stable = source_stable or pending_read_count >= 2
             meal.pending_source_version = {
                 "fingerprint": fingerprint,
                 "foods": foods,
@@ -192,10 +200,14 @@ async def reconcile_imported_meal(
                 "protein": protein,
                 "fiber": fiber,
                 "validation_error": validation_error,
+                "stable_read_count": pending_read_count,
+                "is_stable": pending_is_stable,
             }
+            if pending_changed:
+                meal.version = int(meal.version or 0) + 1
             meal.status = "UPDATED_TREATED" if meal.treatment_status == "TREATED" else "UPDATED_UNTREATED"
             state = meal.status
-            should_notify = source_stable
+            should_notify = pending_is_stable and (pending_changed or not previous_pending_stable)
         elif fingerprint == meal.fingerprint:
             meal.stable_read_count = max(int(meal.stable_read_count or 0) + 1, 2 if source_stable else 0)
             was_stable = meal.is_stable

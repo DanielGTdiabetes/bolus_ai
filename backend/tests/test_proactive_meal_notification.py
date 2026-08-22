@@ -147,6 +147,7 @@ async def test_updated_meal_message_and_calculator_use_only_incremental_macros(
     monkeypatch.setattr(service, "resolve_bot_user_settings", fake_resolve_bot_user_settings)
     monkeypatch.setattr(service.tools, "get_status_context", fake_get_status_context)
     monkeypatch.setattr(service, "calculate_bolus_for_bot", fake_calculate_bolus_for_bot)
+    monkeypatch.setattr(service, "get_current_meal_slot", lambda _settings: "lunch")
     monkeypatch.setattr(meal_coverage_service, "get_meal_state", fake_get_meal_state)
     monkeypatch.setattr(
         companion_service, "get_episode_by_fingerprint", fake_get_episode_by_fingerprint
@@ -168,6 +169,7 @@ async def test_updated_meal_message_and_calculator_use_only_incremental_macros(
         meal_id="myfitnesspal|lunch-1",
         meal_revision="revision-2",
         meal_user_id="admin",
+        meal_slot="breakfast",
     )
 
     request = calculated["request"]
@@ -177,6 +179,7 @@ async def test_updated_meal_message_and_calculator_use_only_incremental_macros(
         5,
         1,
     )
+    assert request.meal_slot == "breakfast"
     assert "Comida actualizada" in sent["text"]
     assert "Total comida: **87 g HC**" in sent["text"]
     assert "Ya cubiertos: **63 g HC**" in sent["text"]
