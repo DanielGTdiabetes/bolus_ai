@@ -77,8 +77,8 @@ def test_treated_update_shows_only_change_and_prior_bolus_context():
 
 
 class DummyQuery:
-    def __init__(self, meal_id: str):
-        self.data = f"im_confirm|{meal_id}"
+    def __init__(self, meal_id: str, *, data: str | None = None):
+        self.data = data or f"im_confirm|{meal_id}"
         self.from_user = SimpleNamespace(id=1)
         self.message = SimpleNamespace(message_id=77, text="review")
 
@@ -87,7 +87,7 @@ class DummyQuery:
 
 
 @pytest.fixture
-async def callback_meal_db(monkeypatch: pytest.MonkeyPatch):
+async def callback_meal_db(monkeypatch: pytest.MonkeyPatch, tmp_path):
     engine = create_async_engine(
         "sqlite+aiosqlite:///:memory:",
         poolclass=StaticPool,
@@ -118,6 +118,7 @@ async def callback_meal_db(monkeypatch: pytest.MonkeyPatch):
         await session.commit()
         meal_id = imported.id
     monkeypatch.setattr(service, "SessionLocal", factory)
+    monkeypatch.setattr(service, "_snapshot_store", service.SnapshotStore(tmp_path))
     yield factory, meal_id
     await engine.dispose()
 
@@ -185,3 +186,97 @@ async def test_failed_calculation_keeps_meal_reviewable_with_retry_button(
     retry_text, retry_markup = edits[-1]
     assert "Puedes reintentarlo" in retry_text
     assert "✅ Confirmar" in button_labels(retry_markup)
+
+
+@pytest.mark.asyncio
+async def test_revision_change_during_calculation_restores_latest_review_and_invalidates_snapshot(
+    callback_meal_db, monkeypatch: pytest.MonkeyPatch
+):
+    factory, meal_id = callback_meal_db
+    edits = []
+
+    async def fake_edit(_query, text, **kwargs):
+        edits.append((text, kwargs.get("reply_markup")))
+
+    async def fake_calculate(*_args, **kwargs):
+        service._get_snapshot_store().set(
+            "old-calculation",
+            {
+                "imported_meal_id": meal_id,
+                "imported_meal_fingerprint": kwargs["imported_meal_fingerprint"],
+                "imported_meal_version": kwargs["imported_meal_version"],
+            },
+        )
+        async with factory() as session:
+            changed = await session.get(ImportedMeal, meal_id)
+            changed.fingerprint = "b" * 64
+            changed.version += 1
+            changed.foods = [{"name": "Pan actualizado", "carbs_g": 31}]
+            changed.source_carbs = 31
+            changed.calculated_carbs = 31
+            changed.status = "UPDATED_UNTREATED"
+            session.add(changed)
+            await session.commit()
+        return DeliveryResult(status="sent")
+
+    monkeypatch.setattr(service, "edit_message_text_safe", fake_edit)
+    monkeypatch.setattr(service, "on_new_meal_received", fake_calculate)
+
+    await service.handle_callback(
+        SimpleNamespace(callback_query=DummyQuery(meal_id)),
+        SimpleNamespace(user_data={}, bot=object()),
+    )
+
+    async with factory() as session:
+        changed = await session.get(ImportedMeal, meal_id)
+        assert changed.status == "UPDATED_UNTREATED"
+        assert changed.confirmed_at is None
+    assert "recomendación anterior ha quedado anulada" in edits[-1][0]
+    assert "Pan actualizado" in edits[-1][0]
+    assert "✅ Confirmar" in button_labels(edits[-1][1])
+    assert service._get_snapshot_store().get("old-calculation") is None
+
+
+@pytest.mark.asyncio
+async def test_accepting_stale_imported_meal_snapshot_is_blocked_before_treatment(
+    callback_meal_db, monkeypatch: pytest.MonkeyPatch
+):
+    _factory, meal_id = callback_meal_db
+    edits = []
+    treatment_called = False
+
+    async def fake_edit(_query, text, **kwargs):
+        edits.append((text, kwargs.get("reply_markup")))
+
+    async def fake_add_treatment(_args):
+        nonlocal treatment_called
+        treatment_called = True
+        return SimpleNamespace(ok=True)
+
+    service._get_snapshot_store().set(
+        "stale-request",
+        {
+            "units": 2.0,
+            "carbs": 27,
+            "fat": 3,
+            "protein": 8,
+            "fiber": 2,
+            "imported_meal_id": meal_id,
+            "imported_meal_fingerprint": "old-fingerprint",
+            "imported_meal_version": 0,
+        },
+    )
+    monkeypatch.setattr(service, "edit_message_text_safe", fake_edit)
+    monkeypatch.setattr(service.tools, "add_treatment", fake_add_treatment)
+
+    await service.handle_callback(
+        SimpleNamespace(
+            callback_query=DummyQuery(meal_id, data="accept|stale-request")
+        ),
+        SimpleNamespace(user_data={}, bot=object()),
+    )
+
+    assert treatment_called is False
+    assert "No se ha registrado insulina" in edits[-1][0]
+    assert "✅ Confirmar" in button_labels(edits[-1][1])
+    assert service._get_snapshot_store().get("stale-request") is None

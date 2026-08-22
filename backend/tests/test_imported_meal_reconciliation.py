@@ -12,6 +12,7 @@ from app.services.imported_meal_service import (
     discard_meal,
     edit_food,
     reconcile_imported_meal,
+    resolve_source_conflict,
 )
 
 
@@ -183,3 +184,44 @@ async def test_each_distinct_source_conflict_after_manual_edit_gets_a_new_versio
     assert second_conflict_version == manual_version + 2
     assert repeated_conflict.should_notify is False
     assert repeated_conflict.meal.version == manual_version + 2
+
+
+@pytest.mark.asyncio
+async def test_spanish_meal_alias_is_persisted_as_canonical_slot(meal_session):
+    result = await reconcile_imported_meal(
+        meal_session, user_id="admin", payload=candidate("comida", 27), sync_id="alias"
+    )
+
+    assert result.meal.meal_type == "lunch"
+
+
+@pytest.mark.asyncio
+async def test_kept_manual_review_suppresses_same_rejected_source_revision(meal_session):
+    first = await reconcile_imported_meal(
+        meal_session, user_id="admin", payload=candidate("lunch", 27), sync_id="p1"
+    )
+    manually_edited = await edit_food(
+        meal_session, meal_id=first.meal.id, index=0, carbs=8
+    )
+    conflict = await reconcile_imported_meal(
+        meal_session, user_id="admin", payload=candidate("lunch", 31), sync_id="p2"
+    )
+    rejected_fingerprint = conflict.meal.pending_source_version["fingerprint"]
+    kept = await resolve_source_conflict(
+        meal_session, meal_id=manually_edited.id, use_source=False
+    )
+    kept_version = kept.version
+
+    repeated = await reconcile_imported_meal(
+        meal_session, user_id="admin", payload=candidate("lunch", 31), sync_id="p3"
+    )
+    repeated_pending = repeated.meal.pending_source_version
+    changed = await reconcile_imported_meal(
+        meal_session, user_id="admin", payload=candidate("lunch", 35), sync_id="p4"
+    )
+
+    assert kept.rejected_source_fingerprint == rejected_fingerprint
+    assert repeated.should_notify is False
+    assert repeated_pending is None
+    assert changed.should_notify is True
+    assert changed.meal.version == kept_version + 1

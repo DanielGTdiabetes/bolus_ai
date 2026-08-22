@@ -54,6 +54,7 @@ class ImportedMeal(Base):
     validation_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     manual_override: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     pending_source_version: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    rejected_source_fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True)
     discarded_fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
     treatment_status: Mapped[str] = mapped_column(String(24), nullable=False, default="UNTREATED")

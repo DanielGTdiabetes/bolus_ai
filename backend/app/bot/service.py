@@ -2476,6 +2476,8 @@ async def on_new_meal_received(
     meal_revision: Optional[str] = None,
     meal_user_id: Optional[str] = None,
     imported_meal_id: Optional[str] = None,
+    imported_meal_fingerprint: Optional[str] = None,
+    imported_meal_version: Optional[int] = None,
     meal_slot: Optional[str] = None,
     edit_message_id: Optional[int] = None,
     skip_duplicate_checks: bool = False,
@@ -2721,7 +2723,9 @@ async def on_new_meal_received(
     # -----------------------------------------------------
     request_id = str(uuid.uuid4())[:8]
 
-    imported_slot = str(meal_slot or "").strip().lower()
+    from app.services.imported_meal_service import normalize_meal_type
+
+    imported_slot = normalize_meal_type(meal_slot)
     if imported_slot in {"breakfast", "lunch", "dinner", "snack"}:
         slot = imported_slot
     else:
@@ -2783,6 +2787,8 @@ async def on_new_meal_received(
         "meal_revision": meal_revision,
         "meal_coverage": coverage_context,
         "imported_meal_id": imported_meal_id,
+        "imported_meal_fingerprint": imported_meal_fingerprint,
+        "imported_meal_version": imported_meal_version,
         "calculation_id": request_id,
         "ts": datetime.now(),
         "payload": req_v2,
@@ -3122,6 +3128,8 @@ async def deliver_nutrition_notification(payload: dict):
             meal_revision=payload.get("meal_revision"),
             meal_user_id=payload.get("user_id"),
             imported_meal_id=payload.get("imported_meal_id"),
+            imported_meal_fingerprint=payload.get("imported_meal_fingerprint"),
+            imported_meal_version=payload.get("imported_meal_version"),
             meal_slot=payload.get("meal_slot") or payload.get("meal_type"),
         )
     except Exception as exc:
@@ -3318,6 +3326,42 @@ async def _handle_snapshot_callback(query, data: str) -> None:
              return
             
         rec = snapshot.get("rec")
+        snapshot_imported_meal_id = snapshot.get("imported_meal_id")
+        snapshot_imported_fingerprint = snapshot.get("imported_meal_fingerprint")
+        snapshot_imported_version = snapshot.get("imported_meal_version")
+        if snapshot_imported_meal_id and snapshot_imported_fingerprint:
+            from app.models.imported_meal import ImportedMeal
+
+            async with SessionLocal() as session:
+                current_imported_meal = await session.get(
+                    ImportedMeal, snapshot_imported_meal_id
+                )
+            if (
+                current_imported_meal is None
+                or current_imported_meal.fingerprint != snapshot_imported_fingerprint
+                or (
+                    snapshot_imported_version is not None
+                    and current_imported_meal.version != snapshot_imported_version
+                )
+            ):
+                _get_snapshot_store().pop(request_id, None)
+                if current_imported_meal is None:
+                    stale_text, stale_markup = (
+                        "⚠️ La comida ya no está disponible. No se ha registrado insulina.",
+                        None,
+                    )
+                else:
+                    latest_text, stale_markup = _imported_meal_review_card(
+                        current_imported_meal
+                    )
+                    stale_text = (
+                        "⚠️ La comida cambió después de este cálculo. No se ha "
+                        "registrado insulina; revisa la versión actual.\n\n" + latest_text
+                    )
+                await edit_message_text_safe(
+                    query, stale_text, reply_markup=stale_markup
+                )
+                return
         if isinstance(rec, BolusResponseV2):
              carbs = snapshot["carbs"]
              _, recommended_upfront, rec_later_u, rec_duration_min = _resolve_bolus_delivery(rec)
@@ -3769,6 +3813,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                         "imported_meal_id": meal.id,
                         "meal_slot": meal.meal_type,
                         "fingerprint": meal.fingerprint,
+                        "version": meal.version,
                     }
                 await edit_message_text_safe(query, "✅ Comida confirmada. Calculando con glucosa e IOB actuales…")
                 try:
@@ -3776,6 +3821,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                         values["carbs"], values["fat"], values["protein"], values["fiber"],
                         values["source"], origin_id=values["origin_id"], meal_id=values["meal_id"],
                         meal_user_id=values["meal_user_id"], imported_meal_id=values["imported_meal_id"],
+                        imported_meal_fingerprint=values["fingerprint"],
+                        imported_meal_version=values["version"],
                         meal_slot=values["meal_slot"],
                         edit_message_id=query.message.message_id, skip_duplicate_checks=True,
                     )
@@ -3785,11 +3832,42 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 if getattr(calculation_delivery, "status", None) == "sent":
                     async with SessionLocal() as session:
                         confirmed_meal = await session.get(ImportedMeal, meal_id)
-                        if confirmed_meal and confirmed_meal.fingerprint == values["fingerprint"]:
+                        revision_is_current = bool(
+                            confirmed_meal
+                            and confirmed_meal.fingerprint == values["fingerprint"]
+                            and confirmed_meal.version == values["version"]
+                        )
+                        if revision_is_current:
                             confirmed_meal.status = "CONFIRMED"
                             confirmed_meal.confirmed_at = datetime.now(timezone.utc)
                             session.add(confirmed_meal)
                             await session.commit()
+                        elif confirmed_meal is not None:
+                            latest_text, latest_markup = _imported_meal_review_card(
+                                confirmed_meal
+                            )
+                        else:
+                            latest_text, latest_markup = (
+                                "⚠️ La comida ya no está disponible.",
+                                None,
+                            )
+                    if revision_is_current:
+                        return
+                    snapshot_store = _get_snapshot_store()
+                    for snapshot_key in list(snapshot_store.keys()):
+                        stale_snapshot = snapshot_store.get(snapshot_key) or {}
+                        if (
+                            stale_snapshot.get("imported_meal_id") == meal_id
+                            and stale_snapshot.get("imported_meal_fingerprint") == values["fingerprint"]
+                            and stale_snapshot.get("imported_meal_version") == values["version"]
+                        ):
+                            snapshot_store.pop(snapshot_key, None)
+                    await edit_message_text_safe(
+                        query,
+                        "⚠️ MyFitnessPal cambió la comida durante el cálculo. "
+                        "La recomendación anterior ha quedado anulada.\n\n" + latest_text,
+                        reply_markup=latest_markup,
+                    )
                     return
 
                 async with SessionLocal() as session:
