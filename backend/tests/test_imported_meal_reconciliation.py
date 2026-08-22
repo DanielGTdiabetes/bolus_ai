@@ -11,6 +11,7 @@ from app.services.imported_meal_service import (
     delete_food,
     discard_meal,
     edit_food,
+    normalize_meal_type,
     reconcile_imported_meal,
     resolve_source_conflict,
 )
@@ -193,6 +194,10 @@ async def test_spanish_meal_alias_is_persisted_as_canonical_slot(meal_session):
     )
 
     assert result.meal.meal_type == "lunch"
+
+
+def test_hermes_aperitivos_alias_uses_snack_slot():
+    assert normalize_meal_type("aperitivos") == "snack"
 
 
 @pytest.mark.asyncio

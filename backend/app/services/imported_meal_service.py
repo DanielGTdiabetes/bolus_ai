@@ -34,6 +34,7 @@ MEAL_SLOT_ALIASES = {
     "snack": "snack",
     "snacks": "snack",
     "merienda": "snack",
+    "aperitivos": "snack",
 }
 
 
