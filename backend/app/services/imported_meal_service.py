@@ -23,6 +23,19 @@ _LEGACY_REFERENCE_RE = re.compile(
     r"^(hermes-mfp:\d{4}-\d{2}-\d{2}:[^:]+):[0-9a-f]{16,64}$",
     re.IGNORECASE,
 )
+MEAL_SLOT_ALIASES = {
+    "breakfast": "breakfast",
+    "desayuno": "breakfast",
+    "lunch": "lunch",
+    "comida": "lunch",
+    "almuerzo": "lunch",
+    "dinner": "dinner",
+    "cena": "dinner",
+    "snack": "snack",
+    "snacks": "snack",
+    "merienda": "snack",
+    "aperitivos": "snack",
+}
 
 
 def _utc_now() -> datetime:
@@ -34,6 +47,11 @@ def _number(value: object) -> float:
         return float(Decimal(str(value or 0)).quantize(Decimal("0.1"), rounding=ROUND_HALF_UP))
     except Exception:
         return 0.0
+
+
+def normalize_meal_type(value: object) -> str:
+    normalized = str(value or "unknown").strip().lower()
+    return MEAL_SLOT_ALIASES.get(normalized, normalized)
 
 
 def normalize_foods(raw_foods: object) -> list[dict[str, Any]]:
@@ -84,7 +102,7 @@ def stable_source_reference(payload: Mapping[str, Any]) -> str:
     if explicit:
         return explicit[:255]
     meal_date = str(payload.get("date") or "").strip()
-    meal_type = str(payload.get("meal") or payload.get("meal_type") or "unknown").strip().lower()
+    meal_type = normalize_meal_type(payload.get("meal") or payload.get("meal_type"))
     return f"hermes-mfp:{meal_date}:{meal_type}"[:255]
 
 
@@ -125,7 +143,7 @@ async def reconcile_imported_meal(
     source = str(payload.get("source") or payload.get("provider") or "MyFitnessPal-Hermes").strip()[:80]
     source_reference = stable_source_reference(payload)
     meal_day = parse_meal_date(payload.get("date"))
-    meal_type = str(payload.get("meal") or payload.get("meal_type") or "unknown").strip().lower()[:40]
+    meal_type = normalize_meal_type(payload.get("meal") or payload.get("meal_type"))[:40]
     foods = normalize_foods(payload.get("foods"))
     source_carbs = _number(payload.get("source_carbs", payload.get("carbs")))
     summed_carbs = calculated_carbs(foods)
@@ -184,30 +202,34 @@ async def reconcile_imported_meal(
         meal.last_seen_at = now
         if meal.manual_override and fingerprint != meal.fingerprint:
             previous_pending = dict(meal.pending_source_version or {})
-            pending_changed = previous_pending.get("fingerprint") != fingerprint
-            previous_pending_stable = bool(previous_pending.get("is_stable"))
-            pending_read_count = (
-                2 if source_stable else
-                (int(previous_pending.get("stable_read_count") or 0) + 1 if not pending_changed else 1)
-            )
-            pending_is_stable = source_stable or pending_read_count >= 2
-            meal.pending_source_version = {
-                "fingerprint": fingerprint,
-                "foods": foods,
-                "source_carbs": source_carbs,
-                "calculated_carbs": summed_carbs,
-                "fat": fat,
-                "protein": protein,
-                "fiber": fiber,
-                "validation_error": validation_error,
-                "stable_read_count": pending_read_count,
-                "is_stable": pending_is_stable,
-            }
-            if pending_changed:
-                meal.version = int(meal.version or 0) + 1
             meal.status = "UPDATED_TREATED" if meal.treatment_status == "TREATED" else "UPDATED_UNTREATED"
             state = meal.status
-            should_notify = pending_is_stable and (pending_changed or not previous_pending_stable)
+            if meal.rejected_source_fingerprint == fingerprint:
+                meal.pending_source_version = None
+                should_notify = False
+            else:
+                pending_changed = previous_pending.get("fingerprint") != fingerprint
+                previous_pending_stable = bool(previous_pending.get("is_stable"))
+                pending_read_count = (
+                    2 if source_stable else
+                    (int(previous_pending.get("stable_read_count") or 0) + 1 if not pending_changed else 1)
+                )
+                pending_is_stable = source_stable or pending_read_count >= 2
+                meal.pending_source_version = {
+                    "fingerprint": fingerprint,
+                    "foods": foods,
+                    "source_carbs": source_carbs,
+                    "calculated_carbs": summed_carbs,
+                    "fat": fat,
+                    "protein": protein,
+                    "fiber": fiber,
+                    "validation_error": validation_error,
+                    "stable_read_count": pending_read_count,
+                    "is_stable": pending_is_stable,
+                }
+                if pending_changed:
+                    meal.version = int(meal.version or 0) + 1
+                should_notify = pending_is_stable and (pending_changed or not previous_pending_stable)
         elif fingerprint == meal.fingerprint:
             meal.stable_read_count = max(int(meal.stable_read_count or 0) + 1, 2 if source_stable else 0)
             was_stable = meal.is_stable
@@ -346,14 +368,27 @@ async def discard_meal(session: AsyncSession, *, meal_id: str) -> ImportedMeal:
 
 
 async def resolve_source_conflict(
-    session: AsyncSession, *, meal_id: str, use_source: bool
+    session: AsyncSession, *, meal_id: str, use_source: bool,
+    expected_pending_fingerprint: str, expected_version: int,
 ) -> ImportedMeal:
-    meal = await session.get(ImportedMeal, meal_id)
+    meal = (
+        await session.execute(
+            select(ImportedMeal).where(ImportedMeal.id == meal_id).with_for_update()
+        )
+    ).scalars().first()
     if meal is None:
         raise ValueError("meal_not_found")
     pending = dict(meal.pending_source_version or {})
     if not pending:
-        return meal
+        raise ValueError("source_conflict_changed")
+    if (
+        int(meal.version or 0) != int(expected_version)
+        or not expected_pending_fingerprint
+        or not str(pending.get("fingerprint") or "").startswith(
+            expected_pending_fingerprint
+        )
+    ):
+        raise ValueError("source_conflict_changed")
     if use_source:
         meal.previous_fingerprint = meal.fingerprint
         meal.previous_calculated_carbs = meal.calculated_carbs
@@ -366,7 +401,10 @@ async def resolve_source_conflict(
         meal.fiber = _number(pending.get("fiber"))
         meal.validation_error = pending.get("validation_error")
         meal.manual_override = False
+        meal.rejected_source_fingerprint = None
         meal.version = int(meal.version or 0) + 1
+    else:
+        meal.rejected_source_fingerprint = str(pending.get("fingerprint") or "") or None
     meal.pending_source_version = None
     meal.status = "INVALID" if meal.validation_error else (
         "UPDATED_TREATED" if meal.treatment_status == "TREATED" else "UPDATED_UNTREATED"

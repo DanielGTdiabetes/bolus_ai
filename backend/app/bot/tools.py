@@ -131,6 +131,7 @@ class AddTreatmentRequest(BaseModel):
     event_type: Optional[str] = None
     duration: Optional[float] = None
     calculation_trace: Optional[dict] = None
+    meal_guard: Optional[dict] = None
 
 
 class AddTreatmentResult(BaseModel):
@@ -927,6 +928,32 @@ async def add_treatment(tool_input: dict[str, Any]) -> AddTreatmentResult | Tool
     try:
         async with SessionLocal() as session:
             user_id = await _resolve_user_id(session=session)
+            if payload.meal_guard:
+                from app.services.meal_coverage_service import (
+                    validate_confirmation_for_treatment,
+                )
+
+                guard = payload.meal_guard
+                validation = await validate_confirmation_for_treatment(
+                    session,
+                    user_id=str(guard.get("user_id") or user_id),
+                    external_meal_id=str(guard.get("external_meal_id") or ""),
+                    expected_revision=str(guard.get("expected_revision") or ""),
+                    expected_covered=dict(guard.get("expected_covered") or {}),
+                    calculation_id=str(guard.get("calculation_id") or ""),
+                )
+                if not validation.ok:
+                    await session.rollback()
+                    health.record_action(
+                        "add_treatment", ok=False, error=validation.reason
+                    )
+                    return ToolError(
+                        type="stale_meal",
+                        message=(
+                            "La comida cambió antes de registrar la dosis; "
+                            "usa la recomendación más reciente."
+                        ),
+                    )
             result = await log_treatment(
                 user_id=user_id,
                 treatment_id=payload.treatment_id,

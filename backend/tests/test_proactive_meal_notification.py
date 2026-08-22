@@ -169,7 +169,7 @@ async def test_updated_meal_message_and_calculator_use_only_incremental_macros(
         meal_id="myfitnesspal|lunch-1",
         meal_revision="revision-2",
         meal_user_id="admin",
-        meal_slot="breakfast",
+        meal_slot="desayuno",
     )
 
     request = calculated["request"]

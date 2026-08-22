@@ -2476,6 +2476,8 @@ async def on_new_meal_received(
     meal_revision: Optional[str] = None,
     meal_user_id: Optional[str] = None,
     imported_meal_id: Optional[str] = None,
+    imported_meal_fingerprint: Optional[str] = None,
+    imported_meal_version: Optional[int] = None,
     meal_slot: Optional[str] = None,
     edit_message_id: Optional[int] = None,
     skip_duplicate_checks: bool = False,
@@ -2721,7 +2723,9 @@ async def on_new_meal_received(
     # -----------------------------------------------------
     request_id = str(uuid.uuid4())[:8]
 
-    imported_slot = str(meal_slot or "").strip().lower()
+    from app.services.imported_meal_service import normalize_meal_type
+
+    imported_slot = normalize_meal_type(meal_slot)
     if imported_slot in {"breakfast", "lunch", "dinner", "snack"}:
         slot = imported_slot
     else:
@@ -2783,6 +2787,8 @@ async def on_new_meal_received(
         "meal_revision": meal_revision,
         "meal_coverage": coverage_context,
         "imported_meal_id": imported_meal_id,
+        "imported_meal_fingerprint": imported_meal_fingerprint,
+        "imported_meal_version": imported_meal_version,
         "calculation_id": request_id,
         "ts": datetime.now(),
         "payload": req_v2,
@@ -3027,13 +3033,16 @@ def _imported_meal_review_card(meal) -> tuple[str, InlineKeyboardMarkup]:
 
     if meal.pending_source_version:
         pending = meal.pending_source_version
+        compact_meal_id = str(meal.id).replace("-", "")
+        pending_token = str(pending.get("fingerprint") or "")[:16]
+        conflict_suffix = f"{compact_meal_id}|{pending_token}|{meal.version}"
         lines.extend([
             "", "⚠️ MyFitnessPal cambió después de tu revisión manual.",
             f"Nueva lectura MFP: {float(pending.get('calculated_carbs') or 0):g} g HC",
             f"Tu versión revisada: {meal.calculated_carbs:g} g HC",
         ])
         buttons = [
-            [InlineKeyboardButton("Usar MFP", callback_data=f"im_use_mfp|{meal.id}"), InlineKeyboardButton("Mantener revisada", callback_data=f"im_keep|{meal.id}")],
+            [InlineKeyboardButton("Usar MFP", callback_data=f"im_u|{conflict_suffix}"), InlineKeyboardButton("Mantener revisada", callback_data=f"im_k|{conflict_suffix}")],
             [InlineKeyboardButton("Ver cambios", callback_data=f"im_diff|{meal.id}")],
         ]
         return "\n".join(lines), InlineKeyboardMarkup(buttons)
@@ -3122,6 +3131,8 @@ async def deliver_nutrition_notification(payload: dict):
             meal_revision=payload.get("meal_revision"),
             meal_user_id=payload.get("user_id"),
             imported_meal_id=payload.get("imported_meal_id"),
+            imported_meal_fingerprint=payload.get("imported_meal_fingerprint"),
+            imported_meal_version=payload.get("imported_meal_version"),
             meal_slot=payload.get("meal_slot") or payload.get("meal_type"),
         )
     except Exception as exc:
@@ -3318,6 +3329,42 @@ async def _handle_snapshot_callback(query, data: str) -> None:
              return
             
         rec = snapshot.get("rec")
+        snapshot_imported_meal_id = snapshot.get("imported_meal_id")
+        snapshot_imported_fingerprint = snapshot.get("imported_meal_fingerprint")
+        snapshot_imported_version = snapshot.get("imported_meal_version")
+        if snapshot_imported_meal_id and snapshot_imported_fingerprint:
+            from app.models.imported_meal import ImportedMeal
+
+            async with SessionLocal() as session:
+                current_imported_meal = await session.get(
+                    ImportedMeal, snapshot_imported_meal_id
+                )
+            if (
+                current_imported_meal is None
+                or current_imported_meal.fingerprint != snapshot_imported_fingerprint
+                or (
+                    snapshot_imported_version is not None
+                    and current_imported_meal.version != snapshot_imported_version
+                )
+            ):
+                _get_snapshot_store().pop(request_id, None)
+                if current_imported_meal is None:
+                    stale_text, stale_markup = (
+                        "⚠️ La comida ya no está disponible. No se ha registrado insulina.",
+                        None,
+                    )
+                else:
+                    latest_text, stale_markup = _imported_meal_review_card(
+                        current_imported_meal
+                    )
+                    stale_text = (
+                        "⚠️ La comida cambió después de este cálculo. No se ha "
+                        "registrado insulina; revisa la versión actual.\n\n" + latest_text
+                    )
+                await edit_message_text_safe(
+                    query, stale_text, reply_markup=stale_markup
+                )
+                return
         if isinstance(rec, BolusResponseV2):
              carbs = snapshot["carbs"]
              _, recommended_upfront, rec_later_u, rec_duration_min = _resolve_bolus_delivery(rec)
@@ -3464,6 +3511,14 @@ async def _handle_snapshot_callback(query, data: str) -> None:
              "calculation_trace": calculation_trace,
              "glucose": _snapshot_glucose_mgdl(snapshot),
         }
+        if coverage_reserved:
+             add_args["meal_guard"] = {
+                 "user_id": coverage_user_id,
+                 "external_meal_id": meal_id,
+                 "expected_revision": meal_coverage["revision"],
+                 "expected_covered": meal_coverage["covered"],
+                 "calculation_id": calculation_id,
+             }
         result = await tools.add_treatment(add_args)
         
         base_text = _escape_md_v1(query.message.text if query.message else "")
@@ -3524,8 +3579,18 @@ async def _handle_snapshot_callback(query, data: str) -> None:
                        imported_meal.last_bolus_units = units
                        imported_meal.last_bolus_at = datetime.now(timezone.utc)
                        imported_meal.draft_treatment_id = None
-                       imported_meal.status = "CONFIRMED"
-                       imported_meal.confirmed_at = datetime.now(timezone.utc)
+                       imported_revision_is_current = bool(
+                           imported_meal.fingerprint
+                           == snapshot.get("imported_meal_fingerprint")
+                           and imported_meal.version
+                           == snapshot.get("imported_meal_version")
+                       )
+                       imported_meal.status = (
+                           "CONFIRMED" if imported_revision_is_current
+                           else "UPDATED_TREATED"
+                       )
+                       if imported_revision_is_current:
+                           imported_meal.confirmed_at = datetime.now(timezone.utc)
                        session.add(imported_meal)
                        await session.commit()
 
@@ -3723,7 +3788,45 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         try:
             if action in {"im_use_mfp", "im_keep"}:
                 async with SessionLocal() as session:
-                    meal = await resolve_source_conflict(session, meal_id=meal_id, use_source=action == "im_use_mfp")
+                    meal = await session.get(ImportedMeal, meal_id)
+                    text_value, markup = _imported_meal_review_card(meal)
+                await edit_message_text_safe(
+                    query,
+                    "⚠️ Esta tarjeta es anterior al control de versiones. "
+                    "Revisa de nuevo la versión actual.\n\n" + text_value,
+                    reply_markup=markup,
+                )
+                return
+
+            if action in {"im_u", "im_k"}:
+                try:
+                    meal_id = str(uuid.UUID(meal_id))
+                except (ValueError, AttributeError):
+                    raise ValueError("Identificador de comida no válido")
+                expected_pending_fingerprint = parts[2] if len(parts) > 2 else ""
+                expected_version = int(parts[3]) if len(parts) > 3 else -1
+                async with SessionLocal() as session:
+                    try:
+                        meal = await resolve_source_conflict(
+                            session,
+                            meal_id=meal_id,
+                            use_source=action == "im_u",
+                            expected_pending_fingerprint=expected_pending_fingerprint,
+                            expected_version=expected_version,
+                        )
+                    except ValueError as exc:
+                        if str(exc) != "source_conflict_changed":
+                            raise
+                        await session.rollback()
+                        meal = await session.get(ImportedMeal, meal_id)
+                        text_value, markup = _imported_meal_review_card(meal)
+                        await edit_message_text_safe(
+                            query,
+                            "⚠️ MyFitnessPal volvió a cambiar. La acción anterior "
+                            "no se ha aplicado; revisa esta versión.\n\n" + text_value,
+                            reply_markup=markup,
+                        )
+                        return
                     await _sync_imported_meal_draft(session, meal)
                     await session.commit()
                     text_value, markup = _imported_meal_review_card(meal)
@@ -3742,7 +3845,10 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                     old, new = current_by_name.get(name), pending_by_name.get(name)
                     if old != new:
                         lines.append(f"• {name}: {old if old is not None else '—'} → {new if new is not None else '—'} g HC")
-                buttons = [[InlineKeyboardButton("Usar MFP", callback_data=f"im_use_mfp|{meal_id}"), InlineKeyboardButton("Mantener revisada", callback_data=f"im_keep|{meal_id}")]]
+                compact_meal_id = str(meal.id).replace("-", "")
+                pending_token = str(pending.get("fingerprint") or "")[:16]
+                suffix = f"{compact_meal_id}|{pending_token}|{meal.version}"
+                buttons = [[InlineKeyboardButton("Usar MFP", callback_data=f"im_u|{suffix}"), InlineKeyboardButton("Mantener revisada", callback_data=f"im_k|{suffix}")]]
                 await edit_message_text_safe(query, "\n".join(lines), reply_markup=InlineKeyboardMarkup(buttons))
                 return
 
@@ -3769,6 +3875,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                         "imported_meal_id": meal.id,
                         "meal_slot": meal.meal_type,
                         "fingerprint": meal.fingerprint,
+                        "version": meal.version,
                     }
                 await edit_message_text_safe(query, "✅ Comida confirmada. Calculando con glucosa e IOB actuales…")
                 try:
@@ -3776,6 +3883,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                         values["carbs"], values["fat"], values["protein"], values["fiber"],
                         values["source"], origin_id=values["origin_id"], meal_id=values["meal_id"],
                         meal_user_id=values["meal_user_id"], imported_meal_id=values["imported_meal_id"],
+                        imported_meal_fingerprint=values["fingerprint"],
+                        imported_meal_version=values["version"],
                         meal_slot=values["meal_slot"],
                         edit_message_id=query.message.message_id, skip_duplicate_checks=True,
                     )
@@ -3785,11 +3894,42 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 if getattr(calculation_delivery, "status", None) == "sent":
                     async with SessionLocal() as session:
                         confirmed_meal = await session.get(ImportedMeal, meal_id)
-                        if confirmed_meal and confirmed_meal.fingerprint == values["fingerprint"]:
+                        revision_is_current = bool(
+                            confirmed_meal
+                            and confirmed_meal.fingerprint == values["fingerprint"]
+                            and confirmed_meal.version == values["version"]
+                        )
+                        if revision_is_current:
                             confirmed_meal.status = "CONFIRMED"
                             confirmed_meal.confirmed_at = datetime.now(timezone.utc)
                             session.add(confirmed_meal)
                             await session.commit()
+                        elif confirmed_meal is not None:
+                            latest_text, latest_markup = _imported_meal_review_card(
+                                confirmed_meal
+                            )
+                        else:
+                            latest_text, latest_markup = (
+                                "⚠️ La comida ya no está disponible.",
+                                None,
+                            )
+                    if revision_is_current:
+                        return
+                    snapshot_store = _get_snapshot_store()
+                    for snapshot_key in list(snapshot_store.keys()):
+                        stale_snapshot = snapshot_store.get(snapshot_key) or {}
+                        if (
+                            stale_snapshot.get("imported_meal_id") == meal_id
+                            and stale_snapshot.get("imported_meal_fingerprint") == values["fingerprint"]
+                            and stale_snapshot.get("imported_meal_version") == values["version"]
+                        ):
+                            snapshot_store.pop(snapshot_key, None)
+                    await edit_message_text_safe(
+                        query,
+                        "⚠️ MyFitnessPal cambió la comida durante el cálculo. "
+                        "La recomendación anterior ha quedado anulada.\n\n" + latest_text,
+                        reply_markup=latest_markup,
+                    )
                     return
 
                 async with SessionLocal() as session:
