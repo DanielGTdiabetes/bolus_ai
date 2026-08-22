@@ -76,6 +76,18 @@ def test_treated_update_shows_only_change_and_prior_bolus_context():
     assert "solo se evaluará la diferencia pendiente" in text
 
 
+def test_conflict_buttons_bind_pending_revision_within_telegram_limit():
+    pending = {"fingerprint": "b" * 64, "calculated_carbs": 31}
+    _text, markup = _imported_meal_review_card(
+        meal(manual_override=True, pending_source_version=pending, version=12)
+    )
+    actions = [button.callback_data for row in markup.inline_keyboard for button in row]
+
+    assert actions[0].startswith("im_u|")
+    assert actions[1].startswith("im_k|")
+    assert all(len(action.encode("utf-8")) <= 64 for action in actions)
+
+
 class DummyQuery:
     def __init__(self, meal_id: str, *, data: str | None = None):
         self.data = data or f"im_confirm|{meal_id}"

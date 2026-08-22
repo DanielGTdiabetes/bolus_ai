@@ -270,6 +270,34 @@ async def reserve_confirmation(
     return ReservationResult(True, None, state_context(row))
 
 
+async def validate_confirmation_for_treatment(
+    session: AsyncSession,
+    *,
+    user_id: str,
+    external_meal_id: str,
+    expected_revision: str,
+    expected_covered: Mapping[str, object],
+    calculation_id: str,
+) -> ReservationResult:
+    """Lock and revalidate the meal immediately before treatment persistence."""
+    row = await get_meal_state(
+        session, user_id=user_id, external_meal_id=external_meal_id, for_update=True
+    )
+    if row is None:
+        return ReservationResult(False, "meal_state_missing")
+    if row.last_calculation_id == calculation_id:
+        return ReservationResult(True, "already_confirmed", state_context(row))
+    if row.current_revision != expected_revision:
+        return ReservationResult(False, "meal_revision_changed", state_context(row))
+    if normalize_nutrition(row.covered_nutrition) != normalize_nutrition(expected_covered):
+        return ReservationResult(False, "coverage_changed", state_context(row))
+    if row.confirmation_in_progress_id != calculation_id:
+        return ReservationResult(False, "reservation_lost", state_context(row))
+    # Do not commit here. The caller keeps this row lock until the treatment
+    # insert commits, serializing any concurrent nutrition revision behind it.
+    return ReservationResult(True, None, state_context(row))
+
+
 def covered_after_confirmation(
     *,
     covered_before: Mapping[str, object],

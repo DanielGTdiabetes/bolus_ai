@@ -368,14 +368,27 @@ async def discard_meal(session: AsyncSession, *, meal_id: str) -> ImportedMeal:
 
 
 async def resolve_source_conflict(
-    session: AsyncSession, *, meal_id: str, use_source: bool
+    session: AsyncSession, *, meal_id: str, use_source: bool,
+    expected_pending_fingerprint: str, expected_version: int,
 ) -> ImportedMeal:
-    meal = await session.get(ImportedMeal, meal_id)
+    meal = (
+        await session.execute(
+            select(ImportedMeal).where(ImportedMeal.id == meal_id).with_for_update()
+        )
+    ).scalars().first()
     if meal is None:
         raise ValueError("meal_not_found")
     pending = dict(meal.pending_source_version or {})
     if not pending:
-        return meal
+        raise ValueError("source_conflict_changed")
+    if (
+        int(meal.version or 0) != int(expected_version)
+        or not expected_pending_fingerprint
+        or not str(pending.get("fingerprint") or "").startswith(
+            expected_pending_fingerprint
+        )
+    ):
+        raise ValueError("source_conflict_changed")
     if use_source:
         meal.previous_fingerprint = meal.fingerprint
         meal.previous_calculated_carbs = meal.calculated_carbs

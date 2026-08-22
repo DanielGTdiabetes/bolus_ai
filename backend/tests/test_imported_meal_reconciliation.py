@@ -212,8 +212,13 @@ async def test_kept_manual_review_suppresses_same_rejected_source_revision(meal_
         meal_session, user_id="admin", payload=candidate("lunch", 31), sync_id="p2"
     )
     rejected_fingerprint = conflict.meal.pending_source_version["fingerprint"]
+    conflict_version = conflict.meal.version
     kept = await resolve_source_conflict(
-        meal_session, meal_id=manually_edited.id, use_source=False
+        meal_session,
+        meal_id=manually_edited.id,
+        use_source=False,
+        expected_pending_fingerprint=rejected_fingerprint[:16],
+        expected_version=conflict_version,
     )
     kept_version = kept.version
 
@@ -230,3 +235,36 @@ async def test_kept_manual_review_suppresses_same_rejected_source_revision(meal_
     assert repeated_pending is None
     assert changed.should_notify is True
     assert changed.meal.version == kept_version + 1
+
+
+@pytest.mark.asyncio
+async def test_stale_conflict_action_cannot_reject_newer_pending_revision(meal_session):
+    first = await reconcile_imported_meal(
+        meal_session, user_id="admin", payload=candidate("lunch", 27), sync_id="p1"
+    )
+    await edit_food(meal_session, meal_id=first.meal.id, index=0, carbs=8)
+    conflict_a = await reconcile_imported_meal(
+        meal_session, user_id="admin", payload=candidate("lunch", 31), sync_id="p2"
+    )
+    token_a = conflict_a.meal.pending_source_version["fingerprint"][:16]
+    version_a = conflict_a.meal.version
+    conflict_b = await reconcile_imported_meal(
+        meal_session, user_id="admin", payload=candidate("lunch", 35), sync_id="p3"
+    )
+    fingerprint_b = conflict_b.meal.pending_source_version["fingerprint"]
+    meal_id = conflict_b.meal.id
+    await meal_session.commit()
+
+    with pytest.raises(ValueError, match="source_conflict_changed"):
+        await resolve_source_conflict(
+            meal_session,
+            meal_id=meal_id,
+            use_source=False,
+            expected_pending_fingerprint=token_a,
+            expected_version=version_a,
+        )
+
+    await meal_session.rollback()
+    current = await meal_session.get(type(conflict_b.meal), meal_id)
+    assert current.rejected_source_fingerprint is None
+    assert current.pending_source_version["fingerprint"] == fingerprint_b

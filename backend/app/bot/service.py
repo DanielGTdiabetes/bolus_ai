@@ -3033,13 +3033,16 @@ def _imported_meal_review_card(meal) -> tuple[str, InlineKeyboardMarkup]:
 
     if meal.pending_source_version:
         pending = meal.pending_source_version
+        compact_meal_id = str(meal.id).replace("-", "")
+        pending_token = str(pending.get("fingerprint") or "")[:16]
+        conflict_suffix = f"{compact_meal_id}|{pending_token}|{meal.version}"
         lines.extend([
             "", "⚠️ MyFitnessPal cambió después de tu revisión manual.",
             f"Nueva lectura MFP: {float(pending.get('calculated_carbs') or 0):g} g HC",
             f"Tu versión revisada: {meal.calculated_carbs:g} g HC",
         ])
         buttons = [
-            [InlineKeyboardButton("Usar MFP", callback_data=f"im_use_mfp|{meal.id}"), InlineKeyboardButton("Mantener revisada", callback_data=f"im_keep|{meal.id}")],
+            [InlineKeyboardButton("Usar MFP", callback_data=f"im_u|{conflict_suffix}"), InlineKeyboardButton("Mantener revisada", callback_data=f"im_k|{conflict_suffix}")],
             [InlineKeyboardButton("Ver cambios", callback_data=f"im_diff|{meal.id}")],
         ]
         return "\n".join(lines), InlineKeyboardMarkup(buttons)
@@ -3508,6 +3511,14 @@ async def _handle_snapshot_callback(query, data: str) -> None:
              "calculation_trace": calculation_trace,
              "glucose": _snapshot_glucose_mgdl(snapshot),
         }
+        if coverage_reserved:
+             add_args["meal_guard"] = {
+                 "user_id": coverage_user_id,
+                 "external_meal_id": meal_id,
+                 "expected_revision": meal_coverage["revision"],
+                 "expected_covered": meal_coverage["covered"],
+                 "calculation_id": calculation_id,
+             }
         result = await tools.add_treatment(add_args)
         
         base_text = _escape_md_v1(query.message.text if query.message else "")
@@ -3568,8 +3579,18 @@ async def _handle_snapshot_callback(query, data: str) -> None:
                        imported_meal.last_bolus_units = units
                        imported_meal.last_bolus_at = datetime.now(timezone.utc)
                        imported_meal.draft_treatment_id = None
-                       imported_meal.status = "CONFIRMED"
-                       imported_meal.confirmed_at = datetime.now(timezone.utc)
+                       imported_revision_is_current = bool(
+                           imported_meal.fingerprint
+                           == snapshot.get("imported_meal_fingerprint")
+                           and imported_meal.version
+                           == snapshot.get("imported_meal_version")
+                       )
+                       imported_meal.status = (
+                           "CONFIRMED" if imported_revision_is_current
+                           else "UPDATED_TREATED"
+                       )
+                       if imported_revision_is_current:
+                           imported_meal.confirmed_at = datetime.now(timezone.utc)
                        session.add(imported_meal)
                        await session.commit()
 
@@ -3767,7 +3788,45 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         try:
             if action in {"im_use_mfp", "im_keep"}:
                 async with SessionLocal() as session:
-                    meal = await resolve_source_conflict(session, meal_id=meal_id, use_source=action == "im_use_mfp")
+                    meal = await session.get(ImportedMeal, meal_id)
+                    text_value, markup = _imported_meal_review_card(meal)
+                await edit_message_text_safe(
+                    query,
+                    "⚠️ Esta tarjeta es anterior al control de versiones. "
+                    "Revisa de nuevo la versión actual.\n\n" + text_value,
+                    reply_markup=markup,
+                )
+                return
+
+            if action in {"im_u", "im_k"}:
+                try:
+                    meal_id = str(uuid.UUID(meal_id))
+                except (ValueError, AttributeError):
+                    raise ValueError("Identificador de comida no válido")
+                expected_pending_fingerprint = parts[2] if len(parts) > 2 else ""
+                expected_version = int(parts[3]) if len(parts) > 3 else -1
+                async with SessionLocal() as session:
+                    try:
+                        meal = await resolve_source_conflict(
+                            session,
+                            meal_id=meal_id,
+                            use_source=action == "im_u",
+                            expected_pending_fingerprint=expected_pending_fingerprint,
+                            expected_version=expected_version,
+                        )
+                    except ValueError as exc:
+                        if str(exc) != "source_conflict_changed":
+                            raise
+                        await session.rollback()
+                        meal = await session.get(ImportedMeal, meal_id)
+                        text_value, markup = _imported_meal_review_card(meal)
+                        await edit_message_text_safe(
+                            query,
+                            "⚠️ MyFitnessPal volvió a cambiar. La acción anterior "
+                            "no se ha aplicado; revisa esta versión.\n\n" + text_value,
+                            reply_markup=markup,
+                        )
+                        return
                     await _sync_imported_meal_draft(session, meal)
                     await session.commit()
                     text_value, markup = _imported_meal_review_card(meal)
@@ -3786,7 +3845,10 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                     old, new = current_by_name.get(name), pending_by_name.get(name)
                     if old != new:
                         lines.append(f"• {name}: {old if old is not None else '—'} → {new if new is not None else '—'} g HC")
-                buttons = [[InlineKeyboardButton("Usar MFP", callback_data=f"im_use_mfp|{meal_id}"), InlineKeyboardButton("Mantener revisada", callback_data=f"im_keep|{meal_id}")]]
+                compact_meal_id = str(meal.id).replace("-", "")
+                pending_token = str(pending.get("fingerprint") or "")[:16]
+                suffix = f"{compact_meal_id}|{pending_token}|{meal.version}"
+                buttons = [[InlineKeyboardButton("Usar MFP", callback_data=f"im_u|{suffix}"), InlineKeyboardButton("Mantener revisada", callback_data=f"im_k|{suffix}")]]
                 await edit_message_text_safe(query, "\n".join(lines), reply_markup=InlineKeyboardMarkup(buttons))
                 return
 

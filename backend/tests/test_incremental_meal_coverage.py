@@ -19,6 +19,7 @@ from app.services.meal_coverage_service import (
     reserve_confirmation,
     state_context,
     upsert_current_meal,
+    validate_confirmation_for_treatment,
 )
 
 
@@ -228,6 +229,35 @@ async def test_case_10_duplicate_and_racing_confirmations_are_idempotent(coverag
         )
     assert not duplicate.ok
     assert duplicate.reason == "confirmation_in_progress"
+
+
+@pytest.mark.asyncio
+async def test_treatment_guard_rejects_revision_changed_after_reservation(coverage_db):
+    context = await _import(coverage_db, {"carbs": 63})
+    async with coverage_db() as session:
+        reserved = await reserve_confirmation(
+            session,
+            user_id=USER_ID,
+            external_meal_id=MEAL_ID,
+            expected_revision=context["revision"],
+            expected_covered=context["covered"],
+            calculation_id="guarded-calculation",
+        )
+    assert reserved.ok
+
+    await _import(coverage_db, {"carbs": 87})
+    async with coverage_db() as session:
+        guarded = await validate_confirmation_for_treatment(
+            session,
+            user_id=USER_ID,
+            external_meal_id=MEAL_ID,
+            expected_revision=context["revision"],
+            expected_covered=context["covered"],
+            calculation_id="guarded-calculation",
+        )
+
+    assert guarded.ok is False
+    assert guarded.reason == "meal_revision_changed"
 
 
 def test_partial_edited_dose_advances_only_food_coverage_and_keeps_correction_separate():
