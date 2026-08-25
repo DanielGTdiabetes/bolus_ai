@@ -54,6 +54,7 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 DEXCOM_BOLUS_EVENT_TYPES = ("Meal Bolus", "Correction Bolus", "Bolus")
 DEXCOM_CARBS_DEDUPE_WINDOW_MS = 45 * 60 * 1000
+DEXCOM_EVENT_GLUCOSE_WINDOW_MS = 15 * 60 * 1000
 
 
 def _structured_mfp_candidate(raw_payload: Dict[str, Any]) -> Optional[Dict[str, Any]]:
@@ -521,6 +522,67 @@ def _dexcom_event_from_basal(row: BasalEntry) -> Optional[MobileBolusEventRespon
     )
 
 
+async def _enrich_dexcom_events_with_nearest_glucose(
+    session: AsyncSession,
+    user_id: str,
+    events: List[MobileBolusEventResponse],
+) -> List[MobileBolusEventResponse]:
+    """Attach a real nearby CGM reading when an event did not store one itself."""
+    missing = [event for event in events if event.glucose_mgdl is None]
+    if not missing:
+        return events
+
+    window_start = datetime.fromtimestamp(
+        (min(event.timestamp for event in missing) - DEXCOM_EVENT_GLUCOSE_WINDOW_MS) / 1000,
+        tz=timezone.utc,
+    )
+    window_end = datetime.fromtimestamp(
+        (max(event.timestamp for event in missing) + DEXCOM_EVENT_GLUCOSE_WINDOW_MS) / 1000,
+        tz=timezone.utc,
+    )
+    readings = list((await session.execute(
+        select(GlucoseReadingDB).where(
+            GlucoseReadingDB.user_id == user_id,
+            GlucoseReadingDB.measured_at >= window_start,
+            GlucoseReadingDB.measured_at <= window_end,
+            GlucoseReadingDB.glucose_mgdl.between(1, 400),
+            GlucoseReadingDB.validation_status == "accepted",
+            GlucoseReadingDB.timestamp_uncertain.is_(False),
+        )
+    )).scalars().all())
+    if not readings:
+        return events
+
+    reading_timestamps = {
+        reading.id: _utc_timestamp_ms(reading.measured_at)
+        for reading in readings
+    }
+    enriched: List[MobileBolusEventResponse] = []
+    for event in events:
+        if event.glucose_mgdl is not None:
+            enriched.append(event)
+            continue
+
+        nearby = [
+            reading for reading in readings
+            if abs(reading_timestamps[reading.id] - event.timestamp) <= DEXCOM_EVENT_GLUCOSE_WINDOW_MS
+        ]
+        if not nearby:
+            enriched.append(event)
+            continue
+
+        nearest = min(
+            nearby,
+            key=lambda reading: (
+                abs(reading_timestamps[reading.id] - event.timestamp),
+                0 if reading.source == "dexcom_android" else 1,
+                reading_timestamps[reading.id],
+            ),
+        )
+        enriched.append(event.model_copy(update={"glucose_mgdl": int(nearest.glucose_mgdl)}))
+    return enriched
+
+
 def _authorize_ingest_key(request: Request, ingest_key_header: Optional[str]) -> None:
     provided_key = ingest_key_header or request.query_params.get("key")
     ingest_secret = os.getenv("NUTRITION_INGEST_SECRET") or os.getenv("NUTRITION_INGEST_KEY")
@@ -769,6 +831,7 @@ async def mobile_bolus_events(
     )
     events.sort(key=lambda event: (event.timestamp, event.id))
     events = _dedupe_dexcom_carbs_events(events)
+    events = await _enrich_dexcom_events_with_nearest_glucose(session, user_id, events)
     if after_created_at is not None and cursor_id:
         cursor_timestamp = _utc_timestamp_ms(after_created_at)
         events = [

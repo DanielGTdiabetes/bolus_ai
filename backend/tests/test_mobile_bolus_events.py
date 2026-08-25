@@ -25,6 +25,25 @@ class _MissingCursorSession:
         return _ScalarResult()
 
 
+class _Rows:
+    def __init__(self, rows):
+        self._rows = rows
+
+    def all(self):
+        return self._rows
+
+
+class _GlucoseSession:
+    def __init__(self, rows):
+        self._rows = rows
+
+    async def execute(self, _statement):
+        return self
+
+    def scalars(self):
+        return _Rows(self._rows)
+
+
 def test_dexcom_rapid_types_include_nightscout_bolus():
     assert "Bolus" in integrations.DEXCOM_BOLUS_EVENT_TYPES
     assert "basal" not in {event_type.lower() for event_type in integrations.DEXCOM_BOLUS_EVENT_TYPES}
@@ -162,6 +181,70 @@ def test_basal_produces_long_acting_event():
     assert event.event_kind == "INSULIN"
     assert event.insulin_type == "LONG_ACTING"
     assert event.insulin_units == 16.0
+
+
+def test_missing_basal_glucose_is_enriched_from_nearest_direct_reading():
+    event_time = datetime(2026, 8, 24, 2, 46, 19, tzinfo=timezone.utc)
+    event = integrations.MobileBolusEventResponse(
+        id="basal:basal-1:long",
+        event_kind="INSULIN",
+        insulin_type="LONG_ACTING",
+        insulin_units=17.0,
+        timestamp=int(event_time.timestamp() * 1000),
+    )
+    readings = [
+        SimpleNamespace(
+            id="nightscout-copy",
+            measured_at=datetime(2026, 8, 24, 2, 47, 39, tzinfo=timezone.utc),
+            glucose_mgdl=134,
+            source="nightscout",
+        ),
+        SimpleNamespace(
+            id="dexcom-direct",
+            measured_at=datetime(2026, 8, 24, 2, 47, 39, tzinfo=timezone.utc),
+            glucose_mgdl=134,
+            source="dexcom_android",
+        ),
+    ]
+
+    result = asyncio.run(
+        integrations._enrich_dexcom_events_with_nearest_glucose(
+            _GlucoseSession(readings),
+            "admin",
+            [event],
+        )
+    )
+
+    assert result[0].glucose_mgdl == 134
+
+
+def test_missing_event_glucose_stays_empty_without_a_reading_in_safety_window():
+    event_time = datetime(2026, 8, 24, 2, 46, 19, tzinfo=timezone.utc)
+    event = integrations.MobileBolusEventResponse(
+        id="basal:basal-1:long",
+        event_kind="INSULIN",
+        insulin_type="LONG_ACTING",
+        insulin_units=17.0,
+        timestamp=int(event_time.timestamp() * 1000),
+    )
+    readings = [
+        SimpleNamespace(
+            id="too-old",
+            measured_at=datetime(2026, 8, 24, 2, 30, 0, tzinfo=timezone.utc),
+            glucose_mgdl=140,
+            source="dexcom_android",
+        )
+    ]
+
+    result = asyncio.run(
+        integrations._enrich_dexcom_events_with_nearest_glucose(
+            _GlucoseSession(readings),
+            "admin",
+            [event],
+        )
+    )
+
+    assert result[0].glucose_mgdl is None
 
 
 def test_missing_legacy_cursor_without_timestamp_returns_empty(monkeypatch):
