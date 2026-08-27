@@ -147,14 +147,81 @@ async def test_hermes_refresh_accepts_a_full_endpoint_and_fallback_ingest_key(mo
     monkeypatch.setenv("NUTRITION_INGEST_KEY", "fallback-secret")
     monkeypatch.setattr(httpx, "AsyncClient", lambda **_kwargs: FakeClient())
 
-    ok, detail = await service._trigger_hermes_refresh()
+    outcome, detail = await service._trigger_hermes_refresh()
 
-    assert ok is True
+    assert outcome == "success"
     assert detail == "HTTP 200 (no_changes)"
     assert captured == {
         "url": "http://192.168.0.234:8776/mfp/sync-now",
         "headers": {"X-Ingest-Key": "fallback-secret"},
     }
+
+
+@pytest.mark.asyncio
+async def test_hermes_retry_scheduled_is_pending_even_when_httpx_marks_202_success(
+    monkeypatch,
+):
+    class FakeResponse:
+        is_success = True
+        status_code = 202
+
+        @staticmethod
+        def json():
+            return {
+                "status": "success_with_warning",
+                "ingest_status": "retry_scheduled",
+            }
+
+    class FakeClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def post(self, _url, *, headers):
+            assert headers == {"X-Ingest-Key": "fallback-secret"}
+            return FakeResponse()
+
+    monkeypatch.setenv("HERMES_MFP_SYNC_TRIGGER_URL", "http://hermes:8776")
+    monkeypatch.delenv("HERMES_MFP_TRIGGER_KEY", raising=False)
+    monkeypatch.setenv("NUTRITION_INGEST_KEY", "fallback-secret")
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **_kwargs: FakeClient())
+
+    outcome, detail = await service._trigger_hermes_refresh()
+
+    assert outcome == "pending"
+    assert detail == "HTTP 202 (retry_scheduled)"
+
+
+@pytest.mark.asyncio
+async def test_pending_hermes_refresh_keeps_confirmation_blocked(monkeypatch):
+    edits = []
+
+    class FakeBot:
+        async def edit_message_text(self, **kwargs):
+            edits.append(kwargs)
+
+    async def fake_trigger():
+        return "pending", "HTTP 202 (retry_scheduled)"
+
+    monkeypatch.setattr(service, "_trigger_hermes_refresh", fake_trigger)
+
+    await service._refresh_imported_meal_from_hermes(
+        bot=FakeBot(),
+        chat_id=123,
+        message_id=77,
+        meal_id="11111111-1111-1111-1111-111111111111",
+    )
+
+    assert len(edits) == 1
+    assert "confirmación permanece bloqueada" in edits[0]["text"]
+    assert "✅ MyFitnessPal actualizado" not in edits[0]["text"]
+    assert button_labels(edits[0]["reply_markup"]) == [
+        "🔄 Comprobar de nuevo",
+        "🗑 Descartar",
+    ]
+    assert "✅ Confirmar" not in button_labels(edits[0]["reply_markup"])
 
 
 class DummyQuery:
