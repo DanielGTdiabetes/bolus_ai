@@ -2979,6 +2979,8 @@ async def on_new_meal_received(
 
 
 def _imported_meal_review_card(meal) -> tuple[str, InlineKeyboardMarkup]:
+    from app.utils.timezone import get_user_timezone
+
     labels = {
         "breakfast": "DESAYUNO", "lunch": "COMIDA", "dinner": "CENA",
         "snack": "SNACK", "snacks": "SNACK", "comida": "COMIDA",
@@ -2988,7 +2990,8 @@ def _imported_meal_review_card(meal) -> tuple[str, InlineKeyboardMarkup]:
     local_seen = meal.last_seen_at
     if local_seen and local_seen.tzinfo is None:
         local_seen = local_seen.replace(tzinfo=timezone.utc)
-    stamp = local_seen.astimezone().strftime("%H:%M") if local_seen else ""
+    user_timezone = get_user_timezone(str(getattr(meal, "user_id", None) or "admin"))
+    stamp = local_seen.astimezone(user_timezone).strftime("%H:%M") if local_seen else ""
     lines = [f"🍽 {title} · {stamp}", ""]
     for index, food in enumerate(meal.foods, start=1):
         amount = " ".join(part for part in (str(food.get("quantity") or ""), str(food.get("unit") or "")) if part).strip()

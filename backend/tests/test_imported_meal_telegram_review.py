@@ -48,6 +48,21 @@ def test_review_card_lists_foods_and_does_not_calculate_before_confirmation():
     assert button_labels(markup) == ["✅ Confirmar", "✏️ Editar", "🔄 Actualizar MFP", "🗑 Descartar"]
 
 
+@pytest.mark.parametrize(
+    ("seen_at", "expected_stamp"),
+    [
+        (datetime(2026, 8, 27, 12, 23, tzinfo=timezone.utc), "14:23"),
+        (datetime(2026, 1, 27, 12, 23, tzinfo=timezone.utc), "13:23"),
+    ],
+)
+def test_review_card_uses_user_timezone_with_dst(seen_at, expected_stamp):
+    text, _markup = _imported_meal_review_card(
+        meal(user_id="timezone-card-test", last_seen_at=seen_at)
+    )
+
+    assert f"COMIDA · {expected_stamp}" in text
+
+
 def test_invalid_review_explains_source_food_mismatch_and_has_no_confirm_button():
     text, markup = _imported_meal_review_card(
         meal(source_carbs=62.0, calculated_carbs=27.0, validation_error="carb_total_mismatch", status="INVALID")
