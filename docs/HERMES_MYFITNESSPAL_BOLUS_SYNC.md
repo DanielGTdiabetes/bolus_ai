@@ -107,6 +107,20 @@ El trigger acepta la misma clave por `X-Ingest-Key`. Opcionalmente puede usarse 
 HERMES_MFP_TRIGGER_KEY=...
 ```
 
+Para que el botón `Actualizar MFP` de Telegram pueda iniciar la misma lectura,
+el contenedor backend del NAS también necesita la URL del trigger. En el `.env`
+usado por Portainer:
+
+```env
+HERMES_MFP_SYNC_TRIGGER_URL=http://192.168.0.234:8776
+# Opcional; si se omite, el compose reutiliza NUTRITION_INGEST_KEY.
+HERMES_MFP_TRIGGER_KEY=...
+```
+
+La URL debe ser alcanzable **desde el contenedor backend**, no solo desde el
+móvil. Después de actualizar o recrear el stack, comprobarlo desde el NAS con
+`GET /healthz` antes de probar el botón de Telegram.
+
 No guardar cookies ni claves en Obsidian, GitHub, tickets o documentacion.
 
 ## Seguridad
