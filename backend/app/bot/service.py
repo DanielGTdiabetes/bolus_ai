@@ -2979,6 +2979,8 @@ async def on_new_meal_received(
 
 
 def _imported_meal_review_card(meal) -> tuple[str, InlineKeyboardMarkup]:
+    from app.utils.timezone import get_user_timezone
+
     labels = {
         "breakfast": "DESAYUNO", "lunch": "COMIDA", "dinner": "CENA",
         "snack": "SNACK", "snacks": "SNACK", "comida": "COMIDA",
@@ -2988,7 +2990,8 @@ def _imported_meal_review_card(meal) -> tuple[str, InlineKeyboardMarkup]:
     local_seen = meal.last_seen_at
     if local_seen and local_seen.tzinfo is None:
         local_seen = local_seen.replace(tzinfo=timezone.utc)
-    stamp = local_seen.astimezone().strftime("%H:%M") if local_seen else ""
+    user_timezone = get_user_timezone(str(getattr(meal, "user_id", None) or "admin"))
+    stamp = local_seen.astimezone(user_timezone).strftime("%H:%M") if local_seen else ""
     lines = [f"🍽 {title} · {stamp}", ""]
     for index, food in enumerate(meal.foods, start=1):
         amount = " ".join(part for part in (str(food.get("quantity") or ""), str(food.get("unit") or "")) if part).strip()
@@ -3201,19 +3204,117 @@ async def _edit_imported_meal_card(bot, chat_id: int, meal) -> None:
             raise
 
 
-async def _trigger_hermes_refresh() -> tuple[bool, str]:
+def _hermes_mfp_refresh_configuration() -> tuple[str | None, str | None, str | None]:
+    """Resolve the server-side Hermes trigger without exposing its secret."""
+    base_url = (os.getenv("HERMES_MFP_SYNC_TRIGGER_URL") or "").strip().rstrip("/")
+    key = (
+        os.getenv("HERMES_MFP_TRIGGER_KEY")
+        or os.getenv("NUTRITION_INGEST_KEY")
+        or os.getenv("NUTRITION_INGEST_SECRET")
+    )
+    missing = []
+    if not base_url:
+        missing.append("HERMES_MFP_SYNC_TRIGGER_URL")
+    if not key:
+        missing.append("HERMES_MFP_TRIGGER_KEY/NUTRITION_INGEST_KEY")
+    if missing:
+        return None, None, f"falta {' y '.join(missing)} en Bolus AI"
+    endpoint = base_url if base_url.endswith("/mfp/sync-now") else f"{base_url}/mfp/sync-now"
+    return endpoint, key, None
+
+
+async def _trigger_hermes_refresh() -> tuple[str, str]:
     import httpx
 
-    url = (os.getenv("HERMES_MFP_SYNC_TRIGGER_URL") or "").rstrip("/")
-    key = os.getenv("HERMES_MFP_TRIGGER_KEY") or os.getenv("NUTRITION_INGEST_KEY") or os.getenv("NUTRITION_INGEST_SECRET")
-    if not url or not key:
-        return False, "Hermes no está configurado en esta instancia"
+    endpoint, key, configuration_error = _hermes_mfp_refresh_configuration()
+    if configuration_error:
+        return "failed", configuration_error
     try:
         async with httpx.AsyncClient(timeout=150.0) as client:
-            response = await client.post(f"{url}/mfp/sync-now", headers={"X-Ingest-Key": key})
-        return response.is_success, f"HTTP {response.status_code}"
+            response = await client.post(endpoint, headers={"X-Ingest-Key": key})
+        status = ""
+        ingest_status = ""
+        try:
+            body = response.json()
+            if isinstance(body, dict):
+                status = str(body.get("status") or "").strip().lower()
+                ingest_status = str(body.get("ingest_status") or "").strip().lower()
+        except (TypeError, ValueError):
+            pass
+        reported_status = ingest_status or status
+        detail = f"HTTP {response.status_code}" + (f" ({reported_status})" if reported_status else "")
+        if (
+            response.status_code in {202, 409}
+            or status == "retry_scheduled"
+            or ingest_status == "retry_scheduled"
+        ):
+            return "pending", detail
+        if not response.is_success or status == "failed" or ingest_status == "failed":
+            return "failed", detail
+        return "success", detail
     except Exception as exc:
-        return False, type(exc).__name__
+        return "failed", type(exc).__name__
+
+
+async def _refresh_imported_meal_from_hermes(
+    *, bot, chat_id: int, message_id: int, meal_id: str,
+) -> None:
+    """Refresh one review without re-enabling confirmation for queued data."""
+    from app.models.imported_meal import ImportedMeal
+
+    try:
+        outcome, detail = await _trigger_hermes_refresh()
+        if outcome == "pending":
+            pending_markup = InlineKeyboardMarkup([
+                [InlineKeyboardButton("🔄 Comprobar de nuevo", callback_data=f"im_refresh|{meal_id}")],
+                [InlineKeyboardButton("🗑 Descartar", callback_data=f"im_discard|{meal_id}")],
+            ])
+            await bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=message_id,
+                text=(
+                    f"⏳ Actualización de MyFitnessPal pendiente: {detail}\n\n"
+                    "Hermes todavía no ha entregado la nueva lectura. La confirmación "
+                    "permanece bloqueada para evitar calcular con nutrientes anteriores."
+                ),
+                reply_markup=pending_markup,
+            )
+            return
+
+        async with SessionLocal() as session:
+            refreshed_meal = await session.get(ImportedMeal, meal_id)
+            if refreshed_meal is not None:
+                review_text, review_markup = _imported_meal_review_card(refreshed_meal)
+            else:
+                review_text, review_markup = "La comida ya no está disponible.", None
+        result_text = (
+            f"✅ MyFitnessPal actualizado: {detail}"
+            if outcome == "success" else f"⚠️ No se pudo actualizar MFP: {detail}"
+        )
+        await bot.edit_message_text(
+            chat_id=chat_id,
+            message_id=message_id,
+            text=f"{result_text}\n\n{review_text}",
+            reply_markup=review_markup,
+        )
+    except BadRequest as exc:
+        if "message is not modified" in str(exc).lower():
+            return
+        logger.exception("Hermes MFP refresh Telegram edit failed meal_id=%s", meal_id)
+        await bot_send(
+            chat_id=chat_id,
+            text=f"⚠️ No se pudo mostrar la actualización de MFP: {type(exc).__name__}",
+            bot=bot,
+            log_context="mfp_refresh",
+        )
+    except Exception as exc:
+        logger.exception("Hermes MFP refresh reporting failed meal_id=%s", meal_id)
+        await bot_send(
+            chat_id=chat_id,
+            text=f"⚠️ No se pudo completar la actualización de MFP: {type(exc).__name__}",
+            bot=bot,
+            log_context="mfp_refresh",
+        )
 
 async def btn_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Debug command to test inline buttons."""
@@ -4034,14 +4135,30 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 return
 
             if action == "im_refresh":
+                _, _, configuration_error = _hermes_mfp_refresh_configuration()
+                if configuration_error:
+                    await bot_send(
+                        chat_id=query.message.chat_id,
+                        text=f"⚠️ No se pudo actualizar MFP: {configuration_error}",
+                        bot=query.get_bot(),
+                        log_context="mfp_refresh",
+                    )
+                    return
+
+                refresh_bot = query.get_bot()
+                refresh_chat_id = query.message.chat_id
+                refresh_message_id = query.message.message_id
                 await edit_message_text_safe(query, f"{query.message.text}\n\n🔄 Actualizando desde MyFitnessPal…")
 
-                async def refresh_and_report() -> None:
-                    ok, detail = await _trigger_hermes_refresh()
-                    if not ok:
-                        await bot_send(chat_id=query.message.chat_id, text=f"⚠️ No se pudo actualizar MFP: {detail}", bot=query.get_bot(), log_context="mfp_refresh")
-
-                asyncio.create_task(refresh_and_report())
+                asyncio.create_task(
+                    _refresh_imported_meal_from_hermes(
+                        bot=refresh_bot,
+                        chat_id=refresh_chat_id,
+                        message_id=refresh_message_id,
+                        meal_id=meal_id,
+                    ),
+                    name=f"mfp-refresh-{meal_id}",
+                )
                 return
         except Exception as exc:
             logger.exception("Imported meal callback failed")

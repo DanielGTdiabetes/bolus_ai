@@ -227,7 +227,9 @@ def test_structured_mfp_restores_treated_state_only_from_exact_legacy_identity(c
         id="legacy-lunch-bolus",
         user_id="admin",
         event_type="Meal Bolus",
-        created_at=datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(minutes=20),
+        # Keep the legacy treatment inside the fixed 2026-08-22 meal window.
+        # Using datetime.now() made this test expire as the calendar advanced.
+        created_at=datetime(2026, 8, 22, 14, 0),
         insulin=3.0,
         carbs=27.0,
         fat=3.0,
