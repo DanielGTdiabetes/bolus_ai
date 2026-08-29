@@ -37,17 +37,27 @@ class GlucoseSyncWorker(
                     reason = recoveryReason,
                 )
             }
+            val client = GlucoseIngestClient()
             val drain = GlucoseQueueDrainer(
                 pending = queue::pending,
                 send = { reading ->
-                    GlucoseIngestClient().send(
+                    client.send(
                         primaryUrl = settings.primaryUrl,
                         backupUrl = settings.backupUrl,
                         ingestKey = glucoseIngestKey,
                         reading = reading,
                     )
                 },
-                acknowledge = queue::markSent,
+                sendPrimary = { reading ->
+                    client.sendPrimary(
+                        primaryUrl = settings.primaryUrl,
+                        ingestKey = glucoseIngestKey,
+                        reading = reading,
+                    )
+                },
+                backupAcknowledged = queue::wasAcceptedByBackup,
+                acknowledgeBackup = queue::markAcceptedByBackup,
+                acknowledgePrimary = queue::markSent,
                 onAttempt = diagnostics::recordUploadAttempt,
                 onFailure = diagnostics::recordUploadFailure,
                 onSuccess = diagnostics::recordUploadSuccess,
@@ -88,33 +98,53 @@ internal data class GlucoseDrainResult(
 internal class GlucoseQueueDrainer(
     private val pending: () -> List<GlucoseReading>,
     private val send: suspend (GlucoseReading) -> GlucoseIngestResult,
-    private val acknowledge: (GlucoseReading) -> Unit,
+    private val sendPrimary: suspend (GlucoseReading) -> GlucoseIngestResult,
+    private val backupAcknowledged: (GlucoseReading) -> Boolean,
+    private val acknowledgeBackup: (GlucoseReading) -> Unit,
+    private val acknowledgePrimary: (GlucoseReading) -> Unit,
     private val onAttempt: (Int) -> Unit = {},
     private val onFailure: (Int?, String, Int) -> Unit = { _, _, _ -> },
     private val onSuccess: (ActiveEndpoint, Int?, Int, String) -> Unit = { _, _, _, _ -> },
 ) {
     suspend fun drain(requirePrimaryAcknowledgement: Boolean): GlucoseDrainResult {
+        var deliveredToBackup = false
         while (true) {
             val queued = pending()
-            val reading = queued.firstOrNull()
-                ?: return GlucoseDrainResult(GlucoseDrainOutcome.SUCCESS)
+            if (queued.isEmpty()) return GlucoseDrainResult(GlucoseDrainOutcome.SUCCESS)
+
+            val awaitingBackup = if (requirePrimaryAcknowledgement) {
+                queued.firstOrNull { !backupAcknowledged(it) }
+            } else {
+                null
+            }
+            if (requirePrimaryAcknowledgement && awaitingBackup == null && deliveredToBackup) {
+                return GlucoseDrainResult(GlucoseDrainOutcome.RETRY, "primary_ack_pending")
+            }
+
+            val reading = awaitingBackup ?: queued.first()
+            val primaryOnly = requirePrimaryAcknowledgement && backupAcknowledged(reading)
             onAttempt(queued.size)
-            val result = send(reading)
+            val result = if (primaryOnly) sendPrimary(reading) else send(reading)
             if (!result.ok) {
                 onFailure(result.statusCode, result.body, queued.size)
                 return if (GlucoseSyncResultPolicy.shouldRetry(result.statusCode)) {
-                    GlucoseDrainResult(GlucoseDrainOutcome.RETRY, "transient_upload_failure")
+                    GlucoseDrainResult(
+                        GlucoseDrainOutcome.RETRY,
+                        if (primaryOnly) "primary_ack_pending" else "transient_upload_failure",
+                    )
                 } else {
                     GlucoseDrainResult(GlucoseDrainOutcome.FAILURE, "terminal_upload_failure")
                 }
             }
             if (result.endpoint == ActiveEndpoint.BACKUP && requirePrimaryAcknowledgement) {
-                // The persistent queue remains authoritative until the NAS
-                // acknowledges this reading. Backend reading_uid makes replay safe.
+                // Keep the reading for NAS replay, but remember that Render has
+                // accepted it so newer readings are not blocked behind it.
+                acknowledgeBackup(reading)
                 onSuccess(result.endpoint, result.statusCode, queued.size, result.body)
-                return GlucoseDrainResult(GlucoseDrainOutcome.RETRY, "primary_ack_pending")
+                deliveredToBackup = true
+                continue
             }
-            acknowledge(reading)
+            acknowledgePrimary(reading)
             onSuccess(result.endpoint, result.statusCode, pending().size, result.body)
         }
     }

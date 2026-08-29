@@ -22,6 +22,17 @@ fun interface GlucosePoster {
 class GlucoseIngestClient(
     private val poster: GlucosePoster = HttpGlucosePoster(),
 ) {
+    suspend fun sendPrimary(
+        primaryUrl: String,
+        ingestKey: String,
+        reading: GlucoseReading,
+    ): GlucoseIngestResult = withContext(Dispatchers.IO) {
+        if (ingestKey.isBlank()) {
+            return@withContext GlucoseIngestResult(false, ActiveEndpoint.NONE, null, "Falta configurar la clave de integración.")
+        }
+        poster.post(primaryUrl, ingestKey, reading, ActiveEndpoint.PRIMARY)
+    }
+
     suspend fun send(
         primaryUrl: String,
         backupUrl: String,

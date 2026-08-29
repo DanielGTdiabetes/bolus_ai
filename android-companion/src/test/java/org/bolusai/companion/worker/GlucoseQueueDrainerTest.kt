@@ -20,6 +20,7 @@ class GlucoseQueueDrainerTest {
     @Test
     fun primaryDownAndBackupSuccessKeepsReadingUntilPrimaryAck() = runBlocking {
         val queue = mutableListOf(first)
+        val backupAcknowledgements = mutableSetOf<String>()
         val endpoints = mutableListOf<ActiveEndpoint>()
         val client = GlucoseIngestClient { _, _, _, endpoint ->
             endpoints += endpoint
@@ -30,23 +31,76 @@ class GlucoseQueueDrainerTest {
             }
         }
 
-        val result = drainer(queue) { reading ->
-            client.send("https://nas", "https://render", "key", reading)
-        }.drain(requirePrimaryAcknowledgement = true)
+        val result = drainer(
+            queue = queue,
+            backupAcknowledgements = backupAcknowledgements,
+            send = { reading -> client.send("https://nas", "https://render", "key", reading) },
+        ).drain(requirePrimaryAcknowledgement = true)
 
         assertEquals(GlucoseDrainOutcome.RETRY, result.outcome)
         assertEquals("primary_ack_pending", result.reason)
         assertEquals(listOf(ActiveEndpoint.PRIMARY, ActiveEndpoint.BACKUP), endpoints)
         assertEquals(listOf(first), queue)
+        assertEquals(setOf(first.dedupeKey), backupAcknowledgements)
+    }
+
+    @Test
+    fun primaryOutageStillForwardsEveryQueuedReadingToBackupOnce() = runBlocking {
+        val queue = mutableListOf(first, second, third)
+        val backupAcknowledgements = mutableSetOf<String>()
+        val delivered = mutableListOf<String>()
+
+        val result = drainer(
+            queue = queue,
+            backupAcknowledgements = backupAcknowledgements,
+            send = { reading ->
+                delivered += requireNotNull(reading.readingUid)
+                GlucoseIngestResult(true, ActiveEndpoint.BACKUP, 200, "accepted")
+            },
+        ).drain(requirePrimaryAcknowledgement = true)
+
+        assertEquals(GlucoseDrainOutcome.RETRY, result.outcome)
+        assertEquals("primary_ack_pending", result.reason)
+        assertEquals(listOf("reading-1", "reading-2", "reading-3"), delivered)
+        assertEquals(listOf(first, second, third), queue)
+        assertEquals(queue.mapTo(mutableSetOf()) { it.dedupeKey }, backupAcknowledgements)
+    }
+
+    @Test
+    fun backupAcknowledgedBacklogRetriesPrimaryWithoutResendingToBackup() = runBlocking {
+        val queue = mutableListOf(first, second)
+        val backupAcknowledgements = queue.mapTo(mutableSetOf()) { it.dedupeKey }
+        var failoverSendCalls = 0
+        val primaryCalls = mutableListOf<String>()
+
+        val result = drainer(
+            queue = queue,
+            backupAcknowledgements = backupAcknowledgements,
+            send = {
+                failoverSendCalls += 1
+                GlucoseIngestResult(true, ActiveEndpoint.BACKUP, 200, "duplicate")
+            },
+            sendPrimary = { reading ->
+                primaryCalls += requireNotNull(reading.readingUid)
+                GlucoseIngestResult(false, ActiveEndpoint.PRIMARY, null, "timeout")
+            },
+        ).drain(requirePrimaryAcknowledgement = true)
+
+        assertEquals(GlucoseDrainOutcome.RETRY, result.outcome)
+        assertEquals("primary_ack_pending", result.reason)
+        assertEquals(0, failoverSendCalls)
+        assertEquals(listOf("reading-1"), primaryCalls)
+        assertEquals(listOf(first, second), queue)
     }
 
     @Test
     fun timeoutAndDnsFailureNeverAcknowledgeOrLoseReading() = runBlocking {
         for (error in listOf("Read timed out", "Unable to resolve host nas.local")) {
             val queue = mutableListOf(first)
-            val result = drainer(queue) {
-                GlucoseIngestResult(false, ActiveEndpoint.NONE, null, error)
-            }.drain(requirePrimaryAcknowledgement = true)
+            val result = drainer(
+                queue = queue,
+                send = { GlucoseIngestResult(false, ActiveEndpoint.NONE, null, error) },
+            ).drain(requirePrimaryAcknowledgement = true)
 
             assertEquals(GlucoseDrainOutcome.RETRY, result.outcome)
             assertEquals("transient_upload_failure", result.reason)
@@ -60,18 +114,22 @@ class GlucoseQueueDrainerTest {
         val acceptedByBackend = linkedSetOf<String>()
         val deliveryOrder = mutableListOf<String>()
 
-        val failed = drainer(queue) {
-            GlucoseIngestResult(false, ActiveEndpoint.NONE, null, "dns")
-        }.drain(requirePrimaryAcknowledgement = true)
+        val failed = drainer(
+            queue = queue,
+            send = { GlucoseIngestResult(false, ActiveEndpoint.NONE, null, "dns") },
+        ).drain(requirePrimaryAcknowledgement = true)
         assertEquals(GlucoseDrainOutcome.RETRY, failed.outcome)
         assertEquals(listOf(first, second, third), queue)
 
-        val recovered = drainer(queue) { reading ->
-            val uid = requireNotNull(reading.readingUid)
-            deliveryOrder += uid
-            acceptedByBackend += uid
-            GlucoseIngestResult(true, ActiveEndpoint.PRIMARY, 200, "accepted")
-        }.drain(requirePrimaryAcknowledgement = true)
+        val recovered = drainer(
+            queue = queue,
+            send = { reading ->
+                val uid = requireNotNull(reading.readingUid)
+                deliveryOrder += uid
+                acceptedByBackend += uid
+                GlucoseIngestResult(true, ActiveEndpoint.PRIMARY, 200, "accepted")
+            },
+        ).drain(requirePrimaryAcknowledgement = true)
 
         assertEquals(GlucoseDrainOutcome.SUCCESS, recovered.outcome)
         assertTrue(queue.isEmpty())
@@ -82,9 +140,10 @@ class GlucoseQueueDrainerTest {
     @Test
     fun terminalPayloadFailureDoesNotDropReading() = runBlocking {
         val queue = mutableListOf(first)
-        val result = drainer(queue) {
-            GlucoseIngestResult(false, ActiveEndpoint.NONE, 422, "invalid")
-        }.drain(requirePrimaryAcknowledgement = true)
+        val result = drainer(
+            queue = queue,
+            send = { GlucoseIngestResult(false, ActiveEndpoint.NONE, 422, "invalid") },
+        ).drain(requirePrimaryAcknowledgement = true)
 
         assertEquals(GlucoseDrainOutcome.FAILURE, result.outcome)
         assertEquals(listOf(first), queue)
@@ -113,10 +172,18 @@ class GlucoseQueueDrainerTest {
     private fun drainer(
         queue: MutableList<GlucoseReading>,
         send: suspend (GlucoseReading) -> GlucoseIngestResult,
+        sendPrimary: suspend (GlucoseReading) -> GlucoseIngestResult = send,
+        backupAcknowledgements: MutableSet<String> = mutableSetOf(),
     ) = GlucoseQueueDrainer(
         pending = { queue.toList() },
         send = send,
-        acknowledge = { acknowledged -> queue.removeAll { it.dedupeKey == acknowledged.dedupeKey } },
+        sendPrimary = sendPrimary,
+        backupAcknowledged = { it.dedupeKey in backupAcknowledgements },
+        acknowledgeBackup = { backupAcknowledgements += it.dedupeKey },
+        acknowledgePrimary = { acknowledged ->
+            queue.removeAll { it.dedupeKey == acknowledged.dedupeKey }
+            backupAcknowledgements -= acknowledged.dedupeKey
+        },
     )
 
     private fun reading(uid: String, timestamp: Long) = GlucoseReading(

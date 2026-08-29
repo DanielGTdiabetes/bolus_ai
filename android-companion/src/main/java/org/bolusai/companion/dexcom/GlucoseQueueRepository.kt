@@ -12,7 +12,11 @@ class GlucoseQueueRepository(context: Context) {
         if (readings.isEmpty()) return
         synchronized(PROCESS_LOCK) {
             val merged = GlucoseQueueCodec.merge(load(), readings, MAX_QUEUE_SIZE)
-            val editor = prefs.edit().putString(KEY, GlucoseQueueCodec.encode(merged))
+            val pendingKeys = merged.mapTo(mutableSetOf()) { it.dedupeKey }
+            val backupAcknowledgements = loadBackupAcknowledgements().intersect(pendingKeys)
+            val editor = prefs.edit()
+                .putString(KEY, GlucoseQueueCodec.encode(merged))
+                .putStringSet(KEY_BACKUP_ACKNOWLEDGED, backupAcknowledgements)
             merged.lastOrNull()?.let { editor.putString(KEY_LATEST, it.toJson().toString()) }
             editor.apply()
         }
@@ -39,12 +43,34 @@ class GlucoseQueueRepository(context: Context) {
     fun markSent(reading: GlucoseReading) {
         synchronized(PROCESS_LOCK) {
             val remaining = load().filterNot { it.dedupeKey == reading.dedupeKey }
-            prefs.edit().putString(KEY, GlucoseQueueCodec.encode(remaining)).apply()
+            val backupAcknowledgements = loadBackupAcknowledgements().toMutableSet().apply {
+                remove(reading.dedupeKey)
+            }
+            prefs.edit()
+                .putString(KEY, GlucoseQueueCodec.encode(remaining))
+                .putStringSet(KEY_BACKUP_ACKNOWLEDGED, backupAcknowledgements)
+                .apply()
+        }
+    }
+
+    fun wasAcceptedByBackup(reading: GlucoseReading): Boolean = synchronized(PROCESS_LOCK) {
+        reading.dedupeKey in loadBackupAcknowledgements()
+    }
+
+    fun markAcceptedByBackup(reading: GlucoseReading) {
+        synchronized(PROCESS_LOCK) {
+            val backupAcknowledgements = loadBackupAcknowledgements().toMutableSet().apply {
+                add(reading.dedupeKey)
+            }
+            prefs.edit().putStringSet(KEY_BACKUP_ACKNOWLEDGED, backupAcknowledgements).apply()
         }
     }
 
     private fun load(): List<GlucoseReading> =
         GlucoseQueueCodec.decode(prefs.getString(KEY, "[]").orEmpty())
+
+    private fun loadBackupAcknowledgements(): Set<String> =
+        prefs.getStringSet(KEY_BACKUP_ACKNOWLEDGED, emptySet()).orEmpty().toSet()
 
     private fun loadLatest(): GlucoseReading? = runCatching {
         val item = JSONObject(prefs.getString(KEY_LATEST, "") ?: "")
@@ -56,6 +82,7 @@ class GlucoseQueueRepository(context: Context) {
         const val PREFS = "bolus_ai_dexcom_glucose_queue"
         const val KEY = "pending"
         const val KEY_LATEST = "latest"
+        const val KEY_BACKUP_ACKNOWLEDGED = "backup_acknowledged"
         const val MAX_QUEUE_SIZE = 2_016 // Seven days at one reading every five minutes.
         val PROCESS_LOCK = Any()
     }
