@@ -30,6 +30,37 @@ def test_login_successful(client: TestClient):
     assert body["user"]["role"] == "admin"
     assert body["user"]["needs_password_change"] is True
     assert "access_token" in body
+    assert client.cookies.get("bolus_refresh")
+
+
+def test_refresh_restores_session_without_password(client: TestClient):
+    login = client.post("/api/auth/login", json={"username": "admin", "password": "admin123"})
+    original_access = login.json()["access_token"]
+
+    refreshed = client.post("/api/auth/refresh")
+
+    assert refreshed.status_code == 200
+    assert refreshed.json()["access_token"]
+    assert refreshed.json()["user"]["username"] == "admin"
+    assert refreshed.json()["access_token"] != original_access or client.cookies.get("bolus_refresh")
+
+
+def test_refresh_rejects_access_token_in_refresh_cookie(client: TestClient):
+    login = client.post("/api/auth/login", json={"username": "admin", "password": "admin123"})
+    client.cookies.set("bolus_refresh", login.json()["access_token"], path="/api/auth")
+
+    refreshed = client.post("/api/auth/refresh")
+
+    assert refreshed.status_code == 401
+
+
+def test_logout_removes_refresh_session(client: TestClient):
+    client.post("/api/auth/login", json={"username": "admin", "password": "admin123"})
+
+    logout = client.post("/api/auth/logout")
+
+    assert logout.status_code == 204
+    assert client.post("/api/auth/refresh").status_code == 401
 
 
 def test_settings_requires_auth(client: TestClient):

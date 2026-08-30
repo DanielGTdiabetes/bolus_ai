@@ -87,6 +87,30 @@ class TokenManager:
         to_encode = {"sub": subject, "exp": expire, "iss": self.settings.security.jwt_issuer, "type": "access"}
         return jwt_encode(to_encode, self.settings.security.jwt_secret)
 
+    def create_refresh_token(self, subject: str, password_hash: str) -> str:
+        expire = datetime.now(timezone.utc) + timedelta(days=self.settings.security.refresh_token_days)
+        fingerprint = hmac.new(
+            self.settings.security.jwt_secret.encode("utf-8"),
+            password_hash.encode("utf-8"),
+            hashlib.sha256,
+        ).hexdigest()
+        to_encode = {
+            "sub": subject,
+            "exp": expire,
+            "iss": self.settings.security.jwt_issuer,
+            "type": "refresh",
+            "pwd": fingerprint,
+        }
+        return jwt_encode(to_encode, self.settings.security.jwt_secret)
+
+    def refresh_token_matches_password(self, payload: dict[str, Any], password_hash: str) -> bool:
+        expected = hmac.new(
+            self.settings.security.jwt_secret.encode("utf-8"),
+            password_hash.encode("utf-8"),
+            hashlib.sha256,
+        ).hexdigest()
+        return hmac.compare_digest(str(payload.get("pwd") or ""), expected)
+
     def decode_token(self, token: str, expected_type: str = "access") -> dict[str, Any]:
         if not token:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="No token provided")

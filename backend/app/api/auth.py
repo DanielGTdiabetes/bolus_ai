@@ -1,7 +1,7 @@
 import logging
 from pathlib import Path
 
-from fastapi import APIRouter, Body, Depends, HTTPException, status, Request
+from fastapi import APIRouter, Body, Cookie, Depends, HTTPException, Response, status, Request
 import time
 from collections import defaultdict
 from pydantic import BaseModel, Field
@@ -12,6 +12,7 @@ from app.core.settings import Settings, get_settings
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+REFRESH_COOKIE = "bolus_refresh"
 
 # Rate Limiting State (In-Memory)
 # Key: IP_Username, Value: list of timestamps
@@ -46,6 +47,7 @@ class PasswordChangeRequest(BaseModel):
 async def login(
     payload: LoginRequest,
     request: Request,
+    response: Response,
     settings: Settings = Depends(get_settings),
 ):
     # Audit: Rate Limiting
@@ -76,8 +78,52 @@ async def login(
 
     token_manager = get_token_manager(settings)
     access = token_manager.create_access_token(subject=user["username"])
+    _set_refresh_cookie(
+        response,
+        request,
+        token_manager.create_refresh_token(subject=user["username"], password_hash=user["password_hash"]),
+        settings.security.refresh_token_days,
+    )
 
     return LoginResponse(access_token=access, user=_public_user(user))
+
+
+@router.post("/refresh", response_model=LoginResponse, summary="Refresh session")
+async def refresh_session(
+    request: Request,
+    response: Response,
+    refresh_token: str | None = Cookie(default=None, alias=REFRESH_COOKIE),
+    settings: Settings = Depends(get_settings),
+):
+    if not refresh_token:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token required")
+
+    token_manager = get_token_manager(settings)
+    payload = token_manager.decode_token(refresh_token, expected_type="refresh")
+    username = str(payload.get("sub") or "")
+    from app.services.auth_repo import get_user_by_username
+    user = await get_user_by_username(username)
+    if not user or not token_manager.refresh_token_matches_password(payload, user.get("password_hash", "")):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token")
+
+    access = token_manager.create_access_token(subject=username)
+    _set_refresh_cookie(
+        response,
+        request,
+        token_manager.create_refresh_token(subject=username, password_hash=user["password_hash"]),
+        settings.security.refresh_token_days,
+    )
+    return LoginResponse(access_token=access, user=_public_user(user))
+
+
+@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT, summary="End session")
+async def logout(response: Response):
+    response.delete_cookie(
+        REFRESH_COOKIE,
+        path="/api/auth",
+        httponly=True,
+        samesite="lax",
+    )
 
 
 @router.get("/me", response_model=UserPublic, summary="Current user")
@@ -92,6 +138,9 @@ async def me(username: str = Depends(auth_required)):
 @router.post("/change-password", summary="Change own password")
 async def change_password(
     payload: PasswordChangeRequest,
+    request: Request,
+    response: Response,
+    settings: Settings = Depends(get_settings),
     username: str = Depends(auth_required),
 ):
     from app.services.auth_repo import get_user_by_username, update_user
@@ -106,7 +155,14 @@ async def change_password(
     )
     if not updated:
         raise HTTPException(status_code=500, detail="Failed to update password")
-        
+
+    token_manager = get_token_manager(settings)
+    _set_refresh_cookie(
+        response,
+        request,
+        token_manager.create_refresh_token(subject=username, password_hash=updated["password_hash"]),
+        settings.security.refresh_token_days,
+    )
     return {"ok": True, "user": _public_user(updated)}
 
 class ProfileChangeRequest(BaseModel):
@@ -116,6 +172,8 @@ class ProfileChangeRequest(BaseModel):
 @router.post("/change-profile", summary="Update profile (username)")
 async def change_profile(
     payload: ProfileChangeRequest,
+    request: Request,
+    response: Response,
     settings: Settings = Depends(get_settings),
     username: str = Depends(auth_required),
 ):
@@ -142,6 +200,15 @@ async def change_profile(
     
     # Return new user obj
     updated_user = await get_user_by_username(new_username)
+    _set_refresh_cookie(
+        response,
+        request,
+        token_manager.create_refresh_token(
+            subject=new_username,
+            password_hash=updated_user["password_hash"],
+        ),
+        settings.security.refresh_token_days,
+    )
 
     return {
         "ok": True, 
@@ -154,4 +221,23 @@ def _public_user(user: dict) -> UserPublic:
         username=user["username"],
         role=user.get("role", "user"),
         needs_password_change=user.get("needs_password_change", False),
+    )
+
+
+def _set_refresh_cookie(
+    response: Response,
+    request: Request,
+    token: str,
+    refresh_token_days: int,
+) -> None:
+    forwarded_proto = request.headers.get("x-forwarded-proto", "").split(",", 1)[0].strip().lower()
+    secure = request.url.scheme == "https" or forwarded_proto == "https"
+    response.set_cookie(
+        REFRESH_COOKIE,
+        token,
+        max_age=refresh_token_days * 24 * 60 * 60,
+        path="/api/auth",
+        secure=secure,
+        httponly=True,
+        samesite="lax",
     )

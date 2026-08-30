@@ -31,6 +31,7 @@ class SecurityConfig(BaseModel):
     jwt_secret: str = Field(min_length=16)
     jwt_issuer: str = Field(default="bolus-ai")
     access_token_minutes: int = Field(default=720, ge=5, le=24 * 60)
+    refresh_token_days: int = Field(default=90, ge=1, le=365)
     cors_origins: list[str] = Field(default_factory=list)
 
 
@@ -212,6 +213,14 @@ def _load_env() -> dict[str, Any]:
     jwt_issuer = os.environ.get("JWT_ISSUER")
     if jwt_issuer:
         env_config.setdefault("security", {})["jwt_issuer"] = jwt_issuer
+
+    access_token_minutes = os.environ.get("ACCESS_TOKEN_MINUTES")
+    if access_token_minutes:
+        env_config.setdefault("security", {})["access_token_minutes"] = int(access_token_minutes)
+
+    refresh_token_days = os.environ.get("REFRESH_TOKEN_DAYS")
+    if refresh_token_days:
+        env_config.setdefault("security", {})["refresh_token_days"] = int(refresh_token_days)
 
     cors_origins = os.environ.get("CORS_ORIGINS")
     if cors_origins:

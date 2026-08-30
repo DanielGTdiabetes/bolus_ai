@@ -13,6 +13,7 @@
       "jwt_secret": "please-change-this-secret",
       "jwt_issuer": "bolus-ai",
       "access_token_minutes": 720,
+      "refresh_token_days": 90,
       "cors_origins": ["http://localhost:5173", "http://localhost:8080", "http://localhost:4173"]
     },
   "data": {

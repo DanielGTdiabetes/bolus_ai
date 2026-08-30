@@ -7,6 +7,7 @@ export function createApiFetch({
   isPublicEndpoint,
   isDev = false,
   onMissingToken,
+  refreshToken,
   warn = console.warn
 }) {
   let missingTokenNotified = false;
@@ -19,7 +20,7 @@ export function createApiFetch({
       }
     }
 
-    const token = getToken();
+    let token = getToken();
     const hadToken = Boolean(token);
     if (token) {
       headers.Authorization = `Bearer ${token}`;
@@ -36,6 +37,7 @@ export function createApiFetch({
     try {
       response = await fetchImpl(resolveUrl(path), {
         ...options,
+        credentials: options.credentials || "include",
         headers
       });
     } catch (error) {
@@ -44,6 +46,19 @@ export function createApiFetch({
         throw new Error("No se pudo conectar con el servidor (Offline o bloqueado). Verifique su conexión.");
       }
       throw new Error("Error de conexión: " + error.message);
+    }
+
+    if (response.status === 401 && !isPublicEndpoint(path) && refreshToken) {
+      const refreshed = await refreshToken();
+      token = refreshed ? getToken() : null;
+      if (token) {
+        const retryHeaders = { ...headers, Authorization: `Bearer ${token}` };
+        response = await fetchImpl(resolveUrl(path), {
+          ...options,
+          credentials: options.credentials || "include",
+          headers: retryHeaders
+        });
+      }
     }
 
     if (response.status === 401 && !isPublicEndpoint(path)) {
