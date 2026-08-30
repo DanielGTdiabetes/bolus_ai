@@ -1,4 +1,4 @@
-import { getStoredToken, getStoredUser, getSettings, putSettings, importSettings, fetchMe, saveSession, clearSession } from '../../lib/api';
+import { getStoredToken, getStoredUser, getSettings, putSettings, importSettings, fetchMe, saveSession, clearSession, refreshSession } from '../../lib/api';
 import { sessionUserFromResponse } from './authRouting.js';
 
 // Keys
@@ -225,7 +225,12 @@ export async function syncSettings() {
 }
 
 export async function validateStoredSession() {
-    if (!state.token || !state.user) return false;
+    if (!state.token || !state.user) {
+        const restored = await refreshSession();
+        if (!restored) return false;
+        state.token = getStoredToken();
+        state.user = getStoredUser();
+    }
 
     state.loadingUser = true;
     try {

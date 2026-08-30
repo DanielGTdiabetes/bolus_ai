@@ -294,6 +294,12 @@ fun InAppPortal(
                         this.settings.javaScriptEnabled = true
                         this.settings.domStorageEnabled = true
                         this.settings.databaseEnabled = true
+                        this.settings.useWideViewPort = true
+                        this.settings.loadWithOverviewMode = true
+                        this.settings.textZoom = 100
+                        this.settings.setSupportZoom(false)
+                        this.settings.builtInZoomControls = false
+                        this.settings.displayZoomControls = false
                         this.settings.mediaPlaybackRequiresUserGesture = false
                         this.settings.allowFileAccess = false
                         this.settings.allowContentAccess = true
@@ -311,6 +317,25 @@ fun InAppPortal(
 
                             override fun onPageFinished(view: WebView, url: String) {
                                 canGoBack = view.canGoBack()
+                                view.setInitialScale(0)
+                                view.evaluateJavascript(
+                                    """
+                                    (() => {
+                                      let viewport = document.querySelector('meta[name="viewport"]');
+                                      if (!viewport) {
+                                        viewport = document.createElement('meta');
+                                        viewport.name = 'viewport';
+                                        document.head.appendChild(viewport);
+                                      }
+                                      viewport.content = 'width=device-width, initial-scale=1';
+                                      document.documentElement.style.maxWidth = '100%';
+                                      document.documentElement.style.overflowX = 'hidden';
+                                      document.body.style.maxWidth = '100%';
+                                      document.body.style.overflowX = 'hidden';
+                                    })();
+                                    """.trimIndent(),
+                                    null,
+                                )
                                 val json = org.json.JSONObject().apply {
                                     put("connected", scaleState.connected)
                                     put("scanning", scaleState.scanning)

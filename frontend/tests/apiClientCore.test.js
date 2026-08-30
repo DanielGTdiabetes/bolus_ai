@@ -86,4 +86,48 @@ assert.equal(mock401.getCalls(), 1);
 assert.equal(cleared, 1);
 assert.equal(logoutCalls, 1);
 
+let activeToken = "expired-token";
+let refreshCalls = 0;
+const retryAuthorizations = [];
+const apiFetchWithRefresh = createApiFetch({
+  fetchImpl: async (_url, options) => {
+    retryAuthorizations.push(options.headers.Authorization);
+    const status = options.headers.Authorization === "Bearer refreshed-token" ? 200 : 401;
+    return { ok: status === 200, status };
+  },
+  getToken: () => activeToken,
+  clearToken: () => {},
+  onLogout: () => {},
+  onMissingToken: () => {},
+  refreshToken: async () => {
+    refreshCalls += 1;
+    activeToken = "refreshed-token";
+    return true;
+  },
+  resolveUrl: (path) => path,
+  isPublicEndpoint: () => false
+});
+
+const refreshedResponse = await apiFetchWithRefresh("/api/test");
+assert.equal(refreshedResponse.status, 200);
+assert.equal(refreshCalls, 1);
+assert.deepEqual(retryAuthorizations, ["Bearer expired-token", "Bearer refreshed-token"]);
+
+let refreshFailureLogoutCalls = 0;
+const apiFetchWithFailedRefresh = createApiFetch({
+  fetchImpl: async () => ({ ok: false, status: 401 }),
+  getToken: () => "expired-token",
+  clearToken: () => {},
+  onLogout: () => {
+    refreshFailureLogoutCalls += 1;
+  },
+  onMissingToken: () => {},
+  refreshToken: async () => false,
+  resolveUrl: (path) => path,
+  isPublicEndpoint: () => false
+});
+
+await assert.rejects(() => apiFetchWithFailedRefresh("/api/test"), /Sesión caducada/);
+assert.equal(refreshFailureLogoutCalls, 1);
+
 console.log("api client core tests passed");

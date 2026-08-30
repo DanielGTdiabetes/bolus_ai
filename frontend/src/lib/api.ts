@@ -138,7 +138,7 @@ interface ApiOptions extends RequestInit {
   headers?: Record<string, string>;
 }
 
-const PUBLIC_ENDPOINTS = ["/api/auth/login"];
+const PUBLIC_ENDPOINTS = ["/api/auth/login", "/api/auth/refresh", "/api/auth/logout"];
 
 function isPublicEndpoint(path: string) {
   return PUBLIC_ENDPOINTS.some((endpoint) => path.startsWith(endpoint));
@@ -163,6 +163,31 @@ export function resolveApiUrl(path: string) {
   return new URL(path, baseUrl).toString();
 }
 
+let refreshPromise: Promise<boolean> | null = null;
+
+export async function refreshSession(): Promise<boolean> {
+  if (refreshPromise) return refreshPromise;
+  refreshPromise = (async () => {
+    try {
+      const response = await fetch(resolveApiUrl("/api/auth/refresh"), {
+        method: "POST",
+        credentials: "include",
+        headers: { Accept: "application/json" },
+      });
+      if (!response.ok) return false;
+      const data = await toJson(response);
+      if (!data.access_token || !data.user) return false;
+      saveSession(data.access_token, data.user);
+      return true;
+    } catch (_) {
+      return false;
+    } finally {
+      refreshPromise = null;
+    }
+  })();
+  return refreshPromise;
+}
+
 export const apiFetch = createApiFetch({
   fetchImpl: fetch,
   getToken: () => getStoredToken(),
@@ -172,6 +197,7 @@ export const apiFetch = createApiFetch({
   isPublicEndpoint,
   isDev: Boolean(import.meta.env?.DEV),
   onMissingToken: () => notifyAuthLogout("missing_token"),
+  refreshToken: refreshSession,
 });
 
 export async function loginRequest(username, password) {
@@ -552,6 +578,10 @@ export async function recalcSecondBolus(payload) {
 }
 
 export function logout() {
+  void fetch(resolveApiUrl("/api/auth/logout"), {
+    method: "POST",
+    credentials: "include",
+  }).catch(() => {});
   clearSession();
   try {
     sessionStorage.removeItem(NS_SESSION_KEY);
