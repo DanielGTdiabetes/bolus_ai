@@ -1,1 +1,0 @@
-import"./index-Dkc6PBbc.js";function e(o,t){return{DoubleUp:"↑↑",SingleUp:"↑",FortyFiveUp:"↗",Flat:"→",FortyFiveDown:"↘",SingleDown:"↓",DoubleDown:"↓↓","NOT COMPUTABLE":"---","RATE OUT OF RANGE":"---",NONE:"---"}[o]||o||""}function r(o){return o?o.replace(/\[Sitio: (.*?)\]/g,"• Sitio: $1"):""}export{e as a,r as f};
