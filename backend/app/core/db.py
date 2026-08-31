@@ -470,22 +470,25 @@ async def migrate_schema(conn):
         logger.error(f"❌ Database Migration Error: {e}")
         # Don't raise, allow app to try and start, but the error will be in logs.
 
-async def _ensure_postgres_public_schema(conn):
-    """Ensure PostgreSQL connections have a usable schema before DDL.
+async def set_postgres_public_search_path(conn, *, ensure_schema: bool = False):
+    """Select ``public`` for the current PostgreSQL transaction.
 
     Some managed PostgreSQL providers can leave the role search_path empty or
     point it only at schemas that are absent for the current database. In that
     state SQLAlchemy's unqualified CREATE TABLE statements fail with
     asyncpg InvalidSchemaNameError ("no schema has been selected to create
-    in"). Creating/choosing public on the actual startup connection makes the
-    app robust even when connection-level server_settings are ignored by a
-    proxy or were not applied to an already-open connection.
+    in"). Selecting public inside each transaction makes the app robust even
+    when a transaction pooler ignores connection-level server settings.
+
+    ``ensure_schema`` is reserved for startup paths that may create tables.
+    Regular queries only need the transaction-local search path.
     """
     if not _async_engine or _async_engine.url.drivername.startswith("sqlite"):
         return
 
-    await conn.execute(text("CREATE SCHEMA IF NOT EXISTS public"))
-    await conn.execute(text("SET search_path TO public"))
+    if ensure_schema:
+        await conn.execute(text("CREATE SCHEMA IF NOT EXISTS public"))
+    await conn.execute(text("SET LOCAL search_path TO public"))
 
 
 async def _lock_postgres_schema_initialization(conn):
@@ -533,7 +536,7 @@ async def create_tables():
     for attempt in range(1, DB_RETRY_ATTEMPTS + 1):
         try:
             async with _async_engine.connect() as conn:
-                await _ensure_postgres_public_schema(conn)
+                await set_postgres_public_search_path(conn, ensure_schema=True)
                 await _lock_postgres_schema_initialization(conn)
                 # Create all (only creates new tables)
                 force_public_schema = not _async_engine.url.drivername.startswith("sqlite")
