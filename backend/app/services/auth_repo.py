@@ -4,7 +4,7 @@ import os
 import hashlib
 from typing import Optional, Dict, Any
 from sqlalchemy import text
-from app.core.db import get_engine
+from app.core.db import get_engine, set_postgres_public_search_path
 from app.core.security import hash_password
 
 logger = logging.getLogger(__name__)
@@ -32,6 +32,7 @@ async def init_auth_db():
     """
 
     async with get_engine().begin() as conn:
+        await set_postgres_public_search_path(conn, ensure_schema=True)
         await conn.execute(text(create_table_sql))
         
         # Seed 'admin'
@@ -73,6 +74,7 @@ async def get_user_by_username(username: str) -> Optional[Dict[str, Any]]:
 
     query = text("SELECT * FROM users WHERE username = :username")
     async with get_engine().connect() as conn:
+        await set_postgres_public_search_path(conn)
         result = await conn.execute(query, {"username": username})
         row = result.fetchone()
         if row:
@@ -120,8 +122,9 @@ async def update_user(username: str, updates: Dict[str, Any]) -> Optional[Dict[s
         WHERE username = :username
         RETURNING *
     """
-    
+
     async with get_engine().begin() as conn:
+        await set_postgres_public_search_path(conn)
         result = await conn.execute(text(sql), params)
         row = result.fetchone()
         if row:
@@ -138,6 +141,7 @@ async def create_user(username: str, password_hash: str, role: str = "user") -> 
         RETURNING *
     """
     async with get_engine().begin() as conn:
+        await set_postgres_public_search_path(conn)
         try:
             result = await conn.execute(text(sql), {
                 "username": username,
@@ -166,6 +170,7 @@ async def rename_user(old_username: str, new_username: str) -> bool:
         return False # Already exists
 
     async with get_engine().begin() as conn:
+        await set_postgres_public_search_path(conn)
         try:
             # 1. Update USERS table
             # We defer constraints just in case? Postgres doesn't easily support disabling constraints inside transaction unless set to DEFERRABLE.
