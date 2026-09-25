@@ -1567,22 +1567,15 @@ private fun WebScreen(
     onOpenDiagnostics: () -> Unit,
     onOpenMobileSettings: () -> Unit,
 ) {
-    Column(Modifier.fillMaxSize()) {
-        if (route == "#/" || route == "#/home") {
-            LocalGlucoseCard()
-        }
-        Box(Modifier.weight(1f)) {
-            InAppPortal(
-                settings = settings,
-                scaleManager = scaleManager,
-                route = route,
-                onOpenNativeScale = onOpenScale,
-                onOpenMobileHome = onOpenMobileHome,
-                onOpenDiagnostics = onOpenDiagnostics,
-                onOpenMobileSettings = onOpenMobileSettings,
-            )
-        }
-    }
+    InAppPortal(
+        settings = settings,
+        scaleManager = scaleManager,
+        route = route,
+        onOpenNativeScale = onOpenScale,
+        onOpenMobileHome = onOpenMobileHome,
+        onOpenDiagnostics = onOpenDiagnostics,
+        onOpenMobileSettings = onOpenMobileSettings,
+    )
 }
 
 private fun macros(item: MealQueueItem): String =
