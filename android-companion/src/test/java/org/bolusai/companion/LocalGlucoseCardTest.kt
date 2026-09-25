@@ -1,6 +1,7 @@
 package org.bolusai.companion
 
 import org.bolusai.companion.dexcom.GlucoseReading
+import org.bolusai.companion.dexcom.GlucoseQueueCodec
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -29,8 +30,10 @@ class LocalGlucoseCardTest {
     @Test
     fun missingAndFutureReadingsAreNotCurrent() {
         assertFalse(localGlucoseDisplay(null, now).current)
-        val future = localGlucoseDisplay(readingAt(now + 60_000), now)
+        val storedFuture = readingAt(now + 60_000).toJson().toString()
+        val future = localGlucoseDisplay(GlucoseQueueCodec.decodeLatest(storedFuture), now)
         assertFalse(future.current)
+        assertTrue(future.value.contains("123 mg/dL"))
         assertTrue(future.detail.contains("Hora de lectura futura"))
     }
 

@@ -24,6 +24,10 @@ class GlucoseQueueRepository(context: Context) {
 
     fun pending(): List<GlucoseReading> = synchronized(PROCESS_LOCK) { load() }
 
+    // Keep the timestamp even when it is ahead of the phone clock so the UI
+    // can show the clock warning. latest() remains the age-checked accessor.
+    fun latestForDisplay(): GlucoseReading? = synchronized(PROCESS_LOCK) { loadLatest() }
+
     fun latest(maxAgeMillis: Long, nowMillis: Long = System.currentTimeMillis()): GlucoseReading? {
         return synchronized(PROCESS_LOCK) {
             val latest = loadLatest() ?: return@synchronized null
@@ -72,11 +76,8 @@ class GlucoseQueueRepository(context: Context) {
     private fun loadBackupAcknowledgements(): Set<String> =
         prefs.getStringSet(KEY_BACKUP_ACKNOWLEDGED, emptySet()).orEmpty().toSet()
 
-    private fun loadLatest(): GlucoseReading? = runCatching {
-        val item = JSONObject(prefs.getString(KEY_LATEST, "") ?: "")
-        GlucoseReading.fromJson(item)
-            .takeIf { GlucoseReading.isValid(it.glucoseMgdl, it.timestampSeconds) }
-    }.getOrNull()
+    private fun loadLatest(): GlucoseReading? =
+        GlucoseQueueCodec.decodeLatest(prefs.getString(KEY_LATEST, "").orEmpty())
 
     private companion object {
         const val PREFS = "bolus_ai_dexcom_glucose_queue"
@@ -89,6 +90,11 @@ class GlucoseQueueRepository(context: Context) {
 }
 
 internal object GlucoseQueueCodec {
+    fun decodeLatest(raw: String): GlucoseReading? = runCatching {
+        val reading = GlucoseReading.fromJson(JSONObject(raw))
+        reading.takeIf { GlucoseReading.isValid(it.glucoseMgdl, it.timestampSeconds) }
+    }.getOrNull()
+
     fun merge(
         existing: List<GlucoseReading>,
         incoming: List<GlucoseReading>,
