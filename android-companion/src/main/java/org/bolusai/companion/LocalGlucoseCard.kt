@@ -57,13 +57,13 @@ internal fun localGlucoseDisplay(reading: GlucoseReading?, nowMillis: Long): Loc
 internal fun LocalGlucoseCard(modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val repository = remember { GlucoseQueueRepository(context) }
-    var reading by remember { mutableStateOf(repository.latest(Long.MAX_VALUE)) }
+    var reading by remember { mutableStateOf(repository.latestForDisplay()) }
     var nowMillis by remember { mutableStateOf(System.currentTimeMillis()) }
 
     LaunchedEffect(Unit) {
         while (true) {
             nowMillis = System.currentTimeMillis()
-            reading = repository.latest(Long.MAX_VALUE, nowMillis)
+            reading = repository.latestForDisplay()
             delay(5_000)
         }
     }
