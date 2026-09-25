@@ -13,8 +13,8 @@ android {
         applicationId = "org.bolusai.companion"
         minSdk = 26
         targetSdk = 36
-        versionCode = 11
-        versionName = "0.2.0-alpha8"
+        versionCode = 12
+        versionName = "0.2.0-alpha9"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
