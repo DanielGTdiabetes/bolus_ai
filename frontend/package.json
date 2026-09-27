@@ -12,7 +12,7 @@
     "test:api-client": "node tests/apiClientCore.test.js",
     "test:simulation-utils": "node tests/bolusSimulationUtils.test.js",
     "test:simulation-payload": "node tests/simulation_payload.test.js",
-    "test:frontend-recovery": "node tests/frontendRecovery.test.js",
+    "test:frontend-recovery": "node tests/frontendRecovery.test.js && node tests/glucoseFreshness.test.js",
     "test:manual-bolus": "node tests/manualBolusCore.test.js",
     "test:orphan-carbs": "node tests/orphanCarbsCore.test.js",
     "test:bolus-delivery": "node tests/bolusDeliveryRouting.test.js",
