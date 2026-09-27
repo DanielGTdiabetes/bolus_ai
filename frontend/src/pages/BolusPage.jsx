@@ -14,13 +14,15 @@ import { showToast } from '../components/ui/Toast';
 // Shared Logic / Store
 import { getCalcParams, getSplitSettings, state } from '../modules/core/store';
 import { getCurrentGlucose, getIOBData, getFavorites, getLocalNsConfig, fetchRecentNutritionImports } from '../lib/api';
-import { subscribeGlucoseResume } from '../lib/glucoseFreshness';
+import { glucoseInputAfterRefresh, subscribeGlucoseResume } from '../lib/glucoseFreshness';
 import { getActiveMealSession, startMealSession, closeMealSession } from '../lib/mealSessionApi';
 import { buildMealSessionPlatePayload, createMealSessionEventId, isMealSessionStale, summarizeMealSessionProgress } from '../lib/mealSessionFlow';
 
 export default function BolusPage() {
     // --- 1. State Management ---
     const [glucose, setGlucose] = useState('');
+    const glucoseManuallyEditedRef = useRef(false);
+    const activeGlucoseRequestRef = useRef(null);
     const [carbs, setCarbs] = useState('');
     const [carbProfile, setCarbProfile] = useState(null);
     const [foodName, setFoodName] = useState('');
@@ -92,21 +94,24 @@ export default function BolusPage() {
     // --- 3. Effects ---
 
     const loadData = async () => {
+        activeGlucoseRequestRef.current?.abort();
+        const controller = new AbortController();
+        activeGlucoseRequestRef.current = controller;
         try {
-            const bgData = await getCurrentGlucose(nsConfig);
-            if (bgData?.usable_for_dosing && bgData.bg_mgdl) {
-                setGlucose(String(Math.round(bgData.bg_mgdl)));
-            } else {
-                // Never keep an older value in the dosing field when the
-                // current source is stale, conflicting, or unavailable.
-                setGlucose('');
+            const bgData = await getCurrentGlucose(nsConfig, { signal: controller.signal });
+            if (activeGlucoseRequestRef.current === controller) {
+                setGlucose(current => activeGlucoseRequestRef.current === controller
+                    ? glucoseInputAfterRefresh(current, glucoseManuallyEditedRef.current, bgData)
+                    : current);
             }
-
         } catch (e) {
-            // A failed refresh must not leave an older automatic value ready
-            // for a bolus calculation.
-            setGlucose('');
-            console.warn("Glucose refresh failed", e);
+            if (activeGlucoseRequestRef.current === controller) {
+                // Clear only an automatic value after a failed refresh.
+                setGlucose(current => activeGlucoseRequestRef.current === controller
+                    ? glucoseInputAfterRefresh(current, glucoseManuallyEditedRef.current, null)
+                    : current);
+                console.warn("Glucose refresh failed", e);
+            }
         }
         try {
             const iobData = await getIOBData(nsConfig);
@@ -185,7 +190,11 @@ export default function BolusPage() {
         loadData();
         loadMealSession();
         const unsubscribeGlucoseResume = subscribeGlucoseResume(loadData);
-        return unsubscribeGlucoseResume;
+        return () => {
+            unsubscribeGlucoseResume();
+            activeGlucoseRequestRef.current?.abort();
+            activeGlucoseRequestRef.current = null;
+        };
     }, []); // Initial page hydration only.
 
     // Strategy Suggestion
@@ -464,6 +473,8 @@ export default function BolusPage() {
             // (slot, alcohol, exercise) is retained; plate-specific data resets.
             setCarbs('');
             setCarbProfile(null);
+            glucoseManuallyEditedRef.current = false;
+            setGlucose('');
             setCorrectionOnly(false);
             setDualEnabled(!!getSplitSettings()?.enabled_default);
             resetMealContext();
@@ -644,7 +655,7 @@ export default function BolusPage() {
                         <div className="form-group">
                             <div className="label-row"><span className="label-text">💧 Glucosa Actual</span></div>
                             <div style={{ position: 'relative' }}>
-                                <input type="number" value={glucose} onChange={e => setGlucose(e.target.value)} placeholder="mg/dL" className="text-center big-input" style={{ width: '100%', fontSize: '1.5rem', fontWeight: 800, color: 'var(--primary)', padding: '0.5rem', borderRadius: '8px', border: '1px solid #cbd5e1' }} />
+                                <input type="number" value={glucose} onChange={e => { glucoseManuallyEditedRef.current = true; setGlucose(e.target.value); }} placeholder="mg/dL" className="text-center big-input" style={{ width: '100%', fontSize: '1.5rem', fontWeight: 800, color: 'var(--primary)', padding: '0.5rem', borderRadius: '8px', border: '1px solid #cbd5e1' }} />
                                 <span style={{ position: 'absolute', right: '1rem', top: '1rem', color: 'var(--text-muted)' }}>mg/dL</span>
                             </div>
                         </div>

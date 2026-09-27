@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { glucoseFreshness, subscribeGlucoseResume } from '../src/lib/glucoseFreshness.js';
+import { glucoseFreshness, glucoseInputAfterRefresh, subscribeGlucoseResume } from '../src/lib/glucoseFreshness.js';
 
 const receivedAt = Date.UTC(2026, 8, 26, 10, 45);
 const reading = {
@@ -19,6 +19,12 @@ assert.equal(glucoseFreshness({ ...reading, date: null, age_minutes: null }, rec
 assert.equal(glucoseFreshness({ ...reading, date: receivedAt + 5 * 60000 }, receivedAt, receivedAt).stale, true);
 // The phone clock cannot make a server-reported old sample look younger.
 assert.equal(glucoseFreshness({ ...reading, age_minutes: 20 }, receivedAt, receivedAt).ageMinutes, 20);
+assert.equal(glucoseInputAfterRefresh('112', true, { usable_for_dosing: true, bg_mgdl: 145 }), '112');
+assert.equal(glucoseInputAfterRefresh('112', true, null), '112');
+assert.equal(glucoseInputAfterRefresh('', true, { usable_for_dosing: true, bg_mgdl: 145 }), '');
+assert.equal(glucoseInputAfterRefresh('112', false, { usable_for_dosing: true, bg_mgdl: 145 }), '145');
+assert.equal(glucoseInputAfterRefresh('112', false, { usable_for_dosing: false, bg_mgdl: 145 }), '');
+assert.equal(glucoseInputAfterRefresh('112', false, null), '');
 
 const windowObj = new EventTarget();
 const documentObj = new EventTarget();
@@ -27,16 +33,20 @@ let refreshes = 0;
 const unsubscribe = subscribeGlucoseResume(() => refreshes++, windowObj, documentObj);
 for (const type of ['online', 'focus', 'pageshow', 'bolusai:resume']) windowObj.dispatchEvent(new Event(type));
 documentObj.dispatchEvent(new Event('visibilitychange'));
-assert.equal(refreshes, 5);
+await new Promise(resolve => setTimeout(resolve, 200));
+assert.equal(refreshes, 1);
 documentObj.visibilityState = 'hidden';
 windowObj.dispatchEvent(new Event('focus'));
 documentObj.dispatchEvent(new Event('visibilitychange'));
-assert.equal(refreshes, 5);
+await new Promise(resolve => setTimeout(resolve, 200));
+assert.equal(refreshes, 1);
 documentObj.visibilityState = 'visible';
 documentObj.dispatchEvent(new Event('visibilitychange'));
-assert.equal(refreshes, 6);
-unsubscribe();
+await new Promise(resolve => setTimeout(resolve, 200));
+assert.equal(refreshes, 2);
 windowObj.dispatchEvent(new Event('bolusai:resume'));
+unsubscribe();
+await new Promise(resolve => setTimeout(resolve, 200));
 documentObj.dispatchEvent(new Event('visibilitychange'));
-assert.equal(refreshes, 6);
+assert.equal(refreshes, 2);
 console.log('Glucose freshness and resume tests passed');

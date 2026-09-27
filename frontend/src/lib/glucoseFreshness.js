@@ -14,14 +14,28 @@ export function glucoseFreshness(data, receivedAt, now, refreshFailed = false) {
     };
 }
 
+export function glucoseInputAfterRefresh(currentValue, manuallyEdited, data) {
+    if (manuallyEdited) return currentValue;
+    return data?.usable_for_dosing && data.bg_mgdl
+        ? String(Math.round(data.bg_mgdl))
+        : '';
+}
+
 export function subscribeGlucoseResume(refresh, windowObj = window, documentObj = document) {
+    let timer = null;
     const onResume = () => {
-        if (documentObj.visibilityState !== 'hidden') refresh();
+        if (documentObj.visibilityState === 'hidden') return;
+        if (timer !== null) clearTimeout(timer);
+        timer = setTimeout(() => {
+            timer = null;
+            if (documentObj.visibilityState !== 'hidden') refresh();
+        }, 150);
     };
     const events = ['online', 'focus', 'pageshow', 'bolusai:resume'];
     events.forEach(event => windowObj.addEventListener(event, onResume));
     documentObj.addEventListener('visibilitychange', onResume);
     return () => {
+        if (timer !== null) clearTimeout(timer);
         events.forEach(event => windowObj.removeEventListener(event, onResume));
         documentObj.removeEventListener('visibilitychange', onResume);
     };
