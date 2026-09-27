@@ -44,6 +44,9 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.bolusai.companion.data.AppSettings
@@ -111,6 +114,7 @@ fun InAppPortal(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val lifecycleOwner = LocalLifecycleOwner.current
     var resolvedUrl by remember { mutableStateOf<String?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     var webView by remember { mutableStateOf<WebView?>(null) }
@@ -411,6 +415,22 @@ fun InAppPortal(
                 },
             )
         }
+    }
+
+    DisposableEffect(lifecycleOwner, webView) {
+        val view = webView
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_RESUME -> {
+                    view?.onResume()
+                    view?.evaluateJavascript("window.dispatchEvent(new Event('bolusai:resume'));", null)
+                }
+                Lifecycle.Event.ON_PAUSE -> view?.onPause()
+                else -> Unit
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
     DisposableEffect(Unit) {

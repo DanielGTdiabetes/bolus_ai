@@ -292,10 +292,10 @@ export async function getNightscoutStatus() {
   return data;
 }
 
-export async function getCurrentGlucose(config) {
+export async function getCurrentGlucose(config, options: { signal?: AbortSignal } = {}) {
   if (isAuthenticated()) {
     const response = await apiFetch("/api/glucose/current", {
-      method: "GET"
+      method: "GET", cache: "no-store", signal: options.signal
     });
     const data = await toJson(response);
     if (!response.ok) throw new Error(data.detail || "Error al obtener glucosa (Backend)");
@@ -305,7 +305,7 @@ export async function getCurrentGlucose(config) {
   if (config && config.url) {
     const response = await apiFetch("/api/nightscout/current", {
       method: "POST",
-      body: JSON.stringify(config)
+      body: JSON.stringify(config), cache: "no-store", signal: options.signal
     });
     const data = await toJson(response);
     if (!response.ok) throw new Error(data.detail || "Error al obtener glucosa");
@@ -313,7 +313,7 @@ export async function getCurrentGlucose(config) {
   } else {
     // Fallback to server-stored GET
     const response = await apiFetch("/api/nightscout/current", {
-      method: "GET"
+      method: "GET", cache: "no-store", signal: options.signal
     });
     const data = await toJson(response);
     if (!response.ok) throw new Error(data.detail || "Error al obtener glucosa (Backend)");

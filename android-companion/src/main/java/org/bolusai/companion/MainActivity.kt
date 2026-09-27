@@ -134,6 +134,15 @@ class MainActivity : ComponentActivity() {
         NutritionSyncScheduler.schedule(this)
         setContent { BolusCompanionApp() }
     }
+
+    override fun onResume() {
+        super.onResume()
+        if (AppSettingsRepository(this).current().dexcomGlucoseSyncEnabled &&
+            GlucoseQueueRepository(this).pending().isNotEmpty()
+        ) {
+            org.bolusai.companion.worker.GlucoseSyncScheduler.syncNow(this)
+        }
+    }
 }
 
 private enum class CompanionScreen(val label: String) {

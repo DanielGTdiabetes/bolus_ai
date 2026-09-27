@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Header } from '../components/layout/Header';
 import { BottomNav } from '../components/layout/BottomNav';
 import { Card, Button } from '../components/ui/Atoms';
@@ -14,12 +14,18 @@ import { getDualPlan, getDualPlanTiming, syncSettings } from '../modules/core/st
 
 import { MainGlucoseChart } from '../components/charts/MainGlucoseChart';
 import { CompanionPanel } from '../components/companion/CompanionPanel';
+import { glucoseFreshness, subscribeGlucoseResume } from '../lib/glucoseFreshness';
 
 function GlucoseHero({ onRefresh }) {
     const [data, setData] = useState(null);
     const [loading, setLoading] = useState(false);
     const [prediction, setPrediction] = useState(null);
     const [forecastError, setForecastError] = useState(null);
+    const [refreshFailed, setRefreshFailed] = useState(false);
+    const [receivedAt, setReceivedAt] = useState(0);
+    const [now, setNow] = useState(Date.now());
+    const activeRequest = useRef(null);
+    const loadRef = useRef(null);
 
     const load = async () => {
         // Don't fetch if not authenticated
@@ -27,12 +33,24 @@ function GlucoseHero({ onRefresh }) {
             return;
         }
 
+        activeRequest.current?.abort();
+        const controller = new AbortController();
+        activeRequest.current = controller;
+        const timeout = setTimeout(() => controller.abort(), 20000);
+        const isCurrent = () => activeRequest.current === controller;
+        setNow(Date.now());
         setLoading(true);
         try {
             const config = getLocalNsConfig();
             // Fetch only current for the big number
-            const current = await getCurrentGlucose(config);
+            const current = await getCurrentGlucose(config, { signal: controller.signal });
+            if (!isCurrent()) return;
+            const fetchedAt = Date.now();
+            setReceivedAt(fetchedAt);
+            setNow(fetchedAt);
             setData(current);
+            setRefreshFailed(false);
+            setPrediction(null);
 
             // Ambient Forecast (try catch to not block main UI)
             try {
@@ -57,13 +75,15 @@ function GlucoseHero({ onRefresh }) {
                 }
 
                 const qs = params.toString() ? "?" + params.toString() : "";
-                const predRes = await apiFetch("/api/forecast/current" + qs);
+                const predRes = await apiFetch("/api/forecast/current" + qs, { signal: controller.signal });
                 if (predRes.ok) {
                     const predData = await toJson(predRes);
+                    if (!isCurrent()) return;
                     setPrediction(predData);
                     setForecastError(null);
                 }
             } catch (err) {
+                if (!isCurrent()) return;
                 console.warn("Forecast fetch error", err);
                 setPrediction(null);
                 // Don't show auth-related errors as forecast errors
@@ -77,16 +97,30 @@ function GlucoseHero({ onRefresh }) {
             }
 
         } catch (e) {
+            if (!isCurrent()) return;
             console.warn("BG Fetch Error", e);
+            setRefreshFailed(true);
             setPrediction(null);
             setForecastError({ message: "Glucosa no disponible", at: new Date() });
         } finally {
-            setLoading(false);
+            clearTimeout(timeout);
+            if (isCurrent()) setLoading(false);
         }
     };
+    loadRef.current = load;
+
+    useInterval(() => setNow(Date.now()), 5000);
+    useEffect(() => {
+        const unsubscribe = subscribeGlucoseResume(() => loadRef.current());
+        return () => {
+            unsubscribe();
+            activeRequest.current?.abort();
+            activeRequest.current = null;
+        };
+    }, []);
 
     // Auto-refresh config (hook requires interval in ms or null)
-    useInterval(isAuthenticated() ? load : null, 60000);
+    useInterval(load, isAuthenticated() ? 60000 : null);
 
 
     useEffect(() => {
@@ -99,7 +133,8 @@ function GlucoseHero({ onRefresh }) {
     const hasGlucose = data?.bg_mgdl != null;
     const displayVal = hasGlucose ? Math.round(data.bg_mgdl) : '--';
     const displayArrow = hasGlucose ? (data.trendArrow || formatTrend(data.trend, false)) : '--';
-    const displayTime = data?.age_minutes != null ? `${Math.round(data.age_minutes)} min` : '--';
+    const freshness = glucoseFreshness(data, receivedAt, now, refreshFailed);
+    const displayTime = freshness.ageMinutes != null ? `${Math.floor(freshness.ageMinutes)} min` : '--';
 
     const isLow = hasGlucose ? data.bg_mgdl <= 70 : false;
     const arrowColor = hasGlucose ? (data.bg_mgdl > 180 ? '#ef4444' : (isLow ? '#991b1b' : '#10b981')) : '#64748b';
@@ -107,7 +142,7 @@ function GlucoseHero({ onRefresh }) {
     const borderColor = isLow ? '#ef4444' : '#fff';
     const boxShadow = isLow ? '0 0 0 2px #fecaca' : '0 4px 6px -1px rgba(0, 0, 0, 0.05)';
 
-    const isStale = data ? (data.status !== 'ok' || data.is_stale || data.age_minutes > 12) : false;
+    const isStale = freshness.stale;
     const timeBg = isStale ? '#fee2e2' : '#f1f5f9';
     const timeColor = isStale ? '#b91c1c' : '#64748b';
     const timeLabel = isStale ? `⚠️ HACE ${displayTime}` : `Hace ${displayTime}`;
@@ -119,7 +154,7 @@ function GlucoseHero({ onRefresh }) {
             boxShadow: boxShadow, transition: 'all 0.3s ease', cursor: 'pointer'
         }} onClick={() => navigate('#/forecast')}>
             <div className="gh-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
-                <div style={{ fontSize: '0.9rem', fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Glucosa Actual</div>
+                <div style={{ fontSize: '0.9rem', fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{isStale ? 'Última glucosa · no actual' : 'Glucosa Actual'}</div>
                 <button onClick={(e) => { e.stopPropagation(); load(); }} style={{ background: 'none', border: 'none', fontSize: '1.2rem', cursor: 'pointer', color: loading ? '#cbd5e1' : '#3b82f6' }}>
                     {loading ? '...' : '↻'}
                 </button>
@@ -144,6 +179,9 @@ function GlucoseHero({ onRefresh }) {
                 <span style={{ background: timeBg, color: timeColor, fontSize: '0.75rem', padding: '4px 8px', borderRadius: '12px', fontWeight: 600 }}>
                     {timeLabel}
                 </span>
+                {refreshFailed && <div role="status" style={{ color: '#b91c1c', marginTop: '0.5rem', fontSize: '0.8rem' }}>
+                    No se pudo actualizar. Se muestra la última lectura recibida; reintentando automáticamente.
+                </div>}
                 {data?.source && (
                     <div style={{ marginTop: '0.45rem', fontSize: '0.72rem', color: data.fallback_used ? '#92400e' : '#64748b' }}>
                         Fuente: {data.source}{data.fallback_used ? ' · respaldo activado' : ''}

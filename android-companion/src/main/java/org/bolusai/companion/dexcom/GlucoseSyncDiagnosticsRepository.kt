@@ -228,7 +228,9 @@ class GlucoseSyncDiagnosticsRepository(context: Context) {
 
     private companion object {
         const val PREFS = "bolus_ai_dexcom_glucose_diagnostics"
-        const val MAX_EVENTS = 30
+        // A reading produces several events. Retain enough to diagnose an
+        // interruption later in the day instead of losing it after 30 minutes.
+        const val MAX_EVENTS = 2_000
         val PROCESS_LOCK = Any()
     }
 }

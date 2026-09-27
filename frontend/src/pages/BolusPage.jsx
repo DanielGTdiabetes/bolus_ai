@@ -14,6 +14,7 @@ import { showToast } from '../components/ui/Toast';
 // Shared Logic / Store
 import { getCalcParams, getSplitSettings, state } from '../modules/core/store';
 import { getCurrentGlucose, getIOBData, getFavorites, getLocalNsConfig, fetchRecentNutritionImports } from '../lib/api';
+import { subscribeGlucoseResume } from '../lib/glucoseFreshness';
 import { getActiveMealSession, startMealSession, closeMealSession } from '../lib/mealSessionApi';
 import { buildMealSessionPlatePayload, createMealSessionEventId, isMealSessionStale, summarizeMealSessionProgress } from '../lib/mealSessionFlow';
 
@@ -95,8 +96,19 @@ export default function BolusPage() {
             const bgData = await getCurrentGlucose(nsConfig);
             if (bgData?.usable_for_dosing && bgData.bg_mgdl) {
                 setGlucose(String(Math.round(bgData.bg_mgdl)));
+            } else {
+                // Never keep an older value in the dosing field when the
+                // current source is stale, conflicting, or unavailable.
+                setGlucose('');
             }
 
+        } catch (e) {
+            // A failed refresh must not leave an older automatic value ready
+            // for a bolus calculation.
+            setGlucose('');
+            console.warn("Glucose refresh failed", e);
+        }
+        try {
             const iobData = await getIOBData(nsConfig);
             if (iobData) setIob(iobData.iob_u ?? iobData.iob_total ?? 0);
 
@@ -172,6 +184,8 @@ export default function BolusPage() {
 
         loadData();
         loadMealSession();
+        const unsubscribeGlucoseResume = subscribeGlucoseResume(loadData);
+        return unsubscribeGlucoseResume;
     }, []); // Initial page hydration only.
 
     // Strategy Suggestion

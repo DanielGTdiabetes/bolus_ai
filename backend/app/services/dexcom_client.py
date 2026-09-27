@@ -53,37 +53,19 @@ class DexcomClient:
             if not bg:
                 return None
             
-            # Pydexcom typical bg.datetime is aware or we need to ensure it
-            bg_dt = bg.datetime
-            
-            # Timezone Fix: Pydexcom returns naive times. We need to be careful.
-            if bg_dt:
-                now_utc = datetime.now(timezone.utc)
-                
-                if bg_dt.tzinfo is None:
-                    try:
-                        local_tz = datetime.now().astimezone().tzinfo or timezone.utc
-                        candidate = bg_dt.replace(tzinfo=local_tz).astimezone(timezone.utc)
-                    except Exception as exc:
-                        logger.warning(f"Dexcom naive timestamp; defaulting to UTC: {exc}")
-                        candidate = bg_dt.replace(tzinfo=timezone.utc)
-                else:
-                    candidate = bg_dt.astimezone(timezone.utc)
-                
-                diff_sec = abs((now_utc - candidate).total_seconds())
-                
-                if diff_sec > 3600: # 1 hour tolerance
-                    logger.warning(f"Dexcom time drift detected (TS={bg_dt} vs Now={now_utc}). Snapping to NOW.")
-                    bg_dt = now_utc
-                else:
-                    bg_dt = candidate
-            else:
-                 bg_dt = datetime.now(timezone.utc)
+            # pydexcom 0.5 supplies an aware timestamp from Dexcom's DT field.
+            # Preserve it even for stale/future readings: ingestion decides
+            # validity. Substituting NOW would make old data appear current.
+            bg_dt = getattr(bg, "datetime", None)
+            if not isinstance(bg_dt, datetime) or bg_dt.utcoffset() is None:
+                logger.warning("Dexcom reading discarded: missing or ambiguous timestamp")
+                return None
+            bg_dt = bg_dt.astimezone(timezone.utc)
             
             return GlucoseReading(
                 sgv=bg.value,
                 trend=bg.trend_arrow or "",
-                date=bg_dt or datetime.now(timezone.utc),
+                date=bg_dt,
                 delta=None
             )
         except Exception as e:
