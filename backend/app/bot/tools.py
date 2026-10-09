@@ -229,7 +229,7 @@ async def _resolve_user_id(session: Optional[AsyncSession] = None) -> str:
                 # We want the user ID that the bot would naturally pick
                 _, resolved_id = await resolve_bot_user_settings(None)
                 return resolved_id
-            except:
+            except Exception:
                 pass
                 
         # If no session or no users found, default to admin
@@ -1517,7 +1517,7 @@ async def register_basal(args: Dict[str, Any]) -> RegisterBasalResult | ToolErro
         try:
              async with SessionLocal() as session:
                   user_id = await _resolve_user_id(session)
-        except: pass
+        except Exception: pass
 
         effective_date = None
         if date_iso:
@@ -1537,7 +1537,7 @@ async def register_basal(args: Dict[str, Any]) -> RegisterBasalResult | ToolErro
                  from app.services.supplies_service import SuppliesService
                  # Assuming 1 needle
                  await SuppliesService.decrement_stock(user_id, "supplies_needles", 1, session)
-        except: pass
+        except Exception: pass
 
         return RegisterBasalResult(
             ok=True, 
