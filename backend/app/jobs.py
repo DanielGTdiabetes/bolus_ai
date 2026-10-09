@@ -399,15 +399,22 @@ async def run_nutrition_notification_outbox() -> None:
     )
 
 
+async def run_basal_reminder() -> None:
+    await jobs_state.run_job("basal", proactive.basal_reminder)
+
+
 def setup_periodic_tasks():
     init_scheduler()
     
-    # --- Emergency Monitor (Always check configuration inside, or explicit here) ---
-    # Only run monitor if we ARE in emergency mode (or want to monitor from standby)
+    # The backup must monitor the NAS even in standby, without running primary jobs.
     settings = get_settings()
-    if settings.emergency_mode:
+    if config.is_backup_instance() or settings.emergency_mode:
         schedule_task(StabilityMonitor.check_health, CronTrigger(minute='*'), "check_nas_health")
-        logger.info("⚠️ Emergency Mode: Scheduler running ONLY Stability Monitor.")
+        if config.is_backup_instance() and config.is_telegram_bot_enabled():
+            # Runtime guard permits reminders only during a confirmed NAS outage.
+            schedule_task(run_basal_reminder, CronTrigger(minute='*/45'), "basal_reminder")
+            jobs_state.refresh_next_run("basal")
+        logger.info("Backup scheduler: NAS monitor and guarded basal reminders only.")
         return # STOP HERE. Do not schedule normal data ingestion tasks.
 
     # --- Normal Operations (NAS Primary) ---
@@ -464,16 +471,13 @@ def setup_periodic_tasks():
             # proactive functions signature: (username="admin", chat_id=None)
             await jobs_state.run_job("morning_summary", proactive.morning_summary)
 
-        async def _run_basal():
-            await jobs_state.run_job("basal", proactive.basal_reminder)
-
         async def _run_combo():
              # combo_followup might also follow the pattern
             await proactive.combo_followup()
 
 
 
-        schedule_task(_run_basal, CronTrigger(minute='*/45'), "basal_reminder")
+        schedule_task(run_basal_reminder, CronTrigger(minute='*/45'), "basal_reminder")
         jobs_state.refresh_next_run("basal")
 
         schedule_task(_run_combo, CronTrigger(minute='*/30'), "combo_followup")

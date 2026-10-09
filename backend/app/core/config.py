@@ -28,6 +28,15 @@ def get_gemini_pro_model() -> str:
     return get_env("GEMINI_MODEL_PRO") or "gemini-3-pro-preview"
 
 # --- Telegram Bot Config ---
+def is_backup_instance() -> bool:
+    """Identify the backup consistently for bot reception and background jobs."""
+    return (
+        get_env("RENDER") is not None
+        or (get_env("APP_INSTANCE_ROLE") or "").strip().lower() == "backup"
+        or (get_env("APP_INSTANCE_LOCATION") or "").strip().lower() == "render"
+    )
+
+
 def get_telegram_bot_token() -> Optional[str]:
     return get_env("TELEGRAM_BOT_TOKEN")
 

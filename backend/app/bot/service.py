@@ -10,7 +10,7 @@ import time
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.error import BadRequest, Conflict, Forbidden, InvalidToken, NetworkError, RetryAfter, TimedOut
-from telegram.ext import Application, CommandHandler, MessageHandler, ContextTypes, filters, CallbackQueryHandler
+from telegram.ext import Application, ApplicationHandlerStop, CommandHandler, MessageHandler, ContextTypes, filters, CallbackQueryHandler, TypeHandler
 from telegram import constants
 
 from app.core import config
@@ -549,21 +549,20 @@ def decide_bot_mode() -> Tuple[BotMode, str]:
     
     # HYBRID ARCHITECTURE LOGIC:
     # 1. Detect Environment
-    is_render = os.environ.get("RENDER") is not None
-    settings = get_settings()
+    is_render = config.is_backup_instance()
 
     # 2. Render (Cloud) Behavior
     if is_render:
-        # If Cloud is in Standby (Emergency Mode OFF), it must NOT register webhook.
-        # It stays in "Send Only" mode to allow outgoing alerts but no incoming.
-        if not settings.emergency_mode:
+        from app.services.stability_monitor import StabilityMonitor
+        # Emergency mode alone must never cause duplicate notifications while NAS is up.
+        if not StabilityMonitor.backup_can_notify():
              return BotMode.DISABLED, "emergency_mode_send_only"
         
-        # If Emergency Mode ON, it becomes the Active bot (Webhook)
+        # Confirmed NAS failure activates the backup without an environment restart.
         if public_url:
-             return BotMode.WEBHOOK, "cloud_emergency_active"
+             return BotMode.WEBHOOK, "cloud_failover_active"
         else:
-             return BotMode.POLLING, "cloud_emergency_no_url"
+             return BotMode.POLLING, "cloud_failover_no_url"
 
     # 3. NAS (On-Prem) Behavior
     # NAS always runs logic via Polling (unless disabled explicitly).
@@ -2014,6 +2013,13 @@ async def run_glucose_monitor_job() -> None:
         health.record_action("job:glucose_monitor", False, str(exc))
         raise
 
+async def _backup_update_guard(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if config.is_backup_instance():
+        from app.services.stability_monitor import StabilityMonitor
+        if health.mode not in {BotMode.POLLING, BotMode.WEBHOOK} or not StabilityMonitor.backup_can_notify():
+            raise ApplicationHandlerStop
+
+
 def create_bot_app() -> Application:
     """Factory to create and configure the PTB Application."""
     token = config.get_telegram_bot_token()
@@ -2031,6 +2037,8 @@ def create_bot_app() -> Application:
     )
 
     # Register Handlers
+    # Also guard polling updates and updates queued before NAS recovery.
+    application.add_handler(TypeHandler(Update, _backup_update_guard), group=-1000)
     application.add_handler(CommandHandler("ping", ping_command))
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(CommandHandler("morning", morning_command))
@@ -2322,6 +2330,38 @@ async def shutdown() -> None:
     finally:
         _bot_app = None
 
+_backup_mode_lock = asyncio.Lock()
+
+
+async def reconcile_backup_bot() -> None:
+    """Activate the backup after confirmed failure and restore send-only on recovery."""
+    if not config.is_backup_instance():
+        return
+    async with _backup_mode_lock:
+        desired_mode, reason = decide_bot_mode()
+        active = health.mode in {BotMode.POLLING, BotMode.WEBHOOK}
+        desired_active = desired_mode in {BotMode.POLLING, BotMode.WEBHOOK}
+        if active == desired_active and _bot_app is not None:
+            return
+        # Block incoming updates immediately, before waiting for shutdown/network I/O.
+        health.enabled = False
+        health.set_mode(BotMode.DISABLED, reason)
+        if not desired_active and _bot_app is not None:
+            try:
+                await _bot_app.bot.delete_webhook(drop_pending_updates=True)
+            except Exception as exc:
+                logger.warning("Backup webhook cleanup failed: %s", exc)
+        await shutdown()
+        await initialize()
+        if desired_active and health.mode in {BotMode.POLLING, BotMode.WEBHOOK}:
+            # Wake the existing job, preserving APScheduler's single-instance guard.
+            from app.core.scheduler import get_scheduler
+            scheduler = get_scheduler()
+            job = scheduler.get_job("basal_reminder") if scheduler else None
+            if job:
+                job.modify(next_run_time=datetime.now(timezone.utc))
+
+
 async def process_update(update_data: dict) -> None:
     """
     Entry point for the Webhook Router.
@@ -2329,6 +2369,10 @@ async def process_update(update_data: dict) -> None:
     """
     if not _bot_app:
         return
+    if config.is_backup_instance():
+        from app.services.stability_monitor import StabilityMonitor
+        if health.mode not in {BotMode.POLLING, BotMode.WEBHOOK} or not StabilityMonitor.backup_can_notify():
+            return
         
     try:
         update = Update.de_json(update_data, _bot_app.bot)

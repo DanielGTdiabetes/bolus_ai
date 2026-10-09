@@ -274,11 +274,12 @@ EMERGENCY_MODE=false
 
 There are **two separate Telegram bots** (each with its own token):
 - **NAS bot:** Always active in POLLING mode (`forced_polling_on_prem`)
-- **Render bot:** Disabled (send-only) in normal operation; activates as WEBHOOK or POLLING when `EMERGENCY_MODE=true`
+- **Render bot:** Disabled (send-only) while NAS is healthy or its state is unknown; activates automatically as WEBHOOK or POLLING after two consecutive failed NAS health checks.
 
 Bot mode selection logic (`bot/service.py`):
-- `RENDER` env var detected + `EMERGENCY_MODE=false` → `BotMode.DISABLED` (send-only for alerts)
-- `RENDER` env var detected + `EMERGENCY_MODE=true` → `BotMode.WEBHOOK` or `BotMode.POLLING`
+- Backup detected by `RENDER`, `APP_INSTANCE_ROLE=backup`, or `APP_INSTANCE_LOCATION=render` + NAS healthy/unknown → `BotMode.DISABLED` (infrastructure alerts only).
+- Backup + two recent consecutive NAS failures → `BotMode.WEBHOOK` or `BotMode.POLLING`, without requiring `EMERGENCY_MODE=true`.
+- A successful NAS check immediately blocks backup reminders and incoming updates; the recovery notification still waits for 15 successful checks.
 - NAS (no `RENDER` env var) → `BotMode.POLLING` always
 
 ### Database Sync (NAS → Neon)
@@ -291,13 +292,13 @@ Bot mode selection logic (`bot/service.py`):
 
 1. Render app periodically checks NAS health via the Stability Monitor (`app/services/stability_monitor.py`)
 2. If NAS is detected as down, the Render bot sends a Telegram alert
-3. **Manual activation:** Set `EMERGENCY_MODE=true` in Render environment variables (auto-restarts the service)
-4. Render bot activates fully, processes Telegram commands, runs only the Stability Monitor job (all other periodic jobs disabled)
-5. On NAS recovery: set `EMERGENCY_MODE=false` on Render, NAS resumes via rescue sync from Nightscout (`rescue_sync.py` fetches last 6h of treatments to restore IOB/COB)
+3. **Automatic activation:** Two consecutive failed checks activate the Render bot. `NAS_PUBLIC_URL` must point to the primary NAS.
+4. Render processes Telegram commands and guarded basal reminders. Its scheduler runs the Stability Monitor and basal job; primary ingestion, learning, cleanup and guardian jobs stay disabled.
+5. On the first successful NAS check, Render automatically returns to send-only standby. `EMERGENCY_MODE=true` cannot override a healthy NAS. Startup rescue sync remains a primary-instance operation.
 
 ### Leader Lock (BotLeaderLock)
 
-Database-backed distributed lock (`app/bot/leader_lock.py`, model in `app/models/bot_leader_lock.py`) prevents both bots from processing messages simultaneously:
+Database-backed distributed lock (`app/bot/leader_lock.py`, model in `app/models/bot_leader_lock.py`) coordinates workers sharing one database. NAS and Render use separate databases, so this lock alone cannot coordinate them; backup activation is gated by the NAS health monitor:
 - Lock has a TTL with heartbeat renewal (every half-TTL)
 - If the leader dies, the lock expires and the other instance can acquire it ("stolen")
 - On shutdown, the lock is released immediately
