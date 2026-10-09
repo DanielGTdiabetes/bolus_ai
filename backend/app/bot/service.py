@@ -12,6 +12,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.error import BadRequest, Conflict, Forbidden, InvalidToken, NetworkError, RetryAfter, TimedOut
 from telegram.ext import Application, ApplicationHandlerStop, CommandHandler, MessageHandler, ContextTypes, filters, CallbackQueryHandler, TypeHandler
 from telegram import constants
+from telegram.request import HTTPXRequest
 
 from app.core import config
 from app.bot import ai
@@ -2040,6 +2041,22 @@ async def _cancel_backup_updates() -> None:
 
 
 class FailoverApplication(Application):
+    def __init__(self, *, http_requests=(), **kwargs):
+        super().__init__(**kwargs)
+        self._http_requests = http_requests
+
+    async def shutdown(self) -> None:
+        try:
+            await super().shutdown()
+        finally:
+            # PTB skips shutdown when getMe failed before initialization completed.
+            if not self.running:
+                for request in self._http_requests:
+                    try:
+                        await request.shutdown()
+                    except Exception:
+                        logger.exception("Telegram HTTP client cleanup failed")
+
     async def process_update(self, update: object) -> None:
         if not config.is_backup_instance():
             await super().process_update(update)
@@ -2061,13 +2078,14 @@ def create_bot_app() -> Application:
         logger.warning("TELEGRAM_BOT_TOKEN not set. Bot will not run.")
         return None
 
+    api_request = HTTPXRequest(connection_pool_size=256, connect_timeout=30.0, read_timeout=30.0, write_timeout=30.0)
+    updates_request = HTTPXRequest()
     application = (
         Application.builder()
-        .application_class(FailoverApplication)
+        .application_class(FailoverApplication, kwargs={"http_requests": (api_request, updates_request)})
         .token(token)
-        .connect_timeout(30.0)
-        .read_timeout(30.0)
-        .write_timeout(30.0)
+        .request(api_request)
+        .get_updates_request(updates_request)
         .build()
     )
 
@@ -2151,7 +2169,7 @@ async def initialize() -> None:
         await _bot_app.initialize()
     except Exception as e:
         logger.error(f"Bot app initialization failed: {e}")
-        _bot_app = None
+        await shutdown()
         health.set_mode(BotMode.ERROR, "initialization_failed")
         health.set_error(str(e))
         return
@@ -2191,8 +2209,9 @@ async def initialize() -> None:
                 await asyncio.sleep(wait_time)
             else:
                 logger.critical("❌ All bot initialization attempts failed. Bot service will be unavailable.")
-                _bot_app = None
+                await shutdown()
                 health.set_mode(BotMode.ERROR, reason)
+                health.set_error(str(e))
                 return
 
     if mode == BotMode.WEBHOOK and public_url:

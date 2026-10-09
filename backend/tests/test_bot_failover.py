@@ -4,8 +4,8 @@ from unittest.mock import AsyncMock, Mock
 
 import httpx
 import pytest
-from telegram import CallbackQuery, Update
-from telegram.ext import Application
+from telegram import CallbackQuery, Update, User
+from telegram.ext import Application, ExtBot
 
 from app.bot import service
 from app.bot.state import BotMode
@@ -372,6 +372,40 @@ async def test_basal_tool_preserves_cancellation_during_user_resolution(monkeypa
     await service.shutdown()
     assert task.cancelled()
     write.assert_not_awaited()
+
+
+@pytest.mark.parametrize("failure_stage", ["initialize", "start"])
+async def test_failed_startup_closes_both_http_pools_before_retry(monkeypatch, failure_stage):
+    monkeypatch.setenv("RENDER", "true")
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "123:test")
+    await StabilityMonitor._handle_failure("timeout")
+    await StabilityMonitor._handle_failure("timeout")
+    apps = []
+    factory = service.create_bot_app
+    def make_app():
+        app = factory()
+        apps.append(app)
+        return app
+    monkeypatch.setattr(service, "create_bot_app", make_app)
+    async def acquire(mode, reason):
+        return mode, reason, True
+    monkeypatch.setattr(service, "_acquire_leader_lock", acquire)
+    monkeypatch.setattr(ExtBot, "get_me", AsyncMock(
+        side_effect=RuntimeError("Telegram unavailable") if failure_stage == "initialize" else None,
+        return_value=User(id=1, first_name="Test", is_bot=True),
+    ))
+    start = AsyncMock(side_effect=RuntimeError("Application start failed"))
+    monkeypatch.setattr(Application, "start", start)
+    monkeypatch.setattr(service.asyncio, "sleep", AsyncMock())
+
+    for attempt in range(2):
+        await service.reconcile_backup_bot()
+        assert len(apps) == attempt + 1
+        assert all(request._client.is_closed for request in apps[-1]._http_requests)
+        assert service._bot_app is None
+        assert service.health.mode == BotMode.ERROR
+        assert not service.health.enabled
+    assert start.await_count == (6 if failure_stage == "start" else 0)
 
 
 async def test_real_bot_initialize_and_shutdown_follow_failover(monkeypatch):

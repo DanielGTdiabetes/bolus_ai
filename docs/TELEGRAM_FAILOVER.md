@@ -13,6 +13,7 @@ Render seleccionaba `BotMode.DISABLED` en espera, pero conservaba un cliente cap
 - El primer éxito bloquea inmediatamente los recordatorios y actualizaciones entrantes del respaldo, y devuelve el bot a espera. El aviso de recuperación estable sigue requiriendo 15 éxitos consecutivos.
 - Al volver a espera, se cancelan y esperan las operaciones de Telegram que ya estaban en curso, incluido el refresco de MyFitnessPal iniciado desde una tarjeta. La cancelación no se convierte en una respuesta de error ni detiene el consumidor de polling.
 - El estado activo exige recepción iniciada: webhook registrado o updater de polling en marcha. Si Telegram falla en todos los intentos de arranque, el monitor vuelve a intentarlo en su siguiente comprobación. Los intentos que siguen en curso no se reinician.
+- Un fallo durante la inicialización o el arranque cierra la aplicación y ambos clientes HTTP antes de reintentar, incluso si `getMe` falló antes de completar la inicialización de Telegram.
 - Los permisos de envío caducan si la última comprobación tiene 120 segundos o más. La basal vuelve a comprobar el permiso justo antes del envío; `force` no evita esta protección.
 - El scheduler del respaldo solo programa el monitor y la basal protegida. Las tareas periódicas de ingesta, aprendizaje, limpieza y guardian del NAS permanecen deshabilitadas en Render. La sincronización de rescate al arrancar se limita al principal.
 
