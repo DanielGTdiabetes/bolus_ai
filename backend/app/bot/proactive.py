@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 from pathlib import Path
 
-from app.bot.state import cooldowns, health
+from app.bot.state import BotMode, cooldowns, health
 from app.core import config
 from app.core.settings import get_settings
 from app.services.store import DataStore
@@ -68,6 +68,14 @@ def get_proactive_status():
 
 
 async def basal_reminder(username: str = "admin", chat_id: Optional[int] = None, force: bool = False) -> None:
+    if config.is_backup_instance():
+        from app.services.stability_monitor import StabilityMonitor
+        if not StabilityMonitor.backup_can_notify():
+            record_proactive_status("basal", False, "backup_standby")
+            return
+    if health.mode not in {BotMode.POLLING, BotMode.WEBHOOK}:
+        record_proactive_status("basal", False, "bot_inactive")
+        return
     # 0. Load Config
     try:
         user_settings, resolved_user = await context_builder.get_bot_user_settings_with_user()
@@ -373,14 +381,24 @@ async def basal_reminder(username: str = "admin", chat_id: Optional[int] = None,
         )
         
         if reply and reply.text:
+            # Recheck after awaited DB/router work in case NAS recovered meanwhile.
+            if config.is_backup_instance() and not StabilityMonitor.backup_can_notify():
+                record_proactive_status("basal", False, "backup_standby")
+                return
+            if health.mode not in {BotMode.POLLING, BotMode.WEBHOOK}:
+                record_proactive_status("basal", False, "bot_inactive")
+                return
             from app.bot.service import bot_send
-            await bot_send(
+            sent = await bot_send(
                 chat_id=final_chat_id, 
                 text=reply.text, 
                 bot=None,
                 log_context=f"proactive_basal_{item.id}",
                 reply_markup=InlineKeyboardMarkup(reply.buttons) if reply.buttons else None
             )
+            if sent is None:
+                record_proactive_status("basal", False, "send_failed")
+                return
             
             # Finalize
             health.record_event("basal", True, "sent")

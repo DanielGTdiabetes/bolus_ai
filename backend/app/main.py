@@ -138,8 +138,9 @@ async def startup_event() -> None:
     asyncio.create_task(_background_startup_jobs())
 
 async def _background_startup_jobs():
-    if settings.emergency_mode:
-        logger.warning("⚠️ EMERGENCY MODE ACTIVE: Running in restricted state (Monitor Only).")
+    from app.core import config
+    if config.is_backup_instance() or settings.emergency_mode:
+        logger.warning("Backup / Emergency Mode: restricted background tasks.")
         # We allow setup_periodic_tasks to run because it now handles the conditional logic internally.
     else:
         logger.info("🚀 Starting background jobs (Full Mode)...")

@@ -1,5 +1,7 @@
 # Estrategia de Alta Disponibilidad (HA) y Backup
 
+> Actualización de Telegram (2026-10-09): la activación del bot de respaldo es automática tras dos fallos consecutivos del NAS, y se desactiva al primer éxito. Las indicaciones históricas de activación manual y bot send-only durante la caída quedan sustituidas por [TELEGRAM_FAILOVER.md](TELEGRAM_FAILOVER.md).
+
 Este documento detalla la arquitectura de **Alta Disponibilidad Híbrida** para Bolus AI, diseñada para garantizar que el servicio y los datos esenciales estén siempre disponibles, incluso en caso de fallo del hardware principal (NAS).
 
 ---
