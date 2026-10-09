@@ -437,6 +437,8 @@ _bot_app: Optional[Application] = None
 _polling_task: Optional[asyncio.Task] = None
 _leader_task: Optional[asyncio.Task] = None
 _leader_instance_id: Optional[str] = None
+_webhook_registered = False
+_backup_update_tasks: set[asyncio.Task] = set()
 
 
 async def notify_admin(text: str) -> bool:
@@ -2020,6 +2022,38 @@ async def _backup_update_guard(update: Update, context: ContextTypes.DEFAULT_TYP
             raise ApplicationHandlerStop
 
 
+def _create_update_task(coroutine, *, name: str) -> asyncio.Task:
+    task = asyncio.create_task(coroutine, name=name)
+    if config.is_backup_instance():
+        _backup_update_tasks.add(task)
+        task.add_done_callback(_backup_update_tasks.discard)
+    return task
+
+
+async def _cancel_backup_updates() -> None:
+    # Own child tasks instead of cancelling the HTTP request or PTB queue consumer.
+    tasks = [task for task in _backup_update_tasks if task is not asyncio.current_task()]
+    for task in tasks:
+        task.cancel()
+    if tasks:
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+
+class FailoverApplication(Application):
+    async def process_update(self, update: object) -> None:
+        if not config.is_backup_instance():
+            await super().process_update(update)
+            return
+        task = _create_update_task(super().process_update(update), name="backup-telegram-update")
+        try:
+            await task
+        except asyncio.CancelledError:
+            # Demotion cancels the child; external cancellation still propagates.
+            if asyncio.current_task().cancelling():
+                raise
+            logger.info("Backup Telegram update cancelled on demotion")
+
+
 def create_bot_app() -> Application:
     """Factory to create and configure the PTB Application."""
     token = config.get_telegram_bot_token()
@@ -2029,6 +2063,7 @@ def create_bot_app() -> Application:
 
     application = (
         Application.builder()
+        .application_class(FailoverApplication)
         .token(token)
         .connect_timeout(30.0)
         .read_timeout(30.0)
@@ -2074,11 +2109,15 @@ async def initialize() -> None:
     """
     global _bot_app
     global _polling_task
+    global _webhook_registered
+
+    _webhook_registered = False
+    _polling_task = None
     
     mode, reason = decide_bot_mode()
     mode, reason, _ = await _acquire_leader_lock(mode, reason)
-    health.enabled = mode != BotMode.DISABLED
-    health.set_mode(mode, reason)
+    health.enabled = False
+    health.set_mode(BotMode.DISABLED, reason if mode == BotMode.DISABLED else "starting_reception")
     health.set_started()
 
     logger.info("Telegram bot: %s", "enabled" if health.enabled else "disabled")
@@ -2113,6 +2152,8 @@ async def initialize() -> None:
     except Exception as e:
         logger.error(f"Bot app initialization failed: {e}")
         _bot_app = None
+        health.set_mode(BotMode.ERROR, "initialization_failed")
+        health.set_error(str(e))
         return
 
     if mode == BotMode.DISABLED:
@@ -2160,6 +2201,7 @@ async def initialize() -> None:
         try:
             await _set_webhook(url=webhook_url, secret_token=webhook_secret)
             health.clear_error()
+            health.enabled = True
             health.set_mode(BotMode.WEBHOOK, reason)
             return
         except Exception as exc:
@@ -2229,7 +2271,10 @@ async def initialize() -> None:
                     timeout=read_timeout,
                     bootstrap_retries=2,
                 )
+                health.enabled = True
+                health.clear_error()
                 health.set_mode(BotMode.POLLING, fallback_reason)
+                _wake_backup_basal_reminder()
                 logger.warning("Polling started (interval=%s, timeout=%s)", poll_interval, read_timeout)
                 return
             except Exception as exc:
@@ -2241,8 +2286,15 @@ async def initialize() -> None:
         # Final attempt
         try:
              await _bot_app.updater.start_polling(poll_interval=poll_interval, timeout=read_timeout)
+             health.enabled = True
+             health.clear_error()
+             health.set_mode(BotMode.POLLING, fallback_reason)
+             _wake_backup_basal_reminder()
         except Exception as e:
              logger.error(f"Polling failed final: {e}")
+             health.enabled = False
+             health.set_mode(BotMode.ERROR, "reception_start_failed")
+             health.set_error(str(e))
 
     logger.info("Polling enabled (background).")
     _polling_task = asyncio.create_task(_start_polling_with_retry(), name="telegram-bot-polling")
@@ -2253,6 +2305,12 @@ async def shutdown() -> None:
     global _polling_task
     global _leader_task
     global _leader_instance_id
+    global _webhook_registered
+
+    health.enabled = False
+    health.set_mode(BotMode.DISABLED, "shutting_down")
+    _webhook_registered = False
+    await _cancel_backup_updates()
     
     if _polling_task:
         logger.info("Canceling Telegram polling task...")
@@ -2263,6 +2321,7 @@ async def shutdown() -> None:
             logger.info("Polling task cancelled.")
         except Exception as e:
             logger.error(f"Error cancelling polling task: {e}")
+        _polling_task = None
 
     if _leader_task:
         logger.info("Canceling bot leader heartbeat...")
@@ -2333,19 +2392,45 @@ async def shutdown() -> None:
 _backup_mode_lock = asyncio.Lock()
 
 
+def _backup_reception_ready() -> bool:
+    if not _bot_app or not _bot_app.running:
+        return False
+    if health.mode == BotMode.WEBHOOK:
+        return _webhook_registered
+    return health.mode == BotMode.POLLING and bool(_bot_app.updater and _bot_app.updater.running)
+
+
+def _wake_backup_basal_reminder() -> None:
+    if not config.is_backup_instance():
+        return
+    # Wake the existing job, preserving APScheduler's single-instance guard.
+    from app.core.scheduler import get_scheduler
+    scheduler = get_scheduler()
+    job = scheduler.get_job("basal_reminder") if scheduler else None
+    if job:
+        job.modify(next_run_time=datetime.now(timezone.utc))
+
+
 async def reconcile_backup_bot() -> None:
     """Activate the backup after confirmed failure and restore send-only on recovery."""
     if not config.is_backup_instance():
         return
     async with _backup_mode_lock:
         desired_mode, reason = decide_bot_mode()
-        active = health.mode in {BotMode.POLLING, BotMode.WEBHOOK}
         desired_active = desired_mode in {BotMode.POLLING, BotMode.WEBHOOK}
-        if active == desired_active and _bot_app is not None:
+        starting = _polling_task is not None and not _polling_task.done()
+        if desired_active and (_backup_reception_ready() or starting):
+            return
+        if (
+            not desired_active and health.mode == BotMode.DISABLED
+            and _bot_app is not None and not _bot_app.running
+            and not starting and not _backup_update_tasks
+        ):
             return
         # Block incoming updates immediately, before waiting for shutdown/network I/O.
         health.enabled = False
         health.set_mode(BotMode.DISABLED, reason)
+        await _cancel_backup_updates()
         if not desired_active and _bot_app is not None:
             try:
                 await _bot_app.bot.delete_webhook(drop_pending_updates=True)
@@ -2353,13 +2438,8 @@ async def reconcile_backup_bot() -> None:
                 logger.warning("Backup webhook cleanup failed: %s", exc)
         await shutdown()
         await initialize()
-        if desired_active and health.mode in {BotMode.POLLING, BotMode.WEBHOOK}:
-            # Wake the existing job, preserving APScheduler's single-instance guard.
-            from app.core.scheduler import get_scheduler
-            scheduler = get_scheduler()
-            job = scheduler.get_job("basal_reminder") if scheduler else None
-            if job:
-                job.modify(next_run_time=datetime.now(timezone.utc))
+        if desired_active and _backup_reception_ready():
+            _wake_backup_basal_reminder()
 
 
 async def process_update(update_data: dict) -> None:
@@ -2399,6 +2479,7 @@ def get_bot_application() -> Optional[Application]:
 
 
 async def _set_webhook(url: str, secret_token: Optional[str]) -> None:
+    global _webhook_registered
     if not _bot_app:
         raise RuntimeError("Bot application not initialized")
 
@@ -2411,6 +2492,7 @@ async def _set_webhook(url: str, secret_token: Optional[str]) -> None:
         set_webhook_kwargs["secret_token"] = secret_token
 
     await _bot_app.bot.set_webhook(**set_webhook_kwargs)
+    _webhook_registered = True
 
 
 async def refresh_webhook_registration() -> Dict[str, Any]:
@@ -3920,7 +4002,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     
     # Always Answer
     try: await query.answer()
-    except: pass
+    except Exception: pass
 
     # --- Imported MyFitnessPal meal review (calculation starts only on Confirm) ---
     if data.startswith("im_"):
@@ -4194,7 +4276,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 refresh_message_id = query.message.message_id
                 await edit_message_text_safe(query, f"{query.message.text}\n\n🔄 Actualizando desde MyFitnessPal…")
 
-                asyncio.create_task(
+                _create_update_task(
                     _refresh_imported_meal_from_hermes(
                         bot=refresh_bot,
                         chat_id=refresh_chat_id,
