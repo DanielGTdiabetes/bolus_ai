@@ -86,6 +86,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
 import org.bolusai.companion.data.AppSettings
 import org.bolusai.companion.data.AppSettingsRepository
+import org.bolusai.companion.network.normalizeHermesMfpTriggerBaseUrl
 import org.bolusai.companion.accessibility.MyFitnessPalAssistantService
 import org.bolusai.companion.diagnostics.HealthConnectLog
 import org.bolusai.companion.diagnostics.HealthConnectLogRepository
@@ -1071,6 +1072,11 @@ private fun SettingsScreen(
     var hasUsageAccess by remember { mutableStateOf(UsageAccess.hasPermission(context)) }
     var primary by remember(settings.primaryUrl) { mutableStateOf(settings.primaryUrl) }
     var backup by remember(settings.backupUrl) { mutableStateOf(settings.backupUrl) }
+    var hermesTriggerUrl by remember(settings.hermesMfpSyncTriggerUrl) {
+        mutableStateOf(settings.hermesMfpSyncTriggerUrl)
+    }
+    var hermesTriggerError by remember { mutableStateOf<String?>(null) }
+    var hermesTriggerSaved by remember { mutableStateOf(false) }
     var ingestKey by remember(settings.ingestKey) { mutableStateOf(settings.ingestKey) }
     var glucoseIngestKey by remember(settings.glucoseIngestKey) {
         mutableStateOf(settings.glucoseIngestKey)
@@ -1204,6 +1210,38 @@ private fun SettingsScreen(
             }
         }
         item { Text("Modo: MyFitnessPal por Hermes. Health Connect no se usa para MyFitnessPal.") }
+        item {
+            OutlinedTextField(
+                value = hermesTriggerUrl,
+                onValueChange = {
+                    hermesTriggerUrl = it
+                    hermesTriggerError = null
+                    hermesTriggerSaved = false
+                },
+                label = { Text("Servidor Hermes (MyFitnessPal)") },
+                supportingText = {
+                    Text(hermesTriggerError ?: "URL base, sin /mfp/sync-now. Guardarla no inicia una sincronización.")
+                },
+                isError = hermesTriggerError != null,
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+        item {
+            Button(onClick = {
+                val normalized = normalizeHermesMfpTriggerBaseUrl(hermesTriggerUrl)
+                if (normalized == null) {
+                    hermesTriggerError = "Introduce una URL http o https válida, sin claves, parámetros ni /mfp/sync-now."
+                    hermesTriggerSaved = false
+                } else {
+                    repository.updateHermesMfpSyncTriggerUrl(normalized)
+                    hermesTriggerUrl = normalized
+                    hermesTriggerError = null
+                    hermesTriggerSaved = true
+                }
+            }) { Text("Guardar servidor Hermes") }
+            if (hermesTriggerSaved) Text("Dirección de Hermes guardada.")
+        }
         item {
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
