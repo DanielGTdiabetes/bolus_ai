@@ -2,7 +2,7 @@ import asyncio
 import logging
 from typing import Any, Dict, Optional
 
-import google.generativeai as genai
+from app.services.gemini_client import GeminiModel
 
 from app.core import config
 
@@ -20,24 +20,6 @@ SUPPORTED_MIME_TYPES = {
     "audio/mp4",
     "audio/m4a",
 }
-
-_configured = False
-
-
-def _configure_genai() -> bool:
-    """Configure the Gemini SDK safely."""
-    global _configured
-    if _configured:
-        return True
-
-    api_key = config.get_google_api_key()
-    if not api_key:
-        return False
-
-    genai.configure(api_key=api_key)
-    _configured = True
-    return True
-
 
 def _normalize_confidence(candidate: Any) -> Optional[float]:
     """
@@ -62,7 +44,8 @@ async def transcribe_audio(file_bytes: bytes, mime_type: str, model_name: Option
     Returns: {"text": str | None, "confidence": float | None, "error": str | None}
     Error codes: missing_key, unsupported_format, too_large, provider_error
     """
-    if not _configure_genai():
+    api_key = config.get_google_api_key()
+    if not api_key:
         return {"text": None, "confidence": None, "error": "missing_key"}
 
     if mime_type not in SUPPORTED_MIME_TYPES:
@@ -81,7 +64,7 @@ async def transcribe_audio(file_bytes: bytes, mime_type: str, model_name: Option
     )
 
     try:
-        model = genai.GenerativeModel(model_name)
+        model = GeminiModel(model_name, api_key=api_key)
         response = await asyncio.wait_for(
             model.generate_content_async(
                 [prompt, {"mime_type": mime_type, "data": bytes(file_bytes)}]

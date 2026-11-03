@@ -1,36 +1,18 @@
 import logging
 import asyncio
-import google.generativeai as genai
+from app.services.gemini_client import GeminiModel
 from typing import Optional, Literal
 from app.core import config
 from app.services.vision import PROMPT_SYSTEM as FOOD_VISION_PROMPT
 
 logger = logging.getLogger(__name__)
 
-_configured = False
-
-def _configure_genai():
-    global _configured
-    if _configured:
-        return
-    
-    api_key = config.get_google_api_key()
-    if not api_key:
-        logger.error("No Google API Key found. AI features disabled.")
-        return
-        
-    genai.configure(api_key=api_key)
-    _configured = True
-
 async def analyze_image(image_bytes: bytes, mime_type: str = "image/jpeg", api_key: Optional[str] = None) -> str:
     """
     Analyzes an image (food plate) using Gemini Flash (Vision optimized).
     Returns the raw text response (JSON or description).
     """
-    if api_key:
-        genai.configure(api_key=api_key)
-    else:
-        _configure_genai()
+    api_key = api_key or config.get_google_api_key()
     
     # Always use Flash for Vision (Cost/Speed efficient)
     primary_model = config.get_gemini_model()
@@ -40,7 +22,7 @@ async def analyze_image(image_bytes: bytes, mime_type: str = "image/jpeg", api_k
 
     for model_name in models_to_try:
         try:
-            model = genai.GenerativeModel(model_name)
+            model = GeminiModel(model_name, api_key=api_key)
             
             # Standard Prompt for Food Analysis
             prompt = (
@@ -96,13 +78,13 @@ async def chat_completion(
     Chat with the AI.
     Returns: {"text": str, "function_call": dict | None}
     """
-    _configure_genai()
+    api_key = config.get_google_api_key()
     
     # Select Model
     if mode == "pro":
-        model_name = config.get_gemini_pro_model() # gemini-3-pro-preview
+        model_name = config.get_gemini_pro_model()
     else:
-        model_name = config.get_gemini_model() # gemini-3-flash-preview
+        model_name = config.get_gemini_model()
         
     try:
         # System Prompt
@@ -120,7 +102,7 @@ async def chat_completion(
         full_prompt = f"{system_instruction}\n\nUser: {message}"
 
         # Initialize Model with Tools if provided
-        model = genai.GenerativeModel(model_name, tools=tools)
+        model = GeminiModel(model_name, api_key=api_key, tools=tools)
         
         # Add Timeout (20s) - Prevent infinite typing state
         response = await asyncio.wait_for(
