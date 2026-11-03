@@ -1,5 +1,6 @@
 import { getStoredToken, getStoredUser, getSettings, putSettings, importSettings, fetchMe, saveSession, clearSession, refreshSession } from '../../lib/api';
 import { sessionUserFromResponse } from './authRouting.js';
+import { migrateGeminiSettings } from '../../lib/geminiModels.js';
 
 // Keys
 const CALC_PARAMS_KEY = "bolusai_calc_params";
@@ -105,13 +106,20 @@ export const getSnapshot = () => version;
 export function getCalcParams() {
     try {
         const raw = localStorage.getItem(CALC_PARAMS_KEY);
-        if (raw) return JSON.parse(raw);
+        if (raw) {
+            const params = migrateGeminiSettings(JSON.parse(raw));
+            // Update this browser's cache without saving unrelated profile data
+            // to the server or changing the optimistic concurrency version.
+            const migrated = JSON.stringify(params);
+            if (migrated !== raw) localStorage.setItem(CALC_PARAMS_KEY, migrated);
+            return params;
+        }
 
         // Fallback Legacy
         const legacy = localStorage.getItem(LEGACY_CALC_SETTINGS_KEY);
         if (legacy) {
             console.log("Migrating legacy calc settings...");
-            const parsed = JSON.parse(legacy);
+            const parsed = migrateGeminiSettings(JSON.parse(legacy));
             saveCalcParams(parsed); // Migrate
             return parsed;
         }
@@ -122,6 +130,7 @@ export function getCalcParams() {
 }
 
 export function saveCalcParams(params, skipSync = false) {
+    params = migrateGeminiSettings(params);
     localStorage.setItem(CALC_PARAMS_KEY, JSON.stringify(params));
 
     // Emit event for local components ALWAYS (so UI updates on sync)
