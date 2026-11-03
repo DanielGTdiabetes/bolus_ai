@@ -5,8 +5,7 @@ from datetime import datetime
 from typing import Optional, List, Any, Dict
 from dataclasses import dataclass
 
-import google.generativeai as genai
-import google.ai.generativelanguage as glm
+from app.services.gemini_client import GeminiModel, function_response
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 from app.core import config
@@ -88,11 +87,8 @@ def _map_tool_to_gemini(tool_def) -> Dict[str, Any]:
         # Convert Pydantic/JSON schema to Gemini Schema Node
         parameters_node = to_gemini_schema(tool_def.input_schema)
         
-        return genai.types.FunctionDeclaration(
-            name=tool_def.name,
-            description=tool_def.description,
-            parameters=parameters_node
-        )
+        return {"name": tool_def.name, "description": tool_def.description,
+                "parameters": parameters_node}
     except Exception as e:
         logger.warning(f"Failed to map tool {tool_def.name} to Gemini: {e}")
         return None
@@ -112,7 +108,6 @@ async def handle_text(username: str, chat_id: int, user_text: str, context_data:
     if not api_key:
         return BotReply("⚠️ Error: API Key de IA no configurada.")
     
-    genai.configure(api_key=api_key)
     
     # Lazy import to avoid circular dependency
     from app.bot.capabilities.registry import build_registry, Permission
@@ -187,7 +182,7 @@ async def handle_text(username: str, chat_id: int, user_text: str, context_data:
     for model_name in models_to_try:
         try:
              # We use chat session for the loop
-             model = genai.GenerativeModel(model_name, tools=gemini_tools, system_instruction=system_prompt)
+             model = GeminiModel(model_name, api_key=api_key, tools=gemini_tools, system_instruction=system_prompt)
              chat = model.start_chat()
              model_used = model_name
              break
@@ -218,15 +213,15 @@ async def handle_text(username: str, chat_id: int, user_text: str, context_data:
         
         # Round 1-4: Check for function calls (increased from 2 for complex queries)
         for _ in range(4):
-            call = None
+            calls = []
             if response.candidates and response.candidates[0].content.parts:
                 for part in response.candidates[0].content.parts:
                     if part.function_call:
-                        call = part.function_call
-                        break
+                        calls.append(part.function_call)
             
-            if not call:
+            if not calls:
                 break # No tool needed
+            call = calls[0]
             
             # Execute Tool
             tool_name = call.name
@@ -294,17 +289,12 @@ async def handle_text(username: str, chat_id: int, user_text: str, context_data:
                 else:
                     tool_output = str(tool_res)
 
-            # Feed back to model
-            response = await chat.send_message_async(
-                glm.Content(
-                    parts=[glm.Part(
-                        function_response=glm.FunctionResponse(
-                            name=tool_name,
-                            response={"result": tool_output}
-                        )
-                    )]
-                )
-            )
+            # Preserve one execution per round, acknowledging every returned ID.
+            responses = [function_response(call, {"result": tool_output})]
+            responses.extend(function_response(extra, {
+                "error": "Not executed. Request one tool at a time after reviewing the previous result."
+            }) for extra in calls[1:])
+            response = await chat.send_message_async({"role": "user", "parts": responses})
 
         # Final Response extraction
         reply_text = ""
@@ -717,7 +707,6 @@ async def handle_event(username: str, chat_id: int, event_type: str, payload: Di
     if not api_key:
         return None
 
-    genai.configure(api_key=api_key)
     
     # Model Fallback
     primary_model = config.get_gemini_model()
@@ -728,7 +717,7 @@ async def handle_event(username: str, chat_id: int, event_type: str, payload: Di
 
     for model_name in models_to_try:
         try:
-            model = genai.GenerativeModel(model_name)
+            model = GeminiModel(model_name, api_key=api_key)
             response = await model.generate_content_async(full_prompt)
             break
         except Exception as e:

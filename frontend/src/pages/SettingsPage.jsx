@@ -1319,7 +1319,7 @@ function VisionPanel() {
     const [config, setConfig] = useState({
         provider: 'gemini',
         gemini_key: '',
-        gemini_model: 'gemini-2.0-flash-exp',
+        gemini_model: 'gemini-3.5-flash-lite',
         openai_key: '',
         openai_model: 'gpt-4o'
     });
@@ -1405,7 +1405,7 @@ function VisionPanel() {
 
                     <Input
                         label="Modelo (Gemini Model)"
-                        placeholder="gemini-2.0-flash-exp"
+                        placeholder="gemini-3.5-flash-lite"
                         value={config.gemini_model}
                         onChange={e => handleChange('gemini_model', e.target.value)}
                     />

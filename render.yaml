@@ -9,6 +9,12 @@ services:
     startCommand: ./render_start.sh
     healthCheckPath: /healthz
     envVars:
+      - key: GEMINI_MODEL
+        value: gemini-3.5-flash-lite
+      - key: GEMINI_MODEL_PRO
+        value: gemini-3.8-flash
+      - key: GEMINI_TRANSCRIBE_MODEL
+        value: gemini-3.5-flash-lite
       - key: JWT_SECRET
         sync: false
       - key: NIGHTSCOUT_URL

@@ -9,7 +9,9 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, s
 from pydantic import BaseModel
 from app.core.security import get_current_user, CurrentUser
 from app.core.settings import get_settings, Settings
-from app.core.config import get_vision_provider, get_google_api_key, get_gemini_model
+from app.core.config import (get_vision_provider, get_google_api_key, get_gemini_model,
+                             get_gemini_pro_model, get_gemini_transcribe_model)
+from app.core.gemini_models import resolve_gemini_model
 from app.models.settings import UserSettings
 from app.models.vision import (
     VisionEstimateRequest,
@@ -39,6 +41,9 @@ class VisionStatus(BaseModel):
     configured: bool
     has_api_key: bool
     model: str
+    chat_model: Optional[str] = None
+    reasoning_model: Optional[str] = None
+    transcribe_model: Optional[str] = None
 
 
 def _check_rate_limit(username: str):
@@ -71,7 +76,7 @@ def get_vision_status():
     
     if provider == "gemini":
         has_key = bool(get_google_api_key())
-        model = get_gemini_model()
+        model = resolve_gemini_model(get_settings().vision.gemini_model or get_gemini_model())
     elif provider == "openai":
         settings = get_settings()
         has_key = bool(settings.vision.openai_api_key)
@@ -81,7 +86,10 @@ def get_vision_status():
         provider=provider,
         configured=(provider != "none" and has_key),
         has_api_key=has_key,
-        model=model
+        model=model,
+        chat_model=get_gemini_model() if provider == "gemini" else None,
+        reasoning_model=get_gemini_pro_model() if provider == "gemini" else None,
+        transcribe_model=get_gemini_transcribe_model() if provider == "gemini" else None,
     )
 
 

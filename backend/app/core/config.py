@@ -1,6 +1,7 @@
 
 import os
 from typing import Optional, Tuple
+from app.core.gemini_models import DEFAULT_GEMINI_PRO_MODEL, resolve_gemini_model
 
 def get_env(key: str, default: Optional[str] = None) -> Optional[str]:
     return os.environ.get(key, default)
@@ -20,12 +21,11 @@ def get_google_api_key() -> str:
     return get_env("GOOGLE_API_KEY") or get_env("GEMINI_API_KEY") or ""
 
 def get_gemini_model() -> str:
-    # Updated default to 3.0 Flash Preview as per Render config
-    return get_env("GEMINI_MODEL") or "gemini-3-flash-preview"
+    return resolve_gemini_model(get_env("GEMINI_MODEL"))
 
 def get_gemini_pro_model() -> str:
     # Dedicated model for reasoning/complex tasks
-    return get_env("GEMINI_MODEL_PRO") or "gemini-3-pro-preview"
+    return resolve_gemini_model(get_env("GEMINI_MODEL_PRO"), DEFAULT_GEMINI_PRO_MODEL)
 
 # --- Telegram Bot Config ---
 def is_backup_instance() -> bool:
@@ -150,8 +150,8 @@ def get_voice_min_confidence() -> float:
         return 0.6
 
 def get_gemini_transcribe_model() -> str:
-    # Use 2.0 Flash Exp for audio/vision by default if not set
-    return get_env("GEMINI_TRANSCRIBE_MODEL") or "gemini-2.0-flash-exp"
+    # Migrate retired audio models even when retained in environment settings.
+    return resolve_gemini_model(get_env("GEMINI_TRANSCRIBE_MODEL"))
 
 def is_telegram_voice_enabled() -> bool:
     """

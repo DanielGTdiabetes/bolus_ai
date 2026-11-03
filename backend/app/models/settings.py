@@ -3,7 +3,8 @@ from __future__ import annotations
 from typing import Literal, Optional
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+from app.core.gemini_models import DEFAULT_GEMINI_MODEL, resolve_gemini_model
 
 
 class TargetRange(BaseModel):
@@ -201,8 +202,13 @@ class VisionConfig(BaseModel):
     
     # Gemini Config
     gemini_key: Optional[str] = None
-    gemini_model: str = "gemini-3-flash-preview" # Default recommended
-    gemini_transcribe_model: str = "gemini-2.0-flash-exp" # Default STT/Multimodal
+    gemini_model: str = DEFAULT_GEMINI_MODEL
+    gemini_transcribe_model: str = DEFAULT_GEMINI_MODEL
+
+    @field_validator("gemini_model", "gemini_transcribe_model", mode="before")
+    @classmethod
+    def migrate_retired_models(cls, value):
+        return resolve_gemini_model(value)
     
     # OpenAI Config
     openai_key: Optional[str] = None

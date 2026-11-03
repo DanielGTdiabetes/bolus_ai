@@ -54,8 +54,8 @@ Be conservative. If portion is unclear, state assumptions.
 """
 
 
-import google.generativeai as genai
-from google.generativeai.types import HarmCategory, HarmBlockThreshold
+from app.services.gemini_client import GeminiModel
+from app.core.gemini_models import resolve_gemini_model
 
 def _safe_json_load(content: str) -> dict:
     if not content:
@@ -117,7 +117,7 @@ async def estimate_meal_from_image(
     result = _parse_estimation_data(data, hints)
     result.provider_used = provider
     result.model_used = (
-        (settings.vision.gemini_model or get_gemini_model())
+        resolve_gemini_model(settings.vision.gemini_model or get_gemini_model())
         if provider == "gemini"
         else (settings.vision.openai_model or "gpt-4o")
     )
@@ -218,24 +218,21 @@ async def _estimate_with_gemini(image_bytes: bytes, mime_type: str, hints: dict,
     if not api_key:
         raise RuntimeError("Google API Key not configured")
 
-    genai.configure(api_key=api_key)
-    
     generation_config = {
-        "temperature": 0.0,
         "max_output_tokens": 4096,
         "response_mime_type": "application/json",
     }
     
     # Safety settings to avoid blocking food images
     safety_settings = {
-        HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_ONLY_HIGH,
-        HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_ONLY_HIGH,
-        HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_ONLY_HIGH,
-        HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+        "HARM_CATEGORY_HATE_SPEECH": "BLOCK_ONLY_HIGH",
+        "HARM_CATEGORY_HARASSMENT": "BLOCK_ONLY_HIGH",
+        "HARM_CATEGORY_SEXUALLY_EXPLICIT": "BLOCK_ONLY_HIGH",
+        "HARM_CATEGORY_DANGEROUS_CONTENT": "BLOCK_ONLY_HIGH",
     }
 
     model_name = settings.vision.gemini_model or get_gemini_model()
-    model = genai.GenerativeModel(model_name, generation_config=generation_config, safety_settings=safety_settings)
+    model = GeminiModel(model_name, api_key=api_key, generation_config=generation_config, safety_settings=safety_settings)
 
     user_prompt = _build_user_prompt(hints)
     
@@ -248,9 +245,6 @@ async def _estimate_with_gemini(image_bytes: bytes, mime_type: str, hints: dict,
     ]
 
     try:
-        # Generate content is sync in the generic sdk wrapper but we should run it in threadpool if it blocks
-        # However, for simplicity here (and since it's "async def"), we can rely on standard executor if libraries block?
-        # genai.GenerativeModel.generate_content_async exists in newer versions.
         response = await model.generate_content_async(prompt_parts)
     except Exception as exc:
         logger.error("Gemini error", exc_info=True)
