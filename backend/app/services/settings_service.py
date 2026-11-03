@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from app.models.settings import UserSettingsDB, UserSettings
+from app.core.gemini_models import migrate_gemini_settings
 from app.utils.timezone import set_user_timezone
 
 logger = logging.getLogger(__name__)
@@ -31,7 +32,7 @@ async def get_user_settings_service(user_id: str, db: AsyncSession):
 
     _sync_timezone_cache(user_id, row.settings)
     return {
-        "settings": row.settings,
+        "settings": migrate_gemini_settings(row.settings),
         "version": row.version,
         "updated_at": row.updated_at
     }
@@ -39,9 +40,10 @@ async def get_user_settings_service(user_id: str, db: AsyncSession):
 class VersionConflictError(Exception):
     def __init__(self, server_version, server_settings):
         self.server_version = server_version
-        self.server_settings = server_settings
+        self.server_settings = migrate_gemini_settings(server_settings)
 
 async def update_user_settings_service(user_id: str, new_settings: dict, client_version: int, db: AsyncSession):
+    new_settings = migrate_gemini_settings(new_settings)
     # Fetch current
     stmt = select(UserSettingsDB).where(UserSettingsDB.user_id == user_id)
     row = (await db.execute(stmt)).scalars().first()
@@ -85,6 +87,7 @@ async def update_user_settings_service(user_id: str, new_settings: dict, client_
         return {"settings": row.settings, "version": row.version, "updated_at": row.updated_at}
 
 async def import_user_settings_service(user_id: str, settings: dict, db: AsyncSession):
+    settings = migrate_gemini_settings(settings)
     stmt = select(UserSettingsDB).where(UserSettingsDB.user_id == user_id)
     row = (await db.execute(stmt)).scalars().first()
     
@@ -92,7 +95,7 @@ async def import_user_settings_service(user_id: str, settings: dict, db: AsyncSe
         # Already exists. Do NOT overwrite. Return server state.
         return {
             "imported": False,
-            "settings": row.settings,
+            "settings": migrate_gemini_settings(row.settings),
             "version": row.version,
             "updated_at": row.updated_at
         }

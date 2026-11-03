@@ -18,3 +18,14 @@ _REPLACEMENTS = {
 def resolve_gemini_model(value: str | None, default: str = DEFAULT_GEMINI_MODEL) -> str:
     model = (value or default).strip().removeprefix("models/") or default
     return _REPLACEMENTS.get(model, model)
+
+
+def migrate_gemini_settings(settings):
+    """Normalize only model IDs in raw settings, preserving all other fields."""
+    if not isinstance(settings, dict) or not isinstance(settings.get("vision"), dict):
+        return settings
+    vision = dict(settings["vision"])
+    for key in ("gemini_model", "gemini_transcribe_model"):
+        if isinstance(vision.get(key), str):
+            vision[key] = resolve_gemini_model(vision[key])
+    return {**settings, "vision": vision}

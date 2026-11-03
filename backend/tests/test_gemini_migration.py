@@ -1,14 +1,14 @@
 import base64
 import json
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import httpx
 import pytest
 import respx
 
 from app.core import config
-from app.core.gemini_models import resolve_gemini_model
+from app.core.gemini_models import resolve_gemini_model, migrate_gemini_settings
 from app.models.settings import VisionConfig
 from app.services.gemini_client import GeminiModel, function_response
 
@@ -111,3 +111,30 @@ async def test_router_acknowledges_parallel_calls_but_executes_only_one(monkeypa
     assert [r["functionResponse"]["id"] for r in responses] == ["call-0", "call-1"]
     assert "error" in responses[1]["functionResponse"]["response"]
     assert body["contents"][-2]["parts"] == calls
+
+
+@pytest.mark.asyncio
+async def test_raw_settings_api_migrates_models_without_changing_profile_or_version():
+    from app.services import settings_service
+    old = {"lunch": {"icr": 12}, "unknown": {"preserved": True}, "vision": {
+        "gemini_model": "gemini-2.5-flash", "gemini_key": "test-only"}}
+    row = SimpleNamespace(settings=old, version=7, updated_at=None)
+    db = AsyncMock()
+    result = MagicMock()
+    result.scalars.return_value.first.return_value = row
+    db.execute.return_value = result
+    read = await settings_service.get_user_settings_service("tester", db)
+    assert read["settings"]["vision"]["gemini_model"] == "gemini-3.5-flash-lite"
+    assert read["settings"]["lunch"] == old["lunch"]
+    assert read["settings"]["unknown"] == old["unknown"]
+    assert read["settings"]["vision"]["gemini_key"] == "test-only"
+    assert read["version"] == 7
+    assert row.settings["vision"]["gemini_model"] == "gemini-2.5-flash"
+    db.commit.assert_not_awaited()
+    conflict = settings_service.VersionConflictError(7, old)
+    assert conflict.server_settings == read["settings"]
+    imported = await settings_service.import_user_settings_service("tester", old, db)
+    assert not imported["imported"] and imported["settings"] == read["settings"]
+    updated = await settings_service.update_user_settings_service("tester", old, 7, db)
+    assert updated["version"] == 8 and updated["settings"] == read["settings"]
+    assert migrate_gemini_settings(updated["settings"]) == updated["settings"]

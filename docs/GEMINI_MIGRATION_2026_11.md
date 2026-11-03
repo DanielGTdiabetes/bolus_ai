@@ -9,6 +9,10 @@ will redirect to `gemini-3.5-flash-lite` on 1 December 2026. The same page maps
 - Environment values and saved user settings using the listed retired IDs are
   resolved centrally in `app/core/gemini_models.py`; other explicit IDs remain
   configurable. Old database records do not require a destructive migration.
+- The raw settings API also normalizes these two vision model fields, preserving
+  unknown fields, profile ratios and concurrency versions. The browser cache is
+  migrated on read/save so the mobile IA / Visión panel shows the replacement
+  even when it initially loads saved settings offline.
 - Android Companion contains no Gemini endpoint or credential. Its portal uses
   the backend; NAS/Render and the web bundle deliver this change without an APK.
 - The Render Dockerfile now builds the current portal, as the NAS already does,
